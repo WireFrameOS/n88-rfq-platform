@@ -1,14 +1,28 @@
 /**
  * N88 RFQ PDF Extraction Handler
  * Handles PDF upload, extraction preview, and item import
+ * 
+ * This is the SINGLE SOURCE OF TRUTH for PDF extraction functionality.
+ * All PDF extraction logic is contained in this file.
+ * 
+ * Follows N88 Studio OS development standards:
+ * - Namespace: window.N88StudioOS.PDFExtraction
+ * - One source of truth per feature/module
+ * - JS = UI interactions + AJAX requests only
  */
 
 (function() {
     'use strict';
 
-    const N88PDFExtraction = {
+    // Initialize N88StudioOS namespace if it doesn't exist
+    if (typeof window.N88StudioOS === 'undefined') {
+        window.N88StudioOS = {};
+    }
+
+    const self = {
         initialized: false,
         currentExtractionData: null,
+        isShowingPreview: false, // Prevent recursion in showExtractionPreview
 
         /**
          * Initialize PDF extraction handlers
@@ -38,6 +52,7 @@
             this.setupEntryModeToggle();
             
             // PDF upload handlers (will be re-initialized when PDF mode is shown)
+            // Note: setupPDFUploadHandlers removes existing listeners by cloning elements
             this.setupPDFUploadHandlers();
             
             // Extraction confirmation handlers
@@ -46,18 +61,31 @@
 
         /**
          * Setup entry mode toggle (Manual vs PDF)
+         * Prevents duplicate listeners by checking if already initialized
          */
         setupEntryModeToggle: function() {
-            const entryModeRadios = document.querySelectorAll('.entry-mode-radio');
+            // Prevent duplicate listeners by using data attribute
+            const entryModeRadios = document.querySelectorAll('.entry-mode-radio:not([data-n88-listener-attached])');
             
             entryModeRadios.forEach(radio => {
+                // Mark as having listener attached
+                radio.setAttribute('data-n88-listener-attached', 'true');
+                
                 radio.addEventListener('change', (e) => {
-                    this.toggleEntryMode(e.target.value);
+                    try {
+                        this.toggleEntryMode(e.target.value);
+                    } catch (error) {
+                        console.error('Error in entry mode toggle:', error);
+                    }
                 });
                 
                 radio.addEventListener('click', (e) => {
                     setTimeout(() => {
-                        this.toggleEntryMode(e.target.value);
+                        try {
+                            this.toggleEntryMode(e.target.value);
+                        } catch (error) {
+                            console.error('Error in entry mode toggle:', error);
+                        }
                     }, 10);
                 });
             });
@@ -222,18 +250,27 @@
          * Handle PDF file upload
          */
         handlePDFUpload: function(file) {
-            console.log('PDF file selected:', file.name);
-            
-            let projectId = this.getProjectId();
-            
-            // Show progress
-            const progressDiv = document.getElementById('n88-pdf-upload-progress');
-            if (progressDiv) {
-                progressDiv.style.display = 'block';
-                progressDiv.querySelector('.progress-text').textContent = projectId 
-                    ? 'Extracting items from PDF...' 
-                    : 'Creating project and extracting items...';
-            }
+            try {
+                console.log('PDF file selected:', file.name);
+                
+                if (!file) {
+                    console.error('No file provided to handlePDFUpload');
+                    return;
+                }
+                
+                let projectId = this.getProjectId();
+                
+                // Show progress
+                const progressDiv = document.getElementById('n88-pdf-upload-progress');
+                if (progressDiv) {
+                    progressDiv.style.display = 'block';
+                    const progressText = progressDiv.querySelector('.progress-text');
+                    if (progressText) {
+                        progressText.textContent = projectId 
+                            ? 'Extracting items from PDF...' 
+                            : 'Creating project and extracting items...';
+                    }
+                }
             
             // If no project_id, create a draft project first
             if (!projectId) {
@@ -292,6 +329,14 @@
             } else {
                 // Project exists, proceed with extraction
                 this.uploadPDFForExtraction(file, projectId);
+            }
+            } catch (error) {
+                console.error('Error in handlePDFUpload:', error);
+                const progressDiv = document.getElementById('n88-pdf-upload-progress');
+                if (progressDiv) {
+                    progressDiv.style.display = 'none';
+                }
+                alert('An error occurred while uploading the PDF. Please try again.');
             }
         },
 
@@ -535,12 +580,26 @@
          * Upload PDF for extraction (no project_id required)
          */
         uploadPDFForExtraction: function(file) {
-            console.log('Uploading PDF for extraction (no project_id needed)');
-            
-            const progressDiv = document.getElementById('n88-pdf-upload-progress');
-            if (progressDiv) {
-                progressDiv.querySelector('.progress-text').textContent = 'Extracting items from PDF...';
-            }
+            try {
+                console.log('Uploading PDF for extraction (no project_id needed)');
+                
+                if (!file) {
+                    console.error('No file provided to uploadPDFForExtraction');
+                    const progressDiv = document.getElementById('n88-pdf-upload-progress');
+                    if (progressDiv) {
+                        progressDiv.style.display = 'none';
+                    }
+                    alert('No file provided for upload.');
+                    return;
+                }
+                
+                const progressDiv = document.getElementById('n88-pdf-upload-progress');
+                if (progressDiv) {
+                    const progressText = progressDiv.querySelector('.progress-text');
+                    if (progressText) {
+                        progressText.textContent = 'Extracting items from PDF...';
+                    }
+                }
             
             // Create FormData - project_id is optional
             const formData = new FormData();
@@ -570,7 +629,13 @@
                 credentials: 'same-origin',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                // Check if response is OK before parsing JSON
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (progressDiv) {
                     progressDiv.style.display = 'none';
@@ -601,54 +666,92 @@
                 if (progressDiv) {
                     progressDiv.style.display = 'none';
                 }
-                alert('Error uploading PDF. Please try again.');
+                // Provide clear user feedback for network errors
+                const errorMessage = error.message || 'Unknown error occurred';
+                if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+                    alert('Network error: Unable to connect to server. Please check your internet connection and try again.');
+                } else if (errorMessage.includes('HTTP error')) {
+                    alert('Server error: ' + errorMessage + '. Please try again or contact support if the problem persists.');
+                } else {
+                    alert('Error uploading PDF: ' + errorMessage + '. Please try again.');
+                }
             });
+            } catch (error) {
+                console.error('Error in uploadPDFForExtraction:', error);
+                const progressDiv = document.getElementById('n88-pdf-upload-progress');
+                if (progressDiv) {
+                    progressDiv.style.display = 'none';
+                }
+                alert('An error occurred while uploading the PDF. Please try again.');
+            }
         },
 
         /**
          * Show extraction preview with detected items
+         * SINGLE SOURCE OF TRUTH - Only implementation exists in this file
          */
         showExtractionPreview: function(extractionData) {
+            // Prevent recursion - if already showing preview, ignore duplicate calls
+            if (this.isShowingPreview) {
+                console.warn('N88StudioOS.PDFExtraction: showExtractionPreview already in progress, ignoring duplicate call');
+                return;
+            }
+            
             // UNIQUE IDENTIFIER TO VERIFY THIS FUNCTION IS RUNNING
             console.log('🔵🔵🔵 showExtractionPreview CALLED - VERSION 0.1.1 🔵🔵🔵');
-            console.log('Function: N88PDFExtraction.showExtractionPreview');
+            console.log('Function: N88StudioOS.PDFExtraction.showExtractionPreview');
             console.log('File: n88-rfq-pdf-extraction.js');
             console.log('Timestamp:', new Date().toISOString());
             console.log('Received data:', extractionData);
             
-            if (!extractionData || !extractionData.items) {
-                console.error('ERROR: Invalid extraction data!', extractionData);
-                return;
-            }
+            // Set flag to prevent recursion (before validation to catch all cases)
+            this.isShowingPreview = true;
             
-            console.log('Items count:', extractionData.items.length);
-            if (extractionData.items.length > 0) {
-                console.log('First item from JSON:', JSON.stringify(extractionData.items[0], null, 2));
-            }
+            // Use try-finally to ensure flag is reset even on errors
+            try {
+                if (!extractionData || !extractionData.items) {
+                    console.error('ERROR: Invalid extraction data!', extractionData);
+                    return;
+                }
+                
+                console.log('Items count:', extractionData.items.length);
+                if (extractionData.items.length > 0) {
+                    console.log('First item from JSON:', JSON.stringify(extractionData.items[0], null, 2));
+                }
+                
+                const previewDiv = document.getElementById('extraction-preview');
+                const itemsList = document.getElementById('extraction-items-list');
+                
+                if (!previewDiv || !itemsList) {
+                    console.error('Extraction preview elements not found');
+                    return;
+                }
             
-            const previewDiv = document.getElementById('extraction-preview');
-            const itemsList = document.getElementById('extraction-items-list');
-            const countSpan = document.querySelector('#items-detected-count .count');
-            
-            if (!previewDiv || !itemsList) {
-                console.error('Extraction preview elements not found');
-                return;
-            }
-            
-            console.log('Preview elements found, clearing and populating table...');
-            
-            // Update count in header
-            const countElement = document.getElementById('items-detected-count');
-            if (countElement) {
-                const itemCount = extractionData.items ? extractionData.items.length : (extractionData.items_detected || 0);
-                countElement.textContent = itemCount;
-            }
-            
-            // Clear existing items
-            itemsList.innerHTML = '';
-            
-            // Render items - USE EXACT JSON STRUCTURE
-            if (extractionData.items && extractionData.items.length > 0) {
+                console.log('Preview elements found, clearing and populating table...');
+                
+                // Update count in header - preserve header text, only update count
+                const itemsHeader = document.getElementById('items-detected-count');
+                if (itemsHeader) {
+                    // Use items.count when available, fallback = items.length
+                    // This prevents overwriting extra header text
+                    const count = extractionData.count ?? extractionData.items_detected ?? (extractionData.items ? extractionData.items.length : 0);
+                    
+                    // Try to find .count span inside the element first (preserves surrounding text)
+                    const countSpan = itemsHeader.querySelector('.count');
+                    if (countSpan) {
+                        // Update only the count span, preserve surrounding text like "We found X items in your PDF"
+                        countSpan.textContent = count;
+                    } else {
+                        // If no .count span, update the entire element with formatted text
+                        itemsHeader.textContent = count === 1 ? "1 item detected" : `${count} items detected`;
+                    }
+                }
+                
+                // Clear existing items
+                itemsList.innerHTML = '';
+                
+                // Render items - USE EXACT JSON STRUCTURE
+                if (extractionData.items && extractionData.items.length > 0) {
                 console.log('Processing', extractionData.items.length, 'items from JSON response');
                 
                 extractionData.items.forEach((item, index) => {
@@ -660,73 +763,58 @@
                     const statusText = status === 'extracted' ? '✔ Extracted' : '■ Needs Review';
                     
                     // USE EXACT FIELD NAMES FROM JSON: item.length, item.depth, item.height
-                    // DO NOT use item.dimensions or formatDimensions - use direct values
-                    let length = item.length;  // Direct from JSON
-                    let depth = item.depth;    // Direct from JSON
-                    let height = item.height;  // Direct from JSON
+                    let rawLength = item.length;
+                    let rawDepth = item.depth;
+                    let rawHeight = item.height;
                     
-                    console.log('Item', index, 'dimensions from JSON:');
-                    console.log('  length:', length, '(type:', typeof length + ')');
-                    console.log('  depth:', depth, '(type:', typeof depth + ')');
-                    console.log('  height:', height, '(type:', typeof height + ')');
+                    console.log('Item', index, 'dimensions from JSON (raw):', {
+                        length: rawLength,
+                        depth: rawDepth,
+                        height: rawHeight
+                    });
                     
-                    // Convert to numbers if needed
-                    if (typeof length === 'string') {
-                        length = parseFloat(length) || 0;
-                    }
-                    if (typeof depth === 'string') {
-                        depth = parseFloat(depth) || 0;
-                    }
-                    if (typeof height === 'string') {
-                        height = parseFloat(height) || 0;
-                    }
-                    
-                    length = typeof length === 'number' ? length : 0;
-                    depth = typeof depth === 'number' ? depth : 0;
-                    height = typeof height === 'number' ? height : 0;
-                    
-                    // If any dimension contains a combined format string like "24.5" × 26" × 42"", extract individual numbers
-                    if (typeof length === 'string' && (length.includes('×') || length.includes('x'))) {
-                        console.log('N88 RFQ: Found combined format in length:', length);
-                        const dimParts = length.split(/["×x]/).map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
-                        if (dimParts.length >= 3) {
-                            length = dimParts[0];
-                            depth = dimParts[1];
-                            height = dimParts[2];
-                            console.log('N88 RFQ: Extracted from combined format - length:', length, 'depth:', depth, 'height:', height);
-                        } else if (dimParts.length > 0) {
-                            length = dimParts[0];
+                    /**
+                     * Helper to coerce a value into a numeric dimension (or 0)
+                     */
+                    const toNum = (val) => {
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'string') {
+                            const num = parseFloat(val.replace(/[^0-9.\-]/g, ''));
+                            return isNaN(num) ? 0 : num;
                         }
+                        return 0;
+                    };
+                    
+                    // 1) If ANY of the raw values look like a combined string with × or x,
+                    // try to split into three numbers.
+                    let length, depth, height;
+                    
+                    const combinedSource =
+                        (typeof rawLength === 'string' && (rawLength.includes('×') || rawLength.toLowerCase().includes('x'))) ? rawLength :
+                        (typeof rawDepth === 'string' && (rawDepth.includes('×') || rawDepth.toLowerCase().includes('x'))) ? rawDepth :
+                        (typeof rawHeight === 'string' && (rawHeight.includes('×') || rawHeight.toLowerCase().includes('x'))) ? rawHeight :
+                        null;
+                    
+                    if (combinedSource) {
+                        console.log('N88 RFQ: Found combined dimension string:', combinedSource);
+                        const dimParts = combinedSource
+                            .split(/["×x]/i)
+                            .map(p => parseFloat(p.trim()))
+                            .filter(n => !isNaN(n));
+                        
+                        length = dimParts[0] ?? 0;
+                        depth = dimParts[1] ?? 0;
+                        height = dimParts[2] ?? 0;
+                        
+                        console.log('N88 RFQ: Extracted from combined format:', { length, depth, height });
                     } else {
-                        // Convert to numbers if they're strings
-                        length = typeof length === 'string' ? parseFloat(length) || 0 : (typeof length === 'number' ? length : 0);
+                        // 2) Normal case: use individual fields
+                        length = toNum(rawLength);
+                        depth = toNum(rawDepth);
+                        height = toNum(rawHeight);
                     }
                     
-                    if (typeof depth === 'string' && (depth.includes('×') || depth.includes('x'))) {
-                        console.log('N88 RFQ: Found combined format in depth:', depth);
-                        const dimParts = depth.split(/["×x]/).map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
-                        if (dimParts.length >= 2) {
-                            depth = dimParts[0];
-                            height = dimParts[1];
-                        } else if (dimParts.length > 0) {
-                            depth = dimParts[0];
-                        }
-                    } else {
-                        depth = typeof depth === 'string' ? parseFloat(depth) || 0 : (typeof depth === 'number' ? depth : 0);
-                    }
-                    
-                    if (typeof height === 'string' && (height.includes('×') || height.includes('x'))) {
-                        console.log('N88 RFQ: Found combined format in height:', height);
-                        const dimParts = height.split(/["×x]/).map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
-                        if (dimParts.length > 0) {
-                            height = dimParts[0];
-                        }
-                    } else {
-                        height = typeof height === 'string' ? parseFloat(height) || 0 : (typeof height === 'number' ? height : 0);
-                    }
-                    
-                    // Debug: Log final dimension values
-                    console.log('N88 RFQ: Item', index, 'final dimensions - length:', length, 'depth:', depth, 'height:', height);
+                    console.log('N88 RFQ: Item', index, 'final numeric dimensions:', { length, depth, height });
                     
                     // USE EXACT FIELD NAMES FROM JSON RESPONSE
                     const primaryMaterial = item.primary_material || 'N/A';
@@ -740,28 +828,20 @@
                     console.log('  finishes:', finish);
                     console.log('  construction_notes:', constructionNotes);
                     
-                    // CRITICAL: Use EXACT values from JSON - NO FORMATTING, NO COMBINING
-                    // Each dimension must be displayed separately as a number only
-                    let displayLength = (length && length > 0) ? String(length) : 'N/A';
-                    let displayDepth = (depth && depth > 0) ? String(depth) : 'N/A';
-                    let displayHeight = (height && height > 0) ? String(height) : 'N/A';
+                    // CRITICAL: build display strings as number-only
+                    let displayLength = length > 0 ? String(length) : 'N/A';
+                    let displayDepth = depth > 0 ? String(depth) : 'N/A';
+                    let displayHeight = height > 0 ? String(height) : 'N/A';
                     
-                    // SAFETY CHECK: If somehow a combined format got in, extract just the number
-                    if (displayLength.includes('×') || displayLength.includes('x')) {
-                        console.error('ERROR: displayLength contains ×! Extracting number only.');
-                        const numMatch = displayLength.match(/(\d+\.?\d*)/);
-                        if (numMatch) displayLength = numMatch[1];
-                    }
-                    if (displayDepth.includes('×') || displayDepth.includes('x')) {
-                        console.error('ERROR: displayDepth contains ×! Extracting number only.');
-                        const numMatch = displayDepth.match(/(\d+\.?\d*)/);
-                        if (numMatch) displayDepth = numMatch[1];
-                    }
-                    if (displayHeight.includes('×') || displayHeight.includes('x')) {
-                        console.error('ERROR: displayHeight contains ×! Extracting number only.');
-                        const numMatch = displayHeight.match(/(\d+\.?\d*)/);
-                        if (numMatch) displayHeight = numMatch[1];
-                    }
+                    // FINAL SAFETY: strip any weird characters if they slipped in
+                    const stripToNumber = (val) => {
+                        const match = String(val).match(/(\d+\.?\d*)/);
+                        return match ? match[1] : 'N/A';
+                    };
+                    
+                    displayLength = stripToNumber(displayLength);
+                    displayDepth = stripToNumber(displayDepth);
+                    displayHeight = stripToNumber(displayHeight);
                     
                     console.log('=== FINAL VALUES FOR TABLE (Item', index, ') ===');
                     console.log('Length:', displayLength, '- MUST BE NUMBER ONLY (e.g., "24.5")');
@@ -813,8 +893,12 @@
                 });
             }
             
-            // Show preview
-            previewDiv.style.display = 'block';
+                // Show preview
+                previewDiv.style.display = 'block';
+            } finally {
+                // Always reset recursion flag, even if there was an error
+                this.isShowingPreview = false;
+            }
         },
 
         /**
@@ -845,39 +929,133 @@
 
         /**
          * Setup extraction confirmation handlers
+         * Prevents duplicate listeners by checking data attribute
          */
         setupExtractionHandlers: function() {
             // Confirm extraction button
             const confirmBtn = document.getElementById('confirm-extraction-btn');
-            if (confirmBtn) {
+            if (confirmBtn && !confirmBtn.hasAttribute('data-n88-listener-attached')) {
+                confirmBtn.setAttribute('data-n88-listener-attached', 'true');
                 confirmBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.confirmExtraction();
+                    try {
+                        e.preventDefault();
+                        this.confirmExtraction();
+                    } catch (error) {
+                        console.error('Error in confirm extraction:', error);
+                        alert('An error occurred while confirming extraction. Please try again.');
+                    }
                 });
             }
             
             // Cancel extraction button
             const cancelBtn = document.getElementById('cancel-extraction-btn');
-            if (cancelBtn) {
+            if (cancelBtn && !cancelBtn.hasAttribute('data-n88-listener-attached')) {
+                cancelBtn.setAttribute('data-n88-listener-attached', 'true');
                 cancelBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.cancelExtraction();
+                    try {
+                        e.preventDefault();
+                        this.cancelExtraction();
+                    } catch (error) {
+                        console.error('Error in cancel extraction:', error);
+                    }
                 });
             }
         },
 
         /**
          * Confirm extraction and import items directly into form
+         * 
+         * NOTE: If this function needs to make an AJAX call in the future,
+         * it should include project_id in the request for safety and scalability.
+         * Example: project_id: this.getProjectId()
          */
         confirmExtraction: function() {
-            console.log('=== confirmExtraction CALLED ===');
+            try {
+                console.log('=== confirmExtraction CALLED ===');
+                
+                if (!this.currentExtractionData || !this.currentExtractionData.items || this.currentExtractionData.items.length === 0) {
+                    alert('No items to import.');
+                    return;
+                }
+                
+                // Validate all required fields for each item before importing
+            const requiredFields = ['length', 'depth', 'height', 'quantity', 'primary_material', 'finishes', 'construction_notes'];
+            const missingFields = [];
             
-            if (!this.currentExtractionData || !this.currentExtractionData.items || this.currentExtractionData.items.length === 0) {
-                alert('No items to import.');
+            this.currentExtractionData.items.forEach((item, index) => {
+                const itemNumber = index + 1;
+                const itemMissing = [];
+                
+                // Check dimensions (must be positive numbers)
+                const length = item.length;
+                const depth = item.depth;
+                const height = item.height;
+                
+                const lengthNum = typeof length === 'number' ? length : parseFloat(length);
+                const depthNum = typeof depth === 'number' ? depth : parseFloat(depth);
+                const heightNum = typeof height === 'number' ? height : parseFloat(height);
+                
+                if (!length || isNaN(lengthNum) || lengthNum <= 0) {
+                    itemMissing.push('Length');
+                }
+                if (!depth || isNaN(depthNum) || depthNum <= 0) {
+                    itemMissing.push('Depth');
+                }
+                if (!height || isNaN(heightNum) || heightNum <= 0) {
+                    itemMissing.push('Height');
+                }
+                
+                // Check quantity (must be a positive number)
+                const quantity = item.quantity;
+                const quantityNum = typeof quantity === 'number' ? quantity : parseFloat(quantity);
+                if (!quantity || quantity === 0 || isNaN(quantityNum) || quantityNum <= 0) {
+                    itemMissing.push('Quantity');
+                }
+                
+                // Check primary_material
+                const primaryMaterial = item.primary_material;
+                if (!primaryMaterial || (typeof primaryMaterial === 'string' && primaryMaterial.trim() === '')) {
+                    itemMissing.push('Primary Material');
+                }
+                
+                // Check finishes
+                const finishes = item.finishes;
+                if (!finishes || (typeof finishes === 'string' && finishes.trim() === '')) {
+                    itemMissing.push('Finishes');
+                }
+                
+                // Check construction_notes
+                const constructionNotes = item.construction_notes;
+                if (!constructionNotes || (typeof constructionNotes === 'string' && constructionNotes.trim() === '')) {
+                    itemMissing.push('Construction Notes');
+                }
+                
+                if (itemMissing.length > 0) {
+                    missingFields.push({
+                        item: itemNumber,
+                        fields: itemMissing
+                    });
+                }
+            });
+            
+            // If any items are missing required fields, block import
+            if (missingFields.length > 0) {
+                const missingItemsList = missingFields.map(m => 
+                    `Item ${m.item}: ${m.fields.join(', ')}`
+                ).join('\n');
+                
+                console.error('Validation failed. Missing fields:', missingFields);
+                alert('Each item must include Length, Depth, Height, Quantity, Primary Material, Finishes, and Construction Notes before importing. Please review the extracted data.\n\nMissing fields:\n' + missingItemsList);
                 return;
             }
             
-            console.log('Importing', this.currentExtractionData.items.length, 'items into form');
+            // Get project_id for potential future use or logging
+            const projectId = this.getProjectId();
+            if (projectId) {
+                console.log('Project ID available:', projectId);
+            }
+            
+            console.log('All items validated. Importing', this.currentExtractionData.items.length, 'items into form');
             
             // Get the pieces container (manual mode items section)
             const piecesContainer = document.getElementById('pieces-container');
@@ -932,16 +1110,76 @@
                 const newItem = document.createElement('div');
                 newItem.className = 'piece-item n88-item-extracted';
                 
-                // Get values from extracted item
-                const length = item.length || '';
-                const depth = item.depth || '';
-                const height = item.height || '';
+                // Dimensions must come from JSON fields: item.length, item.depth, item.height
+                // as separate numeric values only (e.g., 24.5, 26, 42)
+                let rawLength = item.length;
+                let rawDepth = item.depth;
+                let rawHeight = item.height;
+                
+                /**
+                 * Helper to coerce a value into a numeric dimension (or 0)
+                 */
+                const toNum = (val) => {
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'string') {
+                        const num = parseFloat(val.replace(/[^0-9.\-]/g, ''));
+                        return isNaN(num) ? 0 : num;
+                    }
+                    return 0;
+                };
+                
+                // 1) If ANY of the raw values look like a combined string with × or x,
+                // try to split into three numbers.
+                let length, depth, height;
+                
+                const combinedSource =
+                    (typeof rawLength === 'string' && (rawLength.includes('×') || rawLength.toLowerCase().includes('x'))) ? rawLength :
+                    (typeof rawDepth === 'string' && (rawDepth.includes('×') || rawDepth.toLowerCase().includes('x'))) ? rawDepth :
+                    (typeof rawHeight === 'string' && (rawHeight.includes('×') || rawHeight.toLowerCase().includes('x'))) ? rawHeight :
+                    null;
+                
+                if (combinedSource) {
+                    console.log('N88 RFQ: Found combined dimension string in import:', combinedSource);
+                    const dimParts = combinedSource
+                        .split(/["×x]/i)
+                        .map(p => parseFloat(p.trim()))
+                        .filter(n => !isNaN(n));
+                    
+                    length = dimParts[0] ?? 0;
+                    depth = dimParts[1] ?? 0;
+                    height = dimParts[2] ?? 0;
+                    
+                    console.log('N88 RFQ: Extracted from combined format for import:', { length, depth, height });
+                } else {
+                    // 2) Normal case: use individual fields from JSON
+                    length = toNum(rawLength);
+                    depth = toNum(rawDepth);
+                    height = toNum(rawHeight);
+                }
+                
+                // Ensure dimensions are numeric values for form fields
+                length = typeof length === 'number' ? length : 0;
+                depth = typeof depth === 'number' ? depth : 0;
+                height = typeof height === 'number' ? height : 0;
                 const quantity = item.quantity || 1;
                 const primaryMaterial = item.primary_material || '';
                 const finishes = item.finishes || '';
                 const constructionNotes = item.construction_notes || '';
                 const notes = item.notes || '';
-                const cushions = item.cushions || '';
+                // Handle cushions field - must be numeric or empty for number input
+                // Sanitize to numeric OR empty to prevent browser validation errors
+                let cushions = item.cushions;
+                if (cushions === null || cushions === undefined || cushions === '' || cushions === 'N/A' || cushions === 'n/a') {
+                    cushions = '';
+                } else {
+                    const numValue = Number(cushions);
+                    if (isNaN(numValue)) {
+                        cushions = '';
+                    } else {
+                        cushions = numValue;
+                    }
+                }
+                
                 const fabricCategory = item.fabric_category || '';
                 const frameMaterial = item.frame_material || '';
                 const finish = item.finish || '';
@@ -1047,7 +1285,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Cushions</label>
-                                <input type="number" name="pieces[${itemCount}][cushions]" value="${this.escapeHtml(cushions)}" ${lockAttr} class="${lockClass} n88-item-field">
+                                <input type="number" name="pieces[${itemCount}][cushions]" value="${cushions}" ${lockAttr} class="${lockClass} n88-item-field">
                             </div>
                             <div class="form-group">
                                 <label>Fabric Category</label>
@@ -1114,16 +1352,20 @@
             // Clear extraction data
             this.currentExtractionData = null;
             
-            // Show user-friendly message
-            const successNotice = document.createElement('div');
-            successNotice.className = 'n88-extraction-success';
-            successNotice.textContent = `${itemsCount} extracted item(s) imported. Review below, then finish the form.`;
-            const pdfSection = document.getElementById('pdf-upload-mode') || document.querySelector('.n88-pdf-upload-section');
-            if (pdfSection) {
-                pdfSection.parentNode.insertBefore(successNotice, pdfSection);
-                setTimeout(() => {
-                    successNotice.remove();
-                }, 5000);
+                // Show user-friendly message
+                const successNotice = document.createElement('div');
+                successNotice.className = 'n88-extraction-success';
+                successNotice.textContent = `${itemsCount} extracted item(s) imported. Review below, then finish the form.`;
+                const pdfSection = document.getElementById('pdf-upload-mode') || document.querySelector('.n88-pdf-upload-section');
+                if (pdfSection) {
+                    pdfSection.parentNode.insertBefore(successNotice, pdfSection);
+                    setTimeout(() => {
+                        successNotice.remove();
+                    }, 5000);
+                }
+            } catch (error) {
+                console.error('Error in confirmExtraction:', error);
+                alert('An error occurred while importing items. Please try again.');
             }
         },
 
@@ -1147,10 +1389,19 @@
          * Get project ID from form or URL
          */
         getProjectId: function() {
-            // Try to get from hidden input (prefer ID selector)
-            const hiddenInput = document.getElementById('n88-project-id-input') || document.querySelector('input[name="project_id"]');
-            if (hiddenInput && hiddenInput.value) {
-                return hiddenInput.value;
+            // Try multiple selectors for project_id input
+            const selectors = [
+                '#n88-project-id-input',
+                '#n88_project_id',
+                'input[name="project_id"]',
+                'input[name="n88_project_id"]'
+            ];
+            
+            for (const selector of selectors) {
+                const input = document.querySelector(selector);
+                if (input && input.value) {
+                    return input.value;
+                }
             }
             
             // Try to get from URL
@@ -1169,28 +1420,46 @@
         }
     };
 
-    // Initialize when DOM is ready
+    // Attach to N88StudioOS namespace
+    window.N88StudioOS.PDFExtraction = self;
+})();
+
+// Initialize with jQuery when DOM is ready (jQuery is typically available in WordPress)
+if (typeof jQuery !== 'undefined') {
+    jQuery(function($) {
+        if (window.N88StudioOS && window.N88StudioOS.PDFExtraction && typeof window.N88StudioOS.PDFExtraction.init === 'function') {
+            window.N88StudioOS.PDFExtraction.init();
+        }
+    });
+} else {
+    // Fallback if jQuery is not available
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            N88PDFExtraction.init();
+            if (window.N88StudioOS && window.N88StudioOS.PDFExtraction && typeof window.N88StudioOS.PDFExtraction.init === 'function') {
+                window.N88StudioOS.PDFExtraction.init();
+            }
         });
     } else {
-        N88PDFExtraction.init();
+        if (window.N88StudioOS && window.N88StudioOS.PDFExtraction && typeof window.N88StudioOS.PDFExtraction.init === 'function') {
+            window.N88StudioOS.PDFExtraction.init();
+        }
     }
     
     // Also try on window load as fallback
     window.addEventListener('load', () => {
-        if (!N88PDFExtraction.initialized) {
-            N88PDFExtraction.init();
+        if (window.N88StudioOS && window.N88StudioOS.PDFExtraction && !window.N88StudioOS.PDFExtraction.initialized) {
+            if (typeof window.N88StudioOS.PDFExtraction.init === 'function') {
+                window.N88StudioOS.PDFExtraction.init();
+            }
         }
     });
+}
 
-    // Make globally accessible
-    window.N88PDFExtraction = N88PDFExtraction;
-    window.n88ToggleEntryMode = function(mode) {
-        N88PDFExtraction.toggleEntryMode(mode);
-    };
-
-})();
+// Global helper function for entry mode toggle (preserved for backward compatibility)
+window.n88ToggleEntryMode = function(mode) {
+    if (window.N88StudioOS && window.N88StudioOS.PDFExtraction && typeof window.N88StudioOS.PDFExtraction.toggleEntryMode === 'function') {
+        window.N88StudioOS.PDFExtraction.toggleEntryMode(mode);
+    }
+};
 
 

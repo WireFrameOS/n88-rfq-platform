@@ -676,7 +676,7 @@ class N88_RFQ_Admin {
                         ?>
                         <p><a href="<?php echo esc_url( $quote_formatted['quote_file_url'] ); ?>" class="button button-primary">Download Quote</a></p>
 
-                        <?php
+                            <?php
                         $has_pricing = (
                             ! empty( $quote_formatted['unit_price'] ) ||
                             ! empty( $quote_formatted['total_price'] ) ||
@@ -923,7 +923,7 @@ class N88_RFQ_Admin {
                                                     array( '%d' )
                                                 );
                                             }
-                                            if ( N88_RFQ_Quotes::send_quote( $latest_quote->id, get_current_user_id() ) ) {
+                                if ( N88_RFQ_Quotes::send_quote( $latest_quote->id, get_current_user_id() ) ) {
                                                 echo '<div class="notice notice-success"><p>Quote updated and sent to client successfully! Client has been notified.</p></div>';
                                                 // Refresh quote data after sending
                                                 $latest_quote = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}project_quotes WHERE id = %d", $latest_quote->id ) );
@@ -1121,9 +1121,9 @@ class N88_RFQ_Admin {
                                             </table>
                                         </div>
                                         <p class="description" style="margin-top: 10px;">💡 <strong>Tip:</strong> Unit Price × Quantity = Total Price (auto-calculated)</p>
-                                    </div>
-                                <?php endif; ?>
-                                
+                    </div>
+                <?php endif; ?>
+
                                 <!-- Project Items Table (Editable) - Inside form when quote is sent -->
                                 <?php
                                 // Get project items for editing

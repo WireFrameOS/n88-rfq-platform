@@ -135,9 +135,9 @@ class N88_RFQ_Frontend {
                 wp_enqueue_script( 
                     'n88-rfq-pdf-extraction', 
                     $pdf_js_url, 
-                    array( 'n88-rfq-modal' ), // Depend on main modal script for n88 object
-                    N88_RFQ_VERSION . '.' . time(), // Add timestamp to force cache refresh
-                    true 
+                    array( 'jquery', 'n88-rfq-modal' ), // Depend on jQuery and main modal script for n88 object
+                    N88_RFQ_VERSION, 
+                    true // Load in footer
                 );
             } else {
                 // Debug: Log if file doesn't exist
@@ -4253,7 +4253,7 @@ class N88_RFQ_Frontend {
                                     ?>
                                     <tr class="n88-item-row" data-item-index="<?php echo esc_attr( $index ); ?>" data-project-id="<?php echo esc_attr( $project_id ); ?>" data-edit-mode="false">
                                         <td><?php echo (int) $index + 1; ?></td>
-                                            <td>
+                                        <td>
                                                 <span class="n88-item-display n88-item-primary_material"><?php echo esc_html( $primary_material ); ?></span>
                                                 <input type="text" class="n88-editable-field" data-field="primary_material" value="<?php echo esc_attr( $primary_material ); ?>" style="display: none; width: 100%; padding: 4px; border: 1px solid #ddd; border-radius: 3px;">
                                             </td>
@@ -4285,7 +4285,7 @@ class N88_RFQ_Frontend {
                                                 <?php if ( ! empty( $item_files ) ) : ?>
                                                     <div class="n88-item-files-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
                                                         <?php foreach ( $item_files as $file ) : ?>
-                                                            <?php
+                                            <?php 
                                                                 $file_ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
                                                                 $is_image = in_array( $file_ext, array( 'jpg', 'jpeg', 'png', 'gif' ) );
                                                                 $is_pdf = ( $file_ext === 'pdf' );
@@ -4329,7 +4329,7 @@ class N88_RFQ_Frontend {
                                                 <?php else : ?>
                                                     <span style="color: #999;">—</span>
                                                 <?php endif; ?>
-                                            </td>
+                                        </td>
                                         <td>
                                             <span class="n88-item-display n88-item-notes"><?php echo esc_html( $item['notes'] ?? '' ); ?></span>
                                             <textarea class="n88-editable-field" data-field="notes" rows="2" style="display: none; width: 100%; padding: 4px; border: 1px solid #ddd; border-radius: 3px; resize: vertical;"><?php echo esc_textarea( $item['notes'] ?? '' ); ?></textarea>
@@ -5599,7 +5599,7 @@ class N88_RFQ_Frontend {
             if ( ! $user_id ) {
                 error_log( 'N88 RFQ: ajax_add_comment - Invalid user_id: ' . $user_id );
                 wp_send_json_error( 'Invalid user' );
-            }
+        }
 
             error_log( 'N88 RFQ: ajax_add_comment - Attempting to add comment. Project: ' . $project_id . ', User: ' . $user_id . ', Item: ' . ( $item_id ? $item_id : 'null' ) . ', Video: ' . ( $video_id ? $video_id : 'null' ) );
 
@@ -6993,6 +6993,9 @@ class N88_RFQ_Frontend {
             $user_id = get_current_user_id();
             $form_type = sanitize_text_field( $_POST['form_type'] ?? 'rfq' );
             
+            // Get project_id if provided (for updating existing project)
+        $project_id = isset( $_POST['project_id'] ) ? (int) $_POST['project_id'] : 0;
+            
             $project_name = sanitize_text_field( $_POST['project_name'] ?? '' );
             $project_type = sanitize_text_field( $_POST['project_type'] ?? '' );
             $timeline = sanitize_text_field( $_POST['timeline'] ?? '' );
@@ -7002,7 +7005,7 @@ class N88_RFQ_Frontend {
             // Validate required fields
             if ( empty( $project_name ) || empty( $project_type ) || empty( $timeline ) || empty( $budget_range ) || empty( $email ) ) {
                 wp_send_json_error( array( 'message' => 'Please fill in all required fields: Project Name, Project Type, Timeline, Budget Range, and Email' ) );
-            }
+        }
 
             if ( ! is_email( $email ) ) {
                 wp_send_json_error( array( 'message' => 'Invalid email address' ) );
@@ -7033,14 +7036,26 @@ class N88_RFQ_Frontend {
                 'quote_type' => $quote_type,
             );
 
-            // Create project with extracted items
+            // Create or update project with extracted items
             $projects_class = new N88_RFQ_Projects();
             $item_count = count( $items );
-            $project_id = $projects_class->save_project( $user_id, $project_data, N88_RFQ_STATUS_DRAFT, 0, $item_count );
-
-            if ( ! $project_id || $project_id === 0 ) {
-                error_log( 'N88 RFQ: Failed to create project during extraction confirmation' );
-                wp_send_json_error( array( 'message' => 'Failed to create project. Please try again.' ) );
+            
+            // If project_id provided, update existing project; otherwise create new
+            if ( $project_id > 0 ) {
+                // Update existing project
+                $updated = $projects_class->save_project( $user_id, $project_data, N88_RFQ_STATUS_DRAFT, $project_id, $item_count );
+                if ( ! $updated ) {
+                    error_log( 'N88 RFQ: Failed to update project during extraction confirmation' );
+                    wp_send_json_error( array( 'message' => 'Failed to update project. Please try again.' ) );
+                }
+            } else {
+                // Create new project
+                $project_id = $projects_class->save_project( $user_id, $project_data, N88_RFQ_STATUS_DRAFT, 0, $item_count );
+                
+                if ( ! $project_id || $project_id === 0 ) {
+                    error_log( 'N88 RFQ: Failed to create project during extraction confirmation' );
+                    wp_send_json_error( array( 'message' => 'Failed to create project. Please try again.' ) );
+                }
             }
 
             // Save metadata
@@ -7057,7 +7072,7 @@ class N88_RFQ_Frontend {
             }
             if ( ! empty( $_POST['phone'] ) ) {
                 $meta_fields['n88_phone'] = sanitize_text_field( $_POST['phone'] );
-            }
+        }
             if ( ! empty( $_POST['location'] ) ) {
                 $meta_fields['n88_location'] = sanitize_text_field( $_POST['location'] );
             }
@@ -7145,7 +7160,7 @@ class N88_RFQ_Frontend {
             // Mark project as extraction mode if needed
             if ( class_exists( 'N88_RFQ_PDF_Extractor' ) ) {
                 N88_RFQ_PDF_Extractor::set_extraction_mode( $project_id, true );
-            }
+        }
 
             wp_send_json_success( array( 
                 'message' => 'Project created successfully with ' . count( $items ) . ' items',
