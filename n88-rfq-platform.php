@@ -19,6 +19,7 @@ define( 'N88_RFQ_STATUS_DRAFT', 0 );
 define( 'N88_RFQ_STATUS_SUBMITTED', 1 );
 
 // Autoload includes
+require_once N88_RFQ_PLUGIN_DIR . 'includes/class-n88-rfq-helpers.php';
 require_once N88_RFQ_PLUGIN_DIR . 'includes/class-n88-rfq-installer.php';
 require_once N88_RFQ_PLUGIN_DIR . 'includes/class-n88-rfq-projects.php';
 require_once N88_RFQ_PLUGIN_DIR . 'includes/class-n88-rfq-admin.php';

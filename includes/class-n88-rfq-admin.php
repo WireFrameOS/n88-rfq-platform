@@ -1367,7 +1367,7 @@ class N88_RFQ_Admin {
                                         type: 'POST',
                                         data: {
                                             action: 'n88_calculate_pricing',
-                                            nonce: '<?php echo wp_create_nonce( 'n88-rfq-nonce' ); ?>',
+                                            nonce: '<?php echo esc_js( N88_RFQ_Helpers::create_ajax_nonce() ); ?>',
                                             project_id: projectId,
                                             labor_cost: laborCost,
                                             materials_cost: materialsCost,

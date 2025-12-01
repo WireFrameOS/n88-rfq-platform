@@ -946,9 +946,9 @@ class N88_RFQ_Projects {
         error_log( 'N88 RFQ: handle_project_submit called. POST keys: ' . implode( ', ', array_keys( $_POST ) ) );
         
         // Verify nonce
-        if ( ! isset( $_POST['n88_rfq_nonce'] ) || ! wp_verify_nonce( $_POST['n88_rfq_nonce'], 'n88_rfq_submit' ) ) {
+        if ( ! N88_RFQ_Helpers::verify_form_nonce( false ) ) {
             error_log( 'N88 RFQ: Nonce verification failed' );
-            wp_die( 'Security check failed. Please try again.' );
+            N88_RFQ_Helpers::verify_form_nonce( true ); // Dies on failure
         }
 
         // Verify user is logged in

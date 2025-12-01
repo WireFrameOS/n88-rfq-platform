@@ -5,7 +5,7 @@
 
 (function() {
     'use strict';
-    
+
     console.log('N88 RFQ Modal JS: Script loaded');
 
     // Modal Manager

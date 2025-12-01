@@ -15,7 +15,7 @@ class N88_RFQ_Frontend {
         add_shortcode( 'n88_my_projects', array( $this, 'render_my_projects_shortcode' ) );
         add_shortcode( 'n88_project_detail', array( $this, 'render_project_detail_shortcode' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_form_styles' ) );
-        
+
         // Also enqueue on admin pages that use our features
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_form_styles' ) );
 
@@ -68,6 +68,12 @@ class N88_RFQ_Frontend {
             // Verify project exists
             add_action( 'wp_ajax_n88_verify_project', array( $this, 'ajax_verify_project' ) );
             add_action( 'wp_ajax_nopriv_n88_verify_project', array( $this, 'ajax_verify_project' ) );
+
+        // Schedule cleanup of abandoned PDF extraction attachments
+        add_action( 'n88_rfq_cleanup_pdf_extractions', array( $this, 'cleanup_abandoned_pdf_extractions' ) );
+        if ( ! wp_next_scheduled( 'n88_rfq_cleanup_pdf_extractions' ) ) {
+            wp_schedule_event( time(), 'daily', 'n88_rfq_cleanup_pdf_extractions' );
+        }
     }
 
     /**
@@ -118,10 +124,10 @@ class N88_RFQ_Frontend {
                     true // Load in footer
             );
 
-            // Pass AJAX data to JavaScript
-            wp_localize_script( 'n88-rfq-modal', 'n88', array(
-                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-                'nonce' => wp_create_nonce( 'n88-rfq-nonce' ),
+        // Pass AJAX data to JavaScript
+        wp_localize_script( 'n88-rfq-modal', 'n88', array(
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                'nonce' => N88_RFQ_Helpers::create_ajax_nonce(),
             ) );
         } else {
             // Debug: Log if file doesn't exist
@@ -148,7 +154,7 @@ class N88_RFQ_Frontend {
 
         // Output modal HTML markup (only once)
         if ( ! has_action( 'wp_footer', array( $this, 'render_modal_markup' ) ) ) {
-            add_action( 'wp_footer', array( $this, 'render_modal_markup' ) );
+        add_action( 'wp_footer', array( $this, 'render_modal_markup' ) );
         }
         
         // Add inline critical CSS as fallback (ensures basic styling works)
@@ -341,7 +347,7 @@ class N88_RFQ_Frontend {
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="n88-rfq-form" enctype="multipart/form-data">
             <input type="hidden" name="action" value="n88_submit_project">
             <input type="hidden" name="form_type" value="rfq">
-            <?php wp_nonce_field( 'n88_rfq_submit', 'n88_rfq_nonce' ); ?>
+            <?php wp_nonce_field( N88_RFQ_Helpers::NONCE_ACTION_FORM, N88_RFQ_Helpers::NONCE_PARAM_FORM ); ?>
                 <input type="hidden" name="project_id" id="n88-project-id-input" value="<?php echo esc_attr( $project_id ); ?>">
 
             <!-- PROJECT HEADER SECTION -->
@@ -474,16 +480,16 @@ class N88_RFQ_Frontend {
                 </div>
                         
                         <div id="pieces-container" class="n88-manual-fields-container">
-                            <?php if ( ! empty( $repeater ) ) : ?>
-                                <?php foreach ( $repeater as $index => $piece ) : ?>
+                    <?php if ( ! empty( $repeater ) ) : ?>
+                        <?php foreach ( $repeater as $index => $piece ) : ?>
                                     <?php $this->render_item_fields( $index, $piece, $is_extraction_mode, $project_id ); ?>
-                                <?php endforeach; ?>
-                            <?php else : ?>
+                        <?php endforeach; ?>
+                    <?php else : ?>
                                 <?php $this->render_item_fields( 0, array(), $is_extraction_mode, $project_id ); ?>
-                            <?php endif; ?>
-                        </div>
+                    <?php endif; ?>
+                </div>
                         <?php if ( ! $is_extraction_mode ) : ?>
-                        <button type="button" id="add-item-btn" class="btn btn-secondary">+ Add Another Item</button>
+                <button type="button" id="add-item-btn" class="btn btn-secondary">+ Add Another Item</button>
                         <?php endif; ?>
                     </div>
 
@@ -1372,11 +1378,11 @@ class N88_RFQ_Frontend {
                         }
                     });
                     
-                        if ( !projectName || !projectType || !timeline || !budgetRange || !email || !hasValidItem ) {
+                    if ( !projectName || !projectType || !timeline || !budgetRange || !email || !hasValidItem ) {
                             alert('Please fill in all required fields:\n- Project Name\n- Project Type\n- Timeline\n- Budget Range\n- Email\n- At least one complete item (with Dimensions, Quantity, Primary Material, Finishes, and Construction Notes)');
-                            e.preventDefault();
-                            return false;
-                        }
+                        e.preventDefault();
+                        return false;
+                    }
                 }
                     
                     // If there are pending files and no project ID, we'll upload them after project is created
@@ -1492,8 +1498,8 @@ class N88_RFQ_Frontend {
                             <div class="form-group">
                                 <label>Notes</label>
                                 <textarea name="pieces[${itemCount}][notes]" rows="3" class="n88-item-field"></textarea>
-                            </div>
-                            <div class="form-row">
+                        </div>
+                        <div class="form-row">
                             <div class="form-group">
                                 <label>Cushions</label>
                                     <input type="number" name="pieces[${itemCount}][cushions]" class="n88-item-field">
@@ -1899,7 +1905,7 @@ class N88_RFQ_Frontend {
                     </div>
                     
                     <!-- Additional optional fields (Cushions, Fabric Category, Frame Material, Finish) -->
-                    <div class="form-row">
+                <div class="form-row">
                     <div class="form-group">
                         <label>Cushions</label>
                             <?php $field_locked = $locked_fields['cushions']; ?>
@@ -2018,7 +2024,7 @@ class N88_RFQ_Frontend {
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="n88-sourcing-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="n88_submit_project">
                 <input type="hidden" name="form_type" value="sourcing">
-                <?php wp_nonce_field( 'n88_rfq_submit', 'n88_rfq_nonce' ); ?>
+                <?php wp_nonce_field( N88_RFQ_Helpers::NONCE_ACTION_FORM, N88_RFQ_Helpers::NONCE_PARAM_FORM ); ?>
                 <?php if ( $project_id ) : ?>
                     <input type="hidden" name="project_id" value="<?php echo esc_attr( $project_id ); ?>">
                 <?php endif; ?>
@@ -2795,12 +2801,12 @@ class N88_RFQ_Frontend {
                     </div>
                 </div>
 
-                <?php if ( ! empty( $message ) ) : ?>
-                    <div class="n88-message n88-message-<?php echo esc_attr( $message_type ); ?>">
+            <?php if ( ! empty( $message ) ) : ?>
+                <div class="n88-message n88-message-<?php echo esc_attr( $message_type ); ?>">
                         <span class="n88-message-icon"><i class="n88-icon-<?php echo 'success' === $message_type ? 'checkmark' : 'alert'; ?>"></i></span>
-                        <span class="n88-message-text"><?php echo esc_html( $message ); ?></span>
-                    </div>
-                <?php endif; ?>
+                    <span class="n88-message-text"><?php echo esc_html( $message ); ?></span>
+                </div>
+            <?php endif; ?>
 
                 <!-- Dashboard Stats -->
                 <div class="n88-dashboard-stats">
@@ -2881,7 +2887,7 @@ class N88_RFQ_Frontend {
                                             $item_count = (int) $project_item_counts[ $project_id ];
                                         } else {
                                     $item_count = isset( $project->item_count ) ? (int) $project->item_count : 0;
-                                        }
+                                    }
 
                                     $status_badge = ( N88_RFQ_STATUS_DRAFT === (int) $project->status )
                                         ? '<span class="n88-status-badge n88-status-draft">Draft</span>'
@@ -3777,7 +3783,7 @@ class N88_RFQ_Frontend {
                 if (typeof window.n88 === "undefined") {
                     window.n88 = {
                         ajaxUrl: "' . esc_js( admin_url( 'admin-ajax.php' ) ) . '",
-                        nonce: "' . esc_js( wp_create_nonce( 'n88-rfq-nonce' ) ) . '"
+                        nonce: "' . esc_js( N88_RFQ_Helpers::create_ajax_nonce() ) . '"
                     };
                 }
                 
@@ -4215,7 +4221,7 @@ class N88_RFQ_Frontend {
                             </thead>
                             <tbody>
                                 <?php foreach ( $repeater_items as $index => $item ) : ?>
-                                    <?php
+                                            <?php 
                                         $item_id = 'item_' . $index;
                                         $comment_count = N88_RFQ_Comments::get_comment_count( $project_id, $item_id );
                                         $is_admin = current_user_can( 'manage_options' );
@@ -4256,7 +4262,7 @@ class N88_RFQ_Frontend {
                                         <td>
                                                 <span class="n88-item-display n88-item-primary_material"><?php echo esc_html( $primary_material ); ?></span>
                                                 <input type="text" class="n88-editable-field" data-field="primary_material" value="<?php echo esc_attr( $primary_material ); ?>" style="display: none; width: 100%; padding: 4px; border: 1px solid #ddd; border-radius: 3px;">
-                                            </td>
+                                        </td>
                                         <td>
                                             <span class="n88-item-display n88-item-dimensions"><?php echo esc_html( $length . '×' . $depth . '×' . $height ); ?></span>
                                             <div class="n88-editable-field-group" data-field="dimensions" style="display: none;">
@@ -5482,7 +5488,7 @@ class N88_RFQ_Frontend {
      * AJAX: Get project data for modal
      */
     public function ajax_get_project_modal() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5571,7 +5577,7 @@ class N88_RFQ_Frontend {
          * AJAX: Add comment (Phase 2B: Enhanced with urgent flag and video support)
      */
     public function ajax_add_comment() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5673,7 +5679,7 @@ class N88_RFQ_Frontend {
      * AJAX: Get comments for item
      */
     public function ajax_get_comments() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5697,7 +5703,7 @@ class N88_RFQ_Frontend {
      * AJAX: Get all comments for project
      */
     public function ajax_get_project_comments() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5719,7 +5725,7 @@ class N88_RFQ_Frontend {
      * AJAX: Delete comment
      */
     public function ajax_delete_comment() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5745,7 +5751,7 @@ class N88_RFQ_Frontend {
      * AJAX: Get quote for project
      */
     public function ajax_get_project_quote() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5771,7 +5777,7 @@ class N88_RFQ_Frontend {
      * AJAX: Update client quote (for clients to edit quote items)
      */
     public function ajax_update_client_quote() {
-        check_ajax_referer( 'n88_update_client_quote', 'n88_quote_nonce' );
+        N88_RFQ_Helpers::verify_quote_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -5857,7 +5863,7 @@ class N88_RFQ_Frontend {
      * AJAX: Save item edit from project detail view (Both Admin and Users)
      */
     public function ajax_save_item_edit() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Permission denied' );
@@ -5969,7 +5975,7 @@ class N88_RFQ_Frontend {
      * AJAX: Calculate instant pricing (Phase 2B)
      */
     public function ajax_calculate_pricing() {
-            check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+            N88_RFQ_Helpers::verify_ajax_nonce();
 
             if ( ! current_user_can( 'manage_options' ) ) {
                 wp_send_json_error( 'Permission denied' );
@@ -6010,7 +6016,7 @@ class N88_RFQ_Frontend {
      * AJAX: Upload file for item
      */
     public function ajax_upload_item_file() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -6093,7 +6099,7 @@ class N88_RFQ_Frontend {
      * AJAX: Get files for item
      */
     public function ajax_get_item_files() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -6145,7 +6151,7 @@ class N88_RFQ_Frontend {
         }
 
         if ( ! in_array( $attachment_id, $file_ids ) ) {
-            $file_ids[] = $attachment_id;
+        $file_ids[] = $attachment_id;
         }
         
         // Update or insert
@@ -6202,7 +6208,7 @@ class N88_RFQ_Frontend {
      * AJAX: Delete item file
      */
     public function ajax_delete_item_file() {
-        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
@@ -6826,6 +6832,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( 'Not logged in' );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         $user_id = get_current_user_id();
             $limit = isset( $_REQUEST['limit'] ) ? intval( $_REQUEST['limit'] ) : 20;
             $unread_only = isset( $_REQUEST['unread_only'] ) ? (bool) $_REQUEST['unread_only'] : false;
@@ -6855,6 +6863,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( 'Not logged in' );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         if ( ! class_exists( 'N88_RFQ_Notifications' ) ) {
             wp_send_json_error( 'Notifications not available' );
         }
@@ -6872,6 +6882,8 @@ class N88_RFQ_Frontend {
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( 'Not logged in' );
         }
+
+        N88_RFQ_Helpers::verify_ajax_nonce();
 
         $notification_id = isset( $_POST['notification_id'] ) ? intval( $_POST['notification_id'] ) : 0;
 
@@ -6895,6 +6907,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( 'Not logged in' );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         if ( ! class_exists( 'N88_RFQ_Notifications' ) ) {
             wp_send_json_error( 'Notifications not available' );
         }
@@ -6913,8 +6927,45 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'Not logged in' ) );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         if ( empty( $_FILES['pdf_file'] ) ) {
             wp_send_json_error( array( 'message' => 'No file uploaded' ) );
+        }
+
+        // Validate PDF file - check both MIME type and file extension
+        $file = $_FILES['pdf_file'];
+        $file_name = $file['name'] ?? '';
+        $file_type = $file['type'] ?? '';
+        $file_tmp = $file['tmp_name'] ?? '';
+        
+        // Check file extension
+        $file_ext = strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) );
+        if ( 'pdf' !== $file_ext ) {
+            wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
+        }
+        
+        // Check MIME type (common PDF MIME types)
+        $allowed_mime_types = array(
+            'application/pdf',
+            'application/x-pdf',
+            'application/acrobat',
+            'applications/vnd.pdf',
+            'text/pdf',
+            'text/x-pdf',
+        );
+        
+        if ( ! in_array( $file_type, $allowed_mime_types, true ) ) {
+            // Double-check by reading file header if MIME type check fails
+            if ( ! empty( $file_tmp ) && file_exists( $file_tmp ) ) {
+                $file_header = file_get_contents( $file_tmp, false, null, 0, 4 );
+                // PDF files start with %PDF
+                if ( '%PDF' !== substr( $file_header, 0, 4 ) ) {
+                    wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
+                }
+            } else {
+                wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
+            }
         }
 
             // Project ID is optional - we can extract without it
@@ -6923,6 +6974,7 @@ class N88_RFQ_Frontend {
             // Handle file upload (temporary storage)
             $upload_result = wp_handle_upload( $_FILES['pdf_file'], array( 
                 'test_form' => false,
+                'mimes' => array( 'pdf' => 'application/pdf' ), // Explicitly allow only PDF
                 'unique_filename_callback' => function( $dir, $name, $ext ) {
                     // Use timestamp to make unique
                     return 'pdf-extract-' . time() . '-' . wp_generate_password( 8, false ) . $ext;
@@ -6957,6 +7009,8 @@ class N88_RFQ_Frontend {
         $extraction_result = N88_RFQ_PDF_Extractor::extract_from_pdf( $attachment_id, $project_id );
 
         if ( is_wp_error( $extraction_result ) ) {
+            // Clean up attachment if extraction failed
+            wp_delete_attachment( $attachment_id, true );
             wp_send_json_error( array( 'message' => $extraction_result->get_error_message() ) );
         }
 
@@ -6975,13 +7029,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'Not logged in' ) );
         }
 
-            // Verify nonce
-            $nonce = $_POST['nonce'] ?? '';
-            $nonce_valid = false;
-            if ( $nonce ) {
-                $nonce_valid = wp_verify_nonce( $nonce, 'n88-rfq-nonce' ) || wp_verify_nonce( $nonce, 'n88_rfq_submit' );
-            }
-            if ( ! $nonce_valid ) {
+            // Verify nonce (with fallback for backward compatibility)
+            if ( ! N88_RFQ_Helpers::verify_nonce_with_fallback( 'nonce', true ) ) {
                 wp_send_json_error( array( 'message' => 'Security check failed' ) );
         }
 
@@ -7012,7 +7061,37 @@ class N88_RFQ_Frontend {
             }
 
             // Get items from extraction
-            $items = isset( $_POST['items'] ) ? json_decode( stripslashes( $_POST['items'] ), true ) : array();
+            $items_raw = isset( $_POST['items'] ) ? $_POST['items'] : '';
+            $items = array();
+            
+            if ( ! empty( $items_raw ) ) {
+                // Try decoding without stripslashes first (modern WordPress doesn't add slashes to AJAX POST data)
+                $items = json_decode( $items_raw, true );
+                
+                // If that failed, try with stripslashes (for backward compatibility with older setups)
+                if ( json_last_error() !== JSON_ERROR_NONE ) {
+                    $items = json_decode( stripslashes( $items_raw ), true );
+                }
+                
+                // If still failed, log detailed error information
+                if ( json_last_error() !== JSON_ERROR_NONE ) {
+                    $error_msg = json_last_error_msg();
+                    $items_length = strlen( $items_raw );
+                    $items_preview = substr( $items_raw, 0, 200 ); // First 200 chars for debugging
+                    
+                    error_log( sprintf(
+                        'N88 RFQ: Failed to decode items JSON in ajax_confirm_extraction. Error: %s, Length: %d, Preview: %s',
+                        $error_msg,
+                        $items_length,
+                        $items_preview
+                    ) );
+                    
+                    wp_send_json_error( array( 
+                        'message' => 'Invalid items data. Please try uploading the PDF again.',
+                        'debug' => 'JSON decode error: ' . $error_msg
+                    ) );
+                }
+            }
             
             if ( empty( $items ) || ! is_array( $items ) ) {
                 wp_send_json_error( array( 'message' => 'No items to save' ) );
@@ -7162,6 +7241,28 @@ class N88_RFQ_Frontend {
                 N88_RFQ_PDF_Extractor::set_extraction_mode( $project_id, true );
         }
 
+            // Link PDF attachment to project if attachment_id was provided
+            $attachment_id = isset( $_POST['attachment_id'] ) ? (int) $_POST['attachment_id'] : 0;
+            if ( $attachment_id > 0 ) {
+                // Verify attachment exists and update its title to remove "PDF Extraction -" prefix
+                $attachment = get_post( $attachment_id );
+                if ( $attachment && 'attachment' === $attachment->post_type ) {
+                    // Update attachment title to be more descriptive
+                    wp_update_post( array(
+                        'ID' => $attachment_id,
+                        'post_title' => 'Project PDF - ' . sanitize_text_field( $project_name ),
+                        'post_parent' => 0, // Keep as orphan for now, or link to project if using post type
+                    ) );
+                    
+                    // Save attachment ID to project metadata
+                    $existing_files = $projects_class->get_project_files( $project_id );
+                    if ( ! in_array( $attachment_id, $existing_files, true ) ) {
+                        $existing_files[] = $attachment_id;
+                        $projects_class->save_project_files( $project_id, $existing_files );
+                    }
+                }
+            }
+
             wp_send_json_success( array( 
                 'message' => 'Project created successfully with ' . count( $items ) . ' items',
                 'project_id' => $project_id,
@@ -7177,6 +7278,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'Not logged in' ) );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         $project_id = isset( $_POST['project_id'] ) ? (int) $_POST['project_id'] : 0;
         $item_index = isset( $_POST['item_index'] ) ? (int) $_POST['item_index'] : -1;
         $flag_type = isset( $_POST['flag_type'] ) ? sanitize_text_field( $_POST['flag_type'] ) : '';
@@ -7191,7 +7294,14 @@ class N88_RFQ_Frontend {
         }
 
         $projects = new N88_RFQ_Projects();
+        
+        // Try to get project as owner first
         $project = $projects->get_project( $project_id, get_current_user_id() );
+        
+        // If not found and user is admin, allow admin access
+        if ( ! $project && current_user_can( 'manage_options' ) ) {
+            $project = $projects->get_project_admin( $project_id );
+        }
 
         if ( ! $project ) {
             wp_send_json_error( array( 'message' => 'Project not found or access denied' ) );
@@ -7224,6 +7334,8 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'Not logged in' ) );
         }
 
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
         $project_id = isset( $_POST['project_id'] ) ? (int) $_POST['project_id'] : 0;
         $item_index = isset( $_POST['item_index'] ) ? (int) $_POST['item_index'] : -1;
         $flag_type = isset( $_POST['flag_type'] ) ? sanitize_text_field( $_POST['flag_type'] ) : '';
@@ -7237,7 +7349,14 @@ class N88_RFQ_Frontend {
         }
 
         $projects = new N88_RFQ_Projects();
+        
+        // Try to get project as owner first
         $project = $projects->get_project( $project_id, get_current_user_id() );
+        
+        // If not found and user is admin, allow admin access
+        if ( ! $project && current_user_can( 'manage_options' ) ) {
+            $project = $projects->get_project_admin( $project_id );
+        }
 
         if ( ! $project ) {
             wp_send_json_error( array( 'message' => 'Project not found or access denied' ) );
@@ -7265,15 +7384,8 @@ class N88_RFQ_Frontend {
                 wp_send_json_error( array( 'message' => 'Not logged in' ) );
             }
 
-            // Verify nonce - try both possible nonce names
-            $nonce = $_POST['nonce'] ?? '';
-            $nonce_valid = false;
-            
-            if ( $nonce ) {
-                $nonce_valid = wp_verify_nonce( $nonce, 'n88-rfq-nonce' ) || wp_verify_nonce( $nonce, 'n88_rfq_submit' );
-            }
-            
-            if ( ! $nonce_valid ) {
+            // Verify nonce (with fallback for backward compatibility)
+            if ( ! N88_RFQ_Helpers::verify_nonce_with_fallback( 'nonce', true ) ) {
                 wp_send_json_error( array( 
                     'message' => 'Security check failed. Please refresh the page and try again.',
                     'debug' => 'Nonce verification failed'
@@ -7404,6 +7516,8 @@ class N88_RFQ_Frontend {
                 wp_send_json_error( array( 'message' => 'Not logged in' ) );
             }
 
+            N88_RFQ_Helpers::verify_ajax_nonce();
+
             $project_id = isset( $_POST['project_id'] ) ? (int) $_POST['project_id'] : 0;
 
             if ( ! $project_id || $project_id <= 0 ) {
@@ -7430,5 +7544,68 @@ class N88_RFQ_Frontend {
                 'project_id' => $project_id
             ) );
         }
+
+    /**
+     * Cleanup abandoned PDF extraction attachments.
+     * 
+     * Removes PDF attachments that were created for extraction but never linked to a project.
+     * Attachments older than 24 hours with title starting with "PDF Extraction -" are considered abandoned.
+     * 
+     * @return int Number of attachments deleted.
+     */
+    public function cleanup_abandoned_pdf_extractions() {
+        global $wpdb;
+
+        // Find all attachments with title starting with "PDF Extraction -" that are older than 24 hours
+        $cutoff_time = date( 'Y-m-d H:i:s', strtotime( '-24 hours' ) );
+        
+        $abandoned_attachments = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} 
+            WHERE post_type = 'attachment' 
+            AND post_title LIKE %s 
+            AND post_date < %s
+            AND post_mime_type = 'application/pdf'",
+            'PDF Extraction -%',
+            $cutoff_time
+        ) );
+
+        if ( empty( $abandoned_attachments ) ) {
+            return 0;
+        }
+
+        // Check if any of these attachments are linked to projects
+        $meta_table = $wpdb->prefix . 'project_metadata';
+        $deleted_count = 0;
+
+        foreach ( $abandoned_attachments as $attachment ) {
+            $attachment_id = (int) $attachment->ID;
+            
+            // Check if this attachment is linked to any project via n88_files metadata
+            $linked = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$meta_table} 
+                WHERE meta_key = 'n88_files' 
+                AND meta_value LIKE %s",
+                '%"' . $attachment_id . '"%'
+            ) );
+
+            // If not linked to any project, delete it
+            if ( 0 === (int) $linked ) {
+                $deleted = wp_delete_attachment( $attachment_id, true ); // true = force delete (removes file)
+                if ( $deleted ) {
+                    $deleted_count++;
+                }
+            }
+        }
+
+        // Log cleanup activity
+        if ( $deleted_count > 0 ) {
+            error_log( sprintf( 
+                'N88 RFQ: Cleaned up %d abandoned PDF extraction attachments older than 24 hours.',
+                $deleted_count
+            ) );
+        }
+
+        return $deleted_count;
+    }
 }
 
