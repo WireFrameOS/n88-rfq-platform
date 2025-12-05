@@ -130,12 +130,61 @@ class N88_RFQ_Installer {
             KEY created_at (created_at)
         ) {$charset_collate};";
 
+        // Phase 3: Timeline Events table
+        $timeline_events_table = $wpdb->prefix . 'n88_timeline_events';
+        $sql_timeline_events = "CREATE TABLE {$timeline_events_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            project_id BIGINT UNSIGNED NOT NULL,
+            item_id INT UNSIGNED NOT NULL COMMENT 'Item index within project (0-based)',
+            step_key VARCHAR(50) NOT NULL COMMENT 'e.g. prototype, frame_structure, surface_treatment, sourcing, qc, packing',
+            event_type VARCHAR(30) NOT NULL COMMENT 'step_started, step_completed, step_reopened, step_delayed, step_unblocked, override_applied, file_added, comment_added, video_added, note_added, status_changed',
+            status VARCHAR(30) DEFAULT NULL COMMENT 'pending, in_progress, completed, blocked, delayed',
+            event_data LONGTEXT NULL COMMENT 'JSON blob for extra data (reason, old_status, new_status, file_id, comment_id, video_id, user_agent, etc.)',
+            created_at DATETIME NOT NULL,
+            created_by BIGINT UNSIGNED NULL COMMENT 'User ID who triggered the event',
+            PRIMARY KEY (id),
+            KEY idx_project_item (project_id, item_id),
+            KEY idx_item_step (item_id, step_key),
+            KEY idx_project (project_id),
+            KEY idx_event_type (event_type, created_at),
+            KEY idx_status (status),
+            KEY idx_created_at (created_at),
+            KEY idx_created_by (created_by)
+        ) {$charset_collate};";
+
+        // Phase 3: Project Videos table
+        $project_videos_table = $wpdb->prefix . 'n88_project_videos';
+        $sql_project_videos = "CREATE TABLE {$project_videos_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            project_id BIGINT UNSIGNED NOT NULL,
+            item_id INT UNSIGNED NULL COMMENT 'Item index (0-based), NULL if project-level video',
+            step_key VARCHAR(50) NULL COMMENT 'Timeline step key, NULL if item-level or project-level',
+            youtube_id VARCHAR(20) NOT NULL COMMENT 'YouTube video ID (extracted from URL)',
+            youtube_url VARCHAR(255) NOT NULL COMMENT 'Full YouTube URL (always youtube-nocookie.com)',
+            title VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            thumbnail_attachment_id BIGINT UNSIGNED NULL COMMENT 'WP Media Library attachment ID for custom thumbnail',
+            display_order INT UNSIGNED DEFAULT 0 COMMENT 'Order within step/item/project',
+            created_at DATETIME NOT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY idx_project (project_id),
+            KEY idx_item (item_id),
+            KEY idx_step (step_key),
+            KEY idx_project_item_step (project_id, item_id, step_key),
+            KEY idx_youtube_id (youtube_id),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+
         dbDelta( $sql_projects );
         dbDelta( $sql_meta );
         dbDelta( $sql_comments );
         dbDelta( $sql_quotes );
         dbDelta( $sql_notifications );
         dbDelta( $sql_audit );
+        dbDelta( $sql_timeline_events );
+        dbDelta( $sql_project_videos );
 
         self::maybe_upgrade();
     }
@@ -161,6 +210,8 @@ class N88_RFQ_Installer {
         $meta_table         = $wpdb->prefix . 'project_metadata';
         $notifications_table = $wpdb->prefix . 'project_notifications';
         $audit_table        = $wpdb->prefix . 'project_audit';
+        $timeline_events_table = $wpdb->prefix . 'n88_timeline_events';
+        $project_videos_table = $wpdb->prefix . 'n88_project_videos';
         $charset_collate    = $wpdb->get_charset_collate();
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
@@ -269,6 +320,47 @@ class N88_RFQ_Installer {
                 KEY user_id (user_id),
                 KEY action (action),
                 KEY created_at (created_at)
+            ) {$charset_collate};",
+            $timeline_events_table => "CREATE TABLE {$timeline_events_table} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                project_id BIGINT UNSIGNED NOT NULL,
+                item_id INT UNSIGNED NOT NULL COMMENT 'Item index within project (0-based)',
+                step_key VARCHAR(50) NOT NULL COMMENT 'e.g. prototype, frame_structure, surface_treatment, sourcing, qc, packing',
+                event_type VARCHAR(30) NOT NULL COMMENT 'step_started, step_completed, step_reopened, step_delayed, step_unblocked, override_applied, file_added, comment_added, video_added, note_added, status_changed',
+                status VARCHAR(30) DEFAULT NULL COMMENT 'pending, in_progress, completed, blocked, delayed',
+                event_data LONGTEXT NULL COMMENT 'JSON blob for extra data',
+                created_at DATETIME NOT NULL,
+                created_by BIGINT UNSIGNED NULL COMMENT 'User ID who triggered the event',
+                PRIMARY KEY (id),
+                KEY idx_project_item (project_id, item_id),
+                KEY idx_item_step (item_id, step_key),
+                KEY idx_project (project_id),
+                KEY idx_event_type (event_type, created_at),
+                KEY idx_status (status),
+                KEY idx_created_at (created_at),
+                KEY idx_created_by (created_by)
+            ) {$charset_collate};",
+            $project_videos_table => "CREATE TABLE {$project_videos_table} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                project_id BIGINT UNSIGNED NOT NULL,
+                item_id INT UNSIGNED NULL COMMENT 'Item index (0-based), NULL if project-level video',
+                step_key VARCHAR(50) NULL COMMENT 'Timeline step key, NULL if item-level or project-level',
+                youtube_id VARCHAR(20) NOT NULL COMMENT 'YouTube video ID (extracted from URL)',
+                youtube_url VARCHAR(255) NOT NULL COMMENT 'Full YouTube URL (always youtube-nocookie.com)',
+                title VARCHAR(255) NOT NULL,
+                description TEXT NULL,
+                thumbnail_attachment_id BIGINT UNSIGNED NULL COMMENT 'WP Media Library attachment ID for custom thumbnail',
+                display_order INT UNSIGNED DEFAULT 0 COMMENT 'Order within step/item/project',
+                created_at DATETIME NOT NULL,
+                created_by BIGINT UNSIGNED NULL,
+                updated_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY idx_project (project_id),
+                KEY idx_item (item_id),
+                KEY idx_step (step_key),
+                KEY idx_project_item_step (project_id, item_id, step_key),
+                KEY idx_youtube_id (youtube_id),
+                KEY idx_created_at (created_at)
             ) {$charset_collate};",
         );
 

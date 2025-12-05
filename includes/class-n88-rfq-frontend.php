@@ -5507,8 +5507,10 @@ class N88_RFQ_Frontend {
         }
 
         $metadata = $project['metadata'] ?? array();
-        $repeater_json = $metadata['n88_repeater_raw'] ?? '[]';
-        $items = is_string( $repeater_json ) ? json_decode( $repeater_json, true ) : array();
+        
+        // Phase 3: Use get_project_items() which ensures timeline_structure
+        $projects_class = new N88_RFQ_Projects();
+        $items = $projects_class->get_project_items( $project_id );
         
         // Add index as ID for each item (for modal compatibility)
         foreach ( $items as $index => &$item ) {

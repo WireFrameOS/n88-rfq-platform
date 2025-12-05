@@ -444,14 +444,14 @@ class N88_RFQ_Projects {
             }
 
             // Log the update (suppress errors if audit table doesn't exist yet)
-            @N88_RFQ_Audit::log_action(
-                $existing_project_id,
-                $user_id,
-                'project_updated',
-                'project_data',
-                '',
-                'Project updated'
-            );
+                @N88_RFQ_Audit::log_action(
+                    $existing_project_id,
+                    $user_id,
+                    'project_updated',
+                    'project_data',
+                    '',
+                    'Project updated'
+                );
 
             return $existing_project_id;
         } else {
@@ -524,6 +524,9 @@ class N88_RFQ_Projects {
         $current_user_id = get_current_user_id();
         $is_admin_edit = current_user_can( 'manage_options' );
         $has_item_changes = false; // Track if any items were changed by non-admin
+
+        // Get project-level sourcing_category for timeline assignment fallback
+        $sourcing_category = $this->get_project_metadata( $project_id, 'n88_sourcing_category', '' );
 
         $pieces = array();
 
@@ -661,6 +664,25 @@ class N88_RFQ_Projects {
                     }
                 }
                 
+                // Phase 3: Ensure item has timeline_structure
+                // Get product_category from item data
+                $product_category = isset( $row['product_category'] ) ? sanitize_text_field( $row['product_category'] ) : '';
+                
+                // If product_category not in form data, check existing item
+                if ( empty( $product_category ) && isset( $existing_items[ $index ] ) ) {
+                    $product_category = isset( $existing_items[ $index ]['product_category'] ) ? $existing_items[ $index ]['product_category'] : '';
+                }
+                
+                // Ensure timeline structure exists
+                if ( class_exists( 'N88_RFQ_Timeline' ) ) {
+                    $piece = N88_RFQ_Timeline::ensure_item_timeline( $piece, $sourcing_category );
+                    
+                    // Add product_category to piece if not already present
+                    if ( ! empty( $product_category ) && ! isset( $piece['product_category'] ) ) {
+                        $piece['product_category'] = $product_category;
+                    }
+                }
+                
                 $pieces[] = $piece;
             }
         }
@@ -695,15 +717,15 @@ class N88_RFQ_Projects {
             );
         } else {
             // Insert new (even if empty array)
-            $result = $wpdb->insert(
-                $this->meta_table,
-                array(
-                    'project_id' => $project_id,
-                    'meta_key'   => 'n88_repeater_raw',
-                    'meta_value' => wp_json_encode( $pieces ),
-                ),
-                array( '%d', '%s', '%s' )
-            );
+        $result = $wpdb->insert(
+            $this->meta_table,
+            array(
+                'project_id' => $project_id,
+                'meta_key'   => 'n88_repeater_raw',
+                'meta_value' => wp_json_encode( $pieces ),
+            ),
+            array( '%d', '%s', '%s' )
+        );
         }
 
         if ( false === $result ) {
@@ -1099,7 +1121,7 @@ class N88_RFQ_Projects {
                     N88_RFQ_Notifications::notify_admin_project_upload( $project_id, $project );
                 } else {
                     // Fallback to old method if notification class not available
-                    $this->send_admin_notification_email( $project, $user_id );
+                $this->send_admin_notification_email( $project, $user_id );
                 }
             }
         }
@@ -1196,6 +1218,63 @@ class N88_RFQ_Projects {
         );
 
         return false !== $result;
+    }
+
+    /**
+     * Get project items with timeline structure ensured
+     * 
+     * @param int $project_id Project ID
+     * @return array Array of items with timeline_structure
+     */
+    public function get_project_items( $project_id ) {
+        global $wpdb;
+
+        $items_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_value FROM {$this->meta_table} WHERE project_id = %d AND meta_key = 'n88_repeater_raw'",
+            $project_id
+        ) );
+
+        if ( ! $items_json ) {
+            return array();
+        }
+
+        $items = json_decode( $items_json, true );
+        if ( ! is_array( $items ) ) {
+            return array();
+        }
+
+        // Get project-level sourcing_category for fallback
+        $sourcing_category = $this->get_project_metadata( $project_id, 'n88_sourcing_category', '' );
+
+        // Ensure each item has timeline_structure
+        if ( class_exists( 'N88_RFQ_Timeline' ) ) {
+            foreach ( $items as $index => &$item ) {
+                $item = N88_RFQ_Timeline::ensure_item_timeline( $item, $sourcing_category );
+            }
+            unset( $item );
+
+            // If any items were updated, save them back
+            $updated_json = wp_json_encode( $items );
+            if ( $updated_json !== $items_json ) {
+                // Update the metadata
+                $existing = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT id FROM {$this->meta_table} WHERE project_id = %d AND meta_key = 'n88_repeater_raw'",
+                    $project_id
+                ) );
+
+                if ( $existing ) {
+                    $wpdb->update(
+                        $this->meta_table,
+                        array( 'meta_value' => $updated_json ),
+                        array( 'id' => $existing ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+            }
+        }
+
+        return $items;
     }
 
     /**

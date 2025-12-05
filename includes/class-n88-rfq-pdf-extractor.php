@@ -1045,6 +1045,9 @@ PYTHON;
                 continue;
             }
 
+            // Get product_category if available
+            $product_category = sanitize_text_field( $item['product_category'] ?? '' );
+            
             $item_data = array(
                 'title'              => sanitize_text_field( $item['title'] ),
                 'dimensions'         => array(
@@ -1067,6 +1070,23 @@ PYTHON;
                 'original_quantity'  => isset( $item['quantity'] ) ? (int) $item['quantity'] : 1,
                 'original_notes'     => sanitize_text_field( $item['construction_notes'] ?? '' ),
             );
+            
+            // Phase 3: Add product_category if available
+            if ( ! empty( $product_category ) ) {
+                $item_data['product_category'] = $product_category;
+            }
+            
+            // Phase 3: Ensure timeline_structure is assigned
+            if ( class_exists( 'N88_RFQ_Timeline' ) ) {
+                // Get project-level sourcing_category for fallback
+                $sourcing_category = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT meta_value FROM {$meta_table} WHERE project_id = %d AND meta_key = 'n88_sourcing_category'",
+                    $project_id
+                ) );
+                $sourcing_category = $sourcing_category ? $sourcing_category : '';
+                
+                $item_data = N88_RFQ_Timeline::ensure_item_timeline( $item_data, $sourcing_category );
+            }
 
             // Save as repeater item
             $existing_items = self::get_project_items( $project_id );
