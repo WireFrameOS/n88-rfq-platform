@@ -363,22 +363,37 @@ class N88_RFQ_Frontend {
                     <label for="project_type">Project Type <span class="required">*</span></label>
                     <select id="project_type" name="project_type" required>
                         <option value="">-- Select --</option>
-                        <option value="Hospitality" <?php selected( $project_type, 'Hospitality' ); ?>>Hospitality</option>
-                        <option value="Multi-Family" <?php selected( $project_type, 'Multi-Family' ); ?>>Multi-Family</option>
-                        <option value="Luxury Residence" <?php selected( $project_type, 'Luxury Residence' ); ?>>Luxury Residence</option>
-                        <option value="Private Residence" <?php selected( $project_type, 'Private Residence' ); ?>>Private Residence</option>
+                        <option value="Hotel - Boutique" <?php selected( $project_type, 'Hotel - Boutique' ); ?>>Hotel – Boutique</option>
+                        <option value="Hotel - Resort" <?php selected( $project_type, 'Hotel - Resort' ); ?>>Hotel – Resort</option>
+                        <option value="Multi-Family / Residential Development" <?php selected( $project_type, 'Multi-Family / Residential Development' ); ?>>Multi-Family / Residential Development</option>
+                        <option value="Restaurant / F&B" <?php selected( $project_type, 'Restaurant / F&B' ); ?>>Restaurant / F&B</option>
+                        <option value="Commercial Space" <?php selected( $project_type, 'Commercial Space' ); ?>>Commercial Space</option>
                         <option value="Other" <?php selected( $project_type, 'Other' ); ?>>Other</option>
                     </select>
                 </div>
 
                 <div class="form-group">
                     <label for="timeline">Timeline <span class="required">*</span></label>
-                    <input type="text" id="timeline" name="timeline" value="<?php echo esc_attr( $timeline ); ?>" placeholder="e.g., 3 months, Q1 2024" required>
+                    <select id="timeline" name="timeline" required>
+                        <option value="">-- Select --</option>
+                        <option value="ASAP" <?php selected( $timeline, 'ASAP' ); ?>>ASAP</option>
+                        <option value="4-6 weeks" <?php selected( $timeline, '4-6 weeks' ); ?>>4–6 weeks</option>
+                        <option value="8-12 weeks" <?php selected( $timeline, '8-12 weeks' ); ?>>8–12 weeks</option>
+                        <option value="12+ weeks" <?php selected( $timeline, '12+ weeks' ); ?>>12+ weeks</option>
+                        <option value="Flexible" <?php selected( $timeline, 'Flexible' ); ?>>Flexible</option>
+                    </select>
                 </div>
 
                 <div class="form-group">
                     <label for="budget_range">Budget Range <span class="required">*</span></label>
-                    <input type="text" id="budget_range" name="budget_range" value="<?php echo esc_attr( $budget_range ); ?>" placeholder="e.g., $50,000 - $100,000" required>
+                    <select id="budget_range" name="budget_range" required>
+                        <option value="">-- Select --</option>
+                        <option value="Under $10K" <?php selected( $budget_range, 'Under $10K' ); ?>>Under $10K</option>
+                        <option value="$10K - $50K" <?php selected( $budget_range, '$10K - $50K' ); ?>>$10K – $50K</option>
+                        <option value="$50K - $250K" <?php selected( $budget_range, '$50K - $250K' ); ?>>$50K – $250K</option>
+                        <option value="$250K - $1M" <?php selected( $budget_range, '$250K - $1M' ); ?>>$250K – $1M</option>
+                        <option value="$1M+" <?php selected( $budget_range, '$1M+' ); ?>>$1M+</option>
+                    </select>
                 </div>
             </fieldset>
 
@@ -1092,6 +1107,9 @@ class N88_RFQ_Frontend {
                                 }
                             });
                             
+                            // Show/hide the entire manual fields container
+                            manualFieldsContainer.style.display = isChecked ? 'none' : 'block';
+                            
                             // Hide Files sections when checkbox is checked
                             const filesSections = manualFieldsContainer.querySelectorAll('.n88-item-files-section');
                             filesSections.forEach(section => {
@@ -1106,11 +1124,13 @@ class N88_RFQ_Frontend {
                                     addItemBtn.classList.add('n88-field-ghosted');
                                     addItemBtn.style.opacity = '0.5';
                                     addItemBtn.style.cursor = 'not-allowed';
+                                    addItemBtn.style.display = 'none';
                                 } else {
                                     addItemBtn.disabled = false;
                                     addItemBtn.classList.remove('n88-field-ghosted');
                                     addItemBtn.style.opacity = '';
                                     addItemBtn.style.cursor = '';
+                                    addItemBtn.style.display = 'inline-block';
                                 }
                             }
                         }
@@ -1207,6 +1227,9 @@ class N88_RFQ_Frontend {
                 function toggleFilesSectionsVisibility() {
                     const entryModeRadios = document.querySelectorAll('.entry-mode-radio');
                     const filesSections = document.querySelectorAll('.n88-item-files-section');
+                    const manualFieldsContainer = document.getElementById('pieces-container');
+                    const addItemBtn = document.getElementById('add-item-btn');
+                    const skipCheckbox = document.getElementById('skip-manual-entry');
                     
                     entryModeRadios.forEach(radio => {
                         radio.addEventListener('change', function() {
@@ -1214,16 +1237,37 @@ class N88_RFQ_Frontend {
                             filesSections.forEach(section => {
                                 section.style.display = isManualMode ? 'block' : 'none';
                             });
+                            if (manualFieldsContainer) {
+                                manualFieldsContainer.style.display = isManualMode ? 'block' : 'none';
+                            }
+                            if (addItemBtn) {
+                                addItemBtn.style.display = isManualMode ? 'inline-block' : 'none';
+                            }
                         });
                     });
                     
                     // Initial state - show if manual mode is selected and checkbox is not checked
                     const manualRadio = document.querySelector('.entry-mode-radio[value="manual"]');
-                    const skipCheckbox = document.getElementById('skip-manual-entry');
                     if (manualRadio && manualRadio.checked && (!skipCheckbox || !skipCheckbox.checked)) {
                         filesSections.forEach(section => {
                             section.style.display = 'block';
                         });
+                        if (manualFieldsContainer) {
+                            manualFieldsContainer.style.display = 'block';
+                        }
+                        if (addItemBtn) {
+                            addItemBtn.style.display = 'inline-block';
+                        }
+                    } else {
+                        filesSections.forEach(section => {
+                            section.style.display = 'none';
+                        });
+                        if (manualFieldsContainer) {
+                            manualFieldsContainer.style.display = 'none';
+                        }
+                        if (addItemBtn) {
+                            addItemBtn.style.display = 'none';
+                        }
                     }
                 }
                 
@@ -1444,8 +1488,57 @@ class N88_RFQ_Frontend {
                     </div>
                     <div class="piece-item-fields">
                             <div class="form-group">
-                                <label>Primary Material <span class="required">*</span></label>
-                                <input type="text" name="pieces[${itemCount}][primary_material]" required class="n88-item-field">
+                                <label>Primary Material / Upholstery Direction <span class="required">*</span></label>
+                                <select name="pieces[${itemCount}][primary_material]" required class="n88-item-field">
+                                    <option value="">-- Select --</option>
+                                    <optgroup label="Upholstery Options">
+                                        <option value="COM (Client's Own Material)">COM (Client's Own Material)</option>
+                                        <option value="Fabric (We will provide options)">Fabric (We will provide options)</option>
+                                        <option value="Leather">Leather</option>
+                                        <option value="Velvet">Velvet</option>
+                                        <option value="Performance Fabric (Indoor/Outdoor)">Performance Fabric (Indoor/Outdoor)</option>
+                                    </optgroup>
+                                    <optgroup label="Outdoor Fabrics">
+                                        <option value="Sunbrella (Outdoor)">Sunbrella (Outdoor)</option>
+                                        <option value="Perennials Fabric">Perennials Fabric</option>
+                                    </optgroup>
+                                    <optgroup label="Frame & Structure Materials">
+                                        <option value="Powder-Coated Aluminum">Powder-Coated Aluminum</option>
+                                        <option value="Metal (Indoor - specify finish in notes)">Metal (Indoor - specify finish in notes)</option>
+                                        <option value="All Wood (Indoor - specify finish in notes)">All Wood (Indoor - specify finish in notes)</option>
+                                        <option value="Teak (Outdoor)">Teak (Outdoor)</option>
+                                        <option value="Woven Rope">Woven Rope</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Product Category <span class="required">*</span></label>
+                                <select name="pieces[${itemCount}][product_category]" required class="n88-item-field">
+                                    <option value="">-- Select Category --</option>
+                                    <optgroup label="Indoor Furniture (6-Step Timeline)">
+                                        <option value="Indoor Furniture">Indoor Furniture</option>
+                                        <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                        <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                        <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                        <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                        <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                    </optgroup>
+                                    <optgroup label="Outdoor Furniture (6-Step Timeline)">
+                                        <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                        <option value="Outdoor Seating">Outdoor Seating</option>
+                                        <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                        <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                        <option value="Pool Furniture">Pool Furniture</option>
+                                    </optgroup>
+                                    <optgroup label="Sourcing (4-Step Timeline)">
+                                        <option value="Lighting">Lighting</option>
+                                    </optgroup>
+                                    <optgroup label="Other">
+                                        <option value="Material Sample Kit">Material Sample Kit</option>
+                                        <option value="Fabric Sample">Fabric Sample</option>
+                                    </optgroup>
+                                </select>
+                                <small class="description">This determines the production timeline for this item</small>
                             </div>
                         <div class="form-row">
                             <div class="form-group">
@@ -1782,6 +1875,7 @@ class N88_RFQ_Frontend {
                 'height_in' => $is_locked,
                 'quantity' => $is_locked,
                 'primary_material' => $is_locked,
+                'product_category' => $is_locked,
                 'finishes' => $is_locked,
                 'construction_notes' => $is_locked,
                 // These fields are NEVER locked (always editable):
@@ -1827,9 +1921,64 @@ class N88_RFQ_Frontend {
             <div class="piece-item-fields">
                     <!-- 1. Primary Material -->
                     <div class="form-group">
-                        <label>Primary Material <span class="required">*</span></label>
+                        <label>Primary Material / Upholstery Direction <span class="required">*</span></label>
                         <?php $field_locked = $locked_fields['primary_material']; ?>
-                        <input type="text" name="pieces[<?php echo (int) $index; ?>][primary_material]" value="<?php echo esc_attr( $primary_material ); ?>" <?php echo $field_locked ? 'readonly' : 'required'; ?> class="<?php echo $field_locked ? 'n88-field-locked' : ''; ?> n88-item-field">
+                        <select name="pieces[<?php echo (int) $index; ?>][primary_material]" <?php echo $field_locked ? 'readonly' : 'required'; ?> class="<?php echo $field_locked ? 'n88-field-locked' : ''; ?> n88-item-field">
+                            <option value="">-- Select --</option>
+                            <optgroup label="Upholstery Options">
+                                <option value="COM (Client's Own Material)" <?php selected( $primary_material, "COM (Client's Own Material)" ); ?>>COM (Client's Own Material)</option>
+                                <option value="Fabric (We will provide options)" <?php selected( $primary_material, "Fabric (We will provide options)" ); ?>>Fabric (We will provide options)</option>
+                                <option value="Leather" <?php selected( $primary_material, "Leather" ); ?>>Leather</option>
+                                <option value="Velvet" <?php selected( $primary_material, "Velvet" ); ?>>Velvet</option>
+                                <option value="Performance Fabric (Indoor/Outdoor)" <?php selected( $primary_material, "Performance Fabric (Indoor/Outdoor)" ); ?>>Performance Fabric (Indoor/Outdoor)</option>
+                            </optgroup>
+                            <optgroup label="Outdoor Fabrics">
+                                <option value="Sunbrella (Outdoor)" <?php selected( $primary_material, "Sunbrella (Outdoor)" ); ?>>Sunbrella (Outdoor)</option>
+                                <option value="Perennials Fabric" <?php selected( $primary_material, "Perennials Fabric" ); ?>>Perennials Fabric</option>
+                            </optgroup>
+                            <optgroup label="Frame & Structure Materials">
+                                <option value="Powder-Coated Aluminum" <?php selected( $primary_material, "Powder-Coated Aluminum" ); ?>>Powder-Coated Aluminum</option>
+                                <option value="Metal (Indoor - specify finish in notes)" <?php selected( $primary_material, "Metal (Indoor - specify finish in notes)" ); ?>>Metal (Indoor - specify finish in notes)</option>
+                                <option value="All Wood (Indoor - specify finish in notes)" <?php selected( $primary_material, "All Wood (Indoor - specify finish in notes)" ); ?>>All Wood (Indoor - specify finish in notes)</option>
+                                <option value="Teak (Outdoor)" <?php selected( $primary_material, "Teak (Outdoor)" ); ?>>Teak (Outdoor)</option>
+                                <option value="Woven Rope" <?php selected( $primary_material, "Woven Rope" ); ?>>Woven Rope</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    
+                    <!-- Product Category -->
+                    <div class="form-group">
+                        <label>Product Category <span class="required">*</span></label>
+                        <?php 
+                        $product_category = isset( $piece['product_category'] ) ? $piece['product_category'] : '';
+                        $field_locked = $locked_fields['product_category'] ?? false;
+                        ?>
+                        <select name="pieces[<?php echo (int) $index; ?>][product_category]" <?php echo $field_locked ? 'readonly' : 'required'; ?> class="<?php echo $field_locked ? 'n88-field-locked' : ''; ?> n88-item-field">
+                            <option value="">-- Select Category --</option>
+                            <optgroup label="Indoor Furniture (6-Step Timeline)">
+                                <option value="Indoor Furniture" <?php selected( $product_category, 'Indoor Furniture' ); ?>>Indoor Furniture</option>
+                                <option value="Sofas & Seating (Indoor)" <?php selected( $product_category, 'Sofas & Seating (Indoor)' ); ?>>Sofas & Seating (Indoor)</option>
+                                <option value="Chairs & Armchairs (Indoor)" <?php selected( $product_category, 'Chairs & Armchairs (Indoor)' ); ?>>Chairs & Armchairs (Indoor)</option>
+                                <option value="Dining Tables (Indoor)" <?php selected( $product_category, 'Dining Tables (Indoor)' ); ?>>Dining Tables (Indoor)</option>
+                                <option value="Cabinetry / Millwork (Custom)" <?php selected( $product_category, 'Cabinetry / Millwork (Custom)' ); ?>>Cabinetry / Millwork (Custom)</option>
+                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)" <?php selected( $product_category, 'Casegoods (Beds, Nightstands, Desks, Consoles)' ); ?>>Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                            </optgroup>
+                            <optgroup label="Outdoor Furniture (6-Step Timeline)">
+                                <option value="Outdoor Furniture" <?php selected( $product_category, 'Outdoor Furniture' ); ?>>Outdoor Furniture</option>
+                                <option value="Outdoor Seating" <?php selected( $product_category, 'Outdoor Seating' ); ?>>Outdoor Seating</option>
+                                <option value="Outdoor Dining Sets" <?php selected( $product_category, 'Outdoor Dining Sets' ); ?>>Outdoor Dining Sets</option>
+                                <option value="Outdoor Loungers & Daybeds" <?php selected( $product_category, 'Outdoor Loungers & Daybeds' ); ?>>Outdoor Loungers & Daybeds</option>
+                                <option value="Pool Furniture" <?php selected( $product_category, 'Pool Furniture' ); ?>>Pool Furniture</option>
+                            </optgroup>
+                            <optgroup label="Sourcing (4-Step Timeline)">
+                                <option value="Lighting" <?php selected( $product_category, 'Lighting' ); ?>>Lighting</option>
+                            </optgroup>
+                            <optgroup label="Other">
+                                <option value="Material Sample Kit" <?php selected( $product_category, 'Material Sample Kit' ); ?>>Material Sample Kit</option>
+                                <option value="Fabric Sample" <?php selected( $product_category, 'Fabric Sample' ); ?>>Fabric Sample</option>
+                            </optgroup>
+                        </select>
+                        <small class="description">This determines the production timeline for this item</small>
                     </div>
                     
                     <!-- 2. Dimensions -->
@@ -6041,18 +6190,8 @@ class N88_RFQ_Frontend {
 
         $file_ids = array();
         $files = $_FILES['files'];
-        $allowed_types = array( 
-            'application/pdf', 
-            'image/jpeg', 
-            'image/png', 
-            'image/gif',
-            'application/acad',
-            'application/x-acad',
-            'image/vnd.dwg',
-            'application/dwg',
-            'application/x-dwg',
-            'image/x-dwg'
-        );
+        // Get allowed file types from helper
+        $allowed_types = N88_RFQ_Helpers::get_allowed_file_types();
 
         $count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
 
@@ -6069,13 +6208,26 @@ class N88_RFQ_Frontend {
                 $_FILES['item_file'] = $files;
             }
 
-            // Check file type - also check by extension for DWG files
-            $file_ext = strtolower( pathinfo( $_FILES['item_file']['name'], PATHINFO_EXTENSION ) );
-            $is_dwg = ( $file_ext === 'dwg' );
-            $is_allowed_type = in_array( $_FILES['item_file']['type'], $allowed_types );
-            
-            if ( ! $is_allowed_type && ! $is_dwg ) {
-                continue;
+            // Validate file using MIME type and file header checks
+            if ( ! empty( $_FILES['item_file']['tmp_name'] ) ) {
+                $is_valid = N88_RFQ_Helpers::validate_file_mime_type(
+                    $_FILES['item_file']['tmp_name'],
+                    $_FILES['item_file']['type'],
+                    $allowed_types
+                );
+                
+                if ( ! $is_valid ) {
+                    continue;
+                }
+            } else {
+                // Check file type - also check by extension for DWG files (fallback)
+                $file_ext = strtolower( pathinfo( $_FILES['item_file']['name'], PATHINFO_EXTENSION ) );
+                $is_dwg = ( $file_ext === 'dwg' );
+                $is_allowed_type = in_array( $_FILES['item_file']['type'], $allowed_types );
+                
+                if ( ! $is_allowed_type && ! $is_dwg ) {
+                    continue;
+                }
             }
 
             $attachment_id = media_handle_upload( 'item_file', 0 );
@@ -6935,7 +7087,7 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'No file uploaded' ) );
         }
 
-        // Validate PDF file - check both MIME type and file extension
+        // Validate PDF file - check both MIME type and file header
         $file = $_FILES['pdf_file'];
         $file_name = $file['name'] ?? '';
         $file_type = $file['type'] ?? '';
@@ -6947,25 +7099,22 @@ class N88_RFQ_Frontend {
             wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
         }
         
-        // Check MIME type (common PDF MIME types)
-        $allowed_mime_types = array(
-            'application/pdf',
-            'application/x-pdf',
-            'application/acrobat',
-            'applications/vnd.pdf',
-            'text/pdf',
-            'text/x-pdf',
-        );
-        
-        if ( ! in_array( $file_type, $allowed_mime_types, true ) ) {
-            // Double-check by reading file header if MIME type check fails
-            if ( ! empty( $file_tmp ) && file_exists( $file_tmp ) ) {
-                $file_header = file_get_contents( $file_tmp, false, null, 0, 4 );
-                // PDF files start with %PDF
-                if ( '%PDF' !== substr( $file_header, 0, 4 ) ) {
-                    wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
-                }
-            } else {
+        // Use helper function for MIME type and file header validation
+        $allowed_pdf_types = array( 'application/pdf' );
+        if ( ! empty( $file_tmp ) && file_exists( $file_tmp ) ) {
+            $is_valid = N88_RFQ_Helpers::validate_file_mime_type(
+                $file_tmp,
+                $file_type,
+                $allowed_pdf_types
+            );
+            
+            if ( ! $is_valid ) {
+                wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
+            }
+        } else {
+            // Fallback: Check MIME type
+            $allowed_mime_types = array( 'application/pdf' );
+            if ( ! in_array( $file_type, $allowed_mime_types, true ) ) {
                 wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
             }
         }
@@ -7062,36 +7211,42 @@ class N88_RFQ_Frontend {
                 wp_send_json_error( array( 'message' => 'Invalid email address' ) );
             }
 
-            // Get items from extraction
-            $items_raw = isset( $_POST['items'] ) ? $_POST['items'] : '';
+            // Get items from extraction - sanitize input first
+            $items_raw = isset( $_POST['items'] ) ? wp_unslash( $_POST['items'] ) : '';
             $items = array();
             
             if ( ! empty( $items_raw ) ) {
-                // Try decoding without stripslashes first (modern WordPress doesn't add slashes to AJAX POST data)
-                $items = json_decode( $items_raw, true );
-                
-                // If that failed, try with stripslashes (for backward compatibility with older setups)
-                if ( json_last_error() !== JSON_ERROR_NONE ) {
-                    $items = json_decode( stripslashes( $items_raw ), true );
+                // Sanitize: ensure it's a string and limit length to prevent DoS
+                $items_raw = sanitize_text_field( $items_raw );
+                if ( strlen( $items_raw ) > 1000000 ) { // 1MB limit for JSON
+                    wp_send_json_error( array( 'message' => 'Items data too large. Please try again.' ) );
                 }
                 
-                // If still failed, log detailed error information
+                // Try decoding JSON
+                $items = json_decode( $items_raw, true );
+                
+                // If that failed, log detailed error information
                 if ( json_last_error() !== JSON_ERROR_NONE ) {
                     $error_msg = json_last_error_msg();
-                    $items_length = strlen( $items_raw );
-                    $items_preview = substr( $items_raw, 0, 200 ); // First 200 chars for debugging
-                    
                     error_log( sprintf(
-                        'N88 RFQ: Failed to decode items JSON in ajax_confirm_extraction. Error: %s, Length: %d, Preview: %s',
-                        $error_msg,
-                        $items_length,
-                        $items_preview
+                        'N88 RFQ: Failed to decode items JSON in ajax_confirm_extraction. Error: %s',
+                        $error_msg
                     ) );
                     
                     wp_send_json_error( array( 
                         'message' => 'Invalid items data. Please try uploading the PDF again.',
                         'debug' => 'JSON decode error: ' . $error_msg
                     ) );
+                }
+                
+                // Sanitize decoded array data
+                if ( is_array( $items ) ) {
+                    $items = array_map( function( $item ) {
+                        if ( is_array( $item ) ) {
+                            return array_map( 'sanitize_text_field', $item );
+                        }
+                        return sanitize_text_field( $item );
+                    }, $items );
                 }
             }
             

@@ -267,5 +267,41 @@ class N88_RFQ_Timeline_Events {
             $user_id
         );
     }
+
+    /**
+     * Log override applied event (admin force-completed step out of order)
+     * 
+     * @param int $project_id Project ID
+     * @param int $item_id Item index (0-based)
+     * @param string $step_key Step key that was overridden
+     * @param string $old_status Previous status
+     * @param string $override_reason Reason for override
+     * @param array $previous_steps_status Status of all previous steps
+     * @param string $admin_notes Admin notes about the override
+     * @param int|null $user_id Admin user ID
+     * @param bool $approval_required Whether approval was required
+     * @return int|false Event ID on success
+     */
+    public static function log_override_applied( $project_id, $item_id, $step_key, $old_status = 'pending', $override_reason = '', $previous_steps_status = array(), $admin_notes = '', $user_id = null, $approval_required = false ) {
+        $event_data = array(
+            'old_status' => $old_status,
+            'new_status' => 'completed',
+            'override_reason' => $override_reason,
+            'previous_step_status' => $previous_steps_status,
+            'admin_notes' => $admin_notes,
+            'override_by' => $user_id ?: get_current_user_id(),
+            'approval_required' => $approval_required,
+        );
+
+        return self::log_event(
+            $project_id,
+            $item_id,
+            $step_key,
+            self::EVENT_OVERRIDE_APPLIED,
+            'completed',
+            $event_data,
+            $user_id
+        );
+    }
 }
 

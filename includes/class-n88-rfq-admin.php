@@ -69,7 +69,9 @@ class N88_RFQ_Admin {
         $prepare_values[] = $limit;
         $notifications = $wpdb->get_results( $wpdb->prepare( $query, $prepare_values ) );
 
-        $notification_types = $wpdb->get_col( "SELECT DISTINCT notification_type FROM {$table_notifications} ORDER BY notification_type ASC" );
+        // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+        $table_notifications_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table_notifications );
+        $notification_types = $wpdb->get_col( "SELECT DISTINCT notification_type FROM {$table_notifications_safe} ORDER BY notification_type ASC" );
         ?>
         <div class="wrap n88-admin-notifications">
             <h1><?php esc_html_e( 'Notifications Center', 'n88-rfq' ); ?></h1>
@@ -325,28 +327,39 @@ class N88_RFQ_Admin {
                         $quotes_table = $wpdb->prefix . 'project_quotes';
 
                         // Show ALL projects (draft and submitted) - admin can upload quotes for any
+                        // Table names are safe (from $wpdb->prefix), but we validate them
+                        $projects_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $projects_table );
+                        $quotes_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $quotes_table );
                         $projects = $wpdb->get_results(
                             $wpdb->prepare(
                                 "SELECT p.id, p.project_name, p.status, p.created_at as project_created, q.id as quote_id, q.quote_status, q.created_at as quote_created, q.sent_at
-                                FROM {$projects_table} p
-                                LEFT JOIN {$quotes_table} q ON p.id = q.project_id
+                                FROM {$projects_table_safe} p
+                                LEFT JOIN {$quotes_table_safe} q ON p.id = q.project_id
                                 ORDER BY p.created_at DESC
-                                LIMIT 50"
+                                LIMIT %d",
+                                50
                             )
                         );
                         
                         // Fetch client update flags for all projects
-                        $project_ids = array_map( function( $p ) { return $p->id; }, $projects );
+                        $project_ids = array_map( function( $p ) { return (int) $p->id; }, $projects );
                         $client_updates_map = array();
                         if ( ! empty( $project_ids ) ) {
                             $meta_table = $wpdb->prefix . 'project_metadata';
-                            $ids_sql = implode( ',', array_map( 'intval', $project_ids ) );
+                            // Table name is safe (from $wpdb->prefix), but we validate it
+                            $meta_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $meta_table );
+                            // Use prepare() with placeholders for project IDs
+                            $placeholders = implode( ',', array_fill( 0, count( $project_ids ), '%d' ) );
+                            $prepare_values = array_merge( array( 'n88_has_client_updates', '1' ), $project_ids );
                             $update_rows = $wpdb->get_results(
-                                "SELECT project_id, meta_value 
-                                FROM {$meta_table} 
-                                WHERE meta_key = 'n88_has_client_updates' 
-                                AND meta_value = '1'
-                                AND project_id IN ({$ids_sql})"
+                                $wpdb->prepare(
+                                    "SELECT project_id, meta_value 
+                                    FROM {$meta_table_safe} 
+                                    WHERE meta_key = %s 
+                                    AND meta_value = %s
+                                    AND project_id IN ({$placeholders})",
+                                    $prepare_values
+                                )
                             );
                             foreach ( $update_rows as $row ) {
                                 $client_updates_map[ $row->project_id ] = true;
@@ -1788,7 +1801,9 @@ class N88_RFQ_Admin {
             }
         }
 
-        $projects = $wpdb->get_results( "SELECT id, project_name FROM {$table_projects} ORDER BY project_name ASC LIMIT 200" );
+        // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+        $table_projects_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table_projects );
+        $projects = $wpdb->get_results( $wpdb->prepare( "SELECT id, project_name FROM {$table_projects_safe} ORDER BY project_name ASC LIMIT %d", 200 ) );
         ?>
         <div class="wrap n88-admin-comments">
             <h1><?php esc_html_e( 'Comments Hub', 'n88-rfq' ); ?></h1>

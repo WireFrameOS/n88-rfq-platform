@@ -126,7 +126,9 @@ class N88_RFQ_Comments {
             error_log( 'N88 RFQ: add_comment - Table: ' . $table );
             
             // Check if table exists and has correct structure
-            $table_check = $wpdb->get_results( "DESCRIBE {$table}" );
+            // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+            $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table );
+            $table_check = $wpdb->get_results( "DESCRIBE {$table_safe}" );
             if ( empty( $table_check ) ) {
                 error_log( 'N88 RFQ: add_comment - Table structure check failed. Table may not exist or be accessible.' );
             } else {
@@ -242,10 +244,12 @@ class N88_RFQ_Comments {
         }
 
         $where_sql = implode( ' AND ', $where );
+        
+        // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+        $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table );
+        $query = $wpdb->prepare( "SELECT COUNT(*) FROM {$table_safe} WHERE {$where_sql}" );
 
-        return intval(
-            $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE {$where_sql}" )
-        );
+        return intval( $wpdb->get_var( $query ) );
     }
 
     /**

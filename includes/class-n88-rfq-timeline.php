@@ -40,6 +40,11 @@ class N88_RFQ_Timeline {
         'Millwork',
         'Cabinetry',
         'Fully Upholstered Pieces',
+        'Sofa', // General sofa keyword (matches Hotel Sofa, Custom Sofa, etc.)
+        'Sectional', // General sectional keyword
+        'Lounge Chair', // General lounge chair keyword
+        'Dining Chair', // General dining chair keyword
+        'Dining Table', // General dining table keyword
     );
 
     /**
@@ -95,9 +100,11 @@ class N88_RFQ_Timeline {
         // Normalize category for comparison
         $category_normalized = trim( $category );
 
-        // Check for Material Sample Kit
+        // Check for Material Sample Kit / Fabric Sample (should get no timeline)
+        // Check these specific patterns first, before general furniture matching
         if ( stripos( $category_normalized, 'Sample Kit' ) !== false || 
-             stripos( $category_normalized, 'Material Sample' ) !== false ) {
+             stripos( $category_normalized, 'Material Sample' ) !== false ||
+             stripos( $category_normalized, 'Fabric Sample' ) !== false ) {
             return self::TIMELINE_TYPE_NONE;
         }
 
@@ -377,18 +384,29 @@ class N88_RFQ_Timeline {
      * @return array Item with timeline_structure added/updated
      */
     public static function ensure_item_timeline( $item, $sourcing_category = '' ) {
-        // Check if timeline_structure already exists
-        if ( ! empty( $item['timeline_structure'] ) && is_array( $item['timeline_structure'] ) ) {
-            return $item;
-        }
-
         // Get product category
         $product_category = isset( $item['product_category'] ) ? $item['product_category'] : '';
 
-        // Assign timeline type
+        // Assign timeline type based on current product_category
         $timeline_type = self::assign_timeline_type( $product_category, $sourcing_category );
 
-        // Generate timeline structure
+        // Check if timeline_structure already exists and is correct
+        if ( ! empty( $item['timeline_structure'] ) && is_array( $item['timeline_structure'] ) ) {
+            // If timeline type matches, keep existing structure
+            if ( isset( $item['timeline_structure']['timeline_type'] ) && 
+                 $item['timeline_structure']['timeline_type'] === $timeline_type ) {
+                // Update assigned_by_category if product_category changed
+                if ( ! empty( $product_category ) && 
+                     ( empty( $item['timeline_structure']['assigned_by_category'] ) || 
+                       $item['timeline_structure']['assigned_by_category'] !== $product_category ) ) {
+                    $item['timeline_structure']['assigned_by_category'] = $product_category;
+                }
+                return $item;
+            }
+            // If timeline type doesn't match (e.g., was "none" but now has category), regenerate
+        }
+
+        // Generate new timeline structure
         $assigned_by = ! empty( $product_category ) ? $product_category : $sourcing_category;
         $timeline_structure = self::generate_timeline_structure( $timeline_type, $assigned_by );
 

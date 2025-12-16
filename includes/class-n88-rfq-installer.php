@@ -372,47 +372,53 @@ class N88_RFQ_Installer {
 
         // Comments table upgrades
         if ( self::table_exists( $comments_table ) ) {
-            $comments_columns = $wpdb->get_col( "DESCRIBE {$comments_table}" );
+            // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+            $comments_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $comments_table );
+            $comments_columns = $wpdb->get_col( "DESCRIBE {$comments_table_safe}" );
 
             if ( ! in_array( 'video_id', $comments_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD COLUMN video_id VARCHAR(255) NULL AFTER item_id" );
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD KEY video_id (video_id)" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD COLUMN video_id VARCHAR(255) NULL AFTER item_id" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD KEY video_id (video_id)" );
             }
 
             if ( ! in_array( 'is_urgent', $comments_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD COLUMN is_urgent TINYINT(1) NOT NULL DEFAULT 0 AFTER comment_text" );
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD KEY is_urgent (is_urgent)" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD COLUMN is_urgent TINYINT(1) NOT NULL DEFAULT 0 AFTER comment_text" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD KEY is_urgent (is_urgent)" );
             }
 
             if ( ! in_array( 'parent_comment_id', $comments_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD COLUMN parent_comment_id BIGINT UNSIGNED NULL AFTER is_urgent" );
-                $wpdb->query( "ALTER TABLE {$comments_table} ADD KEY parent_comment_id (parent_comment_id)" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD COLUMN parent_comment_id BIGINT UNSIGNED NULL AFTER is_urgent" );
+                $wpdb->query( "ALTER TABLE {$comments_table_safe} ADD KEY parent_comment_id (parent_comment_id)" );
             }
         }
 
         // Projects table upgrades
         if ( self::table_exists( $projects_table ) ) {
-            $projects_columns = $wpdb->get_col( "DESCRIBE {$projects_table}" );
+            // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+            $projects_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $projects_table );
+            $projects_columns = $wpdb->get_col( "DESCRIBE {$projects_table_safe}" );
 
             if ( ! in_array( 'item_count', $projects_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$projects_table} ADD COLUMN item_count INT UNSIGNED DEFAULT 0 AFTER quote_type" );
+                $wpdb->query( "ALTER TABLE {$projects_table_safe} ADD COLUMN item_count INT UNSIGNED DEFAULT 0 AFTER quote_type" );
             }
         }
 
         // Quotes table upgrades
         if ( self::table_exists( $quotes_table ) ) {
-            $quotes_columns = $wpdb->get_col( "DESCRIBE {$quotes_table}" );
+            // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+            $quotes_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $quotes_table );
+            $quotes_columns = $wpdb->get_col( "DESCRIBE {$quotes_table_safe}" );
             $pricing_columns = array(
-                'labor_cost'          => "ALTER TABLE {$quotes_table} ADD COLUMN labor_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER sent_at",
-                'materials_cost'      => "ALTER TABLE {$quotes_table} ADD COLUMN materials_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER labor_cost",
-                'overhead_cost'       => "ALTER TABLE {$quotes_table} ADD COLUMN overhead_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER materials_cost",
-                'margin_percentage'   => "ALTER TABLE {$quotes_table} ADD COLUMN margin_percentage DECIMAL(5,2) NULL DEFAULT 0.00 AFTER overhead_cost",
-                'shipping_zone'       => "ALTER TABLE {$quotes_table} ADD COLUMN shipping_zone VARCHAR(100) NULL AFTER margin_percentage",
-                'unit_price'          => "ALTER TABLE {$quotes_table} ADD COLUMN unit_price DECIMAL(10,2) NULL DEFAULT 0.00 AFTER shipping_zone",
-                'total_price'         => "ALTER TABLE {$quotes_table} ADD COLUMN total_price DECIMAL(10,2) NULL DEFAULT 0.00 AFTER unit_price",
-                'lead_time'           => "ALTER TABLE {$quotes_table} ADD COLUMN lead_time VARCHAR(50) NULL AFTER total_price",
-                'cbm_volume'          => "ALTER TABLE {$quotes_table} ADD COLUMN cbm_volume DECIMAL(10,4) NULL DEFAULT 0.0000 AFTER lead_time",
-                'volume_rules_applied'=> "ALTER TABLE {$quotes_table} ADD COLUMN volume_rules_applied TEXT NULL AFTER cbm_volume",
+                'labor_cost'          => "ALTER TABLE {$quotes_table_safe} ADD COLUMN labor_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER sent_at",
+                'materials_cost'      => "ALTER TABLE {$quotes_table_safe} ADD COLUMN materials_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER labor_cost",
+                'overhead_cost'       => "ALTER TABLE {$quotes_table_safe} ADD COLUMN overhead_cost DECIMAL(10,2) NULL DEFAULT 0.00 AFTER materials_cost",
+                'margin_percentage'   => "ALTER TABLE {$quotes_table_safe} ADD COLUMN margin_percentage DECIMAL(5,2) NULL DEFAULT 0.00 AFTER overhead_cost",
+                'shipping_zone'       => "ALTER TABLE {$quotes_table_safe} ADD COLUMN shipping_zone VARCHAR(100) NULL AFTER margin_percentage",
+                'unit_price'          => "ALTER TABLE {$quotes_table_safe} ADD COLUMN unit_price DECIMAL(10,2) NULL DEFAULT 0.00 AFTER shipping_zone",
+                'total_price'         => "ALTER TABLE {$quotes_table_safe} ADD COLUMN total_price DECIMAL(10,2) NULL DEFAULT 0.00 AFTER unit_price",
+                'lead_time'           => "ALTER TABLE {$quotes_table_safe} ADD COLUMN lead_time VARCHAR(50) NULL AFTER total_price",
+                'cbm_volume'          => "ALTER TABLE {$quotes_table_safe} ADD COLUMN cbm_volume DECIMAL(10,4) NULL DEFAULT 0.0000 AFTER lead_time",
+                'volume_rules_applied'=> "ALTER TABLE {$quotes_table_safe} ADD COLUMN volume_rules_applied TEXT NULL AFTER cbm_volume",
             );
 
             foreach ( $pricing_columns as $column => $sql ) {
@@ -423,10 +429,10 @@ class N88_RFQ_Installer {
 
             // Add client_message and quote_items columns
             if ( ! in_array( 'client_message', $quotes_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$quotes_table} ADD COLUMN client_message LONGTEXT NULL AFTER volume_rules_applied" );
+                $wpdb->query( "ALTER TABLE {$quotes_table_safe} ADD COLUMN client_message LONGTEXT NULL AFTER volume_rules_applied" );
             }
             if ( ! in_array( 'quote_items', $quotes_columns, true ) ) {
-                $wpdb->query( "ALTER TABLE {$quotes_table} ADD COLUMN quote_items LONGTEXT NULL AFTER client_message" );
+                $wpdb->query( "ALTER TABLE {$quotes_table_safe} ADD COLUMN quote_items LONGTEXT NULL AFTER client_message" );
             }
         }
     }

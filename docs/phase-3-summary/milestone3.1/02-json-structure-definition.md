@@ -289,31 +289,97 @@ The `timeline_structure` is stored as a field within each item object in the `n8
 
 ## Fields That May Change in Future
 
-### Mutable Fields (Can Change)
+### Mutable Fields (Can Change During Timeline Lifecycle)
 
-- `current_status` - Updated when events occur
-- `started_at` - Set when step is started
-- `completed_at` - Set when step is completed
-- `completed_by` - Set when step is completed
-- `admin_notes` - Can be edited by admins
-- `actual_days` - Calculated when step completes
-- `is_locked` - Updated based on dependency status
-- `locked_reason` - Updated when lock status changes
-- `total_actual_days` - Calculated when all steps complete
-- `started_at` (root level) - Set when first step starts
-- `completed_at` (root level) - Set when last step completes
+These fields are updated as the timeline progresses through its lifecycle. They represent the current state and can be modified by user actions or system calculations.
+
+**Root Level Mutable Fields:**
+- `total_actual_days` - Calculated when all steps complete (sum of all step `actual_days`)
+- `started_at` - Set when first step is started (null until first step begins)
+- `completed_at` - Set when last step is completed (null until all steps finish)
+
+**Step Level Mutable Fields:**
+- `current_status` - Updated when events occur (`"pending"` → `"in_progress"` → `"completed"`, or `"blocked"`/`"delayed"`)
+- `started_at` - Set when step is started (null until step begins)
+- `completed_at` - Set when step is completed (null until step finishes)
+- `completed_by` - User ID who completed the step (null until step is completed)
+- `admin_notes` - Can be edited by admins at any time (empty string if no notes)
+- `actual_days` - Calculated when step completes (difference between `started_at` and `completed_at`)
+- `is_locked` - Updated based on dependency status (true if previous step not completed)
+- `locked_reason` - Updated when lock status changes (null if step is unlocked)
+
+**Important:** These fields are the **runtime state** of the timeline. They change as work progresses, but the underlying structure (step keys, labels, order) remains constant.
+
+---
 
 ### Stable Fields (Must Remain Constant for Analytics)
 
-- `timeline_type` - **DO NOT CHANGE** (used for analytics grouping)
-- `assigned_at` - **DO NOT CHANGE** (historical record)
-- `assigned_by_category` - **DO NOT CHANGE** (historical record)
-- `step_key` - **DO NOT CHANGE** (used for event linking)
-- `label` - **DO NOT CHANGE** (used for reporting)
-- `order` - **DO NOT CHANGE** (used for sequencing)
-- `description` - **DO NOT CHANGE** (used for documentation)
-- `icon` - **DO NOT CHANGE** (used for UI consistency)
-- `estimated_days` - **DO NOT CHANGE** (used for comparison with actual_days)
+**⚠️ CRITICAL:** These fields **MUST NEVER CHANGE** after initial assignment. They are used for:
+- Analytics queries and reporting
+- Historical data integrity
+- Event linking and correlation
+- Timeline type identification
+- Performance metrics calculation
+
+**Root Level Stable Fields:**
+- `timeline_type` - **DO NOT CHANGE** 
+  - Used for analytics grouping (e.g., "average completion time for 6-step furniture vs 4-step sourcing")
+  - Values: `"6step_furniture"`, `"4step_sourcing"`, or `"none"`
+  - Changing this would break historical analytics comparisons
+
+- `assigned_at` - **DO NOT CHANGE**
+  - Historical record of when timeline was assigned
+  - Used for time-based analytics (e.g., "timelines assigned in Q1 2024")
+  - ISO 8601 datetime string
+
+- `assigned_by_category` - **DO NOT CHANGE**
+  - Product category that triggered this timeline assignment
+  - Used for category-based analytics (e.g., "Indoor Furniture vs Outdoor Furniture completion rates")
+  - Historical record of assignment context
+
+**Step Level Stable Fields:**
+- `step_key` - **DO NOT CHANGE**
+  - Unique identifier for the step (e.g., `"prototype"`, `"frame_structure"`, `"sourcing"`)
+  - Used for event linking (events reference `step_key` to associate with steps)
+  - Used for analytics queries (e.g., "average time for prototype step across all projects")
+  - Changing this would break event associations and historical analytics
+
+- `label` - **DO NOT CHANGE**
+  - Display name for the step (e.g., `"Prototype"`, `"Frame / Structure"`)
+  - Used for reporting and UI display
+  - Changing this would break historical reports that reference step names
+
+- `order` - **DO NOT CHANGE**
+  - Sequential order (1-6 for furniture, 1-4 for sourcing)
+  - Used for sequencing and dependency logic
+  - Used for analytics (e.g., "step 1 vs step 2 completion times")
+  - Changing this would break step dependencies and sequencing logic
+
+- `description` - **DO NOT CHANGE**
+  - Step description text
+  - Used for documentation and UI tooltips
+  - Historical record of step purpose
+
+- `icon` - **DO NOT CHANGE**
+  - Icon identifier for UI (e.g., `"prototype-icon"`, `"frame-icon"`)
+  - Used for UI consistency
+  - Changing this would break visual consistency in historical views
+
+- `estimated_days` - **DO NOT CHANGE**
+  - Estimated duration in days
+  - Used for comparison with `actual_days` (variance analysis)
+  - Used for analytics (e.g., "estimated vs actual completion time")
+  - Changing this would break historical variance calculations
+
+**Analytics Impact:**
+If any stable field is changed after initial assignment:
+- Historical analytics queries will produce incorrect results
+- Event linking may break (if `step_key` changes)
+- Time-based comparisons will be invalid (if `estimated_days` changes)
+- Category-based grouping will be incorrect (if `assigned_by_category` changes)
+- Historical reports may reference non-existent step names (if `label` changes)
+
+**Recommendation:** If a stable field needs to be changed for future timelines, create a new timeline type or version rather than modifying existing data.
 
 ---
 
@@ -321,22 +387,105 @@ The `timeline_structure` is stored as a field within each item object in the `n8
 
 ### Phase 3.3+ Enhancements
 
-**Videos:**
-- Videos are stored in `wp_n88_project_videos` table
-- Linked via `project_id`, `item_id`, and `step_key`
-- No direct video IDs stored in `timeline_structure` JSON (to avoid duplication)
-- Frontend queries videos table separately and groups by step
+**Important:** Video and file references are **NOT** stored directly in the `timeline_structure` JSON. They are stored in separate database tables and linked via `project_id`, `item_id`, and `step_key`. This design prevents data duplication and maintains referential integrity.
 
-**Files:**
+---
+
+### Video Storage Architecture
+
+**Table:** `wp_n88_project_videos`
+
+**Linking Strategy:**
+- Videos are linked to steps using: `project_id` + `item_id` + `step_key`
+- `item_id` is the 0-based index of the item in the `n88_repeater_raw` array
+- `step_key` matches the `step_key` field in the timeline structure (e.g., `"prototype"`, `"frame_structure"`)
+- If `step_key` is NULL, video is item-level (not tied to a specific step)
+- If both `item_id` and `step_key` are NULL, video is project-level
+
+**Example Query Pattern:**
+```sql
+-- Get all videos for a specific step
+SELECT * FROM wp_n88_project_videos 
+WHERE project_id = 123 
+  AND item_id = 0 
+  AND step_key = 'prototype'
+ORDER BY display_order;
+```
+
+**Video Data Structure:**
+- `youtube_id` - YouTube video ID (e.g., `"dQw4w9WgXcQ"`)
+- `youtube_url` - Full embed URL (always `youtube-nocookie.com` format)
+- `title` - Video title
+- `description` - Video description
+- `thumbnail_attachment_id` - WordPress Media Library attachment ID for custom thumbnail
+- `display_order` - Order within step/item/project
+
+**Frontend Integration:**
+- Frontend queries `wp_n88_project_videos` table separately
+- Groups videos by `step_key` to display in timeline UI
+- No direct video IDs stored in `timeline_structure` JSON
+
+---
+
+### File Storage Architecture
+
+**Table:** `wp_n88_timeline_events` (with `event_type = 'file_added'`)
+
+**Linking Strategy:**
+- Files are linked via timeline events
+- Event contains: `project_id`, `item_id`, `step_key`, and `event_data` JSON
+- `event_data` includes file metadata (file_id, file_name, file_url, etc.)
+
+**Example Event Data Structure:**
+```json
+{
+    "file_id": 456,
+    "file_name": "prototype_photo_001.jpg",
+    "file_type": "image/jpeg",
+    "file_size": 2456789,
+    "file_url": "/wp-content/uploads/2024/01/prototype_photo_001.jpg",
+    "uploaded_by": 123
+}
+```
+
+**File Storage:**
 - Files are stored in WordPress Media Library or custom uploads directory
 - File metadata stored in `wp_n88_timeline_events` table with `event_type = 'file_added'`
-- No direct file IDs stored in `timeline_structure` JSON (to avoid duplication)
-- Frontend queries events table for file references
+- No direct file IDs stored in `timeline_structure` JSON
 
-**Future Consideration:**
-- If needed, we could add `video_ids` and `file_ids` arrays to each step object
-- This would require migration script for existing data
-- Currently, querying separate tables is preferred for data integrity
+**Frontend Integration:**
+- Frontend queries `wp_n88_timeline_events` table for file references
+- Filters by `event_type = 'file_added'` and groups by `step_key`
+- Displays files in timeline UI alongside step information
+
+---
+
+### Future Enhancement Consideration
+
+**Option 1: Keep Current Design (Recommended)**
+- Continue querying separate tables
+- Maintains data integrity
+- Avoids JSON duplication
+- Easier to query and filter videos/files independently
+
+**Option 2: Add Reference Arrays to JSON (If Needed)**
+- Could add `video_ids` and `file_ids` arrays to each step object:
+```json
+{
+    "step_key": "prototype",
+    "label": "Prototype",
+    // ... other fields ...
+    "video_ids": [12, 13, 14],
+    "file_ids": [456, 457, 458]
+}
+```
+- **Trade-offs:**
+  - Requires migration script for existing data
+  - Creates data duplication (IDs stored in both JSON and tables)
+  - Easier frontend access (no separate query needed)
+  - Risk of data inconsistency if not kept in sync
+
+**Current Recommendation:** Keep current design (Option 1) for Phase 3.3+. Re-evaluate in Phase 4+ if performance becomes an issue.
 
 ---
 

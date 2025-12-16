@@ -202,19 +202,8 @@ class N88_RFQ_Projects {
         require_once ABSPATH . 'wp-admin/includes/image.php';
         require_once ABSPATH . 'wp-admin/includes/media.php';
 
-        // Allow specific file types (PDF, JPG, PNG, GIF, DWG)
-        $allowed_types = array( 
-            'application/pdf', 
-            'image/jpeg', 
-            'image/png', 
-            'image/gif',
-            'application/acad',
-            'application/x-acad',
-            'image/vnd.dwg',
-            'application/dwg',
-            'application/x-dwg',
-            'image/x-dwg'
-        );
+        // Get allowed file types from helper
+        $allowed_types = N88_RFQ_Helpers::get_allowed_file_types();
 
         // Handle multiple files
         $file_count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
@@ -232,13 +221,26 @@ class N88_RFQ_Projects {
                 $_FILES['n88_project_file'] = $files;
             }
 
-            // Check file type - also check by extension for DWG files
-            $file_ext = strtolower( pathinfo( $_FILES['n88_project_file']['name'], PATHINFO_EXTENSION ) );
-            $is_dwg = ( $file_ext === 'dwg' );
-            $is_allowed_type = in_array( $_FILES['n88_project_file']['type'], $allowed_types );
-            
-            if ( ! $is_allowed_type && ! $is_dwg ) {
-                continue;
+            // Validate file using MIME type and file header checks
+            if ( ! empty( $_FILES['n88_project_file']['tmp_name'] ) ) {
+                $is_valid = N88_RFQ_Helpers::validate_file_mime_type(
+                    $_FILES['n88_project_file']['tmp_name'],
+                    $_FILES['n88_project_file']['type'],
+                    $allowed_types
+                );
+                
+                if ( ! $is_valid ) {
+                    continue;
+                }
+            } else {
+                // Check file type - also check by extension for DWG files (fallback)
+                $file_ext = strtolower( pathinfo( $_FILES['n88_project_file']['name'], PATHINFO_EXTENSION ) );
+                $is_dwg = ( $file_ext === 'dwg' );
+                $is_allowed_type = in_array( $_FILES['n88_project_file']['type'], $allowed_types );
+                
+                if ( ! $is_allowed_type && ! $is_dwg ) {
+                    continue;
+                }
             }
 
             $attachment_id = media_handle_upload( 'n88_project_file', 0 );
@@ -673,14 +675,14 @@ class N88_RFQ_Projects {
                     $product_category = isset( $existing_items[ $index ]['product_category'] ) ? $existing_items[ $index ]['product_category'] : '';
                 }
                 
-                // Ensure timeline structure exists
+                // Add product_category to piece BEFORE ensuring timeline (so timeline assignment can use it)
+                if ( ! empty( $product_category ) ) {
+                    $piece['product_category'] = $product_category;
+                }
+                
+                // Ensure timeline structure exists (will use product_category from $piece)
                 if ( class_exists( 'N88_RFQ_Timeline' ) ) {
                     $piece = N88_RFQ_Timeline::ensure_item_timeline( $piece, $sourcing_category );
-                    
-                    // Add product_category to piece if not already present
-                    if ( ! empty( $product_category ) && ! isset( $piece['product_category'] ) ) {
-                        $piece['product_category'] = $product_category;
-                    }
                 }
                 
                 $pieces[] = $piece;
@@ -1159,30 +1161,33 @@ class N88_RFQ_Projects {
             return;
         }
         
-        $table_columns = $wpdb->get_col( "DESCRIBE {$this->projects_table}" );
+        // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+        $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $this->projects_table );
+        $table_columns = $wpdb->get_col( "DESCRIBE {$table_safe}" );
         
         // Add updated_by column if missing
         if ( ! in_array( 'updated_by', $table_columns ) ) {
-            $wpdb->query( "ALTER TABLE {$this->projects_table} ADD COLUMN updated_by BIGINT UNSIGNED NULL AFTER submitted_at" );
-            $wpdb->query( "ALTER TABLE {$this->projects_table} ADD KEY updated_by (updated_by)" );
+            $wpdb->query( "ALTER TABLE {$table_safe} ADD COLUMN updated_by BIGINT UNSIGNED NULL AFTER submitted_at" );
+            $wpdb->query( "ALTER TABLE {$table_safe} ADD KEY updated_by (updated_by)" );
         }
         
         // Add quote_type column if missing
         if ( ! in_array( 'quote_type', $table_columns ) ) {
-            $wpdb->query( "ALTER TABLE {$this->projects_table} ADD COLUMN quote_type VARCHAR(100) NULL AFTER updated_by" );
+            $wpdb->query( "ALTER TABLE {$table_safe} ADD COLUMN quote_type VARCHAR(100) NULL AFTER updated_by" );
         }
         
         // Add item_count column if missing
         if ( ! in_array( 'item_count', $table_columns ) ) {
-            $wpdb->query( "ALTER TABLE {$this->projects_table} ADD COLUMN item_count INT UNSIGNED DEFAULT 0 AFTER quote_type" );
+            $wpdb->query( "ALTER TABLE {$table_safe} ADD COLUMN item_count INT UNSIGNED DEFAULT 0 AFTER quote_type" );
             
             // Populate item_count for existing projects from metadata
             $this->populate_item_counts();
         }
 
         // Migrate any numeric quote_type values to string names (backward compatibility)
-        $wpdb->query( "UPDATE {$this->projects_table} SET quote_type = '24-hour' WHERE quote_type = '0' OR quote_type = '1'" );
-        $wpdb->query( "UPDATE {$this->projects_table} SET quote_type = 'sourcing' WHERE quote_type = 'sourcing'" );
+        // These UPDATE queries are safe as they only update specific values, not user input
+        $wpdb->query( "UPDATE {$table_safe} SET quote_type = '24-hour' WHERE quote_type = '0' OR quote_type = '1'" );
+        $wpdb->query( "UPDATE {$table_safe} SET quote_type = 'sourcing' WHERE quote_type = 'sourcing'" );
     }
 
     /**
@@ -1287,10 +1292,16 @@ class N88_RFQ_Projects {
         $meta_table = $wpdb->prefix . 'project_metadata';
 
         // Get all projects with metadata
+        // Table names are safe (from $wpdb->prefix), but we validate them
+        $projects_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $this->projects_table );
+        $meta_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $meta_table );
         $projects = $wpdb->get_results(
-            "SELECT DISTINCT p.id FROM {$this->projects_table} p
-             LEFT JOIN {$meta_table} pm ON p.id = pm.project_id
-             WHERE pm.meta_key = 'n88_repeater_raw'"
+            $wpdb->prepare(
+                "SELECT DISTINCT p.id FROM {$projects_table_safe} p
+                 LEFT JOIN {$meta_table_safe} pm ON p.id = pm.project_id
+                 WHERE pm.meta_key = %s",
+                'n88_repeater_raw'
+            )
         );
 
         if ( empty( $projects ) ) {

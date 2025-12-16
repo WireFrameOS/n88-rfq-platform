@@ -25,7 +25,9 @@ class N88_RFQ_Quotes {
 
         global $wpdb;
         $table   = $wpdb->prefix . 'project_quotes';
-        $columns = $wpdb->get_col( "DESC {$table}", 0 );
+        // Table name is safe (from $wpdb->prefix), but we validate it contains only safe characters
+        $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table );
+        $columns = $wpdb->get_col( "DESC {$table_safe}", 0 );
 
         $required = array(
             'labor_cost',
@@ -225,26 +227,34 @@ class N88_RFQ_Quotes {
             return false;
         }
 
-        // Allowed file types (PDF, JPG, PNG, DWG)
-        $allowed_types = array( 
-            'application/pdf', 
-            'image/jpeg', 
-            'image/png',
-            'application/acad',
-            'application/x-acad',
-            'image/vnd.dwg',
-            'application/dwg',
-            'application/x-dwg',
-            'image/x-dwg'
-        );
+        // Get allowed file types from helper
+        $allowed_types = N88_RFQ_Helpers::get_allowed_file_types();
         
-        // Check by MIME type or extension (for DWG files)
-        $file_ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
-        $is_dwg = ( $file_ext === 'dwg' );
-        $is_allowed_type = in_array( $file['type'], $allowed_types );
-        
-        if ( ! $is_allowed_type && ! $is_dwg ) {
-            return false;
+        // Validate file using MIME type and file header checks
+        if ( ! empty( $file['tmp_name'] ) ) {
+            $is_valid = N88_RFQ_Helpers::validate_file_mime_type(
+                $file['tmp_name'],
+                $file['type'],
+                $allowed_types
+            );
+            
+            if ( ! $is_valid ) {
+                // Fallback: Check by extension for DWG files
+                $file_ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+                $is_dwg = ( $file_ext === 'dwg' );
+                if ( ! $is_dwg ) {
+                    return false;
+                }
+            }
+        } else {
+            // Fallback: Check by MIME type or extension (for DWG files)
+            $file_ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+            $is_dwg = ( $file_ext === 'dwg' );
+            $is_allowed_type = in_array( $file['type'], $allowed_types );
+            
+            if ( ! $is_allowed_type && ! $is_dwg ) {
+                return false;
+            }
         }
 
         // Check file size (max 10MB)

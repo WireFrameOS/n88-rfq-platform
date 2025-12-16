@@ -148,5 +148,115 @@ class N88_RFQ_Helpers {
     public static function create_quote_nonce() {
         return wp_create_nonce( self::NONCE_ACTION_QUOTE );
     }
+
+    /**
+     * Validate file MIME type by checking actual file headers (not just client-provided MIME type).
+     * This provides additional security against MIME type spoofing.
+     * 
+     * @param string $file_path Path to the uploaded file.
+     * @param string $client_mime_type MIME type provided by client.
+     * @param array  $allowed_types Array of allowed MIME types.
+     * @return bool True if file is valid, false otherwise.
+     */
+    public static function validate_file_mime_type( $file_path, $client_mime_type, $allowed_types ) {
+        if ( ! file_exists( $file_path ) || ! is_readable( $file_path ) ) {
+            return false;
+        }
+
+        // Check client-provided MIME type first
+        if ( ! in_array( $client_mime_type, $allowed_types, true ) ) {
+            // Special handling for DWG files (extension check)
+            $file_ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+            if ( 'dwg' !== $file_ext ) {
+                return false;
+            }
+        }
+
+        // Get actual MIME type from file headers using finfo (more secure)
+        if ( function_exists( 'finfo_open' ) ) {
+            $finfo = finfo_open( FILEINFO_MIME_TYPE );
+            if ( $finfo ) {
+                $actual_mime_type = finfo_file( $finfo, $file_path );
+                finfo_close( $finfo );
+                
+                // Verify actual MIME type matches allowed types
+                if ( ! in_array( $actual_mime_type, $allowed_types, true ) ) {
+                    // Special handling for DWG files
+                    $file_ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+                    if ( 'dwg' !== $file_ext ) {
+                        return false;
+                    }
+                }
+            }
+        } elseif ( function_exists( 'mime_content_type' ) ) {
+            // Fallback to mime_content_type if finfo not available
+            $actual_mime_type = mime_content_type( $file_path );
+            if ( $actual_mime_type && ! in_array( $actual_mime_type, $allowed_types, true ) ) {
+                $file_ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+                if ( 'dwg' !== $file_ext ) {
+                    return false;
+                }
+            }
+        }
+
+        // Additional security: Check file header signatures for common file types
+        $file_handle = fopen( $file_path, 'rb' );
+        if ( ! $file_handle ) {
+            return false;
+        }
+
+        $header = fread( $file_handle, 12 );
+        fclose( $file_handle );
+
+        // Check for PDF signature (%PDF)
+        if ( 'application/pdf' === $client_mime_type ) {
+            if ( 0 !== strpos( $header, '%PDF' ) ) {
+                return false;
+            }
+        }
+
+        // Check for JPEG signature (FF D8 FF)
+        if ( 'image/jpeg' === $client_mime_type ) {
+            if ( 0 !== strpos( bin2hex( $header ), 'ffd8ff' ) ) {
+                return false;
+            }
+        }
+
+        // Check for PNG signature (89 50 4E 47)
+        if ( 'image/png' === $client_mime_type ) {
+            if ( 0 !== strpos( bin2hex( $header ), '89504e47' ) ) {
+                return false;
+            }
+        }
+
+        // Check for GIF signature (GIF87a or GIF89a)
+        if ( 'image/gif' === $client_mime_type ) {
+            if ( 0 !== strpos( $header, 'GIF87a' ) && 0 !== strpos( $header, 'GIF89a' ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Get allowed file types for uploads.
+     * 
+     * @return array Array of allowed MIME types.
+     */
+    public static function get_allowed_file_types() {
+        return array( 
+            'application/pdf', 
+            'image/jpeg', 
+            'image/png', 
+            'image/gif',
+            'application/acad',
+            'application/x-acad',
+            'image/vnd.dwg',
+            'application/dwg',
+            'application/x-dwg',
+            'image/x-dwg'
+        );
+    }
 }
 
