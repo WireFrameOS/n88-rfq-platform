@@ -70,6 +70,7 @@ $includes = array(
     'includes/class-n88-rfq-timeline-events.php',
     'includes/class-n88-events.php',
     'includes/class-n88-authorization.php',
+    'includes/class-n88-items-boards.php',
     'includes/lib/fpdf.php',
 );
 
@@ -94,6 +95,8 @@ function n88_rfq_bootstrap() {
     new N88_RFQ_Projects();
     new N88_RFQ_Admin();
     new N88_RFQ_Frontend();
+    // Milestone 1.1: Items and Boards endpoints
+    new N88_Items_Boards();
 }
     add_action( 'plugins_loaded', 'n88_rfq_bootstrap', 5 );
 }
