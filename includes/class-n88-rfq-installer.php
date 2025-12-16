@@ -6,6 +6,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class N88_RFQ_Installer {
 
+    /**
+     * Phase 1.1 Schema Version
+     */
+    const PHASE_1_1_SCHEMA_VERSION = '1.1.0';
+    const PHASE_1_1_SCHEMA_OPTION = 'n88_phase_1_1_schema_version';
+
     public static function activate() {
         global $wpdb;
 
@@ -186,7 +192,248 @@ class N88_RFQ_Installer {
         dbDelta( $sql_timeline_events );
         dbDelta( $sql_project_videos );
 
+        // Phase 1.1: Core Data + Event Spine tables
+        self::create_phase_1_1_tables( $charset_collate );
+
         self::maybe_upgrade();
+    }
+
+    /**
+     * Create Phase 1.1 tables (Core Data + Event Spine)
+     */
+    private static function create_phase_1_1_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        // Active in 1.1: Core tables
+        $designer_profiles_table = $wpdb->prefix . 'n88_designer_profiles';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $boards_table = $wpdb->prefix . 'n88_boards';
+        $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $board_layout_table = $wpdb->prefix . 'n88_board_layout';
+        $events_table = $wpdb->prefix . 'n88_events';
+        $item_edits_table = $wpdb->prefix . 'n88_item_edits';
+
+        // Schema-only in 1.1: Future-ready tables
+        $firms_table = $wpdb->prefix . 'n88_firms';
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+        $board_areas_table = $wpdb->prefix . 'n88_board_areas';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+
+        // n88_designer_profiles
+        $sql_designer_profiles = "CREATE TABLE {$designer_profiles_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            user_id BIGINT UNSIGNED NOT NULL,
+            display_name VARCHAR(255) NOT NULL DEFAULT '',
+            bio TEXT NULL,
+            avatar_url VARCHAR(500) NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY user_id (user_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        // n88_items
+        $sql_items = "CREATE TABLE {$items_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            owner_user_id BIGINT UNSIGNED NOT NULL,
+            owner_firm_id BIGINT UNSIGNED NULL,
+            title VARCHAR(500) NOT NULL,
+            description TEXT NULL,
+            item_type VARCHAR(100) NOT NULL DEFAULT 'furniture',
+            status VARCHAR(50) NOT NULL DEFAULT 'draft',
+            primary_image_id BIGINT UNSIGNED NULL,
+            version INT UNSIGNED NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY owner_user_id (owner_user_id),
+            KEY owner_firm_id (owner_firm_id),
+            KEY status (status),
+            KEY item_type (item_type),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // n88_boards
+        $sql_boards = "CREATE TABLE {$boards_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            owner_user_id BIGINT UNSIGNED NOT NULL,
+            owner_firm_id BIGINT UNSIGNED NULL,
+            name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            view_mode VARCHAR(50) NOT NULL DEFAULT 'grid',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY owner_user_id (owner_user_id),
+            KEY owner_firm_id (owner_firm_id),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // n88_board_items
+        $sql_board_items = "CREATE TABLE {$board_items_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            board_id BIGINT UNSIGNED NOT NULL,
+            item_id BIGINT UNSIGNED NOT NULL,
+            added_by_user_id BIGINT UNSIGNED NOT NULL,
+            added_at DATETIME NOT NULL,
+            removed_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY board_item_active (board_id, item_id, removed_at),
+            KEY board_id (board_id),
+            KEY item_id (item_id),
+            KEY added_at (added_at)
+        ) {$charset_collate};";
+
+        // n88_board_layout
+        $sql_board_layout = "CREATE TABLE {$board_layout_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            board_id BIGINT UNSIGNED NOT NULL,
+            item_id BIGINT UNSIGNED NOT NULL,
+            position_x DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+            position_y DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+            position_z INT NOT NULL DEFAULT 0,
+            size_width DECIMAL(10,2) NULL,
+            size_height DECIMAL(10,2) NULL,
+            view_mode VARCHAR(50) NOT NULL DEFAULT 'grid',
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY board_item_layout (board_id, item_id),
+            KEY board_id (board_id),
+            KEY item_id (item_id)
+        ) {$charset_collate};";
+
+        // n88_events
+        $sql_events = "CREATE TABLE {$events_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            actor_user_id BIGINT UNSIGNED NOT NULL,
+            actor_firm_id BIGINT UNSIGNED NULL,
+            event_type VARCHAR(100) NOT NULL,
+            object_type VARCHAR(50) NOT NULL,
+            object_id BIGINT UNSIGNED NULL,
+            item_id BIGINT UNSIGNED NULL,
+            board_id BIGINT UNSIGNED NULL,
+            payload_json LONGTEXT NULL,
+            ip_address VARCHAR(45) NULL,
+            user_agent VARCHAR(500) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY actor_user_id (actor_user_id),
+            KEY event_type (event_type),
+            KEY item_id (item_id),
+            KEY board_id (board_id),
+            KEY created_at (created_at),
+            KEY item_created (item_id, created_at),
+            KEY board_created (board_id, created_at)
+        ) {$charset_collate};";
+
+        // n88_item_edits
+        $sql_item_edits = "CREATE TABLE {$item_edits_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            field_name VARCHAR(100) NOT NULL,
+            old_value LONGTEXT NULL,
+            new_value LONGTEXT NULL,
+            editor_user_id BIGINT UNSIGNED NOT NULL,
+            editor_role VARCHAR(50) NOT NULL,
+            edit_reason VARCHAR(500) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY item_id (item_id),
+            KEY editor_user_id (editor_user_id),
+            KEY field_name (field_name),
+            KEY created_at (created_at),
+            KEY item_field_created (item_id, field_name, created_at)
+        ) {$charset_collate};";
+
+        // Schema-only: n88_firms
+        $sql_firms = "CREATE TABLE {$firms_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
+            slug VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            logo_file_id BIGINT UNSIGNED NULL,
+            created_by_user_id BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            KEY created_by_user_id (created_by_user_id),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // Schema-only: n88_firm_members
+        $sql_firm_members = "CREATE TABLE {$firm_members_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            firm_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            role VARCHAR(50) NOT NULL DEFAULT 'member',
+            invited_by_user_id BIGINT UNSIGNED NULL,
+            joined_at DATETIME NOT NULL,
+            left_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY firm_user_active (firm_id, user_id, left_at),
+            KEY firm_id (firm_id),
+            KEY user_id (user_id),
+            KEY role (role)
+        ) {$charset_collate};";
+
+        // Schema-only: n88_board_areas
+        $sql_board_areas = "CREATE TABLE {$board_areas_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            board_id BIGINT UNSIGNED NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            area_type VARCHAR(50) NOT NULL DEFAULT 'room',
+            bounds_json TEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY board_id (board_id),
+            KEY area_type (area_type),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // Schema-only: n88_item_files
+        $sql_item_files = "CREATE TABLE {$item_files_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            file_id BIGINT UNSIGNED NOT NULL,
+            attached_by_user_id BIGINT UNSIGNED NOT NULL,
+            attachment_type VARCHAR(50) NOT NULL DEFAULT 'general',
+            display_order INT UNSIGNED NOT NULL DEFAULT 0,
+            attached_at DATETIME NOT NULL,
+            detached_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY item_file_active (item_id, file_id, detached_at),
+            KEY item_id (item_id),
+            KEY file_id (file_id)
+        ) {$charset_collate};";
+
+        // Create all tables
+        dbDelta( $sql_designer_profiles );
+        dbDelta( $sql_items );
+        dbDelta( $sql_boards );
+        dbDelta( $sql_board_items );
+        dbDelta( $sql_board_layout );
+        dbDelta( $sql_events );
+        dbDelta( $sql_item_edits );
+        dbDelta( $sql_firms );
+        dbDelta( $sql_firm_members );
+        dbDelta( $sql_board_areas );
+        dbDelta( $sql_item_files );
+
+        // Store schema version
+        update_option( self::PHASE_1_1_SCHEMA_OPTION, self::PHASE_1_1_SCHEMA_VERSION );
     }
 
     /**
@@ -213,6 +460,12 @@ class N88_RFQ_Installer {
         $timeline_events_table = $wpdb->prefix . 'n88_timeline_events';
         $project_videos_table = $wpdb->prefix . 'n88_project_videos';
         $charset_collate    = $wpdb->get_charset_collate();
+
+        // Phase 1.1: Ensure Phase 1.1 tables exist
+        $current_phase_1_1_version = get_option( self::PHASE_1_1_SCHEMA_OPTION, '0.0.0' );
+        if ( version_compare( $current_phase_1_1_version, self::PHASE_1_1_SCHEMA_VERSION, '<' ) ) {
+            self::create_phase_1_1_tables( $charset_collate );
+        }
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
