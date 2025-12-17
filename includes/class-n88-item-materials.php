@@ -21,7 +21,8 @@ class N88_Item_Materials {
     public function __construct() {
         add_action( 'wp_ajax_n88_attach_material', array( $this, 'ajax_attach_material' ) );
         add_action( 'wp_ajax_n88_detach_material', array( $this, 'ajax_detach_material' ) );
-        add_action( 'wp_ajax_n88_upload_materials_in_mind', array( $this, 'ajax_upload_materials_in_mind' ) );
+        // Note: materials-in-mind file linking will be handled via existing item-file relationship
+        // No new upload endpoint in 1.2.3 (out of scope)
     }
 
     /**
@@ -298,128 +299,6 @@ class N88_Item_Materials {
             'message' => 'Material detached successfully.',
             'item_id' => $item_id,
             'material_id' => $material_id,
-        ) );
-    }
-
-    /**
-     * Upload materials-in-mind reference files
-     * 
-     * Reuses existing item-file relationship from Milestone 1.1.
-     * These are reference-only uploads and do not modify the material bank.
-     * 
-     * POST params:
-     * - nonce: AJAX nonce
-     * - item_id: Item ID (required)
-     * - file: File upload (via $_FILES)
-     */
-    public function ajax_upload_materials_in_mind() {
-        // Verify nonce
-        N88_RFQ_Helpers::verify_ajax_nonce();
-
-        // Verify user is logged in
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
-        }
-
-        $user_id = get_current_user_id();
-
-        // Validate item_id
-        if ( ! isset( $_POST['item_id'] ) ) {
-            wp_send_json_error( array( 'message' => 'Item ID is required.' ), 400 );
-        }
-
-        $item_id = absint( $_POST['item_id'] );
-        if ( $item_id === 0 ) {
-            wp_send_json_error( array( 'message' => 'Invalid Item ID.' ), 400 );
-        }
-
-        // Verify item access (ownership or admin)
-        $item = $this->verify_item_access( $item_id, $user_id );
-        if ( ! $item ) {
-            wp_send_json_error( array( 'message' => 'Item not found or access denied.' ), 403 );
-        }
-
-        // Validate file upload
-        if ( ! isset( $_FILES['file'] ) || $_FILES['file']['error'] !== UPLOAD_ERR_OK ) {
-            wp_send_json_error( array( 'message' => 'File upload failed or no file provided.' ), 400 );
-        }
-
-        // Use WordPress media handling
-        require_once( ABSPATH . 'wp-admin/includes/file.php' );
-        require_once( ABSPATH . 'wp-admin/includes/media.php' );
-        require_once( ABSPATH . 'wp-admin/includes/image.php' );
-
-        // Handle file upload
-        $upload = wp_handle_upload( $_FILES['file'], array( 'test_form' => false ) );
-
-        if ( isset( $upload['error'] ) ) {
-            wp_send_json_error( array( 'message' => 'File upload error: ' . $upload['error'] ), 400 );
-        }
-
-        // Create attachment post
-        $attachment_id = wp_insert_attachment(
-            array(
-                'post_mime_type' => $upload['type'],
-                'post_title' => sanitize_file_name( basename( $upload['file'] ) ),
-                'post_content' => '',
-                'post_status' => 'inherit',
-            ),
-            $upload['file']
-        );
-
-        if ( is_wp_error( $attachment_id ) ) {
-            wp_send_json_error( array( 'message' => 'Failed to create attachment: ' . $attachment_id->get_error_message() ), 500 );
-        }
-
-        // Generate attachment metadata
-        $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
-        wp_update_attachment_metadata( $attachment_id, $attach_data );
-
-        // Link file to item via n88_item_files (reuse Milestone 1.1 relationship)
-        global $wpdb;
-        $files_table = $wpdb->prefix . 'n88_item_files';
-        $now = current_time( 'mysql' );
-
-        $inserted = $wpdb->insert(
-            $files_table,
-            array(
-                'item_id' => $item_id,
-                'file_id' => $attachment_id,
-                'attachment_type' => 'materials_in_mind',
-                'attached_by_user_id' => $user_id,
-                'attached_at' => $now,
-                'display_order' => 0,
-            ),
-            array( '%d', '%d', '%s', '%d', '%s', '%d' )
-        );
-
-        if ( $inserted === false ) {
-            // Clean up attachment if linking failed
-            wp_delete_attachment( $attachment_id, true );
-            wp_send_json_error( array( 'message' => 'Failed to link file to item.' ), 500 );
-        }
-
-        // Log event
-        n88_log_event(
-            'materials_in_mind_uploaded',
-            'item',
-            array(
-                'object_id' => $item_id,
-                'item_id' => $item_id,
-                'payload_json' => array(
-                    'file_id' => $attachment_id,
-                    'attachment_type' => 'materials_in_mind',
-                    'attached_by_user_id' => $user_id,
-                    'file_url' => wp_get_attachment_url( $attachment_id ),
-                ),
-            )
-        );
-
-        wp_send_json_success( array(
-            'message' => 'Materials-in-mind file uploaded successfully.',
-            'file_id' => $attachment_id,
-            'item_id' => $item_id,
-            'file_url' => wp_get_attachment_url( $attachment_id ),
         ) );
     }
 }
