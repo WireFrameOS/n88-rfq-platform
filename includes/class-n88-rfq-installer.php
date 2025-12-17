@@ -12,6 +12,12 @@ class N88_RFQ_Installer {
     const PHASE_1_1_SCHEMA_VERSION = '1.1.0';
     const PHASE_1_1_SCHEMA_OPTION = 'n88_phase_1_1_schema_version';
 
+    /**
+     * Phase 1.2 Schema Version
+     */
+    const PHASE_1_2_SCHEMA_VERSION = '1.2.0';
+    const PHASE_1_2_SCHEMA_OPTION = 'n88_phase_1_2_schema_version';
+
     public static function activate() {
         global $wpdb;
 
@@ -194,6 +200,9 @@ class N88_RFQ_Installer {
 
         // Phase 1.1: Core Data + Event Spine tables
         self::create_phase_1_1_tables( $charset_collate );
+
+        // Phase 1.2: Core Intelligence + Material Bank tables
+        self::create_phase_1_2_tables( $charset_collate );
 
         self::maybe_upgrade();
     }
@@ -437,6 +446,132 @@ class N88_RFQ_Installer {
     }
 
     /**
+     * Create Phase 1.2 tables (Core Intelligence + Material Bank)
+     */
+    private static function create_phase_1_2_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        // New tables for Phase 1.2
+        $materials_table = $wpdb->prefix . 'n88_materials';
+        $item_materials_table = $wpdb->prefix . 'n88_item_materials';
+        $material_requests_table = $wpdb->prefix . 'n88_material_requests';
+
+        // n88_materials
+        $sql_materials = "CREATE TABLE {$materials_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            category VARCHAR(100) NULL,
+            material_code VARCHAR(100) NULL,
+            supplier_name VARCHAR(255) NULL,
+            supplier_contact TEXT NULL,
+            unit_cost DECIMAL(10,2) NULL,
+            currency VARCHAR(3) NULL DEFAULT 'USD',
+            lead_time_days INT UNSIGNED NULL,
+            minimum_order_quantity INT UNSIGNED NULL,
+            notes TEXT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_by_user_id BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY category (category),
+            KEY material_code (material_code),
+            KEY is_active (is_active),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // n88_item_materials
+        $sql_item_materials = "CREATE TABLE {$item_materials_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            material_id BIGINT UNSIGNED NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL DEFAULT 1.000,
+            unit VARCHAR(50) NOT NULL DEFAULT 'unit',
+            notes TEXT NULL,
+            attached_by_user_id BIGINT UNSIGNED NOT NULL,
+            attached_at DATETIME NOT NULL,
+            detached_at DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY item_material_active (item_id, material_id, detached_at),
+            KEY item_id (item_id),
+            KEY material_id (material_id),
+            KEY attached_at (attached_at)
+        ) {$charset_collate};";
+
+        // n88_material_requests (schema only)
+        $sql_material_requests = "CREATE TABLE {$material_requests_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NULL,
+            board_id BIGINT UNSIGNED NULL,
+            requested_by_user_id BIGINT UNSIGNED NOT NULL,
+            material_name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            urgency VARCHAR(50) NOT NULL DEFAULT 'normal',
+            status VARCHAR(50) NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            resolved_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY item_id (item_id),
+            KEY board_id (board_id),
+            KEY requested_by_user_id (requested_by_user_id),
+            KEY status (status),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        // Create all Phase 1.2 tables
+        dbDelta( $sql_materials );
+        dbDelta( $sql_item_materials );
+        dbDelta( $sql_material_requests );
+
+        // Add new columns to n88_items
+        $items_table = $wpdb->prefix . 'n88_items';
+        $items_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+
+        // Check if columns exist before adding
+        $items_columns = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+
+        // Add sourcing_type column (after status)
+        if ( ! in_array( 'sourcing_type', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN sourcing_type VARCHAR(50) NOT NULL DEFAULT 'local' AFTER status" );
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY sourcing_type (sourcing_type)" );
+        }
+
+        // Add timeline_type column (after sourcing_type)
+        if ( ! in_array( 'timeline_type', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN timeline_type VARCHAR(50) NULL AFTER sourcing_type" );
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY timeline_type (timeline_type)" );
+        }
+
+        // Add dimension columns (after primary_image_id)
+        if ( ! in_array( 'dimension_width_cm', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_width_cm DECIMAL(10,2) NULL AFTER primary_image_id" );
+        }
+        if ( ! in_array( 'dimension_depth_cm', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_depth_cm DECIMAL(10,2) NULL AFTER dimension_width_cm" );
+        }
+        if ( ! in_array( 'dimension_height_cm', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_height_cm DECIMAL(10,2) NULL AFTER dimension_depth_cm" );
+        }
+        if ( ! in_array( 'dimension_units_original', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_units_original VARCHAR(20) NULL AFTER dimension_height_cm" );
+        }
+
+        // Add cbm column (after dimension_units_original)
+        if ( ! in_array( 'cbm', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN cbm DECIMAL(10,6) NULL AFTER dimension_units_original" );
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY cbm (cbm)" );
+        }
+
+        // Store schema version
+        update_option( self::PHASE_1_2_SCHEMA_OPTION, self::PHASE_1_2_SCHEMA_VERSION );
+    }
+
+    /**
      * Ensure any new columns are added when the plugin is updated without reactivation.
      */
     public static function maybe_upgrade() {
@@ -465,6 +600,12 @@ class N88_RFQ_Installer {
         $current_phase_1_1_version = get_option( self::PHASE_1_1_SCHEMA_OPTION, '0.0.0' );
         if ( version_compare( $current_phase_1_1_version, self::PHASE_1_1_SCHEMA_VERSION, '<' ) ) {
             self::create_phase_1_1_tables( $charset_collate );
+        }
+
+        // Phase 1.2: Ensure Phase 1.2 tables exist
+        $current_phase_1_2_version = get_option( self::PHASE_1_2_SCHEMA_OPTION, '0.0.0' );
+        if ( version_compare( $current_phase_1_2_version, self::PHASE_1_2_SCHEMA_VERSION, '<' ) ) {
+            self::create_phase_1_2_tables( $charset_collate );
         }
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
