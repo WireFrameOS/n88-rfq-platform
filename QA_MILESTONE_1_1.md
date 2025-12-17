@@ -32,21 +32,148 @@ wp user create admin_user admin@test.local --user_pass=password123 --role=admini
 - User B ID: `__USER_B_ID__` (replace in commands below)
 - Admin ID: `__ADMIN_ID__` (replace in commands below)
 
-### 2. Get Nonce for AJAX Requests
+### 2. How to Obtain Nonces and Auth Cookies
 
-**Via Browser Console (logged in as User A):**
+**IMPORTANT:** Nonces are user-specific and session-specific. Each user must obtain their own nonce while logged in.
+
+#### Method 1: WP-CLI (Recommended for Testing)
+
+**Get Nonce for User A:**
+```bash
+# Get User A's nonce (replace USER_A_ID with actual user ID)
+wp eval "echo wp_create_nonce('n88-rfq-nonce');" --user=user_a
+```
+
+**Get Nonce for User B:**
+```bash
+# Get User B's nonce
+wp eval "echo wp_create_nonce('n88-rfq-nonce');" --user=user_b
+```
+
+**Get Nonce for Admin:**
+```bash
+# Get Admin's nonce
+wp eval "echo wp_create_nonce('n88-rfq-nonce');" --user=admin_user
+```
+
+**Note:** Nonces expire after 24 hours by default. Generate fresh nonces for each test session.
+
+#### Method 2: Browser Console (Manual Testing)
+
+**Steps:**
+1. Log in to WordPress as User A
+2. Open browser Developer Tools (F12)
+3. Go to Console tab
+4. Run:
 ```javascript
-// Get nonce from WordPress
-var nonce = wpApiSettings.nonce || '';
+// Get nonce from WordPress (if wpApiSettings exists)
+var nonce = (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) 
+    ? wpApiSettings.nonce 
+    : '';
 console.log('Nonce:', nonce);
+
+// Alternative: If nonce is in a form or data attribute
+// Check the test page: WordPress Admin > N88 RFQ > Items & Boards
+// The page includes a nonce in the JavaScript
 ```
 
-**Or via PHP:**
+**Note:** If `wpApiSettings` is not available, use Method 1 (WP-CLI) or Method 3.
+
+#### Method 3: PHP Debug Script (One-Time Setup)
+
+**Create temporary file:** `wp-content/debug-nonce.php` (DELETE AFTER USE)
+
 ```php
-wp_create_nonce('n88-rfq-nonce');
+<?php
+require_once('wp-load.php');
+
+if (!is_user_logged_in()) {
+    die('You must be logged in. Visit: ' . wp_login_url($_SERVER['REQUEST_URI']));
+}
+
+$user = wp_get_current_user();
+$nonce = wp_create_nonce('n88-rfq-nonce');
+
+echo "User ID: " . $user->ID . "\n";
+echo "Username: " . $user->user_login . "\n";
+echo "Nonce: " . $nonce . "\n";
+echo "\n";
+echo "Cookie Name: wordpress_logged_in_" . COOKIEHASH . "\n";
+echo "Cookie Value: " . $_COOKIE['wordpress_logged_in_' . COOKIEHASH] . "\n";
 ```
 
-**Note Nonce:** `__NONCE_A__` (replace in commands below)
+**Usage:**
+1. Log in as User A in browser
+2. Visit: `http://yoursite.local/wp-content/debug-nonce.php`
+3. Copy nonce and cookie value
+4. **DELETE THE FILE IMMEDIATELY** (security risk)
+
+#### Method 4: Extract Cookie from Browser
+
+**Steps:**
+1. Log in to WordPress as User A
+2. Open Developer Tools (F12)
+3. Go to Application/Storage tab > Cookies
+4. Find cookie: `wordpress_logged_in_xxx` (where `xxx` is your site hash)
+5. Copy the cookie value
+
+**Cookie Format:**
+```
+wordpress_logged_in_xxx=USERNAME|EXPIRY|HASH
+```
+
+**For curl commands, use:**
+```bash
+--cookie "wordpress_logged_in_xxx=USERNAME|EXPIRY|HASH"
+```
+
+#### Method 5: Automated Script (All Users at Once)
+
+**Create:** `wp-content/get-test-credentials.php` (DELETE AFTER USE)
+
+```php
+<?php
+require_once('wp-load.php');
+
+if (!current_user_can('manage_options')) {
+    die('Admin access required');
+}
+
+$users = array('user_a', 'user_b', 'admin_user');
+
+foreach ($users as $username) {
+    $user = get_user_by('login', $username);
+    if (!$user) continue;
+    
+    wp_set_current_user($user->ID);
+    $nonce = wp_create_nonce('n88-rfq-nonce');
+    
+    echo "=== $username (ID: {$user->ID}) ===\n";
+    echo "Nonce: $nonce\n";
+    echo "Cookie: wordpress_logged_in_" . COOKIEHASH . "\n";
+    echo "\n";
+}
+```
+
+**Usage:**
+1. Log in as admin
+2. Visit: `http://yoursite.local/wp-content/get-test-credentials.php`
+3. Copy all nonces
+4. **DELETE THE FILE IMMEDIATELY**
+
+---
+
+#### Quick Reference: Nonce Values
+
+After obtaining nonces, replace in test commands:
+- `__NONCE_A__` = User A's nonce
+- `__NONCE_B__` = User B's nonce
+- `__NONCE_ADMIN__` = Admin's nonce
+
+**Cookie Values:**
+- `__USER_A_COOKIE__` = User A's `wordpress_logged_in_xxx` cookie value
+- `__USER_B_COOKIE__` = User B's `wordpress_logged_in_xxx` cookie value
+- `__ADMIN_COOKIE__` = Admin's `wordpress_logged_in_xxx` cookie value
 
 ---
 
@@ -69,6 +196,7 @@ wp_create_nonce('n88-rfq-nonce');
 | Installer Idempotency | T13 | Schema version remains correct | Version = 1.1.0 |
 | Admin Override | T14 | Admin can access any item | HTTP 200 |
 | Admin Override | T15 | Non-admin cannot bypass ownership | HTTP 403 |
+| Nonce Tampering | T16 | User B cannot use User A's nonce | HTTP 403/404 |
 
 ---
 
@@ -792,6 +920,95 @@ WHERE user_id = __USER_B_ID__
 -- Verify User B cannot access items they don't own
 -- (Already verified in T1/T2 - returns 403)
 ```
+
+---
+
+### T16: Nonce Tampering - User B Cannot Use User A's Nonce
+
+**Purpose:** Verify that nonces are user-specific. Even if User B steals/borrows User A's nonce, the request should fail because the nonce is tied to User A's session, not User B's cookie.
+
+**Prerequisites:**
+- User A has created an item (ID: `__ITEM_A_ID__`)
+- User A's nonce obtained: `__NONCE_A__`
+- User B's cookie obtained: `__USER_B_COOKIE__`
+
+**Step 1: User B attempts to update User A's item using User A's nonce**
+
+**Request (User B's cookie + User A's nonce):**
+```bash
+curl -X POST "http://yoursite.local/wp-admin/admin-ajax.php" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "action=n88_update_item" \
+  -d "item_id=__ITEM_A_ID__" \
+  -d "title=Stolen Nonce Attack" \
+  -d "nonce=__NONCE_A__" \
+  --cookie "wordpress_logged_in_xxx=__USER_B_COOKIE__"
+```
+
+**Expected Response:**
+```json
+{
+  "success": false,
+  "data": {
+    "message": "Security check failed. Please refresh the page and try again."
+  }
+}
+```
+
+**Expected HTTP Status:** `403 Forbidden` OR `400 Bad Request`
+
+**Why This Should Fail:**
+- WordPress nonces are tied to the logged-in user's session
+- User A's nonce is cryptographically bound to User A's user ID and session
+- When User B (different user ID) uses User A's nonce, WordPress detects the mismatch
+- The nonce verification fails before ownership checks occur
+
+**DB Verification:**
+```sql
+-- Verify item unchanged (no update occurred)
+SELECT id, title, version, updated_at 
+FROM wp_n88_items 
+WHERE id = __ITEM_A_ID__;
+
+-- Expected: 
+-- title = "User A Item" (unchanged, or whatever it was before)
+-- version unchanged
+-- updated_at unchanged
+
+-- Verify no edit records created
+SELECT * 
+FROM wp_n88_item_edits 
+WHERE item_id = __ITEM_A_ID__ 
+  AND editor_user_id = __USER_B_ID__
+  AND created_at > NOW() - INTERVAL 1 MINUTE;
+
+-- Expected: 0 rows (no recent edits by User B)
+
+-- Verify no events created for this failed attempt
+SELECT * 
+FROM wp_n88_events 
+WHERE item_id = __ITEM_A_ID__ 
+  AND actor_user_id = __USER_B_ID__
+  AND created_at > NOW() - INTERVAL 1 MINUTE;
+
+-- Expected: 0 rows (no events for failed nonce verification)
+```
+
+**Additional Verification - Check Nonce Verification Logic:**
+
+**Code Inspection:**
+```bash
+# Verify nonce verification happens before ownership checks
+grep -A 10 "verify_ajax_nonce" includes/class-n88-items.php
+```
+
+**Expected:** `N88_RFQ_Helpers::verify_ajax_nonce()` is called at the start of `ajax_update_item()`, before any ownership checks.
+
+**Security Note:**
+This test confirms that:
+1. Nonces cannot be "borrowed" between users
+2. Nonce verification happens before business logic (defense in depth)
+3. Failed nonce verification does not create audit records (prevents log pollution)
 
 ---
 
