@@ -491,7 +491,7 @@ class N88_RFQ_Installer {
             attached_at DATETIME NOT NULL,
             detached_at DATETIME NULL,
             PRIMARY KEY (id),
-            UNIQUE KEY item_material_active (item_id, material_id, detached_at),
+            UNIQUE KEY item_material (item_id, material_id),
             KEY item_id (item_id),
             KEY material_id (material_id),
             KEY is_active (is_active),
