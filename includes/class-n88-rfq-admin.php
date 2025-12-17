@@ -363,7 +363,7 @@ class N88_RFQ_Admin {
                             $prepare_values = array_merge( array( 'n88_has_client_updates', '1' ), $project_ids );
                             $update_rows = $wpdb->get_results(
                                 $wpdb->prepare(
-                                    "SELECT project_id, meta_value 
+                                "SELECT project_id, meta_value 
                                     FROM {$meta_table_safe} 
                                     WHERE meta_key = %s 
                                     AND meta_value = %s

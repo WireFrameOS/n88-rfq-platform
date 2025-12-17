@@ -234,12 +234,12 @@ class N88_RFQ_Projects {
                 }
             } else {
                 // Check file type - also check by extension for DWG files (fallback)
-                $file_ext = strtolower( pathinfo( $_FILES['n88_project_file']['name'], PATHINFO_EXTENSION ) );
-                $is_dwg = ( $file_ext === 'dwg' );
-                $is_allowed_type = in_array( $_FILES['n88_project_file']['type'], $allowed_types );
-                
-                if ( ! $is_allowed_type && ! $is_dwg ) {
-                    continue;
+            $file_ext = strtolower( pathinfo( $_FILES['n88_project_file']['name'], PATHINFO_EXTENSION ) );
+            $is_dwg = ( $file_ext === 'dwg' );
+            $is_allowed_type = in_array( $_FILES['n88_project_file']['type'], $allowed_types );
+            
+            if ( ! $is_allowed_type && ! $is_dwg ) {
+                continue;
                 }
             }
 

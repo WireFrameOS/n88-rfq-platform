@@ -6251,12 +6251,12 @@ class N88_RFQ_Frontend {
                 }
             } else {
                 // Check file type - also check by extension for DWG files (fallback)
-                $file_ext = strtolower( pathinfo( $_FILES['item_file']['name'], PATHINFO_EXTENSION ) );
-                $is_dwg = ( $file_ext === 'dwg' );
-                $is_allowed_type = in_array( $_FILES['item_file']['type'], $allowed_types );
-                
-                if ( ! $is_allowed_type && ! $is_dwg ) {
-                    continue;
+            $file_ext = strtolower( pathinfo( $_FILES['item_file']['name'], PATHINFO_EXTENSION ) );
+            $is_dwg = ( $file_ext === 'dwg' );
+            $is_allowed_type = in_array( $_FILES['item_file']['type'], $allowed_types );
+            
+            if ( ! $is_allowed_type && ! $is_dwg ) {
+                continue;
                 }
             }
 
@@ -7131,7 +7131,7 @@ class N88_RFQ_Frontend {
         
         // Use helper function for MIME type and file header validation
         $allowed_pdf_types = array( 'application/pdf' );
-        if ( ! empty( $file_tmp ) && file_exists( $file_tmp ) ) {
+            if ( ! empty( $file_tmp ) && file_exists( $file_tmp ) ) {
             $is_valid = N88_RFQ_Helpers::validate_file_mime_type(
                 $file_tmp,
                 $file_type,
@@ -7139,9 +7139,9 @@ class N88_RFQ_Frontend {
             );
             
             if ( ! $is_valid ) {
-                wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
-            }
-        } else {
+                    wp_send_json_error( array( 'message' => 'Invalid file type. Only PDF files are allowed.' ) );
+                }
+            } else {
             // Fallback: Check MIME type
             $allowed_mime_types = array( 'application/pdf' );
             if ( ! in_array( $file_type, $allowed_mime_types, true ) ) {

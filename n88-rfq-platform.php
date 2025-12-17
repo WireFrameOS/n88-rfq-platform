@@ -70,6 +70,7 @@ $includes = array(
     'includes/class-n88-rfq-timeline-events.php',
     'includes/class-n88-events.php',
     'includes/class-n88-authorization.php',
+    'includes/class-n88-intelligence.php',
     'includes/class-n88-items.php',
     'includes/class-n88-boards.php',
     'includes/class-n88-board-layout.php',

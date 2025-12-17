@@ -59,6 +59,29 @@ class N88_Items {
             'max_length' => 100,
             'whitelist' => null, // Uses $allowed_item_types
         ),
+        // Phase 1.2: Intelligence fields
+        'sourcing_type' => array(
+            'sanitizer' => 'sanitize_text_field',
+            'max_length' => 50,
+            'whitelist' => null, // Validated via N88_Intelligence
+        ),
+        'dimension_width' => array(
+            'sanitizer' => 'floatval',
+            'max_length' => null,
+        ),
+        'dimension_depth' => array(
+            'sanitizer' => 'floatval',
+            'max_length' => null,
+        ),
+        'dimension_height' => array(
+            'sanitizer' => 'floatval',
+            'max_length' => null,
+        ),
+        'dimension_units_original' => array(
+            'sanitizer' => 'sanitize_text_field',
+            'max_length' => 20,
+            'whitelist' => null, // Validated via N88_Intelligence
+        ),
     );
 
     public function __construct() {
@@ -160,9 +183,9 @@ class N88_Items {
     }
 
     /**
-     * AJAX: Update Item (core fields only)
+     * AJAX: Update Item (core fields + intelligence)
      * 
-     * Updates core fields of an item with strict allowed-fields whitelist.
+     * Phase 1.2: Updates core fields and applies intelligence (normalization, CBM, timeline derivation).
      * Unknown payload fields are rejected with 400.
      */
     public function ajax_update_item() {
@@ -205,16 +228,29 @@ class N88_Items {
             ), 400 );
         }
 
-        // Get current values for edit history
+        // Get current values for edit history and intelligence calculations
         $old_title = $item->title;
         $old_description = $item->description;
         $old_status = $item->status;
         $old_item_type = $item->item_type;
+        $old_sourcing_type = isset( $item->sourcing_type ) ? $item->sourcing_type : null;
+        $old_dimension_width_cm = isset( $item->dimension_width_cm ) ? $item->dimension_width_cm : null;
+        $old_dimension_depth_cm = isset( $item->dimension_depth_cm ) ? $item->dimension_depth_cm : null;
+        $old_dimension_height_cm = isset( $item->dimension_height_cm ) ? $item->dimension_height_cm : null;
+        $old_dimension_units_original = isset( $item->dimension_units_original ) ? $item->dimension_units_original : null;
+        $old_cbm = isset( $item->cbm ) ? $item->cbm : null;
+        $old_timeline_type = isset( $item->timeline_type ) ? $item->timeline_type : null;
 
         // Build update array with strict validation
         $update_data = array();
         $update_format = array();
         $changed_fields = array();
+        $intelligence_events = array();
+
+        // Track dimension changes for recalculation
+        $dimension_changed = false;
+        $unit_changed = false;
+        $sourcing_type_changed = false;
 
         // Process each allowed field
         foreach ( self::$allowed_update_fields as $field_name => $field_config ) {
@@ -232,8 +268,13 @@ class N88_Items {
                 $sanitized_value = sanitize_text_field( $raw_value );
             }
 
+            // Handle empty strings for nullable fields
+            if ( $sanitized_value === '' && in_array( $field_name, array( 'sourcing_type', 'dimension_units_original' ), true ) ) {
+                $sanitized_value = null;
+            }
+
             // Validate max length
-            if ( $field_config['max_length'] !== null && strlen( $sanitized_value ) > $field_config['max_length'] ) {
+            if ( $field_config['max_length'] !== null && $sanitized_value !== null && strlen( $sanitized_value ) > $field_config['max_length'] ) {
                 wp_send_json_error( array(
                     'message' => sprintf( 'Field "%s" exceeds maximum length of %d characters.', $field_name, $field_config['max_length'] ),
                 ), 400 );
@@ -247,6 +288,16 @@ class N88_Items {
             } elseif ( 'item_type' === $field_name ) {
                 if ( ! in_array( $sanitized_value, self::$allowed_item_types, true ) ) {
                     wp_send_json_error( array( 'message' => 'Invalid item type value.' ), 400 );
+                }
+            } elseif ( 'sourcing_type' === $field_name ) {
+                // Validate sourcing_type via N88_Intelligence
+                if ( $sanitized_value !== null && ! N88_Intelligence::is_valid_sourcing_type( $sanitized_value ) ) {
+                    wp_send_json_error( array( 'message' => 'Invalid sourcing type. Allowed: furniture, global_sourcing' ), 400 );
+                }
+            } elseif ( 'dimension_units_original' === $field_name ) {
+                // Validate unit via N88_Intelligence
+                if ( $sanitized_value !== null && ! N88_Intelligence::is_valid_unit( $sanitized_value ) ) {
+                    wp_send_json_error( array( 'message' => 'Invalid unit. Allowed: mm, cm, m, in' ), 400 );
                 }
             }
 
@@ -265,11 +316,33 @@ class N88_Items {
                 case 'item_type':
                     $old_value = $old_item_type;
                     break;
+                case 'sourcing_type':
+                    $old_value = $old_sourcing_type;
+                    if ( $sanitized_value !== $old_value ) {
+                        $sourcing_type_changed = true;
+                    }
+                    break;
+                case 'dimension_width':
+                case 'dimension_depth':
+                case 'dimension_height':
+                    $dimension_changed = true;
+                    // Don't store raw dimension - will normalize below
+                    continue 2; // Skip adding to update_data, will handle in normalization step
+                case 'dimension_units_original':
+                    $old_value = $old_dimension_units_original;
+                    if ( $sanitized_value !== $old_value ) {
+                        $unit_changed = true;
+                        $dimension_changed = true; // Unit change triggers dimension recalculation
+                    }
+                    break;
             }
 
             if ( $sanitized_value !== $old_value ) {
-                $update_data[ $field_name ] = $sanitized_value;
-                $update_format[] = '%s';
+                // Store user-provided fields (not calculated fields)
+                if ( ! in_array( $field_name, array( 'dimension_width', 'dimension_depth', 'dimension_height' ), true ) ) {
+                    $update_data[ $field_name ] = $sanitized_value;
+                    $update_format[] = '%s';
+                }
                 $changed_fields[] = array(
                     'field' => $field_name,
                     'old_value' => $old_value,
@@ -278,8 +351,134 @@ class N88_Items {
             }
         }
 
+        // Phase 1.2: Intelligence Processing
+        // 1. Handle dimension normalization
+        $new_dimension_width_cm = $old_dimension_width_cm;
+        $new_dimension_depth_cm = $old_dimension_depth_cm;
+        $new_dimension_height_cm = $old_dimension_height_cm;
+        $new_dimension_units_original = isset( $_POST['dimension_units_original'] ) ? sanitize_text_field( wp_unslash( $_POST['dimension_units_original'] ) ) : $old_dimension_units_original;
+        if ( empty( $new_dimension_units_original ) ) {
+            $new_dimension_units_original = null;
+        }
+
+        // If dimensions or unit provided, normalize
+        if ( $dimension_changed || isset( $_POST['dimension_width'] ) || isset( $_POST['dimension_depth'] ) || isset( $_POST['dimension_height'] ) ) {
+            $raw_width = isset( $_POST['dimension_width'] ) ? floatval( $_POST['dimension_width'] ) : null;
+            $raw_depth = isset( $_POST['dimension_depth'] ) ? floatval( $_POST['dimension_depth'] ) : null;
+            $raw_height = isset( $_POST['dimension_height'] ) ? floatval( $_POST['dimension_height'] ) : null;
+
+            // If unit provided, use it; otherwise use existing unit or default to cm
+            $unit = $new_dimension_units_original ? $new_dimension_units_original : ( $old_dimension_units_original ? $old_dimension_units_original : 'cm' );
+
+            // Normalize dimensions to cm
+            if ( $raw_width !== null ) {
+                $normalized = N88_Intelligence::normalize_to_cm( $raw_width, $unit );
+                if ( $normalized !== null ) {
+                    $new_dimension_width_cm = $normalized;
+                    if ( $new_dimension_width_cm !== $old_dimension_width_cm ) {
+                        $dimension_changed = true;
+                        $changed_fields[] = array(
+                            'field' => 'dimension_width_cm',
+                            'old_value' => $old_dimension_width_cm,
+                            'new_value' => $new_dimension_width_cm,
+                        );
+                    }
+                }
+            }
+            if ( $raw_depth !== null ) {
+                $normalized = N88_Intelligence::normalize_to_cm( $raw_depth, $unit );
+                if ( $normalized !== null ) {
+                    $new_dimension_depth_cm = $normalized;
+                    if ( $new_dimension_depth_cm !== $old_dimension_depth_cm ) {
+                        $dimension_changed = true;
+                        $changed_fields[] = array(
+                            'field' => 'dimension_depth_cm',
+                            'old_value' => $old_dimension_depth_cm,
+                            'new_value' => $new_dimension_depth_cm,
+                        );
+                    }
+                }
+            }
+            if ( $raw_height !== null ) {
+                $normalized = N88_Intelligence::normalize_to_cm( $raw_height, $unit );
+                if ( $normalized !== null ) {
+                    $new_dimension_height_cm = $normalized;
+                    if ( $new_dimension_height_cm !== $old_dimension_height_cm ) {
+                        $dimension_changed = true;
+                        $changed_fields[] = array(
+                            'field' => 'dimension_height_cm',
+                            'old_value' => $old_dimension_height_cm,
+                            'new_value' => $new_dimension_height_cm,
+                        );
+                    }
+                }
+            }
+
+            // Update normalized dimensions in database
+            if ( $dimension_changed ) {
+                $update_data['dimension_width_cm'] = $new_dimension_width_cm;
+                $update_data['dimension_depth_cm'] = $new_dimension_depth_cm;
+                $update_data['dimension_height_cm'] = $new_dimension_height_cm;
+                $update_data['dimension_units_original'] = $new_dimension_units_original;
+                $update_format[] = '%f';
+                $update_format[] = '%f';
+                $update_format[] = '%f';
+                $update_format[] = '%s';
+
+                // Log unit normalization event
+                $intelligence_events[] = 'item_unit_normalized';
+            }
+        }
+
+        // 2. Calculate CBM (recalculate if dimensions changed)
+        $new_cbm = null;
+        if ( $dimension_changed ) {
+            $new_cbm = N88_Intelligence::calculate_cbm( $new_dimension_width_cm, $new_dimension_depth_cm, $new_dimension_height_cm );
+            if ( $new_cbm !== $old_cbm ) {
+                $update_data['cbm'] = $new_cbm;
+                $update_format[] = '%f';
+                $changed_fields[] = array(
+                    'field' => 'cbm',
+                    'old_value' => $old_cbm,
+                    'new_value' => $new_cbm,
+                );
+                $intelligence_events[] = 'item_cbm_recalculated';
+            }
+        }
+
+        // 3. Derive timeline_type from sourcing_type (recalculate if sourcing_type changed)
+        $new_sourcing_type = isset( $update_data['sourcing_type'] ) ? $update_data['sourcing_type'] : $old_sourcing_type;
+        $new_timeline_type = null;
+        if ( $sourcing_type_changed || $new_sourcing_type !== null ) {
+            $new_timeline_type = N88_Intelligence::derive_timeline_type( $new_sourcing_type );
+            if ( $new_timeline_type !== $old_timeline_type ) {
+                $update_data['timeline_type'] = $new_timeline_type;
+                $update_format[] = '%s';
+                $changed_fields[] = array(
+                    'field' => 'timeline_type',
+                    'old_value' => $old_timeline_type,
+                    'new_value' => $new_timeline_type,
+                );
+                $intelligence_events[] = 'item_timeline_type_derived';
+            }
+        }
+
+        // Log sourcing_type events
+        if ( $sourcing_type_changed ) {
+            if ( $old_sourcing_type === null ) {
+                $intelligence_events[] = 'item_sourcing_type_set';
+            } else {
+                $intelligence_events[] = 'item_sourcing_type_changed';
+            }
+        }
+
+        // Log dimension changed event
+        if ( $dimension_changed ) {
+            $intelligence_events[] = 'item_dimension_changed';
+        }
+
         // If no changes, return success
-        if ( empty( $update_data ) ) {
+        if ( empty( $update_data ) && empty( $changed_fields ) ) {
             wp_send_json_success( array(
                 'message' => 'No changes to update.',
                 'item_id' => $item_id,
@@ -319,8 +518,8 @@ class N88_Items {
                 array(
                     'item_id'        => $item_id,
                     'field_name'     => $change['field'],
-                    'old_value'      => $change['old_value'],
-                    'new_value'      => $change['new_value'],
+                    'old_value'      => $change['old_value'] !== null ? (string) $change['old_value'] : null,
+                    'new_value'      => $change['new_value'] !== null ? (string) $change['new_value'] : null,
                     'editor_user_id' => $user_id,
                     'editor_role'    => $user_role,
                     'created_at'     => $now,
@@ -329,24 +528,57 @@ class N88_Items {
             );
         }
 
-        // Log event
-        n88_log_event(
-            'item_field_changed',
-            'item',
-            array(
-                'object_id' => $item_id,
-                'item_id'   => $item_id,
-                'payload_json' => array(
-                    'changed_fields' => array_column( $changed_fields, 'field' ),
-                    'version'        => $update_data['version'],
-                ),
-            )
-        );
+        // Log intelligence events
+        foreach ( $intelligence_events as $event_type ) {
+            n88_log_event(
+                $event_type,
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'sourcing_type' => $new_sourcing_type,
+                        'timeline_type' => $new_timeline_type,
+                        'dimension_width_cm' => $new_dimension_width_cm,
+                        'dimension_depth_cm' => $new_dimension_depth_cm,
+                        'dimension_height_cm' => $new_dimension_height_cm,
+                        'dimension_units_original' => $new_dimension_units_original,
+                        'cbm' => $new_cbm,
+                    ),
+                )
+            );
+        }
+
+        // Log general item_field_changed event if non-intelligence fields changed
+        $non_intelligence_fields = array();
+        foreach ( $changed_fields as $change ) {
+            if ( ! in_array( $change['field'], array( 'dimension_width_cm', 'dimension_depth_cm', 'dimension_height_cm', 'dimension_units_original', 'cbm', 'timeline_type' ), true ) ) {
+                $non_intelligence_fields[] = $change['field'];
+            }
+        }
+        if ( ! empty( $non_intelligence_fields ) ) {
+            n88_log_event(
+                'item_field_changed',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'changed_fields' => $non_intelligence_fields,
+                        'version'        => $update_data['version'],
+                    ),
+                )
+            );
+        }
 
         wp_send_json_success( array(
             'item_id' => $item_id,
             'message' => 'Item updated successfully.',
             'changed_fields' => array_column( $changed_fields, 'field' ),
+            'intelligence' => array(
+                'cbm' => $new_cbm,
+                'timeline_type' => $new_timeline_type,
+            ),
         ) );
     }
 

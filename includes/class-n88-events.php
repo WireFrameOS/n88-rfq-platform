@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class N88_Events {
 
     /**
-     * Allowed event types for Phase 1.1
+     * Allowed event types for Phase 1.1 + 1.2
      * 
      * @var array
      */
@@ -26,6 +26,13 @@ class N88_Events {
         'board_created',
         'item_added_to_board',
         'board_layout_updated',
+        // Phase 1.2: Intelligence events
+        'item_sourcing_type_set',
+        'item_sourcing_type_changed',
+        'item_timeline_type_derived',
+        'item_dimension_changed',
+        'item_cbm_recalculated',
+        'item_unit_normalized',
     );
 
     /**
