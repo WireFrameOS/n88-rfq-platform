@@ -557,7 +557,18 @@ class N88_RFQ_Installer {
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_units_original VARCHAR(20) NULL AFTER dimension_height_cm" );
         }
 
-        // Add cbm column (after dimension_units_original)
+        // Add original dimension value columns (store raw user input)
+        if ( ! in_array( 'dimension_width_original', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_width_original DECIMAL(10,2) NULL AFTER dimension_units_original" );
+        }
+        if ( ! in_array( 'dimension_depth_original', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_depth_original DECIMAL(10,2) NULL AFTER dimension_width_original" );
+        }
+        if ( ! in_array( 'dimension_height_original', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_height_original DECIMAL(10,2) NULL AFTER dimension_depth_original" );
+        }
+
+        // Add cbm column (after dimension_height_original)
         if ( ! in_array( 'cbm', $items_columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN cbm DECIMAL(10,6) NULL AFTER dimension_units_original" );
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY cbm (cbm)" );
