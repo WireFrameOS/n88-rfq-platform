@@ -487,26 +487,34 @@ class N88_Items {
             }
             
             // Update normalized dimensions and original values in database
-            if ( $dimension_changed || $raw_width !== null || $raw_depth !== null || $raw_height !== null ) {
-                // Store normalized cm values
+            // Only update fields where raw values were provided (to preserve NULL when not provided)
+            if ( $raw_width !== null ) {
+                // User provided width - update normalized and original (even if NULL after validation)
                 $update_data['dimension_width_cm'] = $new_dimension_width_cm;
-                $update_data['dimension_depth_cm'] = $new_dimension_depth_cm;
-                $update_data['dimension_height_cm'] = $new_dimension_height_cm;
-                // Store original raw values
                 $update_data['dimension_width_original'] = $new_dimension_width_original;
+                $update_format[] = ( $new_dimension_width_cm !== null ) ? '%f' : null;
+                $update_format[] = ( $new_dimension_width_original !== null ) ? '%f' : null;
+            }
+            if ( $raw_depth !== null ) {
+                // User provided depth - update normalized and original
+                $update_data['dimension_depth_cm'] = $new_dimension_depth_cm;
                 $update_data['dimension_depth_original'] = $new_dimension_depth_original;
+                $update_format[] = ( $new_dimension_depth_cm !== null ) ? '%f' : null;
+                $update_format[] = ( $new_dimension_depth_original !== null ) ? '%f' : null;
+            }
+            if ( $raw_height !== null ) {
+                // User provided height - update normalized and original
+                $update_data['dimension_height_cm'] = $new_dimension_height_cm;
                 $update_data['dimension_height_original'] = $new_dimension_height_original;
-                // Store unit (always set, defaults to 'cm' if missing)
+                $update_format[] = ( $new_dimension_height_cm !== null ) ? '%f' : null;
+                $update_format[] = ( $new_dimension_height_original !== null ) ? '%f' : null;
+            }
+            // Store unit if any dimension was provided (always set, defaults to 'cm' if missing)
+            if ( $raw_width !== null || $raw_depth !== null || $raw_height !== null ) {
                 $update_data['dimension_units_original'] = $new_dimension_units_original;
-                $update_format[] = '%f';
-                $update_format[] = '%f';
-                $update_format[] = '%f';
-                $update_format[] = '%f';
-                $update_format[] = '%f';
-                $update_format[] = '%f';
                 $update_format[] = '%s';
                 
-                // Log unit normalization event (with flag if unit was defaulted)
+                // Log unit normalization event
                 $intelligence_events[] = 'item_unit_normalized';
             }
         } else {
@@ -525,8 +533,14 @@ class N88_Items {
         if ( $dimension_changed ) {
             $new_cbm = N88_Intelligence::calculate_cbm( $new_dimension_width_cm, $new_dimension_depth_cm, $new_dimension_height_cm );
             if ( $new_cbm !== $old_cbm ) {
-                $update_data['cbm'] = $new_cbm;
-                $update_format[] = '%f';
+                // Store CBM (only if not NULL to preserve NULL in DB, not 0)
+                if ( $new_cbm !== null ) {
+                    $update_data['cbm'] = $new_cbm;
+                    $update_format[] = '%f';
+                } else {
+                    $update_data['cbm'] = null;
+                    $update_format[] = null; // NULL format for NULL value
+                }
                 $changed_fields[] = array(
                     'field' => 'cbm',
                     'old_value' => $old_cbm,
