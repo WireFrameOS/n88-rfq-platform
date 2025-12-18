@@ -385,20 +385,34 @@ class N88_Item_Materials {
         $files_table = $wpdb->prefix . 'n88_item_files';
         $now = current_time( 'mysql' );
 
-        // Check if file is already linked to this item (active or detached)
-        // Get the most recent link (active or detached)
-        $existing = $wpdb->get_row(
+        // Check for active link first (UNIQUE constraint: item_id, file_id, detached_at=NULL)
+        $active_link = $wpdb->get_row(
             $wpdb->prepare(
-                "SELECT * FROM {$files_table} WHERE item_id = %d AND file_id = %d ORDER BY attached_at DESC LIMIT 1",
+                "SELECT * FROM {$files_table} WHERE item_id = %d AND file_id = %d AND detached_at IS NULL LIMIT 1",
                 $item_id,
                 $file_id
             )
         );
 
+        // Check for detached link (most recent) if no active link
+        $detached_link = null;
+        if ( ! $active_link ) {
+            $detached_link = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM {$files_table} WHERE item_id = %d AND file_id = %d AND detached_at IS NOT NULL ORDER BY attached_at DESC LIMIT 1",
+                    $item_id,
+                    $file_id
+                )
+            );
+        }
+
+        $existing = $active_link ? $active_link : $detached_link;
+        $link_id = null;
+        $is_reattach = false;
+
         if ( $existing ) {
-            // File already linked - check if it's detached
-            if ( $existing->detached_at === null ) {
-                // Already actively linked - check if it's already materials_in_mind type
+            if ( $active_link ) {
+                // Active link exists
                 if ( $existing->attachment_type === 'materials_in_mind' ) {
                     // Already linked as materials-in-mind - return success (idempotent)
                     wp_send_json_success( array(
@@ -430,28 +444,34 @@ class N88_Item_Materials {
                 }
             } else {
                 // Previously detached - reattach by updating existing row
+                // First update non-NULL fields
                 $updated = $wpdb->update(
                     $files_table,
                     array(
                         'attachment_type' => 'materials_in_mind',
                         'attached_by_user_id' => $user_id,
                         'attached_at' => $now,
-                        'detached_at' => null,
                     ),
                     array( 'id' => $existing->id ),
-                    array( '%s', '%d', '%s', null ),
+                    array( '%s', '%d', '%s' ),
                     array( '%d' )
                 );
 
                 if ( $updated === false ) {
-                    wp_send_json_error( array( 'message' => 'Failed to reattach file link.' ), 500 );
+                    wp_send_json_error( array( 'message' => 'Failed to update file link.' ), 500 );
                 }
+
+                // Explicitly set detached_at = NULL via separate query (NULL-safe)
+                $wpdb->query( $wpdb->prepare(
+                    "UPDATE {$files_table} SET detached_at = NULL WHERE id = %d",
+                    $existing->id
+                ) );
 
                 $link_id = $existing->id;
                 $is_reattach = true;
             }
         } else {
-            // New link - insert new row
+            // New link - insert new row (omit detached_at from insert, it defaults to NULL)
             $inserted = $wpdb->insert(
                 $files_table,
                 array(
@@ -461,9 +481,8 @@ class N88_Item_Materials {
                     'attached_by_user_id' => $user_id,
                     'attached_at' => $now,
                     'display_order' => 0,
-                    'detached_at' => null,
                 ),
-                array( '%d', '%d', '%s', '%d', '%s', '%d', null )
+                array( '%d', '%d', '%s', '%d', '%s', '%d' )
             );
 
             if ( $inserted === false ) {
@@ -475,7 +494,13 @@ class N88_Item_Materials {
         }
 
         // Log event (only if actually linked or updated, not if already linked)
-        if ( ! ( $existing && $existing->detached_at === null && $existing->attachment_type === 'materials_in_mind' ) ) {
+        // $link_id is guaranteed to be set at this point (from insert_id or existing->id)
+        if ( ! ( $active_link && $active_link->attachment_type === 'materials_in_mind' ) ) {
+            // Ensure $link_id is set before logging
+            if ( $link_id === null ) {
+                wp_send_json_error( array( 'message' => 'Internal error: link_id not set.' ), 500 );
+            }
+
             n88_log_event(
                 'materials_in_mind_linked_to_item',
                 'item',
