@@ -836,6 +836,17 @@ class N88_RFQ_Installer {
                 $wpdb->query( "ALTER TABLE {$quotes_table_safe} ADD COLUMN quote_items LONGTEXT NULL AFTER client_message" );
             }
         }
+
+        // Milestone 1.3: Board layout snapshot persistence
+        $boards_table = $wpdb->prefix . 'n88_boards';
+        if ( self::table_exists( $boards_table ) ) {
+            $boards_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $boards_table );
+            $boards_columns = $wpdb->get_col( "DESCRIBE {$boards_table_safe}" );
+
+            if ( ! in_array( 'latest_layout_json', $boards_columns, true ) ) {
+                $wpdb->query( "ALTER TABLE {$boards_table_safe} ADD COLUMN latest_layout_json LONGTEXT NULL AFTER deleted_at" );
+            }
+        }
     }
 
     /**

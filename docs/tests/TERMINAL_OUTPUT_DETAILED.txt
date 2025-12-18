@@ -1,0 +1,31 @@
+PHPUnit 11.5.46 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.2.26
+Configuration: D:\Muzamil Code\n88-rfq-platform\n88-rfq-plugin\phpunit.xml
+
+..................                                                18 / 18 (100%)
+
+Time: 00:00.037, Memory: 8.00 MB
+
+Intelligence
+ ✔ Normalize mm to cm
+ ✔ Normalize cm to cm
+ ✔ Normalize m to cm
+ ✔ Normalize in to cm
+ ✔ Normalize invalid unit
+ ✔ Normalize negative value
+ ✔ Calculate cbm valid
+ ✔ Calculate cbm missing dimension
+ ✔ Calculate cbm zero dimension
+ ✔ Calculate cbm negative dimension
+ ✔ Derive timeline type furniture
+ ✔ Derive timeline type global sourcing
+ ✔ Derive timeline type invalid
+ ✔ Derive timeline type null
+ ✔ Is valid unit
+ ✔ Is valid sourcing type
+ ✔ Get supported units
+ ✔ Get allowed sourcing types
+
+OK (18 tests, 34 assertions)
+
