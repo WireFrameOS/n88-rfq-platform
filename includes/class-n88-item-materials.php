@@ -21,8 +21,8 @@ class N88_Item_Materials {
     public function __construct() {
         add_action( 'wp_ajax_n88_attach_material', array( $this, 'ajax_attach_material' ) );
         add_action( 'wp_ajax_n88_detach_material', array( $this, 'ajax_detach_material' ) );
-        // Note: materials-in-mind file linking will be handled via existing item-file relationship
-        // No new upload endpoint in 1.2.3 (out of scope)
+        // Phase 1.2.4: Materials-in-Mind linking (no uploads)
+        add_action( 'wp_ajax_n88_link_materials_in_mind', array( $this, 'ajax_link_materials_in_mind' ) );
     }
 
     /**
@@ -55,6 +55,40 @@ class N88_Item_Materials {
         );
 
         return $material;
+    }
+
+    /**
+     * Verify file ownership (user owns file OR is admin)
+     * 
+     * @param int $file_id WordPress attachment ID
+     * @param int $user_id User ID
+     * @return object|null Attachment post object if authorized, null otherwise
+     */
+    private function verify_file_access( $file_id, $user_id ) {
+        $file_id = absint( $file_id );
+        $user_id = absint( $user_id );
+
+        if ( $file_id === 0 || $user_id === 0 ) {
+            return null;
+        }
+
+        // Get attachment post
+        $attachment = get_post( $file_id );
+        if ( ! $attachment || $attachment->post_type !== 'attachment' ) {
+            return null;
+        }
+
+        // Admin override: admins can access any file
+        if ( current_user_can( 'manage_options' ) ) {
+            return $attachment;
+        }
+
+        // Ownership check: user must own the file
+        if ( (int) $attachment->post_author === $user_id ) {
+            return $attachment;
+        }
+
+        return null;
     }
 
     /**
@@ -299,6 +333,172 @@ class N88_Item_Materials {
             'message' => 'Material detached successfully.',
             'item_id' => $item_id,
             'material_id' => $material_id,
+        ) );
+    }
+
+    /**
+     * Link an already-uploaded file to an item as "materials-in-mind" reference
+     * 
+     * Phase 1.2.4: Materials-in-Mind Linking (No Uploads)
+     * 
+     * POST params:
+     * - nonce: AJAX nonce
+     * - item_id: Item ID (required)
+     * - file_id: WordPress attachment ID (required)
+     */
+    public function ajax_link_materials_in_mind() {
+        // Verify nonce
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
+        // Verify user is logged in
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $user_id = get_current_user_id();
+
+        // Validate required fields
+        if ( ! isset( $_POST['item_id'] ) || ! isset( $_POST['file_id'] ) ) {
+            wp_send_json_error( array( 'message' => 'Item ID and File ID are required.' ), 400 );
+        }
+
+        $item_id = absint( $_POST['item_id'] );
+        $file_id = absint( $_POST['file_id'] );
+
+        if ( $item_id === 0 || $file_id === 0 ) {
+            wp_send_json_error( array( 'message' => 'Invalid Item ID or File ID.' ), 400 );
+        }
+
+        // Verify item access (ownership or admin)
+        $item = $this->verify_item_access( $item_id, $user_id );
+        if ( ! $item ) {
+            wp_send_json_error( array( 'message' => 'Item not found or access denied.' ), 403 );
+        }
+
+        // Verify file access (ownership or admin)
+        $file = $this->verify_file_access( $file_id, $user_id );
+        if ( ! $file ) {
+            wp_send_json_error( array( 'message' => 'File not found or access denied.' ), 403 );
+        }
+
+        global $wpdb;
+        $files_table = $wpdb->prefix . 'n88_item_files';
+        $now = current_time( 'mysql' );
+
+        // Check if file is already linked to this item (active or detached)
+        // Get the most recent link (active or detached)
+        $existing = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$files_table} WHERE item_id = %d AND file_id = %d ORDER BY attached_at DESC LIMIT 1",
+                $item_id,
+                $file_id
+            )
+        );
+
+        if ( $existing ) {
+            // File already linked - check if it's detached
+            if ( $existing->detached_at === null ) {
+                // Already actively linked - check if it's already materials_in_mind type
+                if ( $existing->attachment_type === 'materials_in_mind' ) {
+                    // Already linked as materials-in-mind - return success (idempotent)
+                    wp_send_json_success( array(
+                        'message' => 'File is already linked as materials-in-mind.',
+                        'item_id' => $item_id,
+                        'file_id' => $file_id,
+                        'link_id' => $existing->id,
+                    ) );
+                } else {
+                    // Linked with different type - update to materials_in_mind
+                    $updated = $wpdb->update(
+                        $files_table,
+                        array(
+                            'attachment_type' => 'materials_in_mind',
+                            'attached_by_user_id' => $user_id,
+                            'attached_at' => $now,
+                        ),
+                        array( 'id' => $existing->id ),
+                        array( '%s', '%d', '%s' ),
+                        array( '%d' )
+                    );
+
+                    if ( $updated === false ) {
+                        wp_send_json_error( array( 'message' => 'Failed to update file link.' ), 500 );
+                    }
+
+                    $link_id = $existing->id;
+                    $is_reattach = false;
+                }
+            } else {
+                // Previously detached - reattach by updating existing row
+                $updated = $wpdb->update(
+                    $files_table,
+                    array(
+                        'attachment_type' => 'materials_in_mind',
+                        'attached_by_user_id' => $user_id,
+                        'attached_at' => $now,
+                        'detached_at' => null,
+                    ),
+                    array( 'id' => $existing->id ),
+                    array( '%s', '%d', '%s', null ),
+                    array( '%d' )
+                );
+
+                if ( $updated === false ) {
+                    wp_send_json_error( array( 'message' => 'Failed to reattach file link.' ), 500 );
+                }
+
+                $link_id = $existing->id;
+                $is_reattach = true;
+            }
+        } else {
+            // New link - insert new row
+            $inserted = $wpdb->insert(
+                $files_table,
+                array(
+                    'item_id' => $item_id,
+                    'file_id' => $file_id,
+                    'attachment_type' => 'materials_in_mind',
+                    'attached_by_user_id' => $user_id,
+                    'attached_at' => $now,
+                    'display_order' => 0,
+                    'detached_at' => null,
+                ),
+                array( '%d', '%d', '%s', '%d', '%s', '%d', null )
+            );
+
+            if ( $inserted === false ) {
+                wp_send_json_error( array( 'message' => 'Failed to link file to item.' ), 500 );
+            }
+
+            $link_id = $wpdb->insert_id;
+            $is_reattach = false;
+        }
+
+        // Log event (only if actually linked or updated, not if already linked)
+        if ( ! ( $existing && $existing->detached_at === null && $existing->attachment_type === 'materials_in_mind' ) ) {
+            n88_log_event(
+                'materials_in_mind_linked_to_item',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'payload_json' => array(
+                        'file_id' => $file_id,
+                        'link_id' => $link_id,
+                        'attachment_type' => 'materials_in_mind',
+                        'linked_by_user_id' => $user_id,
+                        'file_url' => wp_get_attachment_url( $file_id ),
+                        'is_reattach' => $is_reattach,
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'message' => 'File linked as materials-in-mind successfully.',
+            'item_id' => $item_id,
+            'file_id' => $file_id,
+            'link_id' => $link_id,
         ) );
     }
 }

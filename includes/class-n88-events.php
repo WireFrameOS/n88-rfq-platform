@@ -40,7 +40,8 @@ class N88_Events {
         'material_deactivated',
         'material_attached_to_item',
         'material_detached_from_item',
-        'materials_in_mind_uploaded',
+        // Phase 1.2.4: Materials-in-Mind linking
+        'materials_in_mind_linked_to_item',
     );
 
     /**
