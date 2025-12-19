@@ -6,6 +6,10 @@
  * Pure state management for board layout. No side effects, no API calls,
  * no rendering logic. Fully serializable and deterministic.
  * 
+ * Architecture (Milestone 1.3):
+ * - Backend API: WordPress (PHP) wp_ajax endpoints (layout-only, verify_ajax_nonce() + ownership enforced)
+ * - Data persistence: MySQL LONGTEXT (single latest snapshot JSON) + immutable events for audit / rewind later
+ * 
  * @requires zustand - Must be loaded as UMD/global: window.zustand.create
  * 
  * @typedef {Object} BoardItemLayout
