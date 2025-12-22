@@ -2821,7 +2821,12 @@ class N88_RFQ_Admin {
                 // BoardCanvas Component
                 const BoardCanvas = function({ boardId, onLayoutChanged }) {
                     var items = useBoardStore(function(state) { return state.items; });
-                    var getItems = useBoardStore(function(state) { return function() { return state.items; }; });
+                    
+                    // Use Zustand's store getter to avoid stale closures
+                    var getItems = React.useCallback(
+                        function() { return window.N88StudioOS.useBoardStore.getState().items; },
+                        []
+                    );
                     
                     // Initialize debounced save hook (must be called unconditionally for React hooks rules)
                     // Pass boardId (can be 0 for demo mode - hook will handle it gracefully)
