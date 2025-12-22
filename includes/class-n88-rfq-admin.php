@@ -2680,6 +2680,25 @@ class N88_RFQ_Admin {
                     
                     const x = useMotionValue(item.x);
                     const y = useMotionValue(item.y);
+                    
+                    // Local state for resize (live preview during resize)
+                    const resizeState = React.useState({
+                        isResizing: false,
+                        startX: 0,
+                        startY: 0,
+                        startWidth: 0,
+                        startHeight: 0,
+                    });
+                    const setResizeState = resizeState[1];
+                    const resizeStateValue = resizeState[0];
+                    
+                    // Minimum dimensions
+                    const MIN_WIDTH = 100;
+                    const MIN_HEIGHT = 100;
+                    
+                    // Current dimensions (use resize preview if resizing, otherwise use store)
+                    const currentWidth = resizeStateValue.isResizing ? resizeStateValue.currentWidth : item.width;
+                    const currentHeight = resizeStateValue.isResizing ? resizeStateValue.currentHeight : item.height;
 
                     React.useEffect(() => {
                         x.set(item.x);
@@ -2695,21 +2714,85 @@ class N88_RFQ_Admin {
                         const newY = y.get();
                         updateLayout(item.id, { x: newX, y: newY });
                         if (onLayoutChanged) {
-                            onLayoutChanged({ id: item.id, x: newX, y: newY, width: item.width, height: item.height, displayMode: item.displayMode });
+                            onLayoutChanged({ id: item.id, x: newX, y: newY, width: currentWidth, height: currentHeight, displayMode: item.displayMode });
                         }
                     };
+                    
+                    // Resize start handler
+                    const handleResizeStart = function(e) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        bringToFront(item.id);
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        setResizeState({
+                            isResizing: true,
+                            startX: startX,
+                            startY: startY,
+                            startWidth: item.width,
+                            startHeight: item.height,
+                            currentWidth: item.width,
+                            currentHeight: item.height,
+                        });
+                    };
+                    
+                    // Resize move handler (live preview only - NO saves)
+                    React.useEffect(function() {
+                        if (!resizeStateValue.isResizing) return;
+                        
+                        const handleMouseMove = function(e) {
+                            const deltaX = e.clientX - resizeStateValue.startX;
+                            const deltaY = e.clientY - resizeStateValue.startY;
+                            let newWidth = resizeStateValue.startWidth + deltaX;
+                            let newHeight = resizeStateValue.startHeight + deltaY;
+                            newWidth = Math.max(newWidth, MIN_WIDTH);
+                            newHeight = Math.max(newHeight, MIN_HEIGHT);
+                            setResizeState(function(prev) {
+                                return {
+                                    ...prev,
+                                    currentWidth: newWidth,
+                                    currentHeight: newHeight,
+                                };
+                            });
+                        };
+                        
+                        const handleMouseUp = function() {
+                            setResizeState(function(prev) {
+                                const finalWidth = prev.currentWidth;
+                                const finalHeight = prev.currentHeight;
+                                updateLayout(item.id, { width: finalWidth, height: finalHeight });
+                                if (onLayoutChanged) {
+                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: finalWidth, height: finalHeight, displayMode: item.displayMode });
+                                }
+                                return {
+                                    isResizing: false,
+                                    startX: 0,
+                                    startY: 0,
+                                    startWidth: 0,
+                                    startHeight: 0,
+                                };
+                            });
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                        return function() {
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                    }, [resizeStateValue.isResizing, resizeStateValue.startX, resizeStateValue.startY, resizeStateValue.startWidth, resizeStateValue.startHeight, item.id, item.x, item.y, item.displayMode, updateLayout, onLayoutChanged]);
 
                     return React.createElement(motion.div, {
                         layoutId: 'board-item-' + item.id,
-                        style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: item.z, cursor: 'grab' },
-                        drag: true,
+                        style: { position: 'absolute', x: x, y: y, width: currentWidth, height: currentHeight, zIndex: item.z, cursor: resizeStateValue.isResizing ? 'nwse-resize' : 'grab' },
+                        drag: !resizeStateValue.isResizing,
                         dragMomentum: false,
                         onDragStart: handleDragStart,
                         onDragEnd: handleDragEnd,
                         whileDrag: { cursor: 'grabbing', scale: 1.05 },
                         transition: { layout: { duration: 0.3, ease: 'easeOut' } },
                     }, React.createElement('div', {
-                        style: { width: '100%', height: '100%', backgroundColor: '#ffffff', border: '1px solid #e0e0e0', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)' },
+                        style: { width: '100%', height: '100%', backgroundColor: '#ffffff', border: '1px solid #e0e0e0', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', position: 'relative' },
                     }, React.createElement('div', {
                         style: { 
                             width: '100%', 
@@ -2734,7 +2817,7 @@ class N88_RFQ_Admin {
                             // Trigger save after animation completes (350ms)
                             setTimeout(function() {
                                 if (onLayoutChanged) {
-                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: 'full' });
+                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: currentWidth, height: currentHeight, displayMode: 'full' });
                                 }
                             }, 350);
                         },
@@ -2771,12 +2854,37 @@ class N88_RFQ_Admin {
                             // Trigger save after animation completes (350ms)
                             setTimeout(function() {
                                 if (onLayoutChanged) {
-                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: 'photo_only' });
+                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: currentWidth, height: currentHeight, displayMode: 'photo_only' });
                                 }
                             }, 350);
                         },
                         style: { marginTop: '8px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer', backgroundColor: '#0073aa', color: '#fff', border: 'none', borderRadius: '3px' },
-                    }, 'Toggle: Photo Only')))));
+                    }, 'Toggle: Photo Only'))),
+                    // Resize handle (SE corner)
+                    React.createElement('div', {
+                        onMouseDown: handleResizeStart,
+                        style: {
+                            position: 'absolute',
+                            bottom: 0,
+                            right: 0,
+                            width: '16px',
+                            height: '16px',
+                            cursor: 'nwse-resize',
+                            backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                            borderTopLeftRadius: '8px',
+                            zIndex: 20,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        },
+                    }, React.createElement('div', {
+                        style: {
+                            width: '8px',
+                            height: '8px',
+                            borderRight: '2px solid rgba(0, 0, 0, 0.3)',
+                            borderBottom: '2px solid rgba(0, 0, 0, 0.3)',
+                        },
+                    }))));
                 };
 
                 // UnsyncedToast Component

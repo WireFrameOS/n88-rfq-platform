@@ -28,12 +28,29 @@ const BoardItem = ({ item, onLayoutChanged }) => {
     // Motion values for drag position
     const x = useMotionValue(item.x);
     const y = useMotionValue(item.y);
+    
+    // Local state for resize (live preview during resize)
+    const [resizeState, setResizeState] = React.useState({
+        isResizing: false,
+        startX: 0,
+        startY: 0,
+        startWidth: 0,
+        startHeight: 0,
+    });
+    
+    // Minimum dimensions (enforced during resize)
+    const MIN_WIDTH = 100;
+    const MIN_HEIGHT = 100;
 
     // Update motion values when item position changes from store
     React.useEffect(() => {
         x.set(item.x);
         y.set(item.y);
     }, [item.x, item.y, x, y]);
+    
+    // Current dimensions (use resize preview if resizing, otherwise use store)
+    const currentWidth = resizeState.isResizing ? resizeState.currentWidth : item.width;
+    const currentHeight = resizeState.isResizing ? resizeState.currentHeight : item.height;
 
     const handleDragStart = () => {
         // Bring item to front on drag start
@@ -51,18 +68,109 @@ const BoardItem = ({ item, onLayoutChanged }) => {
             y: newY,
         });
 
-        // Emit layoutChanged callback to parent (NO persistence, NO API calls)
+        // Emit layoutChanged callback to parent (triggers debounced save)
         if (onLayoutChanged) {
             onLayoutChanged({
                 id: item.id,
                 x: newX,
                 y: newY,
-                width: item.width,
-                height: item.height,
+                width: currentWidth,
+                height: currentHeight,
                 displayMode: item.displayMode,
             });
         }
     };
+    
+    // Resize start handler
+    const handleResizeStart = (e) => {
+        e.stopPropagation(); // Prevent drag from starting
+        e.preventDefault();
+        
+        // Bring item to front
+        bringToFront(item.id);
+        
+        // Get initial mouse position and item dimensions
+        const startX = e.clientX;
+        const startY = e.clientY;
+        
+        setResizeState({
+            isResizing: true,
+            startX: startX,
+            startY: startY,
+            startWidth: item.width,
+            startHeight: item.height,
+            currentWidth: item.width,
+            currentHeight: item.height,
+        });
+    };
+    
+    // Resize move handler (live preview only - NO saves)
+    React.useEffect(() => {
+        if (!resizeState.isResizing) return;
+        
+        const handleMouseMove = (e) => {
+            // Calculate new dimensions
+            const deltaX = e.clientX - resizeState.startX;
+            const deltaY = e.clientY - resizeState.startY;
+            
+            let newWidth = resizeState.startWidth + deltaX;
+            let newHeight = resizeState.startHeight + deltaY;
+            
+            // Enforce minimum dimensions
+            newWidth = Math.max(newWidth, MIN_WIDTH);
+            newHeight = Math.max(newHeight, MIN_HEIGHT);
+            
+            // Update local state for live preview (NO API calls, NO saves)
+            setResizeState(prev => ({
+                ...prev,
+                currentWidth: newWidth,
+                currentHeight: newHeight,
+            }));
+        };
+        
+        const handleMouseUp = () => {
+            // Get final dimensions from state
+            setResizeState(prev => {
+                const finalWidth = prev.currentWidth;
+                const finalHeight = prev.currentHeight;
+                
+                // Update store with final dimensions
+                updateLayout(item.id, {
+                    width: finalWidth,
+                    height: finalHeight,
+                });
+                
+                // Emit layoutChanged callback to parent (triggers existing debounced save from 1.3.5)
+                if (onLayoutChanged) {
+                    onLayoutChanged({
+                        id: item.id,
+                        x: item.x,
+                        y: item.y,
+                        width: finalWidth,
+                        height: finalHeight,
+                        displayMode: item.displayMode,
+                    });
+                }
+                
+                // Clear resize state
+                return {
+                    isResizing: false,
+                    startX: 0,
+                    startY: 0,
+                    startWidth: 0,
+                    startHeight: 0,
+                };
+            });
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [resizeState.isResizing, resizeState.startX, resizeState.startY, resizeState.startWidth, resizeState.startHeight, item.id, item.x, item.y, item.displayMode, updateLayout, onLayoutChanged]);
 
     return (
         <motion.div
@@ -71,10 +179,10 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                 position: 'absolute',
                 x,
                 y,
-                width: item.width,
-                height: item.height,
+                width: currentWidth,
+                height: currentHeight,
                 zIndex: item.z,
-                cursor: 'grab',
+                cursor: resizeState.isResizing ? 'nwse-resize' : 'grab',
             }}
             drag
             dragMomentum={false}
@@ -220,6 +328,35 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                         </motion.div>
                     )}
                 </AnimatePresence>
+                
+                {/* Resize handle (SE corner) */}
+                <div
+                    onMouseDown={handleResizeStart}
+                    style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        right: 0,
+                        width: '16px',
+                        height: '16px',
+                        cursor: 'nwse-resize',
+                        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                        borderTopLeftRadius: '8px',
+                        zIndex: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    {/* Visual indicator */}
+                    <div
+                        style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRight: '2px solid rgba(0, 0, 0, 0.3)',
+                            borderBottom: '2px solid rgba(0, 0, 0, 0.3)',
+                        }}
+                    />
+                </div>
             </div>
         </motion.div>
     );
