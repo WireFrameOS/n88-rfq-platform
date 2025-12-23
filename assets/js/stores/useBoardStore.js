@@ -19,6 +19,7 @@
  * @property {number} z - Z-index (stacking order)
  * @property {number} width - Item width in pixels
  * @property {number} height - Item height in pixels
+ * @property {'S'|'D'|'L'|'XL'|string} sizeKey - Size preset key (S/D/L/XL) for forward compatibility
  * @property {'photo_only'|'full'} displayMode - Display mode
  */
 
@@ -167,6 +168,7 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 'z',
                 'width',
                 'height',
+                'sizeKey',
                 'displayMode',
             ];
 

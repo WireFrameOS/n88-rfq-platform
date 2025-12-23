@@ -53,9 +53,15 @@ const BoardItem = ({ item, onLayoutChanged }) => {
     }, [item.displayMode]);
 
     // Determine current size preset based on item dimensions
+    // Prefer sizeKey if available (for forward compatibility), otherwise match by dimensions
     const getCurrentSize = () => {
+        // If sizeKey exists and is valid, use it
+        if (item.sizeKey && CARD_SIZES[item.sizeKey]) {
+            return item.sizeKey;
+        }
+        
+        // Fallback: match by dimensions (for backward compatibility)
         const { width, height } = item;
-        // Find matching preset (with small tolerance for floating point)
         for (const [size, dims] of Object.entries(CARD_SIZES)) {
             if (Math.abs(width - dims.w) < 1 && Math.abs(height - dims.h) < 1) {
                 return size;
@@ -81,10 +87,11 @@ const BoardItem = ({ item, onLayoutChanged }) => {
         const newSize = CARD_SIZES[size];
         if (!newSize) return;
 
-        // Update layout with exact preset dimensions
+        // Update layout with exact preset dimensions and sizeKey
         updateLayout(item.id, {
             width: newSize.w,
             height: newSize.h,
+            sizeKey: size, // Save sizeKey for forward compatibility
         });
 
         // Trigger layout changed callback (triggers debounced save)
@@ -95,6 +102,7 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                 y: item.y,
                 width: newSize.w,
                 height: newSize.h,
+                sizeKey: size,
                 displayMode: item.displayMode,
             });
         }

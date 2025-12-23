@@ -276,7 +276,7 @@ class N88_Board_Layout {
 
         foreach ( $items_raw as $index => $item ) {
             // Strict whitelist: only allow required fields
-            $allowed_keys = array( 'id', 'x', 'y', 'z', 'width', 'height', 'displayMode' );
+            $allowed_keys = array( 'id', 'x', 'y', 'z', 'width', 'height', 'sizeKey', 'displayMode' );
             $item_keys = array_keys( $item );
             $unknown_keys = array_diff( $item_keys, $allowed_keys );
             
@@ -360,8 +360,20 @@ class N88_Board_Layout {
                 ), 400 );
             }
 
+            // Validate sizeKey if provided (optional, but must be valid if present)
+            $size_key = null;
+            if ( isset( $item['sizeKey'] ) && ! empty( $item['sizeKey'] ) ) {
+                $allowed_size_keys = array( 'S', 'D', 'L', 'XL' );
+                if ( ! in_array( $item['sizeKey'], $allowed_size_keys, true ) ) {
+                    wp_send_json_error( array( 
+                        'message' => sprintf( 'Item at index %d: sizeKey must be one of: %s', $index, implode( ', ', $allowed_size_keys ) )
+                    ), 400 );
+                }
+                $size_key = sanitize_text_field( $item['sizeKey'] );
+            }
+
             // Store validated item (will normalize z-index later)
-            $validated_items[] = array(
+            $validated_item = array(
                 'id'          => sanitize_text_field( $item['id'] ),
                 'x'           => $x,
                 'y'           => $y,
@@ -370,6 +382,13 @@ class N88_Board_Layout {
                 'height'      => $height,
                 'displayMode' => sanitize_text_field( $item['displayMode'] ),
             );
+            
+            // Add sizeKey if provided (for forward compatibility)
+            if ( $size_key !== null ) {
+                $validated_item['sizeKey'] = $size_key;
+            }
+            
+            $validated_items[] = $validated_item;
         }
 
         // Normalize z-index: preserve relative order, compact to 1..N

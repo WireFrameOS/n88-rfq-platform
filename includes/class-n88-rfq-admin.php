@@ -2504,26 +2504,26 @@ class N88_RFQ_Admin {
         // Image URL for first 4 items
         $first_four_image = 'https://dev.forgemetrix.com/wp-content/uploads/2025/12/2e1c4e1ad3b84c7a2b2e404ec941e5d5.jpeg';
         $seed_items = array(
-            array( 'id' => 'item-1', 'x' => 50, 'y' => 50, 'z' => 1, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-2', 'x' => 300, 'y' => 50, 'z' => 2, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-3', 'x' => 550, 'y' => 50, 'z' => 3, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-4', 'x' => 800, 'y' => 50, 'z' => 4, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-5', 'x' => 1050, 'y' => 50, 'z' => 5, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
-            array( 'id' => 'item-6', 'x' => 50, 'y' => 350, 'z' => 6, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
-            array( 'id' => 'item-7', 'x' => 300, 'y' => 350, 'z' => 7, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
-            array( 'id' => 'item-8', 'x' => 550, 'y' => 350, 'z' => 8, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
-            array( 'id' => 'item-9', 'x' => 800, 'y' => 350, 'z' => 9, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
-            array( 'id' => 'item-10', 'x' => 1050, 'y' => 350, 'z' => 10, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
-            array( 'id' => 'item-11', 'x' => 50, 'y' => 650, 'z' => 11, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
-            array( 'id' => 'item-12', 'x' => 300, 'y' => 650, 'z' => 12, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
-            array( 'id' => 'item-13', 'x' => 550, 'y' => 650, 'z' => 13, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
-            array( 'id' => 'item-14', 'x' => 800, 'y' => 650, 'z' => 14, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
-            array( 'id' => 'item-15', 'x' => 1050, 'y' => 650, 'z' => 15, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
-            array( 'id' => 'item-16', 'x' => 50, 'y' => 950, 'z' => 16, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
-            array( 'id' => 'item-17', 'x' => 300, 'y' => 950, 'z' => 17, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
-            array( 'id' => 'item-18', 'x' => 550, 'y' => 950, 'z' => 18, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
-            array( 'id' => 'item-19', 'x' => 800, 'y' => 950, 'z' => 19, 'width' => 200, 'height' => 250, 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
-            array( 'id' => 'item-20', 'x' => 1050, 'y' => 950, 'z' => 20, 'width' => 200, 'height' => 250, 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
+            array( 'id' => 'item-1', 'x' => 50, 'y' => 50, 'z' => 1, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
+            array( 'id' => 'item-2', 'x' => 300, 'y' => 50, 'z' => 2, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
+            array( 'id' => 'item-3', 'x' => 550, 'y' => 50, 'z' => 3, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
+            array( 'id' => 'item-4', 'x' => 800, 'y' => 50, 'z' => 4, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
+            array( 'id' => 'item-5', 'x' => 1050, 'y' => 50, 'z' => 5, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
+            array( 'id' => 'item-6', 'x' => 50, 'y' => 350, 'z' => 6, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
+            array( 'id' => 'item-7', 'x' => 300, 'y' => 350, 'z' => 7, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
+            array( 'id' => 'item-8', 'x' => 550, 'y' => 350, 'z' => 8, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
+            array( 'id' => 'item-9', 'x' => 800, 'y' => 350, 'z' => 9, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
+            array( 'id' => 'item-10', 'x' => 1050, 'y' => 350, 'z' => 10, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
+            array( 'id' => 'item-11', 'x' => 50, 'y' => 650, 'z' => 11, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
+            array( 'id' => 'item-12', 'x' => 300, 'y' => 650, 'z' => 12, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
+            array( 'id' => 'item-13', 'x' => 550, 'y' => 650, 'z' => 13, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
+            array( 'id' => 'item-14', 'x' => 800, 'y' => 650, 'z' => 14, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
+            array( 'id' => 'item-15', 'x' => 1050, 'y' => 650, 'z' => 15, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
+            array( 'id' => 'item-16', 'x' => 50, 'y' => 950, 'z' => 16, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
+            array( 'id' => 'item-17', 'x' => 300, 'y' => 950, 'z' => 17, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
+            array( 'id' => 'item-18', 'x' => 550, 'y' => 950, 'z' => 18, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
+            array( 'id' => 'item-19', 'x' => 800, 'y' => 950, 'z' => 19, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
+            array( 'id' => 'item-20', 'x' => 1050, 'y' => 950, 'z' => 20, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[3] ),
         );
 
         // Enqueue dependencies from CDN
@@ -2706,10 +2706,16 @@ class N88_RFQ_Admin {
                     }, [item.displayMode]);
 
                     // Determine current size preset based on item dimensions
+                    // Prefer sizeKey if available (for forward compatibility), otherwise match by dimensions
                     const getCurrentSize = function() {
+                        // If sizeKey exists and is valid, use it
+                        if (item.sizeKey && CARD_SIZES[item.sizeKey]) {
+                            return item.sizeKey;
+                        }
+                        
+                        // Fallback: match by dimensions (for backward compatibility)
                         const width = item.width;
                         const height = item.height;
-                        // Find matching preset (with small tolerance for floating point)
                         for (const size in CARD_SIZES) {
                             const dims = CARD_SIZES[size];
                             if (Math.abs(width - dims.w) < 1 && Math.abs(height - dims.h) < 1) {
@@ -2736,10 +2742,11 @@ class N88_RFQ_Admin {
                         const newSize = CARD_SIZES[size];
                         if (!newSize) return;
 
-                        // Update layout with exact preset dimensions
+                        // Update layout with exact preset dimensions and sizeKey
                         updateLayout(item.id, {
                             width: newSize.w,
                             height: newSize.h,
+                            sizeKey: size, // Save sizeKey for forward compatibility
                         });
 
                         // Trigger layout changed callback (triggers debounced save)
@@ -2750,6 +2757,7 @@ class N88_RFQ_Admin {
                                 y: item.y,
                                 width: newSize.w,
                                 height: newSize.h,
+                                sizeKey: size,
                                 displayMode: item.displayMode,
                             });
                         }
