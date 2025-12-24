@@ -264,9 +264,10 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                             <div
                                 style={{
                                     display: 'flex',
-                                    gap: '4px',
-                                    marginTop: '12px',
+                                    gap: '2px',
+                                    marginTop: '5px',
                                     pointerEvents: 'auto',
+                                    flexWrap: 'wrap',
                                 }}
                             >
                                 {['S', 'D', 'L', 'XL'].map((size) => (
@@ -278,15 +279,16 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                                             handleSizeChange(size, e);
                                         }}
                                         style={{
-                                            padding: '4px 8px',
-                                            fontSize: '11px',
+                                            padding: '3px 6px',
+                                            fontSize: '10px',
                                             fontWeight: currentSize === size ? 'bold' : 'normal',
                                             cursor: 'pointer',
                                             backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
                                             color: currentSize === size ? '#fff' : '#333',
                                             border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
                                             borderRadius: '3px',
-                                            minWidth: '28px',
+                                            minWidth: '30px',
+                                            flex: '1 1 0',
                                             transition: 'all 0.2s',
                                         }}
                                         onMouseEnter={(e) => {

@@ -2669,12 +2669,53 @@ class N88_RFQ_Admin {
                 // Seed data
                 const seedItems = <?php echo wp_json_encode( $seed_items ); ?>;
                 
-                // Test board ID (0 = no persistence, set to actual board ID for real saves)
+                // Test board ID (0 = localStorage persistence for demo, set to actual board ID for real saves)
                 const testBoardId = 0; // Change to actual board ID for testing persistence
+                
+                // User ID for welcome modal (get from WordPress)
+                const currentUserId = <?php echo get_current_user_id(); ?>;
+                
+                // Concierge data (placeholder for now - can be replaced with actual data source)
+                const conciergeData = <?php 
+                    // TODO: Replace with actual concierge data source if available
+                    // For now, use placeholder
+                    echo wp_json_encode( array(
+                        'name' => 'Your Concierge',
+                        'avatarUrl' => '',
+                    ) );
+                ?>;
+                
+                // LocalStorage key for demo mode persistence
+                const DEMO_STORAGE_KEY = 'n88_board_demo_layout';
+                
+                // Debounce timer for localStorage saves (demo mode)
+                var localStorageSaveTimer = null;
 
-                // Initialize store
+                // Initialize store - try to load from localStorage first, then fall back to seedItems
                 const store = useBoardStore.getState();
-                store.setItems(seedItems);
+                let initialItems = seedItems;
+                
+                // Try to load from localStorage (for demo mode persistence)
+                try {
+                    const savedData = localStorage.getItem(DEMO_STORAGE_KEY);
+                    if (savedData) {
+                        const parsed = JSON.parse(savedData);
+                        if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                            // Validate that items have required fields
+                            const validItems = parsed.items.filter(function(item) {
+                                return item && item.id && typeof item.x === 'number' && typeof item.y === 'number';
+                            });
+                            if (validItems.length > 0) {
+                                initialItems = validItems;
+                                console.log('Loaded ' + validItems.length + ' items from localStorage');
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to load from localStorage:', e);
+                }
+                
+                store.setItems(initialItems);
 
                 // Locked size presets (DO NOT CHANGE)
                 const CARD_SIZES = {
@@ -2851,9 +2892,10 @@ class N88_RFQ_Admin {
                         React.createElement('div', {
                             style: {
                                 display: 'flex',
-                                gap: '4px',
-                                marginTop: '12px',
+                                gap: '2px',
+                                marginTop: '5px',
                                 pointerEvents: 'auto',
+                                flexWrap: 'wrap',
                             },
                         }, ['S', 'D', 'L', 'XL'].map(function(size) {
                             return React.createElement('button', {
@@ -2864,15 +2906,16 @@ class N88_RFQ_Admin {
                                     handleSizeChange(size, e);
                                 },
                                 style: {
-                                    padding: '4px 8px',
-                                    fontSize: '11px',
+                                    padding: '3px 6px',
+                                    fontSize: '10px',
                                     fontWeight: currentSize === size ? 'bold' : 'normal',
                                     cursor: 'pointer',
                                     backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
                                     color: currentSize === size ? '#fff' : '#333',
                                     border: '1px solid ' + (currentSize === size ? '#0073aa' : '#ccc'),
                                     borderRadius: '3px',
-                                    minWidth: '28px',
+                                    minWidth: '30px',
+                                    flex: '1 1 0',
                                     transition: 'all 0.2s',
                                 },
                                 onMouseEnter: function(e) {
@@ -2928,8 +2971,185 @@ class N88_RFQ_Admin {
                     }, '×')));
                 };
 
+                // ConciergeOverlay Component (inline)
+                const ConciergeOverlay = function({ concierge }) {
+                    var conciergeData = concierge || { name: 'Your Concierge', avatarUrl: '' };
+                    return React.createElement('div', {
+                        style: {
+                            position: 'absolute',
+                            top: '20px',
+                            left: '20px',
+                            zIndex: 10000,
+                            pointerEvents: 'none',
+                        },
+                    }, React.createElement('div', {
+                        style: {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                            border: '1px solid rgba(0, 0, 0, 0.1)',
+                        },
+                    }, React.createElement('div', {
+                        style: {
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '50%',
+                            backgroundColor: conciergeData.avatarUrl ? 'transparent' : '#0073aa',
+                            backgroundImage: conciergeData.avatarUrl ? 'url(' + conciergeData.avatarUrl + ')' : 'none',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            fontSize: '18px',
+                            fontWeight: 'bold',
+                            flexShrink: 0,
+                        },
+                    }, !conciergeData.avatarUrl && React.createElement('span', null, conciergeData.name.charAt(0).toUpperCase())), React.createElement('div', {
+                        style: {
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#333',
+                        },
+                    }, conciergeData.name)));
+                };
+
+                // WelcomeModal Component (inline)
+                const WelcomeModal = function({ userId, onClose }) {
+                    var _a = React.useState(false), isVisible = _a[0], setIsVisible = _a[1];
+                    
+                    React.useEffect(function() {
+                        if (!userId) return;
+                        var storageKey = 'n88_welcome_modal_shown_v1_user_' + userId;
+                        try {
+                            var alreadyShown = localStorage.getItem(storageKey);
+                            if (alreadyShown === 'true') return;
+                        } catch (e) {
+                            console.warn('Failed to check welcome modal flag:', e);
+                            return;
+                        }
+                        setIsVisible(true);
+                        try {
+                            localStorage.setItem(storageKey, 'true');
+                        } catch (e) {
+                            console.warn('Failed to set welcome modal flag:', e);
+                        }
+                    }, [userId]);
+                    
+                    var handleClose = function() {
+                        setIsVisible(false);
+                        if (onClose) onClose();
+                    };
+                    
+                    if (!isVisible) return null;
+                    
+                    return React.createElement('div', {
+                        style: {
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 20000,
+                            pointerEvents: 'auto',
+                        },
+                        onClick: function(e) {
+                            if (e.target === e.currentTarget) handleClose();
+                        },
+                    }, React.createElement('div', {
+                        style: {
+                            backgroundColor: '#fff',
+                            borderRadius: '8px',
+                            padding: '24px',
+                            maxWidth: '600px',
+                            width: '90%',
+                            maxHeight: '90vh',
+                            overflow: 'auto',
+                            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+                            pointerEvents: 'auto',
+                            position: 'relative',
+                        },
+                        onClick: function(e) { e.stopPropagation(); },
+                    }, React.createElement('button', {
+                        onClick: handleClose,
+                        style: {
+                            position: 'absolute',
+                            top: '12px',
+                            right: '12px',
+                            background: 'transparent',
+                            border: 'none',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            color: '#666',
+                            padding: '4px 8px',
+                            lineHeight: 1,
+                        },
+                        'aria-label': 'Close',
+                    }, '×'), React.createElement('h2', {
+                        style: {
+                            marginTop: 0,
+                            marginBottom: '16px',
+                            fontSize: '24px',
+                            fontWeight: 'bold',
+                            color: '#333',
+                        },
+                    }, 'Welcome to Your Board'), React.createElement('p', {
+                        style: {
+                            marginBottom: '20px',
+                            fontSize: '16px',
+                            color: '#666',
+                            lineHeight: 1.6,
+                        },
+                    }, 'Get started by exploring your board. Drag items to organize them, change sizes, and customize your layout.'), React.createElement('div', {
+                        style: {
+                            width: '100%',
+                            paddingBottom: '56.25%',
+                            position: 'relative',
+                            backgroundColor: '#f0f0f0',
+                            borderRadius: '4px',
+                            marginBottom: '20px',
+                            overflow: 'hidden',
+                        },
+                    }, React.createElement('div', {
+                        style: {
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#999',
+                            fontSize: '14px',
+                        },
+                    }, 'Video placeholder (embed video here)')), React.createElement('button', {
+                        onClick: handleClose,
+                        style: {
+                            width: '100%',
+                            padding: '12px 24px',
+                            backgroundColor: '#0073aa',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                        },
+                    }, 'Get Started')));
+                };
+
                 // BoardCanvas Component
-                const BoardCanvas = function({ boardId, onLayoutChanged }) {
+                const BoardCanvas = function({ boardId, onLayoutChanged, userId, concierge }) {
                     var items = useBoardStore(function(state) { return state.items; });
                     
                     // Use Zustand's store getter to avoid stale closures
@@ -2950,7 +3170,27 @@ class N88_RFQ_Admin {
                         if (onLayoutChanged) {
                             onLayoutChanged(data);
                         }
-                        // Only trigger save if boardId is valid and hook is available
+                        // For demo mode (boardId = 0), save to localStorage with debounce
+                        if (boardId === 0) {
+                            // Clear existing timer
+                            if (localStorageSaveTimer) {
+                                clearTimeout(localStorageSaveTimer);
+                            }
+                            // Set new debounced save (500ms trailing edge, same as server save)
+                            localStorageSaveTimer = setTimeout(function() {
+                                localStorageSaveTimer = null;
+                                try {
+                                    var currentItems = window.N88StudioOS.useBoardStore.getState().items;
+                                    localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({
+                                        items: currentItems,
+                                        savedAt: new Date().toISOString()
+                                    }));
+                                } catch (e) {
+                                    console.warn('Failed to save to localStorage:', e);
+                                }
+                            }, 500);
+                        }
+                        // For real boards (boardId > 0), trigger server save
                         if (saveHook && saveHook.triggerSave && boardId && boardId > 0) {
                             saveHook.triggerSave();
                         }
@@ -2977,7 +3217,11 @@ class N88_RFQ_Admin {
                             },
                         }, items.map(function(item) {
                             return React.createElement(BoardItem, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged });
-                        })),
+                        }), 
+                        // Concierge Overlay - read-only, non-blocking
+                        React.createElement(ConciergeOverlay, { concierge: conciergeData })),
+                        // Welcome Modal - shown once per user
+                        React.createElement(WelcomeModal, { userId: currentUserId }),
                         saveHook ? React.createElement(UnsyncedToast, { unsynced: saveHook.unsynced, onDismiss: saveHook.clearUnsynced }) : null
                     );
                 };
@@ -2993,6 +3237,8 @@ class N88_RFQ_Admin {
                     const root = ReactDOM.createRoot(rootEl);
                     root.render(React.createElement(BoardCanvas, {
                         boardId: testBoardId,
+                        userId: currentUserId,
+                        concierge: conciergeData,
                         onLayoutChanged: function(data) { console.log('Layout changed:', data); },
                     }));
                     updateDebug('Board rendered! Items: ' + seedItems.length + (testBoardId > 0 ? ' (Persistence enabled)' : ' (Demo mode - no persistence)'));

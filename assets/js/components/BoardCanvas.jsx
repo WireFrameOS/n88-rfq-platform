@@ -10,6 +10,8 @@
 import React from 'react';
 import BoardItem from './BoardItem';
 import UnsyncedToast from './UnsyncedToast';
+import ConciergeOverlay from './ConciergeOverlay';
+import WelcomeModal from './WelcomeModal';
 
 // Access Zustand store from global namespace (WordPress UMD pattern)
 const useBoardStore = window.N88StudioOS?.useBoardStore || (() => {
@@ -27,8 +29,10 @@ const useDebouncedSave = window.N88StudioOS?.useDebouncedSave || (() => {
  * @param {Object} props
  * @param {number} props.boardId - Board ID for saving (required for persistence)
  * @param {Function} props.onLayoutChanged - Optional callback when layout changes (for logging/debugging)
+ * @param {number} props.userId - Current user ID (for welcome modal)
+ * @param {Object} props.concierge - Concierge data { name: string, avatarUrl: string }
  */
-const BoardCanvas = ({ boardId, onLayoutChanged }) => {
+const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
     const items = useBoardStore((state) => state.items);
     
     // Use Zustand's store getter to avoid stale state
@@ -73,7 +77,11 @@ const BoardCanvas = ({ boardId, onLayoutChanged }) => {
                         onLayoutChanged={handleLayoutChanged}
                     />
                 ))}
+                {/* Concierge Overlay - read-only, non-blocking */}
+                <ConciergeOverlay concierge={concierge} />
             </div>
+            {/* Welcome Modal - shown once per user */}
+            <WelcomeModal userId={userId} />
             {/* Unsynced toast notification */}
             <UnsyncedToast unsynced={unsynced} onDismiss={clearUnsynced} />
         </>
