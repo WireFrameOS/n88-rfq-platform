@@ -68,6 +68,7 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                     height: '100vh',
                     overflow: 'hidden',
                     backgroundColor: '#f5f5f5',
+                    zIndex: 1, // Lower than modal (20000) to ensure modal appears on top
                 }}
             >
                 {items.map((item) => (

@@ -111,6 +111,15 @@ class N88_Items {
         $description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
         $item_type = isset( $_POST['item_type'] ) ? sanitize_text_field( wp_unslash( $_POST['item_type'] ) ) : 'furniture';
         $status = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
+        $image_id = isset( $_POST['image_id'] ) ? absint( $_POST['image_id'] ) : 0;
+        $image_url = isset( $_POST['image_url'] ) ? esc_url_raw( wp_unslash( $_POST['image_url'] ) ) : '';
+        $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'D';
+        
+        // Validate size
+        $allowed_sizes = array( 'S', 'D', 'L', 'XL' );
+        if ( ! in_array( $default_size, $allowed_sizes, true ) ) {
+            $default_size = 'D';
+        }
 
         // Validate required fields
         if ( empty( $title ) ) {
@@ -136,24 +145,77 @@ class N88_Items {
         $table = $wpdb->prefix . 'n88_items';
         $now = current_time( 'mysql' );
 
+        // Handle image: prefer image_id, fallback to image_url
+        $primary_image_id = null;
+        if ( $image_id > 0 ) {
+            // Verify attachment exists
+            $attachment = get_post( $image_id );
+            if ( $attachment && $attachment->post_type === 'attachment' ) {
+                $primary_image_id = $image_id;
+            }
+        } elseif ( ! empty( $image_url ) ) {
+            // If URL provided but no ID, try to find attachment by URL
+            $attachment_id = attachment_url_to_postid( $image_url );
+            if ( $attachment_id > 0 ) {
+                $primary_image_id = $attachment_id;
+            }
+        }
+        
+        // Prepare meta_json with default size (only if column exists)
+        $meta_json = array(
+            'default_size' => $default_size,
+        );
+        if ( ! empty( $image_url ) && ! $primary_image_id ) {
+            // Store image URL in meta if we couldn't find attachment ID
+            $meta_json['image_url'] = $image_url;
+        }
+        
+        // Check if meta_json column exists
+        $table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $table );
+        $columns = $wpdb->get_col( "DESCRIBE {$table_safe}" );
+        $has_meta_json = in_array( 'meta_json', $columns, true );
+        
         // Insert item
+        $insert_data = array(
+            'owner_user_id' => $user_id,
+            'title'         => $title,
+            'description'  => $description,
+            'item_type'    => $item_type,
+            'status'       => $status,
+            'version'      => 1,
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        );
+        $insert_format = array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' );
+        
+        // Add meta_json only if column exists
+        if ( $has_meta_json ) {
+            $meta_json_string = wp_json_encode( $meta_json );
+            $insert_data['meta_json'] = $meta_json_string;
+            $insert_format[] = '%s';
+            error_log('Item creation - Saving meta_json: ' . $meta_json_string . ' (default_size: ' . $default_size . ')');
+        } else {
+            error_log('Item creation - WARNING: meta_json column does not exist. Size preference NOT saved. default_size was: ' . $default_size);
+            error_log('Please run migration to add meta_json column or deactivate/reactivate plugin.');
+        }
+        
+        if ( $primary_image_id ) {
+            $insert_data['primary_image_id'] = $primary_image_id;
+            $insert_format[] = '%d';
+        }
+        
         $inserted = $wpdb->insert(
             $table,
-            array(
-                'owner_user_id' => $user_id,
-                'title'         => $title,
-                'description'  => $description,
-                'item_type'    => $item_type,
-                'status'       => $status,
-                'version'      => 1,
-                'created_at'   => $now,
-                'updated_at'   => $now,
-            ),
-            array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' )
+            $insert_data,
+            $insert_format
         );
 
         if ( ! $inserted ) {
-            wp_send_json_error( array( 'message' => 'Failed to create item.' ), 500 );
+            $error_message = 'Failed to create item.';
+            if ( $wpdb->last_error ) {
+                $error_message .= ' Database error: ' . $wpdb->last_error;
+            }
+            wp_send_json_error( array( 'message' => $error_message ), 500 );
         }
 
         $item_id = $wpdb->insert_id;
@@ -176,9 +238,60 @@ class N88_Items {
         // Ensure designer profile exists (lazy creation)
         $this->ensure_designer_profile( $user_id );
 
+        // If board_id provided, add item to board
+        $added_to_board = false;
+        $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        if ( $board_id > 0 ) {
+            // Verify board exists and user owns it
+            $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
+            if ( $board ) {
+                // Add item to board
+                global $wpdb;
+                $board_items_table = $wpdb->prefix . 'n88_board_items';
+                $now = current_time( 'mysql' );
+                
+                // Check if already on board
+                $existing = $wpdb->get_row(
+                    $wpdb->prepare(
+                        "SELECT id FROM {$board_items_table} WHERE board_id = %d AND item_id = %d AND removed_at IS NULL",
+                        $board_id,
+                        $item_id
+                    )
+                );
+                
+                if ( ! $existing ) {
+                    $inserted = $wpdb->insert(
+                        $board_items_table,
+                        array(
+                            'board_id'        => $board_id,
+                            'item_id'         => $item_id,
+                            'added_by_user_id' => $user_id,
+                            'added_at'        => $now,
+                        ),
+                        array( '%d', '%d', '%d', '%s' )
+                    );
+                    
+                    if ( $inserted ) {
+                        $added_to_board = true;
+                        // Log event
+                        n88_log_event(
+                            'item_added_to_board',
+                            'board',
+                            array(
+                                'object_id' => $board_id,
+                                'board_id'  => $board_id,
+                                'item_id'   => $item_id,
+                            )
+                        );
+                    }
+                }
+            }
+        }
+
         wp_send_json_success( array(
             'item_id' => $item_id,
             'message' => 'Item created successfully.',
+            'added_to_board' => $added_to_board,
         ) );
     }
 

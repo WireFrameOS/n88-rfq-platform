@@ -543,7 +543,12 @@ class N88_RFQ_Installer {
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY timeline_type (timeline_type)" );
         }
 
-        // Add dimension columns (after primary_image_id)
+        // Add meta_json column (after primary_image_id) - for storing default_size and other metadata
+        if ( ! in_array( 'meta_json', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN meta_json LONGTEXT NULL AFTER primary_image_id" );
+        }
+        
+        // Add dimension columns (after primary_image_id or meta_json)
         if ( ! in_array( 'dimension_width_cm', $items_columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN dimension_width_cm DECIMAL(10,2) NULL AFTER primary_image_id" );
         }

@@ -75,7 +75,7 @@ const WelcomeModal = ({ userId, onClose }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                zIndex: 20000, // Above everything including concierge overlay
+                zIndex: 99999, // Very high z-index to ensure it's above all items (even L/XL with +1000 boost)
                 pointerEvents: 'auto', // Modal itself is clickable
             }}
             onClick={(e) => {

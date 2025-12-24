@@ -307,6 +307,8 @@ class N88_RFQ_Admin {
             array( $this, 'render_board_demo' )
         );
 
+  
+
         // Phase 1.2.3: Material Bank
         add_submenu_page(
             'n88-rfq-dashboard',
@@ -2112,6 +2114,9 @@ class N88_RFQ_Admin {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
+        // Enqueue WordPress media library for image uploader
+        wp_enqueue_media();
+
         // Get nonce for AJAX requests
         $nonce = wp_create_nonce( 'n88-rfq-nonce' );
         ?>
@@ -2155,6 +2160,58 @@ class N88_RFQ_Admin {
                                     </select>
                                 </td>
                             </tr>
+                            <tr>
+                                <th><label for="item-image-url">Image</label></th>
+                                <td>
+                                    <input type="hidden" id="item-image-id" name="image_id" />
+                                    <input type="url" id="item-image-url" name="image_url" placeholder="https://example.com/image.jpg" style="width: calc(100% - 120px);" />
+                                    <button type="button" id="item-image-upload-btn" class="button" style="margin-left: 10px;">Upload Image</button>
+                                    <button type="button" id="item-image-remove-btn" class="button" style="margin-left: 5px; display: none;">Remove</button>
+                                    <div id="item-image-preview" style="margin-top: 10px; max-width: 200px; display: none;">
+                                        <img id="item-image-preview-img" src="" style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px;" />
+                                    </div>
+                                    <p class="description">Upload an image from media library or enter image URL</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="item-size">Default Size</label></th>
+                                <td>
+                                    <select id="item-size" name="size" style="width: 100%;">
+                                        <option value="S">S (160×200px)</option>
+                                        <option value="D" selected>D (200×250px) - Default</option>
+                                        <option value="L">L (280×350px)</option>
+                                        <option value="XL">XL (360×450px)</option>
+                                    </select>
+                                    <p class="description">Default size when item is added to a board</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="item-board">Add to Board (Optional)</label></th>
+                                <td>
+                                    <select id="item-board" name="board_id" style="width: 100%;">
+                                        <option value="">-- Select a Board --</option>
+                                        <?php
+                                        // Fetch user's boards
+                                        global $wpdb;
+                                        $user_id = get_current_user_id();
+                                        $boards_table = $wpdb->prefix . 'n88_boards';
+                                        $user_boards = $wpdb->get_results(
+                                            $wpdb->prepare(
+                                                "SELECT id, name FROM {$boards_table} 
+                                                 WHERE owner_user_id = %d 
+                                                 AND deleted_at IS NULL 
+                                                 ORDER BY name ASC",
+                                                $user_id
+                                            )
+                                        );
+                                        foreach ( $user_boards as $board ) {
+                                            echo '<option value="' . esc_attr( $board->id ) . '">' . esc_html( $board->name ) . ' (ID: ' . esc_html( $board->id ) . ')</option>';
+                                        }
+                                        ?>
+                                    </select>
+                                    <p class="description">Optionally add this item to a board immediately after creation</p>
+                                </td>
+                            </tr>
                         </table>
                         <p class="submit">
                             <button type="submit" class="button button-primary">Create Item</button>
@@ -2176,6 +2233,8 @@ class N88_RFQ_Admin {
                                 <th><label for="board-description">Description</label></th>
                                 <td><textarea id="board-description" name="description" rows="3" style="width: 100%;"></textarea></td>
                             </tr>
+                            <!-- View Mode option hidden for now -->
+                            <!--
                             <tr>
                                 <th><label for="board-view-mode">View Mode</label></th>
                                 <td>
@@ -2186,6 +2245,7 @@ class N88_RFQ_Admin {
                                     </select>
                                 </td>
                             </tr>
+                            -->
                         </table>
                         <p class="submit">
                             <button type="submit" class="button button-primary">Create Board</button>
@@ -2195,7 +2255,8 @@ class N88_RFQ_Admin {
                 </div>
             </div>
 
-            <!-- Update Item Form -->
+            <!-- Update Item Form - COMMENTED OUT FOR NOW -->
+            <?php /*
             <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px; margin-top: 20px;">
                 <h2>Update Item</h2>
                 <form id="n88-update-item-form">
@@ -2243,8 +2304,10 @@ class N88_RFQ_Admin {
                     <div id="update-item-result" style="margin-top: 10px;"></div>
                 </form>
             </div>
+            */ ?>
 
-            <!-- Add Item to Board Form -->
+            <!-- Add Item to Board Form - HIDDEN FOR NOW -->
+            <!--
             <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px; margin-top: 20px;">
                 <h2>Add Item to Board</h2>
                 <form id="n88-add-item-to-board-form">
@@ -2264,8 +2327,10 @@ class N88_RFQ_Admin {
                     <div id="add-item-to-board-result" style="margin-top: 10px;"></div>
                 </form>
             </div>
+            -->
 
-            <!-- Update Board Layout Form -->
+            <!-- Update Board Layout Form - COMMENTED OUT FOR NOW -->
+            <?php /*
             <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px; margin-top: 20px;">
                 <h2>Update Board Layout</h2>
                 <form id="n88-update-board-layout-form">
@@ -2315,11 +2380,66 @@ class N88_RFQ_Admin {
                     <div id="update-board-layout-result" style="margin-top: 10px;"></div>
                 </form>
             </div>
+            */ ?>
 
             <script type="text/javascript">
             jQuery(document).ready(function($) {
                 var nonce = '<?php echo esc_js( $nonce ); ?>';
                 var ajaxurl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                
+                // WordPress Media Library Uploader for Item Image
+                var itemImageFrame;
+                $('#item-image-upload-btn').on('click', function(e) {
+                    e.preventDefault();
+                    
+                    // If the frame already exists, reopen it
+                    if (itemImageFrame) {
+                        itemImageFrame.open();
+                        return;
+                    }
+                    
+                    // Create the media frame
+                    itemImageFrame = wp.media({
+                        title: 'Select Item Image',
+                        button: {
+                            text: 'Use this image'
+                        },
+                        multiple: false
+                    });
+                    
+                    // When an image is selected, run a callback
+                    itemImageFrame.on('select', function() {
+                        var attachment = itemImageFrame.state().get('selection').first().toJSON();
+                        $('#item-image-id').val(attachment.id);
+                        $('#item-image-url').val(attachment.url);
+                        $('#item-image-preview-img').attr('src', attachment.url);
+                        $('#item-image-preview').show();
+                        $('#item-image-remove-btn').show();
+                    });
+                    
+                    // Open the media frame
+                    itemImageFrame.open();
+                });
+                
+                // Remove image button
+                $('#item-image-remove-btn').on('click', function(e) {
+                    e.preventDefault();
+                    $('#item-image-id').val('');
+                    $('#item-image-url').val('');
+                    $('#item-image-preview').hide();
+                    $('#item-image-remove-btn').hide();
+                });
+                
+                // Show preview if URL is manually entered
+                $('#item-image-url').on('blur', function() {
+                    var url = $(this).val();
+                    if (url) {
+                        $('#item-image-preview-img').attr('src', url);
+                        $('#item-image-preview').show();
+                    } else {
+                        $('#item-image-preview').hide();
+                    }
+                });
 
                 // Create Item
                 $('#n88-create-item-form').on('submit', function(e) {
@@ -2336,11 +2456,24 @@ class N88_RFQ_Admin {
                             title: $('#item-title').val(),
                             description: $('#item-description').val(),
                             item_type: $('#item-type').val(),
-                            status: $('#item-status').val()
+                            status: $('#item-status').val(),
+                            image_url: $('#item-image-url').val(),
+                            image_id: $('#item-image-id').val(),
+                            size: $('#item-size').val(),
+                            board_id: $('#item-board').val()
                         },
                         success: function(response) {
                             if (response.success) {
-                                $result.html('<p style="color: green;">✓ Item created! ID: ' + response.data.item_id + '</p>');
+                                var message = '<p style="color: green;">✓ Item created! ID: ' + response.data.item_id + '</p>';
+                                var boardId = $('#item-board').val();
+                                if (boardId && response.data.added_to_board) {
+                                    message += '<p style="color: green;">✓ Item added to board!</p>';
+                                }
+                                $result.html(message);
+                                // Reset form
+                                $('#n88-create-item-form')[0].reset();
+                                $('#item-image-preview').hide();
+                                $('#item-image-remove-btn').hide();
                             } else {
                                 $result.html('<p style="color: red;">✗ Error: ' + (response.data.message || 'Unknown error') + '</p>');
                             }
@@ -2365,7 +2498,7 @@ class N88_RFQ_Admin {
                             nonce: nonce,
                             name: $('#board-name').val(),
                             description: $('#board-description').val(),
-                            view_mode: $('#board-view-mode').val()
+                            view_mode: 'grid' // Default view mode (view mode option hidden)
                         },
                         success: function(response) {
                             if (response.success) {
@@ -2380,7 +2513,8 @@ class N88_RFQ_Admin {
                     });
                 });
 
-                // Update Item
+                // Update Item - COMMENTED OUT FOR NOW
+                /*
                 $('#n88-update-item-form').on('submit', function(e) {
                     e.preventDefault();
                     var $result = $('#update-item-result');
@@ -2413,6 +2547,7 @@ class N88_RFQ_Admin {
                         }
                     });
                 });
+                */
 
                 // Add Item to Board
                 $('#n88-add-item-to-board-form').on('submit', function(e) {
@@ -2442,7 +2577,8 @@ class N88_RFQ_Admin {
                     });
                 });
 
-                // Update Board Layout
+                // Update Board Layout - COMMENTED OUT FOR NOW
+                /*
                 $('#n88-update-board-layout-form').on('submit', function(e) {
                     e.preventDefault();
                     var $result = $('#update-board-layout-result');
@@ -2478,6 +2614,7 @@ class N88_RFQ_Admin {
                         }
                     });
                 });
+                */
             });
             </script>
         </div>
@@ -2494,7 +2631,277 @@ class N88_RFQ_Admin {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
-        // Hardcoded 20 items seed data with image URLs
+        // Check if board_id parameter exists - if yes, load real board; if no, use demo seed items
+        $board_id = isset( $_GET['board_id'] ) ? absint( $_GET['board_id'] ) : 0;
+        $user_id = get_current_user_id();
+        $items = array();
+        $is_real_board = false;
+        $board_name = 'Demo Board';
+
+        // If board_id provided, load real board items
+        if ( $board_id > 0 ) {
+            $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
+            if ( $board ) {
+                $is_real_board = true;
+                $board_name = $board->name;
+                
+                // Fetch board layout
+                $layout_data = null;
+                if ( ! empty( $board->latest_layout_json ) ) {
+                    $layout_data = json_decode( $board->latest_layout_json, true );
+                    if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $layout_data ) ) {
+                        $layout_data = null;
+                    }
+                }
+
+                // Fetch items from database
+                global $wpdb;
+                $board_items_table = $wpdb->prefix . 'n88_board_items';
+                $items_table = $wpdb->prefix . 'n88_items';
+                
+                // Check if meta_json column exists, and try to add it if it doesn't
+                $items_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+                $items_columns = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+                $has_meta_json = in_array( 'meta_json', $items_columns, true );
+                
+                // If column doesn't exist, try to add it automatically
+                if ( ! $has_meta_json ) {
+                    $alter_result = $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN meta_json LONGTEXT NULL AFTER primary_image_id" );
+                    if ( $alter_result !== false ) {
+                        $has_meta_json = true;
+                        error_log('Successfully added meta_json column to items table');
+                    } else {
+                        error_log('Failed to add meta_json column: ' . $wpdb->last_error);
+                    }
+                }
+                
+                // Always try to select meta_json - if column doesn't exist, query will fail gracefully
+                // But we check first to avoid errors
+                $select_fields = "bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id";
+                if ( $has_meta_json ) {
+                    $select_fields .= ", i.meta_json";
+                } else {
+                    // Column doesn't exist - log warning
+                    error_log('WARNING: meta_json column does not exist in items table. Size preferences will not be saved/loaded.');
+                    error_log('Please run the migration to add meta_json column, or deactivate/reactivate the plugin.');
+                }
+                
+                $board_items = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT {$select_fields}
+                         FROM {$board_items_table} bi
+                         INNER JOIN {$items_table} i ON bi.item_id = i.id
+                         WHERE bi.board_id = %d 
+                         AND bi.removed_at IS NULL
+                         AND i.deleted_at IS NULL
+                         ORDER BY bi.added_at ASC",
+                        $board_id
+                    )
+                );
+                
+                // Debug: Log board items count and meta_json status
+                error_log('Board items fetched from database: ' . count( $board_items ));
+                error_log('meta_json column exists: ' . ( $has_meta_json ? 'YES' : 'NO' ));
+                if ( count( $board_items ) > 0 ) {
+                    error_log('First board item ID: ' . $board_items[0]->item_id);
+                    error_log('Last board item ID: ' . $board_items[ count( $board_items ) - 1 ]->item_id);
+                    // Check if first item has meta_json
+                    if ( $has_meta_json && isset( $board_items[0]->meta_json ) ) {
+                        error_log('First item meta_json: ' . substr( $board_items[0]->meta_json, 0, 100 ));
+                        $test_meta = json_decode( $board_items[0]->meta_json, true );
+                        if ( is_array( $test_meta ) ) {
+                            error_log('First item default_size: ' . ( isset( $test_meta['default_size'] ) ? $test_meta['default_size'] : 'NOT SET' ) );
+                        }
+                    } else {
+                        error_log('First item meta_json: NOT AVAILABLE (column missing or empty)');
+                    }
+                }
+
+                // Default size presets
+                $CARD_SIZES = array(
+                    'S' => array( 'w' => 160, 'h' => 200 ),
+                    'D' => array( 'w' => 200, 'h' => 250 ),
+                    'L' => array( 'w' => 280, 'h' => 350 ),
+                    'XL' => array( 'w' => 360, 'h' => 450 ),
+                );
+
+                // Build items array by merging layout data with board items
+                $layout_items_map = array();
+                if ( $layout_data && isset( $layout_data['items'] ) && is_array( $layout_data['items'] ) ) {
+                    foreach ( $layout_data['items'] as $layout_item ) {
+                        $item_id_from_layout = str_replace( 'item-', '', $layout_item['id'] );
+                        // Ensure numeric key for consistent matching
+                        $layout_items_map[ intval( $item_id_from_layout ) ] = $layout_item;
+                    }
+                }
+                
+                // Debug: Log layout items count
+                error_log('Layout items count: ' . count( $layout_items_map ));
+                if ( ! empty( $layout_items_map ) ) {
+                    error_log('Layout item IDs: ' . implode( ', ', array_keys( $layout_items_map ) ) );
+                }
+
+                $z_index = 1;
+                $items_count_before = count( $items );
+                foreach ( $board_items as $board_item ) {
+                    $item_id = intval( $board_item->item_id ); // Ensure numeric for consistent matching
+                    $item_id_string = 'item-' . $item_id;
+                    
+                    // Get image URL from primary_image_id
+                    $image_url = '';
+                    if ( ! empty( $board_item->primary_image_id ) ) {
+                        $image_url = wp_get_attachment_image_url( $board_item->primary_image_id, 'full' );
+                        if ( ! $image_url ) {
+                            $image_url = wp_get_attachment_url( $board_item->primary_image_id );
+                        }
+                    }
+                    
+                    if ( isset( $layout_items_map[ $item_id ] ) ) {
+                        $layout_item = $layout_items_map[ $item_id ];
+                        // Get sizeKey from layout, but if not present, try to get from meta_json
+                        $layout_size_key = isset( $layout_item['sizeKey'] ) ? sanitize_text_field( $layout_item['sizeKey'] ) : null;
+                        // Always try to read meta_json for default_size, even if column check might have failed
+                        if ( ! $layout_size_key && ! empty( $board_item->meta_json ) ) {
+                            $item_meta = json_decode( $board_item->meta_json, true );
+                            if ( is_array( $item_meta ) && isset( $item_meta['default_size'] ) ) {
+                                $meta_size = sanitize_text_field( $item_meta['default_size'] );
+                                if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
+                                    $layout_size_key = $meta_size;
+                                    // Debug: Log when using default_size from meta_json
+                                    error_log('Item ' . $item_id . ' - Using default_size from meta_json: ' . $layout_size_key . ' (layout had no sizeKey)');
+                                }
+                            }
+                        }
+                        if ( ! $layout_size_key ) {
+                            $layout_size_key = 'D';
+                            error_log('Item ' . $item_id . ' - No sizeKey found, defaulting to D');
+                        }
+                        
+                        // Debug: Log final sizeKey being used
+                        error_log('Item ' . $item_id . ' - Final sizeKey: ' . $layout_size_key);
+                        
+                        // Always use sizeKey dimensions to ensure consistency with preset sizes
+                        // This ensures that if default_size was set during creation, it's respected
+                        $item_width = $CARD_SIZES[ $layout_size_key ]['w'];
+                        $item_height = $CARD_SIZES[ $layout_size_key ]['h'];
+                        
+                        $items[] = array(
+                            'id' => $item_id_string,
+                            'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
+                            'y' => isset( $layout_item['y'] ) ? floatval( $layout_item['y'] ) : 50,
+                            'z' => isset( $layout_item['z'] ) ? intval( $layout_item['z'] ) : $z_index++,
+                            'width' => $item_width,
+                            'height' => $item_height,
+                            'sizeKey' => $layout_size_key,
+                            'displayMode' => isset( $layout_item['displayMode'] ) ? sanitize_text_field( $layout_item['displayMode'] ) : 'photo_only',
+                            'title' => isset( $board_item->title ) ? wp_strip_all_tags( sanitize_text_field( $board_item->title ) ) : '',
+                            'description' => isset( $board_item->description ) ? wp_strip_all_tags( sanitize_textarea_field( $board_item->description ) ) : '',
+                            'imageUrl' => $image_url ? esc_url_raw( $image_url ) : '',
+                        );
+                    } else {
+                        // New item - no layout data yet, use defaults from item meta_json
+                        $default_size = 'D';
+                        // Always try to read meta_json, even if column check might have failed
+                        if ( isset( $board_item->meta_json ) && ! empty( $board_item->meta_json ) ) {
+                            error_log('Item ' . $item_id . ' - meta_json raw: ' . substr( $board_item->meta_json, 0, 200 ));
+                            $item_meta = json_decode( $board_item->meta_json, true );
+                            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                                error_log('Item ' . $item_id . ' - JSON decode error: ' . json_last_error_msg() . ' - Raw: ' . $board_item->meta_json);
+                            } else if ( is_array( $item_meta ) ) {
+                                error_log('Item ' . $item_id . ' - Parsed meta_json: ' . print_r( $item_meta, true ));
+                                if ( isset( $item_meta['default_size'] ) ) {
+                                    $meta_size = sanitize_text_field( $item_meta['default_size'] );
+                                    error_log('Item ' . $item_id . ' - Found default_size in meta: ' . $meta_size);
+                                    if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
+                                        $default_size = $meta_size;
+                                        error_log('Item ' . $item_id . ' - Using default_size: ' . $default_size);
+                                    } else {
+                                        error_log('Item ' . $item_id . ' - Invalid default_size value: ' . $meta_size);
+                                    }
+                                } else {
+                                    error_log('Item ' . $item_id . ' - default_size key not found in meta_json');
+                                }
+                            } else {
+                                error_log('Item ' . $item_id . ' - meta_json is not an array after decode');
+                            }
+                            // Also check for image_url in meta if primary_image_id is empty
+                            if ( empty( $image_url ) && is_array( $item_meta ) && isset( $item_meta['image_url'] ) ) {
+                                $image_url = esc_url_raw( $item_meta['image_url'] );
+                            }
+                        } else {
+                            if ( ! $has_meta_json ) {
+                                error_log('Item ' . $item_id . ' - meta_json column does not exist in database');
+                            } else {
+                                error_log('Item ' . $item_id . ' - meta_json is empty or null for this item');
+                            }
+                            error_log('Item ' . $item_id . ' - Using default size D (fallback)');
+                        }
+                        
+                        // Calculate position for new items - arrange in grid within canvas bounds
+                        // Canvas is typically 1200px wide, arrange items in rows
+                        $items_per_row = 4; // 4 items per row
+                        $item_spacing = 20; // Space between items
+                        $start_x = 50;
+                        $start_y = 50;
+                        $current_index = count( $items ); // Index of this new item
+                        $row = intval( $current_index / $items_per_row );
+                        $col = $current_index % $items_per_row;
+                        
+                        // Calculate position based on item size
+                        $item_width_for_spacing = $CARD_SIZES[ $default_size ]['w'];
+                        $item_height_for_spacing = $CARD_SIZES[ $default_size ]['h'];
+                        
+                        // Position calculation: ensure items stay within canvas (max width ~1200px)
+                        $max_item_width = max( array_column( $CARD_SIZES, 'w' ) ); // Get max width (XL: 360)
+                        $available_width = 1200 - ( $start_x * 2 ); // Canvas width minus margins
+                        $items_per_row_calc = max( 1, floor( ( $available_width + $item_spacing ) / ( $max_item_width + $item_spacing ) ) );
+                        
+                        // Recalculate row/col with actual canvas constraints
+                        $row = intval( $current_index / $items_per_row_calc );
+                        $col = $current_index % $items_per_row_calc;
+                        
+                        $item_x = $start_x + ( $col * ( $max_item_width + $item_spacing ) );
+                        $item_y = $start_y + ( $row * ( $item_height_for_spacing + $item_spacing ) );
+                        
+                        $items[] = array(
+                            'id' => $item_id_string,
+                            'x' => $item_x,
+                            'y' => $item_y,
+                            'z' => $z_index++,
+                            'width' => $CARD_SIZES[ $default_size ]['w'],
+                            'height' => $CARD_SIZES[ $default_size ]['h'],
+                            'sizeKey' => $default_size,
+                            'displayMode' => 'photo_only',
+                            'title' => isset( $board_item->title ) ? wp_strip_all_tags( sanitize_text_field( $board_item->title ) ) : '',
+                            'description' => isset( $board_item->description ) ? wp_strip_all_tags( sanitize_textarea_field( $board_item->description ) ) : '',
+                            'imageUrl' => $image_url ? esc_url_raw( $image_url ) : '',
+                        );
+                        
+                        error_log('Item ' . $item_id . ' - New item positioned at (' . $item_x . ', ' . $item_y . ') with size: ' . $default_size);
+                    }
+                }
+                
+                // Debug: Log final items count
+                error_log('Items array count after processing: ' . count( $items ));
+                error_log('Board items count from database: ' . count( $board_items ));
+                if ( count( $items ) !== count( $board_items ) ) {
+                    error_log('WARNING: Items count mismatch! Board items: ' . count( $board_items ) . ', Items array: ' . count( $items ));
+                    // Log which items are missing
+                    $items_ids = array_map( function( $item ) {
+                        return str_replace( 'item-', '', $item['id'] );
+                    }, $items );
+                    $board_items_ids = array_map( function( $board_item ) {
+                        return $board_item->item_id;
+                    }, $board_items );
+                    $missing_ids = array_diff( $board_items_ids, $items_ids );
+                    if ( ! empty( $missing_ids ) ) {
+                        error_log('Missing item IDs: ' . implode( ', ', $missing_ids ) );
+                    }
+                }
+            }
+        }
+
+        // Hardcoded 20 items seed data with image URLs (for demo mode)
         $image_urls = array(
             'https://dev.forgemetrix.com/wp-content/uploads/2025/12/image-14.jpg',
             'https://dev.forgemetrix.com/wp-content/uploads/2025/12/WechatIMG519.jpg',
@@ -2549,11 +2956,18 @@ class N88_RFQ_Admin {
         // Size presets (S/D/L/XL) replace free-form resize, eliminating stuck-state issues
         
         // Localize script for AJAX URL and nonce
-        wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', wp_create_nonce( 'n88_rfq_nonce' ) );
+        wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
+            'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+        ) );
         ?>
         <div class="wrap">
-            <h1>Board Demo (Milestone 1.3.4a)</h1>
-            <p><strong>Testing Only:</strong> This page demonstrates board interactions without API calls.</p>
+            <h1><?php echo $is_real_board ? 'Real Board - ' . esc_html( $board_name ) : 'Board Demo (Milestone 1.3.4a)'; ?></h1>
+            <?php if ( $is_real_board ) : ?>
+                <p><strong>Board ID:</strong> <?php echo esc_html( $board_id ); ?> | <strong>Items:</strong> <?php echo count( $items ); ?></p>
+            <?php else : ?>
+                <p><strong>Testing Only:</strong> This page demonstrates board interactions without API calls.</p>
+                <p><strong>Tip:</strong> Add <code>&board_id=3</code> to the URL to load a real board.</p>
+            <?php endif; ?>
             <div id="n88-board-demo-root"></div>
             <div id="n88-board-demo-debug" style="position: fixed; bottom: 10px; right: 10px; background: #fff; padding: 10px; border: 1px solid #ccc; z-index: 9999; font-size: 12px; max-width: 300px;">
                 <div>Loading...</div>
@@ -2619,6 +3033,11 @@ class N88_RFQ_Admin {
                     updateDebug('Waiting for useBoardStore...');
                     return false;
                 }
+                
+                if (typeof window.N88StudioOS.useDebouncedSave === 'undefined') {
+                    updateDebug('Waiting for useDebouncedSave...');
+                    return false;
+                }
 
                 updateDebug('All dependencies loaded!');
 
@@ -2666,14 +3085,38 @@ class N88_RFQ_Admin {
                 const useBoardStore = window.N88StudioOS.useBoardStore;
                 const useDebouncedSave = window.N88StudioOS.useDebouncedSave;
 
-                // Seed data
-                const seedItems = <?php echo wp_json_encode( $seed_items ); ?>;
+                // Items: either real board items or seed items
+                const initialItems = <?php 
+                    if ( $is_real_board ) {
+                        echo wp_json_encode( $items );
+                    } else {
+                        echo wp_json_encode( $seed_items );
+                    }
+                ?>;
                 
-                // Test board ID (0 = localStorage persistence for demo, set to actual board ID for real saves)
-                const testBoardId = 0; // Change to actual board ID for testing persistence
+                // Debug: Log initial items to verify title and sizeKey
+                console.log('Initial items loaded:', initialItems.length);
+                console.log('Initial items array:', initialItems);
+                if (initialItems.length > 0) {
+                    console.log('First item sample:', initialItems[0]);
+                    console.log('First item has title:', initialItems[0].title);
+                    console.log('First item has sizeKey:', initialItems[0].sizeKey);
+                    console.log('Last item sample:', initialItems[initialItems.length - 1]);
+                    // Log all item IDs
+                    console.log('All item IDs:', initialItems.map(function(item) { return item.id; }));
+                }
+                
+                // Board ID: real board ID or 0 for demo mode
+                const testBoardId = <?php echo $is_real_board ? absint( $board_id ) : 0; ?>;
                 
                 // User ID for welcome modal (get from WordPress)
                 const currentUserId = <?php echo get_current_user_id(); ?>;
+                
+                // Expose userId to window for debugging
+                window.currentUserId = currentUserId;
+                if (window.N88StudioOS) {
+                    window.N88StudioOS.currentUserId = currentUserId;
+                }
                 
                 // Concierge data (placeholder for now - can be replaced with actual data source)
                 const conciergeData = <?php 
@@ -2691,31 +3134,58 @@ class N88_RFQ_Admin {
                 // Debounce timer for localStorage saves (demo mode)
                 var localStorageSaveTimer = null;
 
-                // Initialize store - try to load from localStorage first, then fall back to seedItems
+                // Initialize store
                 const store = useBoardStore.getState();
-                let initialItems = seedItems;
                 
-                // Try to load from localStorage (for demo mode persistence)
-                try {
-                    const savedData = localStorage.getItem(DEMO_STORAGE_KEY);
-                    if (savedData) {
-                        const parsed = JSON.parse(savedData);
-                        if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-                            // Validate that items have required fields
-                            const validItems = parsed.items.filter(function(item) {
-                                return item && item.id && typeof item.x === 'number' && typeof item.y === 'number';
-                            });
-                            if (validItems.length > 0) {
-                                initialItems = validItems;
-                                console.log('Loaded ' + validItems.length + ' items from localStorage');
+                // For demo mode (boardId = 0), try to load from localStorage first
+                if (testBoardId === 0) {
+                    try {
+                        const savedData = localStorage.getItem(DEMO_STORAGE_KEY);
+                        if (savedData) {
+                            const parsed = JSON.parse(savedData);
+                            if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                                const validItems = parsed.items.filter(function(item) {
+                                    return item && item.id && typeof item.x === 'number' && typeof item.y === 'number';
+                                });
+                                if (validItems.length > 0) {
+                                    // Merge saved layout data with initial items to preserve title, description, imageUrl, sizeKey
+                                    const mergedItems = validItems.map(function(savedItem) {
+                                        const initialItem = initialItems.find(function(initItem) {
+                                            return initItem.id === savedItem.id;
+                                        });
+                                        if (initialItem) {
+                                            // Preserve layout data from saved item, but keep metadata from initial item
+                                            return {
+                                                ...initialItem, // Start with initial item (has title, description, imageUrl, sizeKey)
+                                                ...savedItem,   // Override with saved layout data (x, y, z, width, height, displayMode)
+                                                // Explicitly preserve title, description, imageUrl, sizeKey from initial item
+                                                title: initialItem.title || savedItem.title || '',
+                                                description: initialItem.description || savedItem.description || '',
+                                                imageUrl: initialItem.imageUrl || savedItem.imageUrl || '',
+                                                sizeKey: savedItem.sizeKey || initialItem.sizeKey || 'D',
+                                            };
+                                        }
+                                        return savedItem;
+                                    });
+                                    store.setItems(mergedItems);
+                                    console.log('Loaded ' + mergedItems.length + ' items from localStorage (merged with initial data)');
+                                } else {
+                                    store.setItems(initialItems);
+                                }
+                            } else {
+                                store.setItems(initialItems);
                             }
+                        } else {
+                            store.setItems(initialItems);
                         }
+                    } catch (e) {
+                        console.warn('Failed to load from localStorage:', e);
+                        store.setItems(initialItems);
                     }
-                } catch (e) {
-                    console.warn('Failed to load from localStorage:', e);
+                } else {
+                    // Real board - use items directly (no localStorage)
+                    store.setItems(initialItems);
                 }
-                
-                store.setItems(initialItems);
 
                 // Locked size presets (DO NOT CHANGE)
                 const CARD_SIZES = {
@@ -2804,16 +3274,94 @@ class N88_RFQ_Admin {
                         }
                     };
 
-                    const handleDragStart = () => {
-                        bringToFront(item.id);
+                    const handlePointerDown = function() {
+                        // Bring item to front on pointer down (click or drag start)
+                        // Compute maxZ accounting for L/XL boost (they get +1000 to calculated z-index)
+                        var currentItems = window.N88StudioOS.useBoardStore.getState().items;
+                        
+                        // Calculate max calculated z-index considering L/XL boost
+                        var maxCalculatedZ = Math.max.apply(Math, currentItems.map(function(i) {
+                            var baseZ = i.z || 0;
+                            // Determine size for this item (same logic as getCurrentSize)
+                            var itemSize = 'D';
+                            if (i.sizeKey && CARD_SIZES[i.sizeKey]) {
+                                itemSize = i.sizeKey;
+                            } else {
+                                // Fallback: match by dimensions
+                                var width = i.width;
+                                var height = i.height;
+                                for (var size in CARD_SIZES) {
+                                    var dims = CARD_SIZES[size];
+                                    if (Math.abs(width - dims.w) < 1 && Math.abs(height - dims.h) < 1) {
+                                        itemSize = size;
+                                        break;
+                                    }
+                                }
+                            }
+                            // Apply same boost as calculatedZIndex
+                            return (itemSize === 'XL' || itemSize === 'L') ? baseZ + 1000 : baseZ;
+                        }).concat([0]));
+                        
+                        // Get current item's calculated z-index
+                        var currentCalculatedZ = calculatedZIndex;
+                        
+                        // Only update if not already at max (compare calculated z-indexes)
+                        if (currentCalculatedZ !== maxCalculatedZ) {
+                            // Calculate what base z value we need to set
+                            var newZ;
+                            if (currentSize === 'XL' || currentSize === 'L') {
+                                // For L/XL: newZ + 1000 should be > maxCalculatedZ
+                                var maxBaseZ = Math.max.apply(Math, currentItems.map(function(i) { return i.z || 0; }).concat([0]));
+                                newZ = Math.max(maxBaseZ + 1, maxCalculatedZ - 1000 + 1);
+                            } else {
+                                // For regular items: newZ should be > maxCalculatedZ
+                                var maxBaseZ = Math.max.apply(Math, currentItems.map(function(i) { return i.z || 0; }).concat([0]));
+                                newZ = Math.max(maxBaseZ + 1, maxCalculatedZ + 1);
+                            }
+                            
+                            // Update z via updateLayout (triggers state update)
+                            updateLayout(item.id, { z: newZ });
+                            
+                            // Trigger save with updated z-index so stacking order persists
+                            if (onLayoutChanged) {
+                                onLayoutChanged({
+                                    id: item.id,
+                                    x: item.x,
+                                    y: item.y,
+                                    z: newZ,
+                                    width: item.width,
+                                    height: item.height,
+                                    displayMode: item.displayMode,
+                                });
+                            }
+                        }
                     };
 
-                    const handleDragEnd = (event, info) => {
-                        const newX = x.get();
-                        const newY = y.get();
+                    const handleDragStart = function() {
+                        // Bring to front on drag start (same as pointer down)
+                        handlePointerDown();
+                    };
+
+                    const handleDragEnd = function(event, info) {
+                        var newX = x.get();
+                        var newY = y.get();
+                        
+                        // Get current z-index from store (may have changed via bringToFront)
+                        var currentItems = window.N88StudioOS.useBoardStore.getState().items;
+                        var currentItem = currentItems.find(function(i) { return i.id === item.id; });
+                        var currentZ = currentItem ? currentItem.z : item.z;
+                        
                         updateLayout(item.id, { x: newX, y: newY });
                         if (onLayoutChanged) {
-                            onLayoutChanged({ id: item.id, x: newX, y: newY, width: item.width, height: item.height, displayMode: item.displayMode });
+                            onLayoutChanged({ 
+                                id: item.id, 
+                                x: newX, 
+                                y: newY, 
+                                z: currentZ,
+                                width: item.width, 
+                                height: item.height, 
+                                displayMode: item.displayMode 
+                            });
                         }
                     };
 
@@ -2822,6 +3370,7 @@ class N88_RFQ_Admin {
                         style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: 'grab' },
                         drag: true,
                         dragMomentum: false,
+                        onPointerDown: handlePointerDown,
                         onDragStart: handleDragStart,
                         onDragEnd: handleDragEnd,
                         whileDrag: { cursor: 'grabbing', scale: 1.05 },
@@ -2875,7 +3424,7 @@ class N88_RFQ_Admin {
                         },
                     }, isExpanded ? 'Show Full Image' : 'Card Details'),
                     // Item ID text overlay (only show if no image or for debugging)
-                    !item.imageUrl && React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, 'Item ' + item.id)
+                    !item.imageUrl && React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id))
                     ), 
                     // Metadata section for full mode
                     React.createElement(AnimatePresence, null, item.displayMode === 'full' && React.createElement(motion.div, {
@@ -2884,10 +3433,33 @@ class N88_RFQ_Admin {
                         animate: { opacity: 1, height: 'auto' },
                         exit: { opacity: 0, height: 0 },
                         transition: { duration: 0.3 },
-                        style: { padding: '12px', backgroundColor: '#ffffff' },
+                        style: { 
+                            padding: '12px',
+                            backgroundColor: '#ffffff' 
+                        },
                     }, 
-                        React.createElement('div', { style: { fontSize: '14px', fontWeight: 'bold' } }, 'Item ' + item.id), 
-                        React.createElement('div', { style: { fontSize: '12px', color: '#666', marginTop: '4px' } }, 'Position: ' + Math.round(item.x) + ', ' + Math.round(item.y)), 
+                        item.title && React.createElement('div', { 
+                            style: { 
+                                fontSize: '14px', 
+                                fontWeight: 'bold', 
+                                marginBottom: '4px' 
+                            } 
+                        }, item.title), 
+                        item.description && React.createElement('div', { 
+                            style: { 
+                                fontSize: '12px', 
+                                color: '#666', 
+                                marginBottom: '4px' 
+                            } 
+                        }, item.description), 
+                        React.createElement('div', { 
+                            style: { 
+                                fontSize: '12px', 
+                                color: '#666', 
+                                marginTop: '4px',
+                                marginBottom: '0'
+                            } 
+                        }, 'Position: ' + Math.round(item.x) + ', ' + Math.round(item.y)), 
                         // Size Preset Controls (S / D / L / XL) - in detail area
                         React.createElement('div', {
                             style: {
@@ -2929,13 +3501,22 @@ class N88_RFQ_Admin {
                                     }
                                 },
                             }, size);
-                        })))))) // closes: size div, metadata motion.div, AnimatePresence, inner div (main container), outer motion.div
+                        })) // closes: size div, metadata motion.div children array, metadata motion.div
+                    ) // closes: AnimatePresence
+                    ) // closes: inner div children array
+                    ) // closes: inner div
+                    ) // closes: outer motion.div
                 };
 
                 // UnsyncedToast Component
                 const UnsyncedToast = ({ unsynced, onDismiss }) => {
-                    if (!unsynced) return null;
-                    return React.createElement(AnimatePresence, null, unsynced && React.createElement(motion.div, {
+                    // Don't render anything if not unsynced
+                    if (!unsynced) {
+                        return null;
+                    }
+                    
+                    return React.createElement(AnimatePresence, { mode: 'wait' }, React.createElement(motion.div, {
+                        key: 'unsynced-toast',
                         initial: { opacity: 0, y: -20 },
                         animate: { opacity: 1, y: 0 },
                         exit: { opacity: 0, y: -20 },
@@ -3059,7 +3640,7 @@ class N88_RFQ_Admin {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            zIndex: 20000,
+                            zIndex: 99999,
                             pointerEvents: 'auto',
                         },
                         onClick: function(e) {
@@ -3162,8 +3743,50 @@ class N88_RFQ_Admin {
                     // Pass boardId (can be 0 for demo mode - hook will handle it gracefully)
                     var saveHook = null;
                     if (useDebouncedSave) {
+                        console.log('BoardCanvas: Initializing useDebouncedSave with boardId =', boardId);
                         saveHook = useDebouncedSave(boardId || 0, getItems);
+                        console.log('BoardCanvas: saveHook initialized:', saveHook);
+                    } else {
+                        console.warn('BoardCanvas: useDebouncedSave is not available!');
                     }
+                    
+                    // Track unsynced state in component state to trigger re-renders
+                    var _unsyncedState = React.useState(saveHook ? saveHook.unsynced : false);
+                    var unsyncedState = _unsyncedState[0];
+                    var setUnsyncedState = _unsyncedState[1];
+                    
+                    // Subscribe to unsynced state changes from the hook
+                    // The hook's state updates don't automatically trigger parent re-renders,
+                    // so we need to sync it with component state
+                    React.useEffect(function() {
+                        if (!saveHook) {
+                            setUnsyncedState(false);
+                            return;
+                        }
+                        
+                        // Update immediately on mount
+                        setUnsyncedState(saveHook.unsynced);
+                        
+                        // Check unsynced state periodically (every 50ms) to catch updates
+                        // Read directly from saveHook each time to avoid closure issues
+                        var checkInterval = setInterval(function() {
+                            if (saveHook) {
+                                var currentUnsynced = saveHook.unsynced;
+                                // Use functional update to always get latest state
+                                setUnsyncedState(function(prev) {
+                                    if (prev !== currentUnsynced) {
+                                        console.log('BoardCanvas: unsynced state changed from', prev, 'to', currentUnsynced);
+                                        return currentUnsynced;
+                                    }
+                                    return prev;
+                                });
+                            }
+                        }, 50);
+                        
+                        return function() {
+                            clearInterval(checkInterval);
+                        };
+                    }, [saveHook]);
                     
                     // Handle layout changes - trigger debounced save
                     var handleLayoutChanged = function(data) {
@@ -3189,11 +3812,12 @@ class N88_RFQ_Admin {
                                     console.warn('Failed to save to localStorage:', e);
                                 }
                             }, 500);
-                        }
-                        // For real boards (boardId > 0), trigger server save
-                        if (saveHook && saveHook.triggerSave && boardId && boardId > 0) {
+                        } else if (boardId > 0 && saveHook && saveHook.triggerSave) {
+                            // Real board - trigger debounced save via hook
+                            console.log('BoardCanvas: Triggering save for real board, boardId =', boardId);
                             saveHook.triggerSave();
                         }
+                        // Note: For demo mode (boardId = 0), localStorage is handled above, no hook call needed
                     };
                     
                     if (!items || items.length === 0) {
@@ -3213,7 +3837,8 @@ class N88_RFQ_Admin {
                                 marginTop: '20px',
                                 padding: '20px',
                                 border: '1px solid #ddd',
-                                borderRadius: '4px'
+                                borderRadius: '4px',
+                                zIndex: 1
                             },
                         }, items.map(function(item) {
                             return React.createElement(BoardItem, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged });
@@ -3222,7 +3847,8 @@ class N88_RFQ_Admin {
                         React.createElement(ConciergeOverlay, { concierge: conciergeData })),
                         // Welcome Modal - shown once per user
                         React.createElement(WelcomeModal, { userId: currentUserId }),
-                        saveHook ? React.createElement(UnsyncedToast, { unsynced: saveHook.unsynced, onDismiss: saveHook.clearUnsynced }) : null
+                        // UnsyncedToast removed - no longer showing "Changes not saved" notification
+                        null
                     );
                 };
 
@@ -3241,7 +3867,7 @@ class N88_RFQ_Admin {
                         concierge: conciergeData,
                         onLayoutChanged: function(data) { console.log('Layout changed:', data); },
                     }));
-                    updateDebug('Board rendered! Items: ' + seedItems.length + (testBoardId > 0 ? ' (Persistence enabled)' : ' (Demo mode - no persistence)'));
+                    updateDebug('Board rendered! Items: ' + initialItems.length + (testBoardId > 0 ? ' (Real board - persistence enabled)' : ' (Demo mode - localStorage)'));
                     return true;
                 } catch (e) {
                     updateDebug('ERROR: ' + e.message);
@@ -3271,5 +3897,336 @@ class N88_RFQ_Admin {
         </script>
         <?php
     }
+
+    /**
+     * Render Real Board Demo page - REWRITTEN
+     * 
+     * Shows a real board with real items from the database.
+     * Items are fetched from wp_n88_board_items and merged with layout data.
+     */
+    public function render_real_board_demo() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
+
+        // Get board_id from URL parameter
+        $board_id = isset( $_GET['board_id'] ) ? absint( $_GET['board_id'] ) : 0;
+
+        if ( $board_id === 0 ) {
+            ?>
+            <div class="wrap">
+                <h1>Real Board Demo</h1>
+                <p><strong>Error:</strong> No board ID provided.</p>
+                <p>Usage: <code>?page=n88-rfq-real-board-demo&board_id=123</code></p>
+            </div>
+            <?php
+            return;
+        }
+
+        $user_id = get_current_user_id();
+
+        // Verify board ownership
+        $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
+        if ( ! $board ) {
+            ?>
+            <div class="wrap">
+                <h1>Real Board Demo</h1>
+                <p><strong>Error:</strong> Board not found or access denied.</p>
+            </div>
+            <?php
+            return;
+        }
+
+        // Fetch board layout
+        $layout_data = null;
+        if ( ! empty( $board->latest_layout_json ) ) {
+            $layout_data = json_decode( $board->latest_layout_json, true );
+            if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $layout_data ) ) {
+                $layout_data = null;
+            }
+        }
+
+        // Fetch items from database
+        global $wpdb;
+        $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $items_table = $wpdb->prefix . 'n88_items';
+        
+        $board_items = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id
+                 FROM {$board_items_table} bi
+                 INNER JOIN {$items_table} i ON bi.item_id = i.id
+                 WHERE bi.board_id = %d 
+                 AND bi.removed_at IS NULL
+                 AND i.deleted_at IS NULL
+                 ORDER BY bi.added_at ASC",
+                $board_id
+            )
+        );
+
+        // Build items array
+        $items = array();
+        $layout_items_map = array();
+        
+        if ( $layout_data && isset( $layout_data['items'] ) && is_array( $layout_data['items'] ) ) {
+            foreach ( $layout_data['items'] as $layout_item ) {
+                $item_id_from_layout = str_replace( 'item-', '', $layout_item['id'] );
+                $layout_items_map[ $item_id_from_layout ] = $layout_item;
+            }
+        }
+
+        $CARD_SIZES = array(
+            'S' => array( 'w' => 160, 'h' => 200 ),
+            'D' => array( 'w' => 200, 'h' => 250 ),
+            'L' => array( 'w' => 280, 'h' => 350 ),
+            'XL' => array( 'w' => 360, 'h' => 450 ),
+        );
+
+        $z_index = 1;
+        foreach ( $board_items as $board_item ) {
+            $item_id = absint( $board_item->item_id );
+            $item_id_string = 'item-' . $item_id;
+            
+            $image_url = '';
+            if ( ! empty( $board_item->primary_image_id ) ) {
+                $image_url = wp_get_attachment_image_url( $board_item->primary_image_id, 'full' );
+                if ( ! $image_url ) {
+                    $image_url = wp_get_attachment_url( $board_item->primary_image_id );
+                }
+            }
+            $image_url = $image_url ? esc_url_raw( $image_url ) : '';
+            
+            $title = isset( $board_item->title ) ? wp_strip_all_tags( sanitize_text_field( $board_item->title ) ) : '';
+            $description = isset( $board_item->description ) ? wp_strip_all_tags( sanitize_textarea_field( $board_item->description ) ) : '';
+            
+            if ( isset( $layout_items_map[ $item_id ] ) ) {
+                $layout_item = $layout_items_map[ $item_id ];
+                $items[] = array(
+                    'id' => $item_id_string,
+                    'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : floatval( 50 + ( count( $items ) * 250 ) ),
+                    'y' => isset( $layout_item['y'] ) ? floatval( $layout_item['y'] ) : 50.0,
+                    'z' => isset( $layout_item['z'] ) ? intval( $layout_item['z'] ) : $z_index++,
+                    'width' => isset( $layout_item['width'] ) ? floatval( $layout_item['width'] ) : floatval( $CARD_SIZES['D']['w'] ),
+                    'height' => isset( $layout_item['height'] ) ? floatval( $layout_item['height'] ) : floatval( $CARD_SIZES['D']['h'] ),
+                    'sizeKey' => isset( $layout_item['sizeKey'] ) && in_array( $layout_item['sizeKey'], array( 'S', 'D', 'L', 'XL' ), true ) ? $layout_item['sizeKey'] : 'D',
+                    'displayMode' => isset( $layout_item['displayMode'] ) && in_array( $layout_item['displayMode'], array( 'photo_only', 'full' ), true ) ? $layout_item['displayMode'] : 'photo_only',
+                    'title' => $title,
+                    'description' => $description,
+                    'imageUrl' => $image_url,
+                );
+            } else {
+                $items[] = array(
+                    'id' => $item_id_string,
+                    'x' => floatval( 50 + ( count( $items ) * 250 ) ),
+                    'y' => 50.0,
+                    'z' => $z_index++,
+                    'width' => floatval( $CARD_SIZES['D']['w'] ),
+                    'height' => floatval( $CARD_SIZES['D']['h'] ),
+                    'sizeKey' => 'D',
+                    'displayMode' => 'photo_only',
+                    'title' => $title,
+                    'description' => $description,
+                    'imageUrl' => $image_url,
+                );
+            }
+        }
+
+        // Enqueue dependencies
+        wp_enqueue_script( 'react', 'https://unpkg.com/react@18/umd/react.production.min.js', array(), '18.2.0', false );
+        wp_enqueue_script( 'react-dom', 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js', array( 'react' ), '18.2.0', false );
+        wp_enqueue_script( 'framer-motion', 'https://unpkg.com/framer-motion@10/dist/framer-motion.js', array( 'react', 'react-dom' ), '10.16.0', false );
+        wp_enqueue_script( 'zustand', 'https://unpkg.com/zustand@3.7.2/umd/index.production.js', array( 'react' ), '3.7.2', true );
+
+        $plugin_url = N88_RFQ_PLUGIN_URL;
+        wp_enqueue_script( 'n88-board-store', $plugin_url . 'assets/js/stores/useBoardStore.js', array( 'zustand', 'react' ), N88_RFQ_VERSION . '?v=' . time(), true );
+        wp_enqueue_script( 'n88-debounced-save', $plugin_url . 'assets/js/hooks/useDebouncedSave.js', array( 'n88-board-store', 'react' ), N88_RFQ_VERSION . '?v=' . time(), true );
+
+        wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
+            'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+        ) );
+        ?>
+        <div class="wrap">
+            <h1>Real Board Demo - Board #<?php echo esc_html( $board_id ); ?></h1>
+            <p><strong>Board Name:</strong> <?php echo esc_html( $board->name ); ?></p>
+            <p><strong>Items on Board:</strong> <?php echo count( $items ); ?></p>
+            <div id="n88-real-board-demo-root"></div>
+            <div id="n88-real-board-demo-debug" style="position: fixed; bottom: 10px; right: 10px; background: #fff; padding: 10px; border: 1px solid #ccc; z-index: 9999; font-size: 12px; max-width: 300px;">
+                <div>Loading...</div>
+            </div>
+        </div>
+        <script>
+        (function() {
+            function updateDebug(msg) {
+                const debugEl = document.getElementById('n88-real-board-demo-debug');
+                if (debugEl) debugEl.innerHTML = '<div>' + msg + '</div>';
+            }
+
+            function initRealBoard() {
+                if (typeof window.React === 'undefined' || typeof window.ReactDOM === 'undefined') {
+                    updateDebug('Waiting for React...');
+                    return false;
+                }
+                
+                var framerMotion = window.motion || window.framerMotion || window.Motion;
+                if (!framerMotion) {
+                    updateDebug('Waiting for Framer Motion...');
+                    return false;
+                }
+                
+                if (typeof window.N88StudioOS === 'undefined' || typeof window.N88StudioOS.useBoardStore === 'undefined') {
+                    updateDebug('Waiting for useBoardStore...');
+                    return false;
+                }
+                
+                if (typeof window.N88StudioOS.useDebouncedSave === 'undefined') {
+                    updateDebug('Waiting for useDebouncedSave...');
+                    return false;
+                }
+
+                updateDebug('All dependencies loaded!');
+
+                const React = window.React;
+                const ReactDOM = window.ReactDOM;
+                
+                var motion = framerMotion.motion || framerMotion;
+                var AnimatePresence = framerMotion.AnimatePresence || window.AnimatePresence;
+                var useMotionValue = framerMotion.useMotionValue || window.useMotionValue;
+                
+                if (!motion || !AnimatePresence || !useMotionValue) {
+                    updateDebug('ERROR: Missing Framer Motion components');
+                    return false;
+                }
+                
+                const useBoardStore = window.N88StudioOS.useBoardStore;
+                const useDebouncedSave = window.N88StudioOS.useDebouncedSave;
+
+                const realItems = <?php echo wp_json_encode( $items ); ?>;
+                const realBoardId = <?php echo absint( $board_id ); ?>;
+                const currentUserId = <?php echo absint( $user_id ); ?>;
+                
+                window.currentUserId = currentUserId;
+                if (window.N88StudioOS) {
+                    window.N88StudioOS.currentUserId = currentUserId;
+                }
+                
+                const conciergeData = {
+                    name: 'Your Concierge',
+                    avatarUrl: ''
+                };
+
+                useBoardStore.getState().setItems(realItems);
+                updateDebug('Store initialized with ' + realItems.length + ' items');
+
+                const CARD_SIZES = {
+                    S: { w: 160, h: 200 },
+                    D: { w: 200, h: 250 },
+                    L: { w: 280, h: 350 },
+                    XL: { w: 360, h: 450 },
+                };
+
+                // Copy BoardItem component from working board demo - ensure exact match
+                // [BoardItem component code will be inserted here - using exact same as board demo]
+
+                // Copy other components from working board demo
+                // [Other components will be inserted here]
+
+                // BoardCanvas - fixed concierge prop reference
+                const BoardCanvas = function(props) {
+                    var boardId = props.boardId;
+                    var onLayoutChanged = props.onLayoutChanged;
+                    var userId = props.userId;
+                    var concierge = props.concierge;
+                    var items = useBoardStore(function(state) { return state.items; });
+                    
+                    var getItems = React.useCallback(function() {
+                        return window.N88StudioOS.useBoardStore.getState().items;
+                    }, []);
+                    
+                    // useDebouncedSave is guaranteed to exist at this point (checked in initRealBoard)
+                    var saveHook = useDebouncedSave(boardId || 0, getItems);
+                    var unsynced = saveHook.unsynced;
+                    var triggerSave = saveHook.triggerSave;
+                    var clearUnsynced = saveHook.clearUnsynced;
+                    
+                    var handleLayoutChanged = React.useCallback(function(data) {
+                        if (onLayoutChanged) onLayoutChanged(data);
+                        if (boardId && boardId > 0 && triggerSave) {
+                            triggerSave();
+                        }
+                    }, [boardId, triggerSave, onLayoutChanged]);
+                    
+                    return React.createElement(React.Fragment, null,
+                        React.createElement('div', {
+                            style: { 
+                                position: 'relative', 
+                                width: '100%', 
+                                minHeight: '1200px', 
+                                height: 'auto',
+                                overflow: 'visible', 
+                                backgroundColor: '#f5f5f5',
+                                marginTop: '20px',
+                                padding: '20px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                zIndex: 1
+                            }
+                        }, (items || []).map(function(item) {
+                            return React.createElement(BoardItem, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged });
+                        }), 
+                        React.createElement(ConciergeOverlay, { concierge: concierge })
+                        ),
+                        React.createElement(WelcomeModal, { userId: currentUserId }),
+                        // UnsyncedToast removed - no longer showing "Changes not saved" notification
+                        null
+                    );
+                };
+
+                try {
+                    const rootEl = document.getElementById('n88-real-board-demo-root');
+                    if (!rootEl) {
+                        updateDebug('ERROR: Root element not found!');
+                        return false;
+                    }
+                    
+                    const root = ReactDOM.createRoot(rootEl);
+                    root.render(React.createElement(BoardCanvas, {
+                        boardId: realBoardId,
+                        userId: currentUserId,
+                        concierge: conciergeData,
+                        onLayoutChanged: function(data) {
+                            console.log('Layout changed:', data);
+                        }
+                    }));
+
+                    updateDebug('Board rendered! Items: ' + realItems.length);
+                    return true;
+                } catch (e) {
+                    updateDebug('ERROR: ' + e.message);
+                    console.error('Board render error:', e);
+                    return false;
+                }
+            }
+
+            var checkCount = 0;
+            var maxChecks = 50;
+            var checkInterval = setInterval(function() {
+                checkCount++;
+                if (initRealBoard()) {
+                    clearInterval(checkInterval);
+                    setTimeout(function() {
+                        var debugEl = document.getElementById('n88-real-board-demo-debug');
+                        if (debugEl) debugEl.style.display = 'none';
+                    }, 3000);
+                } else if (checkCount >= maxChecks) {
+                    clearInterval(checkInterval);
+                    updateDebug('ERROR: Timeout waiting for dependencies');
+                }
+            }, 100);
+        })();
+        </script>
+        <?php
+    }
+
+
 }
 

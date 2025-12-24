@@ -42,8 +42,11 @@
          * Save function - sends full snapshot to server
          */
         const performSave = React.useCallback(function(revision) {
+            // Skip save for demo mode (boardId = 0) - handled separately via localStorage
             if (!boardId || boardId === 0) {
-                console.warn('useDebouncedSave: boardId is required');
+                console.log('useDebouncedSave: Skipping performSave for demo mode (boardId = 0)');
+                // Clear unsynced state for demo mode since it's handled by localStorage
+                setUnsynced(false);
                 return;
             }
 
@@ -52,6 +55,21 @@
                 console.warn('useDebouncedSave: getItems() must return an array');
                 return;
             }
+            
+            // Filter items to only include fields allowed by server
+            // Server expects: id, x, y, z, width, height, sizeKey, displayMode
+            var allowedKeys = ['id', 'x', 'y', 'z', 'width', 'height', 'sizeKey', 'displayMode'];
+            var filteredItems = items.map(function(item) {
+                var filtered = {};
+                allowedKeys.forEach(function(key) {
+                    if (item.hasOwnProperty(key)) {
+                        filtered[key] = item[key];
+                    }
+                });
+                return filtered;
+            });
+            
+            console.log('useDebouncedSave: Filtered items from', items.length, 'to', filteredItems.length, 'items with allowed keys only');
 
             // Prepare full snapshot payload
             const payload = {
@@ -68,27 +86,50 @@
 
             // Get AJAX URL and nonce from WordPress
             const ajaxurl = window.ajaxurl || '/wp-admin/admin-ajax.php';
-            const nonce = window.n88BoardNonce || '';
+            // wp_localize_script creates: window.n88BoardNonce = { nonce: '...' }
+            const nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) ? window.n88BoardNonce.nonce : '';
 
             // Send AJAX request
             const formData = new FormData();
             formData.append('action', 'n88_save_board_layout');
             formData.append('board_id', boardId);
-            formData.append('items', JSON.stringify(items));
+            formData.append('items', JSON.stringify(filteredItems));
             formData.append('client_revision', revision);
             if (nonce) {
                 formData.append('nonce', nonce);
+            } else {
+                console.warn('useDebouncedSave: No nonce available!');
             }
 
+            console.log('useDebouncedSave: Sending AJAX request to', ajaxurl, 'with boardId =', boardId, 'items count =', items.length);
+            console.log('useDebouncedSave: Nonce available:', !!nonce);
+            console.log('useDebouncedSave: Sample item (first):', items.length > 0 ? items[0] : 'No items');
+            
+            // Log what fields are in the items
+            if (items.length > 0) {
+                var sampleItem = items[0];
+                console.log('useDebouncedSave: Item keys:', Object.keys(sampleItem));
+            }
+            
             fetch(ajaxurl, {
                 method: 'POST',
                 body: formData,
                 credentials: 'same-origin',
             })
             .then(function(response) {
-                return response.json();
+                console.log('useDebouncedSave: Response status =', response.status, response.statusText);
+                
+                // Try to parse response even if status is not OK to see error message
+                return response.json().then(function(data) {
+                    return { ok: response.ok, status: response.status, data: data };
+                }).catch(function() {
+                    // If JSON parsing fails, return error
+                    return { ok: false, status: response.status, data: { success: false, message: 'Failed to parse response' } };
+                });
             })
-            .then(function(data) {
+            .then(function(result) {
+                var data = result.data;
+                
                 // Check if this response matches the latest client revision
                 // Compare the revision that was sent with the current revision
                 // If not, ignore it (stale response)
@@ -100,13 +141,18 @@
                 // Clear pending save
                 pendingSaveRef.current = null;
 
-                if (data && data.success) {
+                // WordPress wp_send_json_success returns { success: true, data: {...} }
+                if (result.ok && data && data.success === true) {
                     // Success - clear unsynced state
                     setUnsynced(false);
+                    console.log('useDebouncedSave: Save succeeded, clearing unsynced state');
                 } else {
                     // Failure - mark as unsynced
                     setUnsynced(true);
-                    console.error('useDebouncedSave: Save failed', data);
+                    var errorMsg = (data && data.data && data.data.message) ? data.data.message : 
+                                   (data && data.message) ? data.message : 
+                                   'Unknown error (status: ' + result.status + ')';
+                    console.error('useDebouncedSave: Save failed -', errorMsg, 'Full response:', data);
                 }
             })
             .catch(function(error) {
@@ -130,6 +176,20 @@
          * Trigger save - debounced with 500ms trailing edge
          */
         const triggerSave = React.useCallback(function() {
+            // Skip if boardId is 0 (demo mode - handled separately via localStorage)
+            // Don't set unsynced or make any AJAX calls for demo mode
+            if (!boardId || boardId === 0) {
+                console.log('useDebouncedSave: Skipping save for demo mode (boardId = 0) - handled by localStorage');
+                // Keep unsynced as false for demo mode (localStorage handles it)
+                setUnsynced(false);
+                return;
+            }
+            
+            console.log('useDebouncedSave: triggerSave called for boardId =', boardId);
+            
+            // Mark as unsynced immediately when changes are made (only for real boards)
+            setUnsynced(true);
+
             // Clear existing timer
             if (debounceTimerRef.current) {
                 clearTimeout(debounceTimerRef.current);
@@ -143,9 +203,10 @@
             // Set new debounce timer (trailing edge - fires after 500ms of inactivity)
             debounceTimerRef.current = setTimeout(function() {
                 debounceTimerRef.current = null;
+                console.log('useDebouncedSave: Debounce timer fired, calling performSave');
                 performSave(currentRevision);
             }, 500);
-        }, [performSave]);
+        }, [performSave, boardId]);
 
         /**
          * Clear unsynced state (manual clear)

@@ -108,15 +108,86 @@ const BoardItem = ({ item, onLayoutChanged }) => {
         }
     };
 
+    const handlePointerDown = () => {
+        // Bring item to front on pointer down (click or drag start)
+        // Compute maxZ accounting for L/XL boost (they get +1000 to calculated z-index)
+        const currentItems = window.N88StudioOS.useBoardStore.getState().items;
+        
+        // Calculate max calculated z-index considering L/XL boost
+        const maxCalculatedZ = Math.max(...currentItems.map(i => {
+            const baseZ = i.z || 0;
+            // Determine size for this item (same logic as getCurrentSize)
+            let itemSize = 'D';
+            if (i.sizeKey && CARD_SIZES[i.sizeKey]) {
+                itemSize = i.sizeKey;
+            } else {
+                // Fallback: match by dimensions
+                const { width, height } = i;
+                for (const [size, dims] of Object.entries(CARD_SIZES)) {
+                    if (Math.abs(width - dims.w) < 1 && Math.abs(height - dims.h) < 1) {
+                        itemSize = size;
+                        break;
+                    }
+                }
+            }
+            // Apply same boost as calculatedZIndex
+            return (itemSize === 'XL' || itemSize === 'L') ? baseZ + 1000 : baseZ;
+        }), 0);
+        
+        // Get current item's calculated z-index
+        const currentCalculatedZ = calculatedZIndex;
+        
+        // Only update if not already at max (compare calculated z-indexes)
+        if (currentCalculatedZ !== maxCalculatedZ) {
+            // Calculate what base z value we need to set
+            // If this is an L/XL item, we need: newZ + 1000 > maxCalculatedZ
+            // If this is a regular item, we need: newZ > maxCalculatedZ
+            let newZ;
+            if (currentSize === 'XL' || currentSize === 'L') {
+                // For L/XL: newZ + 1000 should be > maxCalculatedZ
+                // So: newZ > maxCalculatedZ - 1000
+                // But we also want it to be higher than max base z for consistency
+                const maxBaseZ = Math.max(...currentItems.map(i => (i.z || 0)), 0);
+                newZ = Math.max(maxBaseZ + 1, maxCalculatedZ - 1000 + 1);
+            } else {
+                // For regular items: newZ should be > maxCalculatedZ
+                // But if maxCalculatedZ is from an L/XL item (e.g., 1005), we need newZ > 1005
+                const maxBaseZ = Math.max(...currentItems.map(i => (i.z || 0)), 0);
+                newZ = Math.max(maxBaseZ + 1, maxCalculatedZ + 1);
+            }
+            
+            // Update z via updateLayout (triggers state update)
+            updateLayout(item.id, { z: newZ });
+            
+            // Trigger save with updated z-index
+            if (onLayoutChanged) {
+                onLayoutChanged({
+                    id: item.id,
+                    x: item.x,
+                    y: item.y,
+                    z: newZ,
+                    width: item.width,
+                    height: item.height,
+                    displayMode: item.displayMode,
+                });
+            }
+        }
+    };
+
     const handleDragStart = () => {
-        // Bring item to front on drag start
-        bringToFront(item.id);
+        // Bring item to front on drag start (redundant but safe)
+        handlePointerDown();
     };
 
     const handleDragEnd = (event, info) => {
         // Get final position from motion values (they track the drag)
         const newX = x.get();
         const newY = y.get();
+
+        // Get current z-index from store (may have changed via bringToFront)
+        const currentItems = window.N88StudioOS.useBoardStore.getState().items;
+        const currentItem = currentItems.find(i => i.id === item.id);
+        const currentZ = currentItem ? currentItem.z : item.z;
 
         // Update local state optimistically
         updateLayout(item.id, {
@@ -125,11 +196,13 @@ const BoardItem = ({ item, onLayoutChanged }) => {
         });
 
         // Emit layoutChanged callback to parent (triggers debounced save)
+        // Include z-index so stacking order persists
         if (onLayoutChanged) {
             onLayoutChanged({
                 id: item.id,
                 x: newX,
                 y: newY,
+                z: currentZ,
                 width: item.width,
                 height: item.height,
                 displayMode: item.displayMode,
@@ -151,7 +224,8 @@ const BoardItem = ({ item, onLayoutChanged }) => {
             }}
             drag={true}
             dragMomentum={false}
-            onDragStart={handleDragStart}
+            onPointerDown={handlePointerDown}
+            onDragStart={handlePointerDown}
             onDragEnd={handleDragEnd}
             whileDrag={{ cursor: 'grabbing', scale: 1.05 }}
             transition={{
@@ -235,7 +309,7 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                             fontSize: '14px',
                             color: '#999',
                         }}>
-                            Item {item.id}
+                            {item.title || `Item ${item.id}`}
                         </div>
                     )}
                 </div>
@@ -254,10 +328,17 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                                 backgroundColor: '#ffffff',
                             }}
                         >
-                            <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
-                                Item {item.id}
-                            </div>
-                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                            {item.title && (
+                                <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
+                                    {item.title}
+                                </div>
+                            )}
+                            {item.description && (
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                    {item.description}
+                                </div>
+                            )}
+                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px', marginBottom: '0' }}>
                                 Position: {Math.round(item.x)}, {Math.round(item.y)}
                             </div>
                             {/* Size Preset Controls (S / D / L / XL) - in detail area */}
