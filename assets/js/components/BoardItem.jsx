@@ -37,6 +37,9 @@ const BoardItem = ({ item, onLayoutChanged }) => {
     // Local state to track if card is expanded (showing details)
     const [isExpanded, setIsExpanded] = React.useState(item.displayMode === 'full');
     
+    // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
+    const [priceRequested, setPriceRequested] = React.useState(false);
+    
     // Motion values for drag position
     const x = useMotionValue(item.x);
     const y = useMotionValue(item.y);
@@ -324,29 +327,77 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.3 }}
                             style={{
-                                padding: '12px',
+                                padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
                                 backgroundColor: '#ffffff',
+                                overflow: 'visible',
                             }}
                         >
                             {item.title && (
-                                <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
+                                <div style={{ 
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', 
+                                    fontWeight: 'bold', 
+                                    marginBottom: '0' 
+                                }}>
                                     {item.title}
                                 </div>
                             )}
-                            {item.description && (
-                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                                    {item.description}
-                                </div>
-                            )}
-                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px', marginBottom: '0' }}>
+                            <div style={{ 
+                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', 
+                                color: '#666', 
+                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '1px' : '2px',
+                                marginBottom: '0' 
+                            }}>
                                 Position: {Math.round(item.x)}, {Math.round(item.y)}
+                            </div>
+                            {/* Phase 2.1.1: Request Price Action (Frontend Only) */}
+                            <div style={{ 
+                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px', 
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px' 
+                            }}>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        // Phase 2.1.1: Local state only - no backend calls, no persistence
+                                        setPriceRequested(true);
+                                    }}
+                                    disabled={priceRequested}
+                                    style={{
+                                        padding: (currentSize === 'S' || currentSize === 'D') ? '4px 8px' : '6px 12px',
+                                        fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
+                                        fontWeight: 'bold',
+                                        cursor: priceRequested ? 'not-allowed' : 'pointer',
+                                        backgroundColor: priceRequested ? '#ccc' : '#0073aa',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        width: '100%',
+                                        transition: 'background-color 0.2s',
+                                        pointerEvents: 'auto',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!priceRequested) {
+                                            e.target.style.backgroundColor = '#005a87';
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (!priceRequested) {
+                                            e.target.style.backgroundColor = '#0073aa';
+                                        }
+                                    }}
+                                >
+                                    {priceRequested ? 'Price Requested' : 'Request Price'}
+                                </button>
                             </div>
                             {/* Size Preset Controls (S / D / L / XL) - in detail area */}
                             <div
                                 style={{
                                     display: 'flex',
                                     gap: '2px',
-                                    marginTop: '5px',
+                                    marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px',
                                     pointerEvents: 'auto',
                                     flexWrap: 'wrap',
                                 }}
@@ -360,15 +411,15 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                                             handleSizeChange(size, e);
                                         }}
                                         style={{
-                                            padding: '3px 6px',
-                                            fontSize: '10px',
+                                            padding: (currentSize === 'S' || currentSize === 'D') ? '2px 4px' : '3px 6px',
+                                            fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
                                             fontWeight: currentSize === size ? 'bold' : 'normal',
                                             cursor: 'pointer',
                                             backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
                                             color: currentSize === size ? '#fff' : '#333',
                                             border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
                                             borderRadius: '3px',
-                                            minWidth: '30px',
+                                            minWidth: (currentSize === 'S' || currentSize === 'D') ? '25px' : '30px',
                                             flex: '1 1 0',
                                             transition: 'all 0.2s',
                                         }}
