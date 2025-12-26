@@ -76,6 +76,7 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                         key={item.id}
                         item={item}
                         onLayoutChanged={handleLayoutChanged}
+                        boardId={boardId}
                     />
                 ))}
                 {/* Concierge Overlay - read-only, non-blocking */}

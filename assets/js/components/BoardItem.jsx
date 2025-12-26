@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
+import ItemDetailModal from './ItemDetailModal';
 
 // Access Zustand store from global namespace (WordPress UMD pattern)
 const useBoardStore = window.N88StudioOS?.useBoardStore || (() => {
@@ -29,8 +30,9 @@ const CARD_SIZES = {
  * @param {Object} props
  * @param {Object} props.item - Board item from store {id, x, y, z, width, height, displayMode}
  * @param {Function} props.onLayoutChanged - Callback when layout changes
+ * @param {number} props.boardId - Board ID for saving item facts
  */
-const BoardItem = ({ item, onLayoutChanged }) => {
+const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     const bringToFront = useBoardStore((state) => state.bringToFront);
     const updateLayout = useBoardStore((state) => state.updateLayout);
     
@@ -39,6 +41,9 @@ const BoardItem = ({ item, onLayoutChanged }) => {
     
     // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
     const [priceRequested, setPriceRequested] = React.useState(false);
+    
+    // Commit 1.3.8: Modal state
+    const [isModalOpen, setIsModalOpen] = React.useState(false);
     
     // Motion values for drag position
     const x = useMotionValue(item.x);
@@ -261,45 +266,7 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                         position: 'relative',
                     }}
                 >
-                    {/* Card Details / Show Full Image button - always visible on top right */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
-                            updateLayout(item.id, { displayMode: newMode });
-                            setIsExpanded(newMode === 'full');
-                            // Trigger save after animation completes (300ms + small buffer)
-                            setTimeout(() => {
-                                if (onLayoutChanged) {
-                                    onLayoutChanged({
-                                        id: item.id,
-                                        x: item.x,
-                                        y: item.y,
-                                        width: item.width,
-                                        height: item.height,
-                                        displayMode: newMode,
-                                    });
-                                }
-                            }, 350);
-                        }}
-                        style={{
-                            position: 'absolute',
-                            top: '8px',
-                            right: '8px',
-                            padding: '4px 8px',
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            backgroundColor: '#0073aa',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '3px',
-                            zIndex: 10,
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                        }}
-                    >
-                        {isExpanded ? 'Show Full Image' : 'Card Details'}
-                    </button>
-                    {/* Show item ID overlay only if no image */}
+                    {/* Show item title overlay only if no image */}
                     {!item.imageUrl && (
                         <div style={{
                             position: 'absolute',
@@ -315,133 +282,273 @@ const BoardItem = ({ item, onLayoutChanged }) => {
                             {item.title || `Item ${item.id}`}
                         </div>
                     )}
-                </div>
-
-                {/* Metadata section - fades in/out based on displayMode */}
-                <AnimatePresence>
-                    {item.displayMode === 'full' && (
-                        <motion.div
-                            key="metadata"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.3 }}
+                    
+                    {/* Show Card button - appears when in photo_only mode */}
+                    {item.displayMode === 'photo_only' && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                const newMode = 'full';
+                                updateLayout(item.id, { displayMode: newMode });
+                                setIsExpanded(true);
+                                setTimeout(() => {
+                                    if (onLayoutChanged) {
+                                        onLayoutChanged({
+                                            id: item.id,
+                                            x: item.x,
+                                            y: item.y,
+                                            width: item.width,
+                                            height: item.height,
+                                            displayMode: newMode,
+                                        });
+                                    }
+                                }, 350);
+                            }}
                             style={{
-                                padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
-                                backgroundColor: '#ffffff',
-                                overflow: 'visible',
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                padding: '6px 12px',
+                                fontSize: '11px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                backgroundColor: '#0073aa',
+                                color: '#fff',
+                                border: '1px solid #0073aa',
+                                borderRadius: '4px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                                transition: 'all 0.2s',
+                                zIndex: 10,
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#005a87';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = '#0073aa';
                             }}
                         >
-                            {item.title && (
-                                <div style={{ 
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', 
-                                    fontWeight: 'bold', 
-                                    marginBottom: '0' 
-                                }}>
-                                    {item.title}
-                                </div>
-                            )}
+                            Show Card
+                        </button>
+                    )}
+                </div>
+
+                {/* Metadata section - always visible when not photo_only */}
+                {item.displayMode !== 'photo_only' && (
+                    <div
+                        style={{
+                            padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
+                            backgroundColor: '#ffffff',
+                            overflow: 'visible',
+                        }}
+                    >
+                        {/* Category (small label) */}
+                        {item.item_type && (
+                            <div style={{ 
+                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px', 
+                                color: '#999',
+                                textTransform: 'uppercase',
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px',
+                            }}>
+                                {item.item_type}
+                            </div>
+                        )}
+
+                        {/* Description */}
+                        {item.description && (
                             <div style={{ 
                                 fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', 
                                 color: '#666', 
-                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '1px' : '2px',
-                                marginBottom: '0' 
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
+                                lineHeight: '1.4',
                             }}>
-                                Position: {Math.round(item.x)}, {Math.round(item.y)}
+                                {item.description}
                             </div>
-                            {/* Phase 2.1.1: Request Price Action (Frontend Only) */}
-                            <div style={{ 
-                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px', 
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px' 
-                            }}>
+                        )}
+
+                        {/* Size Preset Controls (S / D / L / XL) */}
+                        <div
+                            style={{
+                                display: 'flex',
+                                gap: '2px',
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
+                                pointerEvents: 'auto',
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            {['S', 'D', 'L', 'XL'].map((size) => (
                                 <button
+                                    key={size}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         e.preventDefault();
-                                        // Phase 2.1.1: Local state only - no backend calls, no persistence
-                                        setPriceRequested(true);
+                                        handleSizeChange(size, e);
                                     }}
-                                    disabled={priceRequested}
                                     style={{
-                                        padding: (currentSize === 'S' || currentSize === 'D') ? '4px 8px' : '6px 12px',
-                                        fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
-                                        fontWeight: 'bold',
-                                        cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                        backgroundColor: priceRequested ? '#ccc' : '#0073aa',
-                                        color: '#fff',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        width: '100%',
-                                        transition: 'background-color 0.2s',
-                                        pointerEvents: 'auto',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
+                                        padding: (currentSize === 'S' || currentSize === 'D') ? '2px 4px' : '3px 6px',
+                                        fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                        fontWeight: currentSize === size ? 'bold' : 'normal',
+                                        cursor: 'pointer',
+                                        backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
+                                        color: currentSize === size ? '#fff' : '#333',
+                                        border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
+                                        borderRadius: '3px',
+                                        minWidth: (currentSize === 'S' || currentSize === 'D') ? '25px' : '30px',
+                                        flex: '1 1 0',
+                                        transition: 'all 0.2s',
                                     }}
                                     onMouseEnter={(e) => {
-                                        if (!priceRequested) {
-                                            e.target.style.backgroundColor = '#005a87';
+                                        if (currentSize !== size) {
+                                            e.target.style.backgroundColor = '#e0e0e0';
                                         }
                                     }}
                                     onMouseLeave={(e) => {
-                                        if (!priceRequested) {
-                                            e.target.style.backgroundColor = '#0073aa';
+                                        if (currentSize !== size) {
+                                            e.target.style.backgroundColor = '#f0f0f0';
                                         }
                                     }}
                                 >
-                                    {priceRequested ? 'Price Requested' : 'Request Price'}
+                                    {size}
                                 </button>
-                            </div>
-                            {/* Size Preset Controls (S / D / L / XL) - in detail area */}
-                            <div
+                            ))}
+                        </div>
+
+                        {/* Photo only | Full | Request price row */}
+                        <div
+                            style={{
+                                display: 'flex',
+                                gap: '4px',
+                                alignItems: 'center',
+                                pointerEvents: 'auto',
+                            }}
+                        >
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    // Toggle between photo_only and full
+                                    const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
+                                    updateLayout(item.id, { displayMode: newMode });
+                                    setIsExpanded(newMode !== 'photo_only');
+                                    setTimeout(() => {
+                                        if (onLayoutChanged) {
+                                            onLayoutChanged({
+                                                id: item.id,
+                                                x: item.x,
+                                                y: item.y,
+                                                width: item.width,
+                                                height: item.height,
+                                                displayMode: newMode,
+                                            });
+                                        }
+                                    }, 350);
+                                }}
                                 style={{
-                                    display: 'flex',
-                                    gap: '2px',
-                                    marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px',
-                                    pointerEvents: 'auto',
-                                    flexWrap: 'wrap',
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: item.displayMode === 'photo_only' ? 'bold' : 'normal',
+                                    cursor: 'pointer',
+                                    backgroundColor: item.displayMode === 'photo_only' ? '#0073aa' : 'transparent',
+                                    color: item.displayMode === 'photo_only' ? '#fff' : '#666',
+                                    border: `1px solid ${item.displayMode === 'photo_only' ? '#0073aa' : '#ddd'}`,
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
                                 }}
                             >
-                                {['S', 'D', 'L', 'XL'].map((size) => (
-                                    <button
-                                        key={size}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            e.preventDefault();
-                                            handleSizeChange(size, e);
-                                        }}
-                                        style={{
-                                            padding: (currentSize === 'S' || currentSize === 'D') ? '2px 4px' : '3px 6px',
-                                            fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                            fontWeight: currentSize === size ? 'bold' : 'normal',
-                                            cursor: 'pointer',
-                                            backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                            color: currentSize === size ? '#fff' : '#333',
-                                            border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
-                                            borderRadius: '3px',
-                                            minWidth: (currentSize === 'S' || currentSize === 'D') ? '25px' : '30px',
-                                            flex: '1 1 0',
-                                            transition: 'all 0.2s',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            if (currentSize !== size) {
-                                                e.target.style.backgroundColor = '#e0e0e0';
-                                            }
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            if (currentSize !== size) {
-                                                e.target.style.backgroundColor = '#f0f0f0';
-                                            }
-                                        }}
-                                    >
-                                        {size}
-                                    </button>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                                Photo only
+                            </button>
+                            <span style={{ color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' }}>|</span>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    // Commit 1.3.8: Open item detail modal
+                                    setIsModalOpen(true);
+                                }}
+                                style={{
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: 'normal',
+                                    cursor: 'pointer',
+                                    backgroundColor: 'transparent',
+                                    color: '#666',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.target.style.backgroundColor = '#f0f0f0';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.target.style.backgroundColor = 'transparent';
+                                }}
+                            >
+                                Full
+                            </button>
+                            <span style={{ color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' }}>|</span>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    setPriceRequested(true);
+                                }}
+                                disabled={priceRequested}
+                                style={{
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: 'normal',
+                                    cursor: priceRequested ? 'not-allowed' : 'pointer',
+                                    backgroundColor: priceRequested ? '#ccc' : 'transparent',
+                                    color: priceRequested ? '#999' : '#666',
+                                    border: `1px solid ${priceRequested ? '#ccc' : '#ddd'}`,
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                {priceRequested ? 'Price Requested' : 'Request price'}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
+            
+            {/* Commit 1.3.8: Item Detail Modal */}
+            <ItemDetailModal
+                item={item}
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onSave={async (itemId, payload) => {
+                    // Save item facts via AJAX
+                    if (boardId && boardId > 0) {
+                        try {
+                            const response = await fetch(window.n88BoardData?.ajaxUrl || '/wp-admin/admin-ajax.php', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                },
+                                body: new URLSearchParams({
+                                    action: 'n88_save_item_facts',
+                                    board_id: boardId,
+                                    item_id: itemId,
+                                    nonce: window.n88BoardData?.nonce || '',
+                                    payload: JSON.stringify(payload),
+                                }),
+                            });
+                            
+                            const data = await response.json();
+                            if (!data.success) {
+                                throw new Error(data.data?.message || 'Failed to save item facts');
+                            }
+                        } catch (error) {
+                            console.error('Error saving item facts:', error);
+                            throw error;
+                        }
+                    } else {
+                        // Demo mode - just update store (no AJAX)
+                        console.log('Demo mode: Item facts saved to store only');
+                    }
+                }}
+            />
         </motion.div>
     );
 };

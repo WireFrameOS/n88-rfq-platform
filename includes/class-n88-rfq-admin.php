@@ -15,7 +15,7 @@ class N88_RFQ_Admin {
     }
 
     public function render_notifications_center() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
@@ -223,10 +223,13 @@ class N88_RFQ_Admin {
     }
 
     public function register_menus() {
+        // Allow both administrators and designers to access menus
+        $capability = $this->get_plugin_capability();
+        
         add_menu_page(
             __( 'NorthEightyEight RFQ', 'n88-rfq' ),
             'N88 RFQ',
-            'manage_options',
+            $capability,
             'n88-rfq-dashboard',
             array( $this, 'render_main_dashboard' ),
             'dashicons-feedback',
@@ -237,7 +240,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Projects', 'n88-rfq' ),
             __( 'Projects', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-projects',
             array( $this, 'render_projects_list' )
         );
@@ -246,7 +249,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Quotes', 'n88-rfq' ),
             __( 'Quotes', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-quotes',
             array( $this, 'render_quotes_manager' )
         );
@@ -255,7 +258,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Notifications', 'n88-rfq' ),
             __( 'Notifications', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-notifications',
             array( $this, 'render_notifications_center' )
         );
@@ -264,7 +267,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Comments', 'n88-rfq' ),
             __( 'Comments', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-comments',
             array( $this, 'render_comments_hub' )
         );
@@ -273,7 +276,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Audit Trail', 'n88-rfq' ),
             __( 'Audit Trail', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-audit',
             array( $this, 'render_audit_trail' )
         );
@@ -282,7 +285,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Content Manager', 'n88-rfq' ),
             __( 'Content Manager', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-content',
             array( $this, 'render_content_manager' )
         );
@@ -292,7 +295,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Items & Boards (Test)', 'n88-rfq' ),
             __( 'Items & Boards', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-items-boards-test',
             array( $this, 'render_items_boards_test' )
         );
@@ -302,7 +305,7 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Board Demo (1.3.4a)', 'n88-rfq' ),
             __( 'Board Demo', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-board-demo',
             array( $this, 'render_board_demo' )
         );
@@ -314,17 +317,50 @@ class N88_RFQ_Admin {
             'n88-rfq-dashboard',
             __( 'Material Bank', 'n88-rfq' ),
             __( 'Material Bank', 'n88-rfq' ),
-            'manage_options',
+            $capability,
             'n88-rfq-materials',
             array( $this, 'render_material_bank' )
         );
     }
 
+    /**
+     * Get capability required for plugin access
+     * Allows both administrators and designers
+     */
+    private function get_plugin_capability() {
+        $current_user = wp_get_current_user();
+        if ( $current_user && in_array( 'designer', $current_user->roles, true ) ) {
+            return 'read';
+        }
+        return 'manage_options';
+    }
+
+    /**
+     * Check if current user has access to plugin pages
+     * Allows both administrators and designers
+     */
+    private function check_plugin_access() {
+        if ( current_user_can( 'manage_options' ) ) {
+            return true;
+        }
+        $current_user = wp_get_current_user();
+        if ( $current_user && in_array( 'designer', $current_user->roles, true ) ) {
+            return true;
+        }
+        return false;
+    }
+
     public function render_main_dashboard() {
+        if ( ! $this->check_plugin_access() ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
         echo '<div class="wrap"><h1>NorthEightyEight RFQ – Admin Dashboard</h1><p>TODO: Implement cards and metrics per design.</p></div>';
     }
 
     public function render_projects_list() {
+        if ( ! $this->check_plugin_access() ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
         echo '<div class="wrap"><h1>Projects</h1><p>TODO: Implement filters, table, and status chips.</p></div>';
     }
 
@@ -332,6 +368,9 @@ class N88_RFQ_Admin {
      * Render quotes manager page
      */
     public function render_quotes_manager() {
+        if ( ! $this->check_plugin_access() ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
         global $wpdb;
 
         $action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : 'list';
@@ -1691,6 +1730,9 @@ class N88_RFQ_Admin {
      * Render audit trail page
      */
     public function render_audit_trail() {
+        if ( ! $this->check_plugin_access() ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
         global $wpdb;
 
         $action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : 'list';
@@ -1746,6 +1788,9 @@ class N88_RFQ_Admin {
     }
 
     public function render_content_manager() {
+        if ( ! $this->check_plugin_access() ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
+        }
         echo '<div class="wrap"><h1>Content Manager</h1><p>TODO: Implement video upload and library per design.</p></div>';
     }
 
@@ -1755,7 +1800,7 @@ class N88_RFQ_Admin {
      * Phase 1.2.3: Material Bank Core
      */
     public function render_material_bank() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
@@ -1880,7 +1925,7 @@ class N88_RFQ_Admin {
     }
 
     public function render_comments_hub() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
@@ -2110,7 +2155,7 @@ class N88_RFQ_Admin {
      * This is NOT a production UI - only for testing the foundation.
      */
     public function render_items_boards_test() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
@@ -2627,9 +2672,12 @@ class N88_RFQ_Admin {
      * Demo harness for testing board interactions without API calls.
      */
     public function render_board_demo() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
+
+        // Enqueue WordPress media library for image uploader
+        wp_enqueue_media();
 
         // Check if board_id parameter exists - if yes, load real board; if no, use demo seed items
         $board_id = isset( $_GET['board_id'] ) ? absint( $_GET['board_id'] ) : 0;
@@ -2756,20 +2804,26 @@ class N88_RFQ_Admin {
                         }
                     }
                     
+                    // Parse meta_json to extract all item facts
+                    $item_meta = array();
+                    if ( ! empty( $board_item->meta_json ) ) {
+                        $decoded_meta = json_decode( $board_item->meta_json, true );
+                        if ( is_array( $decoded_meta ) ) {
+                            $item_meta = $decoded_meta;
+                        }
+                    }
+                    
                     if ( isset( $layout_items_map[ $item_id ] ) ) {
                         $layout_item = $layout_items_map[ $item_id ];
                         // Get sizeKey from layout, but if not present, try to get from meta_json
                         $layout_size_key = isset( $layout_item['sizeKey'] ) ? sanitize_text_field( $layout_item['sizeKey'] ) : null;
                         // Always try to read meta_json for default_size, even if column check might have failed
-                        if ( ! $layout_size_key && ! empty( $board_item->meta_json ) ) {
-                            $item_meta = json_decode( $board_item->meta_json, true );
-                            if ( is_array( $item_meta ) && isset( $item_meta['default_size'] ) ) {
-                                $meta_size = sanitize_text_field( $item_meta['default_size'] );
-                                if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
-                                    $layout_size_key = $meta_size;
-                                    // Debug: Log when using default_size from meta_json
-                                    error_log('Item ' . $item_id . ' - Using default_size from meta_json: ' . $layout_size_key . ' (layout had no sizeKey)');
-                                }
+                        if ( ! $layout_size_key && isset( $item_meta['default_size'] ) ) {
+                            $meta_size = sanitize_text_field( $item_meta['default_size'] );
+                            if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
+                                $layout_size_key = $meta_size;
+                                // Debug: Log when using default_size from meta_json
+                                error_log('Item ' . $item_id . ' - Using default_size from meta_json: ' . $layout_size_key . ' (layout had no sizeKey)');
                             }
                         }
                         if ( ! $layout_size_key ) {
@@ -2785,6 +2839,14 @@ class N88_RFQ_Admin {
                         $item_width = $CARD_SIZES[ $layout_size_key ]['w'];
                         $item_height = $CARD_SIZES[ $layout_size_key ]['h'];
                         
+                        // Extract item facts from meta_json
+                        $item_dims = isset( $item_meta['dims'] ) && is_array( $item_meta['dims'] ) ? $item_meta['dims'] : null;
+                        $item_dims_cm = isset( $item_meta['dims_cm'] ) && is_array( $item_meta['dims_cm'] ) ? $item_meta['dims_cm'] : null;
+                        $item_cbm = isset( $item_meta['cbm'] ) ? floatval( $item_meta['cbm'] ) : null;
+                        $item_sourcing_type = isset( $item_meta['sourcing_type'] ) ? sanitize_text_field( $item_meta['sourcing_type'] ) : null;
+                        $item_timeline_type = isset( $item_meta['timeline_type'] ) ? sanitize_text_field( $item_meta['timeline_type'] ) : null;
+                        $item_inspiration = isset( $item_meta['inspiration'] ) && is_array( $item_meta['inspiration'] ) ? $item_meta['inspiration'] : array();
+                        
                         $items[] = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
@@ -2796,36 +2858,36 @@ class N88_RFQ_Admin {
                             'displayMode' => isset( $layout_item['displayMode'] ) ? sanitize_text_field( $layout_item['displayMode'] ) : 'photo_only',
                             'title' => isset( $board_item->title ) ? wp_strip_all_tags( sanitize_text_field( $board_item->title ) ) : '',
                             'description' => isset( $board_item->description ) ? wp_strip_all_tags( sanitize_textarea_field( $board_item->description ) ) : '',
+                            'item_type' => isset( $board_item->item_type ) ? sanitize_text_field( $board_item->item_type ) : '',
                             'imageUrl' => $image_url ? esc_url_raw( $image_url ) : '',
+                            // Add item facts from meta_json
+                            'dims' => $item_dims,
+                            'dims_cm' => $item_dims_cm,
+                            'cbm' => $item_cbm,
+                            'sourcing_type' => $item_sourcing_type,
+                            'timeline_type' => $item_timeline_type,
+                            'inspiration' => $item_inspiration,
                         );
                     } else {
                         // New item - no layout data yet, use defaults from item meta_json
                         $default_size = 'D';
                         // Always try to read meta_json, even if column check might have failed
-                        if ( isset( $board_item->meta_json ) && ! empty( $board_item->meta_json ) ) {
-                            error_log('Item ' . $item_id . ' - meta_json raw: ' . substr( $board_item->meta_json, 0, 200 ));
-                            $item_meta = json_decode( $board_item->meta_json, true );
-                            if ( json_last_error() !== JSON_ERROR_NONE ) {
-                                error_log('Item ' . $item_id . ' - JSON decode error: ' . json_last_error_msg() . ' - Raw: ' . $board_item->meta_json);
-                            } else if ( is_array( $item_meta ) ) {
-                                error_log('Item ' . $item_id . ' - Parsed meta_json: ' . print_r( $item_meta, true ));
-                                if ( isset( $item_meta['default_size'] ) ) {
-                                    $meta_size = sanitize_text_field( $item_meta['default_size'] );
-                                    error_log('Item ' . $item_id . ' - Found default_size in meta: ' . $meta_size);
-                                    if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
-                                        $default_size = $meta_size;
-                                        error_log('Item ' . $item_id . ' - Using default_size: ' . $default_size);
-                                    } else {
-                                        error_log('Item ' . $item_id . ' - Invalid default_size value: ' . $meta_size);
-                                    }
+                        if ( ! empty( $item_meta ) ) {
+                            error_log('Item ' . $item_id . ' - Parsed meta_json: ' . print_r( $item_meta, true ));
+                            if ( isset( $item_meta['default_size'] ) ) {
+                                $meta_size = sanitize_text_field( $item_meta['default_size'] );
+                                error_log('Item ' . $item_id . ' - Found default_size in meta: ' . $meta_size);
+                                if ( in_array( $meta_size, array( 'S', 'D', 'L', 'XL' ), true ) ) {
+                                    $default_size = $meta_size;
+                                    error_log('Item ' . $item_id . ' - Using default_size: ' . $default_size);
                                 } else {
-                                    error_log('Item ' . $item_id . ' - default_size key not found in meta_json');
+                                    error_log('Item ' . $item_id . ' - Invalid default_size value: ' . $meta_size);
                                 }
                             } else {
-                                error_log('Item ' . $item_id . ' - meta_json is not an array after decode');
+                                error_log('Item ' . $item_id . ' - default_size key not found in meta_json');
                             }
                             // Also check for image_url in meta if primary_image_id is empty
-                            if ( empty( $image_url ) && is_array( $item_meta ) && isset( $item_meta['image_url'] ) ) {
+                            if ( empty( $image_url ) && isset( $item_meta['image_url'] ) ) {
                                 $image_url = esc_url_raw( $item_meta['image_url'] );
                             }
                         } else {
@@ -2836,6 +2898,14 @@ class N88_RFQ_Admin {
                             }
                             error_log('Item ' . $item_id . ' - Using default size D (fallback)');
                         }
+                        
+                        // Extract item facts from meta_json
+                        $item_dims = isset( $item_meta['dims'] ) && is_array( $item_meta['dims'] ) ? $item_meta['dims'] : null;
+                        $item_dims_cm = isset( $item_meta['dims_cm'] ) && is_array( $item_meta['dims_cm'] ) ? $item_meta['dims_cm'] : null;
+                        $item_cbm = isset( $item_meta['cbm'] ) ? floatval( $item_meta['cbm'] ) : null;
+                        $item_sourcing_type = isset( $item_meta['sourcing_type'] ) ? sanitize_text_field( $item_meta['sourcing_type'] ) : null;
+                        $item_timeline_type = isset( $item_meta['timeline_type'] ) ? sanitize_text_field( $item_meta['timeline_type'] ) : null;
+                        $item_inspiration = isset( $item_meta['inspiration'] ) && is_array( $item_meta['inspiration'] ) ? $item_meta['inspiration'] : array();
                         
                         // Calculate position for new items - arrange in grid within canvas bounds
                         // Canvas is typically 1200px wide, arrange items in rows
@@ -2874,7 +2944,15 @@ class N88_RFQ_Admin {
                             'displayMode' => 'photo_only',
                             'title' => isset( $board_item->title ) ? wp_strip_all_tags( sanitize_text_field( $board_item->title ) ) : '',
                             'description' => isset( $board_item->description ) ? wp_strip_all_tags( sanitize_textarea_field( $board_item->description ) ) : '',
+                            'item_type' => isset( $board_item->item_type ) ? sanitize_text_field( $board_item->item_type ) : '',
                             'imageUrl' => $image_url ? esc_url_raw( $image_url ) : '',
+                            // Add item facts from meta_json
+                            'dims' => $item_dims,
+                            'dims_cm' => $item_dims_cm,
+                            'cbm' => $item_cbm,
+                            'sourcing_type' => $item_sourcing_type,
+                            'timeline_type' => $item_timeline_type,
+                            'inspiration' => $item_inspiration,
                         );
                         
                         error_log('Item ' . $item_id . ' - New item positioned at (' . $item_x . ', ' . $item_y . ') with size: ' . $default_size);
@@ -2911,10 +2989,10 @@ class N88_RFQ_Admin {
         // Image URL for first 4 items
         $first_four_image = 'https://dev.forgemetrix.com/wp-content/uploads/2025/12/2e1c4e1ad3b84c7a2b2e404ec941e5d5.jpeg';
         $seed_items = array(
-            array( 'id' => 'item-1', 'x' => 50, 'y' => 50, 'z' => 1, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-2', 'x' => 300, 'y' => 50, 'z' => 2, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-3', 'x' => 550, 'y' => 50, 'z' => 3, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image ),
-            array( 'id' => 'item-4', 'x' => 800, 'y' => 50, 'z' => 4, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image ),
+            array( 'id' => 'item-1', 'x' => 50, 'y' => 50, 'z' => 1, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image, 'item_type' => 'furniture', 'title' => 'Demo Chair 1', 'description' => 'Optional short note' ),
+            array( 'id' => 'item-2', 'x' => 300, 'y' => 50, 'z' => 2, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image, 'item_type' => 'furniture', 'title' => 'Demo Chair 2', 'description' => 'Optional short note' ),
+            array( 'id' => 'item-3', 'x' => 550, 'y' => 50, 'z' => 3, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $first_four_image, 'item_type' => 'lighting', 'title' => 'Demo Lamp 1', 'description' => 'Optional short note' ),
+            array( 'id' => 'item-4', 'x' => 800, 'y' => 50, 'z' => 4, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $first_four_image, 'item_type' => 'furniture', 'title' => 'Demo Chair 3', 'description' => 'Optional short note' ),
             array( 'id' => 'item-5', 'x' => 1050, 'y' => 50, 'z' => 5, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[0] ),
             array( 'id' => 'item-6', 'x' => 50, 'y' => 350, 'z' => 6, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'full', 'imageUrl' => $image_urls[1] ),
             array( 'id' => 'item-7', 'x' => 300, 'y' => 350, 'z' => 7, 'width' => 200, 'height' => 250, 'sizeKey' => 'D', 'displayMode' => 'photo_only', 'imageUrl' => $image_urls[2] ),
@@ -3196,42 +3274,55 @@ class N88_RFQ_Admin {
                 };
 
                 // BoardItem Component (Size Presets Only - 1.3.6)
-                const BoardItem = ({ item, onLayoutChanged }) => {
-                    const bringToFront = useBoardStore((state) => state.bringToFront);
-                    const updateLayout = useBoardStore((state) => state.updateLayout);
+                var BoardItem = function(props) {
+                    var item = props.item;
+                    var onLayoutChanged = props.onLayoutChanged;
+                    var _modalHandlers = props._modalHandlers; // Modal handlers from wrapper
+                    
+                    var bringToFront = useBoardStore(function(state) { return state.bringToFront; });
+                    var updateLayout = useBoardStore(function(state) { return state.updateLayout; });
                     
                     // Local state to track if card is expanded (showing details)
-                    const [isExpanded, setIsExpanded] = React.useState(item.displayMode === 'full');
+                    var _expandedState = React.useState(item.displayMode === 'full');
+                    var isExpanded = _expandedState[0];
+                    var setIsExpanded = _expandedState[1];
                     
                     // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
-                    const [priceRequested, setPriceRequested] = React.useState(false);
+                    var _priceState = React.useState(false);
+                    var priceRequested = _priceState[0];
+                    var setPriceRequested = _priceState[1];
                     
-                    const x = useMotionValue(item.x);
-                    const y = useMotionValue(item.y);
+                    // Modal state for ItemDetailModal
+                    var _modalState = React.useState(false);
+                    var isModalOpen = _modalState[0];
+                    var setIsModalOpen = _modalState[1];
+                    
+                    var x = useMotionValue(item.x);
+                    var y = useMotionValue(item.y);
 
-                    React.useEffect(() => {
+                    React.useEffect(function() {
                         x.set(item.x);
                         y.set(item.y);
                     }, [item.x, item.y]);
 
                     // Sync expanded state with displayMode
-                    React.useEffect(() => {
+                    React.useEffect(function() {
                         setIsExpanded(item.displayMode === 'full');
                     }, [item.displayMode]);
 
                     // Determine current size preset based on item dimensions
                     // Prefer sizeKey if available (for forward compatibility), otherwise match by dimensions
-                    const getCurrentSize = function() {
+                    var getCurrentSize = function() {
                         // If sizeKey exists and is valid, use it
                         if (item.sizeKey && CARD_SIZES[item.sizeKey]) {
                             return item.sizeKey;
                         }
                         
                         // Fallback: match by dimensions (for backward compatibility)
-                        const width = item.width;
-                        const height = item.height;
-                        for (const size in CARD_SIZES) {
-                            const dims = CARD_SIZES[size];
+                        var width = item.width;
+                        var height = item.height;
+                        for (var size in CARD_SIZES) {
+                            var dims = CARD_SIZES[size];
                             if (Math.abs(width - dims.w) < 1 && Math.abs(height - dims.h) < 1) {
                                 return size;
                             }
@@ -3240,20 +3331,20 @@ class N88_RFQ_Admin {
                         return 'D';
                     };
 
-                    const currentSize = getCurrentSize();
+                    var currentSize = getCurrentSize();
                     
                     // Calculate z-index: XL and L items should appear above others
                     // Use item.z as base, but add extra boost for XL and L sizes
-                    const calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
+                    var calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
 
                     // Handle size preset selection
-                    const handleSizeChange = function(size, e) {
+                    var handleSizeChange = function(size, e) {
                         if (e) {
                             e.stopPropagation();
                             e.preventDefault();
                         }
                         
-                        const newSize = CARD_SIZES[size];
+                        var newSize = CARD_SIZES[size];
                         if (!newSize) return;
 
                         // Update layout with exact preset dimensions and sizeKey
@@ -3277,7 +3368,7 @@ class N88_RFQ_Admin {
                         }
                     };
 
-                    const handlePointerDown = function() {
+                    var handlePointerDown = function() {
                         // Bring item to front on pointer down (click or drag start)
                         // Compute maxZ accounting for L/XL boost (they get +1000 to calculated z-index)
                         var currentItems = window.N88StudioOS.useBoardStore.getState().items;
@@ -3340,12 +3431,12 @@ class N88_RFQ_Admin {
                         }
                     };
 
-                    const handleDragStart = function() {
+                    var handleDragStart = function() {
                         // Bring to front on drag start (same as pointer down)
                         handlePointerDown();
                     };
 
-                    const handleDragEnd = function(event, info) {
+                    var handleDragEnd = function(event, info) {
                         var newX = x.get();
                         var newY = y.get();
                         
@@ -3397,113 +3488,76 @@ class N88_RFQ_Admin {
                             position: 'relative'
                         },
                     }, 
-                    // Card Details / Show Full Image button - always visible on top right
-                    React.createElement('button', {
-                        onClick: function(e) { 
-                            e.stopPropagation(); 
-                            const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
-                            updateLayout(item.id, { displayMode: newMode }); 
-                            setIsExpanded(newMode === 'full');
-                            // Trigger save after animation completes (350ms)
+                    !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
+                    // Show Card button - appears when in photo_only mode
+                    item.displayMode === 'photo_only' ? React.createElement('button', {
+                        onClick: function(e) {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const newMode = 'full';
+                            updateLayout(item.id, { displayMode: newMode });
+                            setIsExpanded(true);
                             setTimeout(function() {
                                 if (onLayoutChanged) {
                                     onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: newMode });
                                 }
                             }, 350);
                         },
-                        style: { 
+                        style: {
                             position: 'absolute',
-                            top: '8px',
-                            right: '8px',
-                            padding: '4px 8px', 
-                            fontSize: '11px', 
-                            cursor: 'pointer', 
-                            backgroundColor: '#0073aa', 
-                            color: '#fff', 
-                            border: 'none', 
-                            borderRadius: '3px',
+                            top: '10px',
+                            right: '10px',
+                            padding: '6px 12px',
+                            fontSize: '11px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            backgroundColor: '#0073aa',
+                            color: '#fff',
+                            border: '1px solid #0073aa',
+                            borderRadius: '4px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                            transition: 'all 0.2s',
                             zIndex: 10,
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                         },
-                    }, isExpanded ? 'Show Full Image' : 'Card Details'),
-                    // Item ID text overlay (only show if no image or for debugging)
-                    !item.imageUrl && React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id))
-                    ), 
-                    // Metadata section for full mode
-                    React.createElement(AnimatePresence, null, item.displayMode === 'full' && React.createElement(motion.div, {
-                        key: 'metadata',
-                        initial: { opacity: 0, height: 0 },
-                        animate: { opacity: 1, height: 'auto' },
-                        exit: { opacity: 0, height: 0 },
-                        transition: { duration: 0.3 },
+                        onMouseEnter: function(e) {
+                            e.target.style.backgroundColor = '#005a87';
+                        },
+                        onMouseLeave: function(e) {
+                            e.target.style.backgroundColor = '#0073aa';
+                        },
+                    }, 'Show Card') : null
+                    ),
+                    item.displayMode !== 'photo_only' ? React.createElement('div', {
                         style: { 
                             padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
                             backgroundColor: '#ffffff',
                             overflow: 'visible',
                         },
                     }, 
-                        item.title && React.createElement('div', { 
+                        // Category (small label)
+                        item.item_type ? React.createElement('div', { 
                             style: { 
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', 
-                                fontWeight: 'bold', 
-                                marginBottom: '0' 
+                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px', 
+                                color: '#999',
+                                textTransform: 'uppercase',
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px',
                             } 
-                        }, item.title), 
-                        React.createElement('div', { 
+                        }, item.item_type) : null, 
+                        // Description
+                        item.description ? React.createElement('div', { 
                             style: { 
                                 fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', 
                                 color: '#666', 
-                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '1px' : '2px',
-                                marginBottom: '0'
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
+                                lineHeight: '1.4',
                             } 
-                        }, 'Position: ' + Math.round(item.x) + ', ' + Math.round(item.y)), 
-                        // Phase 2.1.1: Request Price Action (Frontend Only)
-                        React.createElement('div', {
-                            style: { 
-                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px', 
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px' 
-                            },
-                        }, React.createElement('button', {
-                            onClick: function(e) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                // Phase 2.1.1: Local state only - no backend calls, no persistence
-                                setPriceRequested(true);
-                            },
-                            disabled: priceRequested,
-                            style: {
-                                padding: (currentSize === 'S' || currentSize === 'D') ? '4px 8px' : '6px 12px',
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
-                                fontWeight: 'bold',
-                                cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                backgroundColor: priceRequested ? '#ccc' : '#0073aa',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '4px',
-                                width: '100%',
-                                transition: 'background-color 0.2s',
-                                pointerEvents: 'auto',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                            },
-                            onMouseEnter: function(e) {
-                                if (!priceRequested) {
-                                    e.target.style.backgroundColor = '#005a87';
-                                }
-                            },
-                            onMouseLeave: function(e) {
-                                if (!priceRequested) {
-                                    e.target.style.backgroundColor = '#0073aa';
-                                }
-                            },
-                        }, priceRequested ? 'Price Requested' : 'Request Price')),
-                        // Size Preset Controls (S / D / L / XL) - in detail area
+                        }, item.description) : null, 
+                        // Size Preset Controls (S / D / L / XL)
                         React.createElement('div', {
                             style: {
                                 display: 'flex',
                                 gap: '2px',
-                                marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : '3px',
+                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
                                 pointerEvents: 'auto',
                                 flexWrap: 'wrap',
                             },
@@ -3539,11 +3593,712 @@ class N88_RFQ_Admin {
                                     }
                                 },
                             }, size);
-                        })) // closes: size div, metadata motion.div children array, metadata motion.div
-                    ) // closes: AnimatePresence
-                    ) // closes: inner div children array
-                    ) // closes: inner div
-                    ) // closes: outer motion.div
+                        })),
+                        // Photo only | Full | Request price row
+                        React.createElement('div', {
+                            style: {
+                                display: 'flex',
+                                gap: '4px',
+                                alignItems: 'center',
+                                pointerEvents: 'auto',
+                            },
+                        },
+                            React.createElement('button', {
+                                onClick: function(e) {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    // Toggle between photo_only and full
+                                    const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
+                                    updateLayout(item.id, { displayMode: newMode });
+                                    setIsExpanded(newMode !== 'photo_only');
+                                    setTimeout(function() {
+                                        if (onLayoutChanged) {
+                                            onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: newMode });
+                                        }
+                                    }, 350);
+                                },
+                                style: {
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: item.displayMode === 'photo_only' ? 'bold' : 'normal',
+                                    cursor: 'pointer',
+                                    backgroundColor: item.displayMode === 'photo_only' ? '#0073aa' : 'transparent',
+                                    color: item.displayMode === 'photo_only' ? '#fff' : '#666',
+                                    border: '1px solid ' + (item.displayMode === 'photo_only' ? '#0073aa' : '#ddd'),
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                },
+                            }, 'Photo only'),
+                            React.createElement('span', { style: { color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' } }, '|'),
+                            React.createElement('button', {
+                                onClick: function(e) {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    // Commit 1.3.8: Open item detail modal
+                                    if (_modalHandlers && _modalHandlers.open) {
+                                        _modalHandlers.open();
+                                    } else if (typeof setIsModalOpen === 'function') {
+                                        setIsModalOpen(true);
+                                    }
+                                },
+                                style: {
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: 'normal',
+                                    cursor: 'pointer',
+                                    backgroundColor: 'transparent',
+                                    color: '#666',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                },
+                                onMouseEnter: function(e) {
+                                    e.target.style.backgroundColor = '#f0f0f0';
+                                },
+                                onMouseLeave: function(e) {
+                                    e.target.style.backgroundColor = 'transparent';
+                                },
+                            }, 'Full'),
+                            React.createElement('span', { style: { color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' } }, '|'),
+                            React.createElement('button', {
+                                onClick: function(e) {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    setPriceRequested(true);
+                                },
+                                disabled: priceRequested,
+                                style: {
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: 'normal',
+                                    cursor: priceRequested ? 'not-allowed' : 'pointer',
+                                    backgroundColor: priceRequested ? '#ccc' : 'transparent',
+                                    color: priceRequested ? '#999' : '#666',
+                                    border: '1px solid ' + (priceRequested ? '#ccc' : '#ddd'),
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                },
+                            }, priceRequested ? 'Price Requested' : 'Request price')
+                        )
+                    ) : null
+                    )
+                    )
+                };
+
+                // Commit 1.3.8: Item Detail Modal Component (full inline version)
+                // Helper functions for computation
+                var normalizeToCm = function(value, unit) {
+                    if (!value || isNaN(value)) return null;
+                    var num = parseFloat(value);
+                    switch (unit) {
+                        case 'mm': return num / 10;
+                        case 'cm': return num;
+                        case 'm': return num * 100;
+                        case 'in': return num * 2.54;
+                        default: return num;
+                    }
+                };
+                
+                var calculateCBM = function(wCm, dCm, hCm) {
+                    if (!wCm || !dCm || !hCm) return null;
+                    var wM = wCm / 100;
+                    var dM = dCm / 100;
+                    var hM = hCm / 100;
+                    return Math.round((wM * dM * hM) * 1000) / 1000; // Round to 3 decimals
+                };
+                
+                var inferSourcingType = function(category, description) {
+                    var furnitureCategories = ['sofa', 'chair', 'table', 'desk', 'cabinet', 'shelf', 'bed', 'furniture'];
+                    var sourcingCategories = ['electronics', 'hardware', 'fixture', 'lighting', 'appliance'];
+                    
+                    var catLower = (category || '').toLowerCase();
+                    var descLower = (description || '').toLowerCase();
+                    
+                    // Check category match
+                    for (var i = 0; i < furnitureCategories.length; i++) {
+                        if (catLower.indexOf(furnitureCategories[i]) !== -1) {
+                            return 'furniture';
+                        }
+                    }
+                    for (var j = 0; j < sourcingCategories.length; j++) {
+                        if (catLower.indexOf(sourcingCategories[j]) !== -1) {
+                            return 'global_sourcing';
+                        }
+                    }
+                    
+                    // Keyword scan in description
+                    var furnitureKeywords = ['furniture', 'upholstery', 'cushion', 'fabric', 'wood', 'metal frame'];
+                    var sourcingKeywords = ['electronic', 'component', 'hardware', 'fixture', 'bulb', 'led'];
+                    
+                    for (var k = 0; k < furnitureKeywords.length; k++) {
+                        if (descLower.indexOf(furnitureKeywords[k]) !== -1) {
+                            return 'furniture';
+                        }
+                    }
+                    for (var l = 0; l < sourcingKeywords.length; l++) {
+                        if (descLower.indexOf(sourcingKeywords[l]) !== -1) {
+                            return 'global_sourcing';
+                        }
+                    }
+                    
+                    // Default to furniture
+                    return 'furniture';
+                };
+                
+                var assignTimelineType = function(sourcingType) {
+                    return sourcingType === 'furniture' ? 'furniture_6_step' : 'sourcing_4_step';
+                };
+                
+                var ItemDetailModalInline = function(props) {
+                    var item = props.item;
+                    var isOpen = props.isOpen;
+                    var onClose = props.onClose;
+                    var onSave = props.onSave;
+                    var boardId = props.boardId;
+                    
+                    // Form state
+                    var _categoryState = React.useState(item.item_type || item.category || '');
+                    var category = _categoryState[0];
+                    var setCategory = _categoryState[1];
+                    
+                    var _descriptionState = React.useState(item.description || '');
+                    var description = _descriptionState[0];
+                    var setDescription = _descriptionState[1];
+                    
+                    var _widthState = React.useState(item.dims && item.dims.w ? String(item.dims.w) : '');
+                    var width = _widthState[0];
+                    var setWidth = _widthState[1];
+                    
+                    var _depthState = React.useState(item.dims && item.dims.d ? String(item.dims.d) : '');
+                    var depth = _depthState[0];
+                    var setDepth = _depthState[1];
+                    
+                    var _heightState = React.useState(item.dims && item.dims.h ? String(item.dims.h) : '');
+                    var height = _heightState[0];
+                    var setHeight = _heightState[1];
+                    
+                    var _unitState = React.useState(item.dims && item.dims.unit ? item.dims.unit : 'in');
+                    var unit = _unitState[0];
+                    var setUnit = _unitState[1];
+                    
+                    var _inspirationState = React.useState(item.inspiration || []);
+                    var inspiration = _inspirationState[0];
+                    var setInspiration = _inspirationState[1];
+                    
+                    var _isSavingState = React.useState(false);
+                    var isSaving = _isSavingState[0];
+                    var setIsSaving = _isSavingState[1];
+                    
+                    // Computed values (read-only) - initialize from saved item data
+                    var _computedState = React.useState({
+                        dimsCm: item.dims_cm || null,
+                        cbm: item.cbm || null,
+                        sourcingType: item.sourcing_type || null,
+                        timelineType: item.timeline_type || null,
+                    });
+                    var computedValues = _computedState[0];
+                    var setComputedValues = _computedState[1];
+                    
+                    // Recompute when dimensions change
+                    React.useEffect(function() {
+                        // If all dimensions are entered, compute CBM
+                        if (width && depth && height) {
+                            var wCm = normalizeToCm(width, unit);
+                            var dCm = normalizeToCm(depth, unit);
+                            var hCm = normalizeToCm(height, unit);
+                            
+                            if (wCm && dCm && hCm) {
+                                var cbm = calculateCBM(wCm, dCm, hCm);
+                                var sourcingType = inferSourcingType(category, description);
+                                var timelineType = assignTimelineType(sourcingType);
+                                
+                                setComputedValues({
+                                    dimsCm: { w_cm: wCm, d_cm: dCm, h_cm: hCm },
+                                    cbm: cbm,
+                                    sourcingType: sourcingType,
+                                    timelineType: timelineType,
+                                });
+                            } else {
+                                // Dimensions entered but normalization failed
+                                var sourcingType = inferSourcingType(category, description);
+                                var timelineType = assignTimelineType(sourcingType);
+                                setComputedValues({
+                                    dimsCm: null,
+                                    cbm: null,
+                                    sourcingType: sourcingType,
+                                    timelineType: timelineType,
+                                });
+                            }
+                        } else {
+                            // Not all dimensions entered - preserve saved computed values if they exist
+                            // This ensures saved CBM is displayed even if user hasn't entered dimensions yet
+                            var sourcingType = inferSourcingType(category, description);
+                            var timelineType = assignTimelineType(sourcingType);
+                            setComputedValues(function(prev) {
+                                return {
+                                    dimsCm: prev.dimsCm || item.dims_cm || null,
+                                    cbm: (prev.cbm !== null && prev.cbm !== undefined) ? prev.cbm : ((item.cbm !== null && item.cbm !== undefined) ? item.cbm : null),
+                                    sourcingType: sourcingType,
+                                    timelineType: timelineType,
+                                };
+                            });
+                        }
+                    }, [width, depth, height, unit, category, description]);
+                    
+                    // Handle save
+                    var handleSave = function() {
+                        setIsSaving(true);
+                        
+                        try {
+                            // Prepare payload
+                            var dimsCm = computedValues.dimsCm;
+                            var payload = {
+                                category: category,
+                                description: description,
+                                dims: {
+                                    w: width ? parseFloat(width) : null,
+                                    d: depth ? parseFloat(depth) : null,
+                                    h: height ? parseFloat(height) : null,
+                                    unit: unit,
+                                },
+                                dims_cm: dimsCm,
+                                cbm: computedValues.cbm,
+                                sourcing_type: computedValues.sourcingType,
+                                timeline_type: computedValues.timelineType,
+                                inspiration: inspiration,
+                            };
+                            
+                            // Call onSave callback (handles AJAX and event logging)
+                            if (onSave) {
+                                // Extract numeric ID from item.id (handles both "item-5" and "5" formats)
+                                var itemId = item.id;
+                                if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) {
+                                    itemId = parseInt(itemId.replace('item-', ''), 10);
+                                } else if (typeof itemId === 'string') {
+                                    itemId = parseInt(itemId, 10);
+                                }
+                                if (isNaN(itemId)) {
+                                    throw new Error('Invalid item ID');
+                                }
+                                onSave(itemId, payload).then(function() {
+                                    onClose();
+                                }).catch(function(error) {
+                                    console.error('Error saving item facts:', error);
+                                    alert('Failed to save item facts. Please try again.');
+                                }).finally(function() {
+                                    setIsSaving(false);
+                                });
+                            } else {
+                                setIsSaving(false);
+                                onClose();
+                            }
+                        } catch (error) {
+                            console.error('Error saving item facts:', error);
+                            alert('Failed to save item facts. Please try again.');
+                            setIsSaving(false);
+                        }
+                    };
+                    
+                    // Handle inspiration image add via WordPress Media Library
+                    var handleInspirationAdd = function() {
+                        // Check if wp.media is available
+                        if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
+                            alert('WordPress Media Library is not available. Please refresh the page.');
+                            return;
+                        }
+                        
+                        // Create or reuse media frame
+                        if (!window.n88InspirationMediaFrame) {
+                            window.n88InspirationMediaFrame = wp.media({
+                                title: 'Select Inspiration Image',
+                                button: {
+                                    text: 'Use this image'
+                                },
+                                multiple: true,
+                                library: {
+                                    type: 'image'
+                                }
+                            });
+                            
+                            // When images are selected
+                            window.n88InspirationMediaFrame.on('select', function() {
+                                var attachments = window.n88InspirationMediaFrame.state().get('selection').toJSON();
+                                var newInspiration = inspiration.slice();
+                                
+                                attachments.forEach(function(attachment) {
+                                    newInspiration.push({
+                                        type: 'image',
+                                        url: attachment.url,
+                                        id: attachment.id,
+                                        title: attachment.title || attachment.filename
+                                    });
+                                });
+                                
+                                setInspiration(newInspiration);
+                            });
+                        }
+                        
+                        // Open the media frame
+                        window.n88InspirationMediaFrame.open();
+                    };
+                    
+                    if (!isOpen) return null;
+                    
+                    return React.createElement(React.Fragment, null,
+                        React.createElement('div', {
+                            onClick: onClose,
+                            style: {
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                                zIndex: 10000,
+                            }
+                        }),
+                        React.createElement('div', {
+                            onClick: function(e) { e.stopPropagation(); },
+                            style: {
+                                position: 'fixed',
+                                top: 0,
+                                right: 0,
+                                width: '480px',
+                                maxWidth: '90vw',
+                                height: '100vh',
+                                backgroundColor: '#fff',
+                                boxShadow: '-2px 0 10px rgba(0,0,0,0.2)',
+                                zIndex: 10001,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                overflow: 'hidden',
+                            }
+                        },
+                            // Header
+                            React.createElement('div', {
+                                style: {
+                                    padding: '20px',
+                                    borderBottom: '1px solid #e0e0e0',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                }
+                            },
+                                React.createElement('h2', {
+                                    style: { margin: 0, fontSize: '20px', fontWeight: '600' }
+                                }, 'Item Detail'),
+                                React.createElement('button', {
+                                    onClick: onClose,
+                                    style: {
+                                        background: 'none',
+                                        border: 'none',
+                                        fontSize: '24px',
+                                        cursor: 'pointer',
+                                        padding: '0',
+                                        width: '30px',
+                                        height: '30px',
+                                    }
+                                }, '×')
+                            ),
+                            // Scrollable Content
+                            React.createElement('div', {
+                                style: {
+                                    flex: 1,
+                                    overflowY: 'auto',
+                                    padding: '20px',
+                                }
+                            },
+                                // Image Preview
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('h3', {
+                                        style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Image Preview'),
+                                    React.createElement('div', {
+                                        style: {
+                                            width: '100%',
+                                            height: '200px',
+                                            backgroundColor: '#f0f0f0',
+                                            backgroundImage: item.imageUrl ? 'url(' + item.imageUrl + ')' : 'none',
+                                            backgroundSize: 'contain',
+                                            backgroundPosition: 'center',
+                                            backgroundRepeat: 'no-repeat',
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: '4px',
+                                        }
+                                    })
+                                ),
+                                // Category
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Category'),
+                                    React.createElement('select', {
+                                        value: category,
+                                        onChange: function(e) { setCategory(e.target.value); },
+                                        style: {
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '4px',
+                                            fontSize: '14px',
+                                        }
+                                    },
+                                        React.createElement('option', { value: '' }, 'Select Category'),
+                                        React.createElement('option', { value: 'furniture' }, 'Furniture'),
+                                        React.createElement('option', { value: 'lighting' }, 'Lighting'),
+                                        React.createElement('option', { value: 'accessory' }, 'Accessory'),
+                                        React.createElement('option', { value: 'art' }, 'Art')
+                                    )
+                                ),
+                                // Description
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Description'),
+                                    React.createElement('textarea', {
+                                        value: description,
+                                        onChange: function(e) { setDescription(e.target.value); },
+                                        placeholder: 'Lobby seating for reception area',
+                                        rows: 4,
+                                        style: {
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '4px',
+                                            fontSize: '14px',
+                                            fontFamily: 'inherit',
+                                            resize: 'vertical',
+                                        }
+                                    })
+                                ),
+                                // Dimensions (User Input)
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Dimensions (User Input)'),
+                                    React.createElement('div', {
+                                        style: { display: 'flex', gap: '8px', marginBottom: '10px' }
+                                    },
+                                        React.createElement('input', {
+                                            type: 'number',
+                                            value: width,
+                                            onChange: function(e) { setWidth(e.target.value); },
+                                            placeholder: 'Width',
+                                            style: { width: '80px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }
+                                        }),
+                                        React.createElement('input', {
+                                            type: 'number',
+                                            value: depth,
+                                            onChange: function(e) { setDepth(e.target.value); },
+                                            placeholder: 'Depth',
+                                            style: { width: '80px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }
+                                        }),
+                                        React.createElement('input', {
+                                            type: 'number',
+                                            value: height,
+                                            onChange: function(e) { setHeight(e.target.value); },
+                                            placeholder: 'Height',
+                                            style: { width: '80px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }
+                                        })
+                                    ),
+                                    React.createElement('select', {
+                                        value: unit,
+                                        onChange: function(e) { setUnit(e.target.value); },
+                                        style: { width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }
+                                    },
+                                        React.createElement('option', { value: 'mm' }, 'mm'),
+                                        React.createElement('option', { value: 'cm' }, 'cm'),
+                                        React.createElement('option', { value: 'm' }, 'm'),
+                                        React.createElement('option', { value: 'in' }, 'in')
+                                    )
+                                ),
+                                // System Computed (Read-Only)
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'System Computed (Read-Only)'),
+                                    computedValues.dimsCm ? React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px' }
+                                    },
+                                        React.createElement('strong', null, 'Normalized: '),
+                                        computedValues.dimsCm.w_cm.toFixed(1) + 'cm × ' + computedValues.dimsCm.d_cm.toFixed(1) + 'cm × ' + computedValues.dimsCm.h_cm.toFixed(1) + 'cm'
+                                    ) : React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px', color: '#999' }
+                                    }, 'Enter dimensions to compute'),
+                                    computedValues.cbm !== null ? React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px' }
+                                    },
+                                        React.createElement('strong', null, 'CBM: '),
+                                        String(computedValues.cbm)
+                                    ) : React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px', color: '#999' }
+                                    }, 'CBM: — (requires all dimensions)')
+                                ),
+                                // System Assignments (Read-Only)
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'System Assignments (Read-Only)'),
+                                    React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px' }
+                                    },
+                                        React.createElement('strong', null, 'sourcing_type: '),
+                                        computedValues.sourcingType || '—'
+                                    ),
+                                    React.createElement('div', {
+                                        style: { marginBottom: '8px', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px', fontSize: '13px' }
+                                    },
+                                        React.createElement('strong', null, 'timeline_type: '),
+                                        computedValues.timelineType || '—'
+                                    )
+                                ),
+                                // Materials / Inspiration
+                                React.createElement('div', { style: { marginBottom: '24px' } },
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Materials / Inspiration'),
+                                    inspiration.length > 0 ? React.createElement('div', { style: { marginBottom: '10px' } },
+                                        inspiration.map(function(insp, idx) {
+                                            return React.createElement('div', {
+                                                key: idx,
+                                                style: {
+                                                    marginBottom: '8px',
+                                                    padding: '8px',
+                                                    backgroundColor: '#f9f9f9',
+                                                    borderRadius: '4px',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                }
+                                            },
+                                                React.createElement('span', { style: { fontSize: '13px', color: '#666' } }, insp.url),
+                                                React.createElement('button', {
+                                                    onClick: function() {
+                                                        var newInspiration = inspiration.slice();
+                                                        newInspiration.splice(idx, 1);
+                                                        setInspiration(newInspiration);
+                                                    },
+                                                    style: {
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: '#d32f2f',
+                                                        cursor: 'pointer',
+                                                        fontSize: '18px',
+                                                    }
+                                                }, '×')
+                                            );
+                                        })
+                                    ) : null,
+                                    React.createElement('button', {
+                                        onClick: handleInspirationAdd,
+                                        style: {
+                                            padding: '8px 16px',
+                                            backgroundColor: '#f0f0f0',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                        }
+                                    }, '+ Upload Image')
+                                )
+                            ),
+                            // Footer Actions
+                            React.createElement('div', {
+                                style: {
+                                    padding: '20px',
+                                    borderTop: '1px solid #e0e0e0',
+                                    display: 'flex',
+                                    gap: '10px',
+                                    justifyContent: 'flex-end',
+                                }
+                            },
+                                React.createElement('button', {
+                                    onClick: onClose,
+                                    style: {
+                                        padding: '10px 20px',
+                                        backgroundColor: '#f0f0f0',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                    }
+                                }, 'Close'),
+                                React.createElement('button', {
+                                    onClick: handleSave,
+                                    disabled: isSaving,
+                                    style: {
+                                        padding: '10px 20px',
+                                        backgroundColor: '#0073aa',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: isSaving ? 'not-allowed' : 'pointer',
+                                        fontSize: '14px',
+                                        opacity: isSaving ? 0.6 : 1,
+                                    }
+                                }, isSaving ? 'Saving...' : 'Save Item Facts')
+                            )
+                        )
+                    );
+                };
+
+                // Wrap BoardItem to add modal functionality
+                var BoardItemWrapper = function(props) {
+                    var item = props.item;
+                    var onLayoutChanged = props.onLayoutChanged;
+                    var boardId = props.boardId;
+                    
+                    var _modalState = React.useState(false);
+                    var isModalOpen = _modalState[0];
+                    var setIsModalOpen = _modalState[1];
+                    
+                    // Create a modified BoardItem that can trigger modal
+                    var boardItemProps = Object.assign({}, props);
+                    // Store modal handlers in a way BoardItem can access
+                    boardItemProps._modalHandlers = {
+                        open: function() { setIsModalOpen(true); },
+                        close: function() { setIsModalOpen(false); }
+                    };
+                    
+                    // onSave handler for ItemDetailModal
+                    var handleSave = function(itemId, payload) {
+                        if (boardId && boardId > 0) {
+                            // Real board - save via AJAX
+                            return fetch(window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : '/wp-admin/admin-ajax.php', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    action: 'n88_save_item_facts',
+                                    board_id: boardId,
+                                    item_id: itemId,
+                                    nonce: window.n88BoardData && window.n88BoardData.nonce ? window.n88BoardData.nonce : '',
+                                    payload: JSON.stringify(payload),
+                                }),
+                            }).then(function(response) {
+                                return response.json();
+                            }).then(function(data) {
+                                if (!data.success) {
+                                    throw new Error(data.data && data.data.message ? data.data.message : 'Failed to save item facts');
+                                }
+                                return data;
+                            });
+                        } else {
+                            // Demo mode - just log
+                            console.log('Demo mode: Item facts saved to store only', payload);
+                            return Promise.resolve();
+                        }
+                    };
+                    
+                    return React.createElement(React.Fragment, null,
+                        React.createElement(BoardItem, boardItemProps),
+                        React.createElement(ItemDetailModalInline, {
+                            item: item,
+                            isOpen: isModalOpen,
+                            onClose: function() { setIsModalOpen(false); },
+                            onSave: handleSave,
+                            boardId: boardId
+                        })
+                    );
                 };
 
                 // UnsyncedToast Component
@@ -3879,7 +4634,7 @@ class N88_RFQ_Admin {
                                 zIndex: 1
                             },
                         }, items.map(function(item) {
-                            return React.createElement(BoardItem, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged });
+                            return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
                         }), 
                         // Concierge Overlay - read-only, non-blocking
                         React.createElement(ConciergeOverlay, { concierge: conciergeData })),
@@ -3943,7 +4698,7 @@ class N88_RFQ_Admin {
      * Items are fetched from wp_n88_board_items and merged with layout data.
      */
     public function render_real_board_demo() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
@@ -4209,7 +4964,7 @@ class N88_RFQ_Admin {
                                 zIndex: 1
                             }
                         }, (items || []).map(function(item) {
-                            return React.createElement(BoardItem, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged });
+                            return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
                         }), 
                         React.createElement(ConciergeOverlay, { concierge: concierge })
                         ),

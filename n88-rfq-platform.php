@@ -59,6 +59,7 @@ $includes = array(
     'includes/class-n88-rfq-projects.php',
     'includes/class-n88-rfq-admin.php',
     'includes/class-n88-rfq-frontend.php',
+    'includes/class-n88-rfq-auth.php',
     'includes/class-n88-rfq-comments.php',
     'includes/class-n88-rfq-quotes.php',
     'includes/class-n88-rfq-notifications.php',
@@ -100,6 +101,7 @@ function n88_rfq_bootstrap() {
     new N88_RFQ_Projects();
     new N88_RFQ_Admin();
     new N88_RFQ_Frontend();
+    new N88_RFQ_Auth();
     // Milestone 1.1: Items, Boards, and Layout endpoints
     new N88_Items();
     new N88_Boards();

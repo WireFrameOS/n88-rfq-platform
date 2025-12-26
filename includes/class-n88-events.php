@@ -42,6 +42,8 @@ class N88_Events {
         'material_detached_from_item',
         // Phase 1.2.4: Materials-in-Mind linking
         'materials_in_mind_linked_to_item',
+        // Commit 1.3.8: Item facts saved
+        'item_facts_saved',
     );
 
     /**

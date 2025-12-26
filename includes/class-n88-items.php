@@ -88,6 +88,7 @@ class N88_Items {
         // Register AJAX endpoints (logged-in users only)
         add_action( 'wp_ajax_n88_create_item', array( $this, 'ajax_create_item' ) );
         add_action( 'wp_ajax_n88_update_item', array( $this, 'ajax_update_item' ) );
+        add_action( 'wp_ajax_n88_save_item_facts', array( $this, 'ajax_save_item_facts' ) );
     }
 
     /**
@@ -1083,6 +1084,152 @@ class N88_Items {
                 'object_id' => $wpdb->insert_id,
             )
         );
+    }
+
+    /**
+     * AJAX: Save Item Facts
+     * 
+     * Commit 1.3.8: Saves item facts from Item Detail Modal
+     */
+    public function ajax_save_item_facts() {
+        // Nonce verification
+        N88_RFQ_Helpers::verify_ajax_nonce();
+        
+        // Login check
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+        
+        global $wpdb;
+        
+        // Get parameters
+        $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $payload_json = isset( $_POST['payload'] ) ? wp_unslash( $_POST['payload'] ) : '';
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Item ID is required.' ) );
+            return;
+        }
+        
+        // Decode payload
+        $payload = json_decode( $payload_json, true );
+        if ( ! is_array( $payload ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid payload format.' ) );
+            return;
+        }
+        
+        // Verify item ownership
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+            $item_id
+        ) );
+        
+        if ( ! $item ) {
+            wp_send_json_error( array( 'message' => 'Item not found.' ) );
+            return;
+        }
+        
+        $user_id = get_current_user_id();
+        if ( isset( $item->owner_user_id ) && $item->owner_user_id != $user_id && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Permission denied.' ) );
+            return;
+        }
+        
+        // Prepare update data
+        $update_data = array();
+        $update_format = array();
+        
+        // Category (map to item_type if exists, or store in meta_json)
+        if ( isset( $payload['category'] ) ) {
+            $category = sanitize_text_field( $payload['category'] );
+            $update_data['item_type'] = $category;
+            $update_format[] = '%s';
+        }
+        
+        // Description
+        if ( isset( $payload['description'] ) ) {
+            $description = sanitize_textarea_field( $payload['description'] );
+            $update_data['description'] = $description;
+            $update_format[] = '%s';
+        }
+        
+        // Get existing meta_json
+        $meta_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $meta = ! empty( $meta_json ) ? json_decode( $meta_json, true ) : array();
+        if ( ! is_array( $meta ) ) {
+            $meta = array();
+        }
+        
+        // Store item facts in meta_json
+        if ( isset( $payload['dims'] ) ) {
+            $meta['dims'] = array(
+                'w' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
+                'd' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
+                'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
+                'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
+            );
+        }
+        
+        if ( isset( $payload['dims_cm'] ) ) {
+            $meta['dims_cm'] = $payload['dims_cm'];
+        }
+        
+        if ( isset( $payload['cbm'] ) ) {
+            $meta['cbm'] = floatval( $payload['cbm'] );
+        }
+        
+        if ( isset( $payload['sourcing_type'] ) ) {
+            $meta['sourcing_type'] = sanitize_text_field( $payload['sourcing_type'] );
+        }
+        
+        if ( isset( $payload['timeline_type'] ) ) {
+            $meta['timeline_type'] = sanitize_text_field( $payload['timeline_type'] );
+        }
+        
+        if ( isset( $payload['inspiration'] ) ) {
+            $meta['inspiration'] = $payload['inspiration'];
+        }
+        
+        // Update meta_json
+        $update_data['meta_json'] = wp_json_encode( $meta );
+        $update_format[] = '%s';
+        
+        // Update item
+        $result = $wpdb->update(
+            $items_table,
+            $update_data,
+            array( 'id' => $item_id ),
+            $update_format,
+            array( '%d' )
+        );
+        
+        if ( $result === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to update item.' ) );
+            return;
+        }
+        
+        // Log event
+        n88_log_event(
+            'item_facts_saved',
+            'item',
+            array(
+                'object_id' => $item_id,
+                'item_id' => $item_id,
+                'board_id' => $board_id > 0 ? $board_id : null,
+                'payload_json' => $payload,
+            )
+        );
+        
+        wp_send_json_success( array(
+            'message' => 'Item facts saved successfully.',
+            'item_id' => $item_id,
+        ) );
     }
 }
 
