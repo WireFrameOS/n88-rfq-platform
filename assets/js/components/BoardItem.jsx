@@ -35,6 +35,7 @@ const CARD_SIZES = {
 const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     const bringToFront = useBoardStore((state) => state.bringToFront);
     const updateLayout = useBoardStore((state) => state.updateLayout);
+    const setItems = useBoardStore((state) => state.setItems);
     
     // Local state to track if card is expanded (showing details)
     const [isExpanded, setIsExpanded] = React.useState(item.displayMode === 'full');
@@ -217,6 +218,89 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             });
         }
     };
+    
+    // Handle delete item
+    const handleDeleteItem = async () => {
+        if (!window.confirm('Are you sure you want to delete this item?')) {
+            return;
+        }
+        
+        if (!boardId || boardId === 0) {
+            alert('Cannot delete item: Board ID is missing.');
+            return;
+        }
+        
+        // Extract numeric ID from item.id (handles both "item-5" and "5" formats)
+        let itemId = item.id;
+        if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) {
+            itemId = parseInt(itemId.replace('item-', ''), 10);
+        } else if (typeof itemId === 'string') {
+            itemId = parseInt(itemId, 10);
+        }
+        
+        if (isNaN(itemId) || itemId <= 0) {
+            alert('Invalid item ID. Cannot delete item.');
+            return;
+        }
+        
+        try {
+            const response = await fetch(window.n88BoardData?.ajaxUrl || '/wp-admin/admin-ajax.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    action: 'n88_remove_item_from_board',
+                    board_id: boardId,
+                    item_id: itemId,
+                    nonce: window.n88BoardData?.nonce || '',
+                }),
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Remove item from store - use the item_id from response for accurate matching
+                const deletedItemId = data.data?.item_id;
+                const currentItems = useBoardStore.getState().items;
+                
+                // Filter out the deleted item by comparing numeric IDs
+                const updatedItems = currentItems.filter(i => {
+                    // Extract numeric ID from item.id (handles "item-5", "5", or 5)
+                    let currentNumericId = null;
+                    if (typeof i.id === 'string' && i.id.startsWith('item-')) {
+                        currentNumericId = parseInt(i.id.replace('item-', ''), 10);
+                    } else if (typeof i.id === 'string') {
+                        currentNumericId = parseInt(i.id, 10);
+                    } else {
+                        currentNumericId = parseInt(i.id, 10);
+                    }
+                    
+                    // Compare with deleted item ID
+                    return currentNumericId !== deletedItemId;
+                });
+                
+                // Update store with filtered items
+                setItems(updatedItems);
+                
+                // Update item count display immediately
+                const countElement = document.querySelector('span[data-item-count]');
+                if (countElement) {
+                    countElement.textContent = updatedItems.length;
+                }
+                
+                // Force a re-render by updating the layout
+                if (onLayoutChanged) {
+                    onLayoutChanged();
+                }
+            } else {
+                alert(data.data?.message || 'Failed to delete item. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error deleting item:', error);
+            alert('An error occurred while deleting the item. Please try again.');
+        }
+    };
 
     return (
         <motion.div
@@ -283,6 +367,48 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         </div>
                     )}
                     
+                    {/* Delete button - always visible */}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleDeleteItem();
+                        }}
+                        style={{
+                            position: 'absolute',
+                            top: '10px',
+                            right: '10px',
+                            width: '24px',
+                            height: '24px',
+                            padding: 0,
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            backgroundColor: '#d32f2f',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '50%',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            transition: 'all 0.2s',
+                            zIndex: 20,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            lineHeight: '1',
+                        }}
+                        onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = '#b71c1c';
+                            e.target.style.transform = 'scale(1.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = '#d32f2f';
+                            e.target.style.transform = 'scale(1)';
+                        }}
+                        title="Delete item"
+                    >
+                        ×
+                    </button>
+                    
                     {/* Show Card button - appears when in photo_only mode */}
                     {item.displayMode === 'photo_only' && (
                         <button
@@ -308,7 +434,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                             style={{
                                 position: 'absolute',
                                 top: '10px',
-                                right: '10px',
+                                right: '40px',
                                 padding: '6px 12px',
                                 fontSize: '11px',
                                 fontWeight: '500',

@@ -299,6 +299,117 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                             overflowY: 'auto',
                             padding: '20px',
                         }}>
+                            {/* Image Preview Box (at top - shows uploaded material images or placeholder) */}
+                            <div style={{ marginBottom: '24px' }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
+                                    Materials / Inspiration
+                                </label>
+                                {inspiration.length > 0 ? (
+                                    <div style={{ 
+                                        width: '100%',
+                                        minHeight: inspiration.length === 1 ? '300px' : '200px',
+                                        backgroundColor: '#f0f0f0',
+                                        border: '1px solid #e0e0e0',
+                                        borderRadius: '4px',
+                                        padding: '10px',
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '10px',
+                                        alignItems: 'stretch'
+                                    }}>
+                                        {inspiration.map((insp, idx) => {
+                                            // Calculate image size based on count: 1 image = full width, 2 images = 50% each, 3+ = grid
+                                            const imageCount = inspiration.length;
+                                            let containerStyle = {};
+                                            
+                                            if (imageCount === 1) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: '100%',
+                                                    height: '300px',
+                                                    flex: '0 0 100%'
+                                                };
+                                            } else if (imageCount === 2) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(50% - 5px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(50% - 5px)'
+                                                };
+                                            } else {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(33.333% - 7px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(33.333% - 7px)'
+                                                };
+                                            }
+                                            
+                                            return (
+                                                <div key={idx} style={containerStyle}>
+                                                    {insp.url && (
+                                                        <img 
+                                                            src={insp.url} 
+                                                            alt={insp.title || 'Material'} 
+                                                            style={{ 
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'contain',
+                                                                border: '1px solid #ddd',
+                                                                borderRadius: '4px',
+                                                                backgroundColor: '#fff'
+                                                            }} 
+                                                        />
+                                                    )}
+                                                    <button
+                                                        onClick={() => setInspiration(inspiration.filter((_, i) => i !== idx))}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: '5px',
+                                                            right: '5px',
+                                                            background: '#d32f2f',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '50%',
+                                                            width: '24px',
+                                                            height: '24px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '16px',
+                                                            lineHeight: '24px',
+                                                            padding: 0,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                        }}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{ 
+                                        width: '100%',
+                                        height: '200px',
+                                        backgroundColor: '#f0f0f0',
+                                        border: '2px dashed #ccc',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#999',
+                                        fontSize: '14px'
+                                    }}>
+                                        <div style={{ textAlign: 'center', color: '#999' }}>
+                                            <div style={{ fontSize: '48px', marginBottom: '10px', opacity: 0.3 }}>📷</div>
+                                            <div>No images Preview yet</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
                             {/* Category */}
                             <div style={{ marginBottom: '24px' }}>
                                 <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
@@ -449,93 +560,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                                 </div>
                             </div>
                             
-                            {/* Materials / Inspiration */}
+                            {/* Materials / Inspiration (label and upload button at bottom) */}
                             <div style={{ marginBottom: '24px' }}>
                                 <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
                                     Materials / Inspiration
                                 </label>
-                                
-                                {/* Image Preview - Shows uploaded material images */}
-                                {inspiration.length > 0 && (
-                                    <div style={{ 
-                                        width: '100%',
-                                        minHeight: '200px',
-                                        backgroundColor: '#f0f0f0',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '4px',
-                                        padding: '10px',
-                                        marginBottom: '10px',
-                                        display: 'flex',
-                                        flexWrap: 'wrap',
-                                        gap: '10px',
-                                        alignItems: 'flex-start'
-                                    }}>
-                                        {inspiration.map((insp, idx) => (
-                                            <div key={idx} style={{
-                                                position: 'relative',
-                                                width: '100px',
-                                                height: '100px',
-                                            }}>
-                                                {insp.url && (
-                                                    <img 
-                                                        src={insp.url} 
-                                                        alt={insp.title || 'Material'} 
-                                                        style={{ 
-                                                            width: '100%',
-                                                            height: '100%',
-                                                            objectFit: 'contain',
-                                                            border: '1px solid #ddd',
-                                                            borderRadius: '4px',
-                                                            backgroundColor: '#fff'
-                                                        }} 
-                                                    />
-                                                )}
-                                                <button
-                                                    onClick={() => setInspiration(inspiration.filter((_, i) => i !== idx))}
-                                                    style={{
-                                                        position: 'absolute',
-                                                        top: '-5px',
-                                                        right: '-5px',
-                                                        background: '#d32f2f',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '50%',
-                                                        width: '20px',
-                                                        height: '20px',
-                                                        cursor: 'pointer',
-                                                        fontSize: '14px',
-                                                        lineHeight: '20px',
-                                                        padding: 0,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}
-                                                >
-                                                    ×
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                
-                                {inspiration.length === 0 && (
-                                    <div style={{ 
-                                        width: '100%',
-                                        height: '200px',
-                                        backgroundColor: '#f0f0f0',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '4px',
-                                        marginBottom: '10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: '#999',
-                                        fontSize: '14px'
-                                    }}>
-                                        No images uploaded yet
-                                    </div>
-                                )}
-                                
                                 <input
                                     type="file"
                                     id="inspiration-file-input"
@@ -562,7 +591,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                                     + Upload Image
                                 </button>
                             </div>
-                        </div>
+                                                    </div>
                         
                         {/* Footer Actions */}
                         <div style={{

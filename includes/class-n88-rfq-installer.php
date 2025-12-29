@@ -204,7 +204,232 @@ class N88_RFQ_Installer {
         // Phase 1.2: Core Intelligence + Material Bank tables
         self::create_phase_1_2_tables( $charset_collate );
 
+        // Commit 2.2.1: Create custom roles
+        self::create_custom_roles();
+
+        // Commit 2.2.1: Create required pages with shortcodes
+        self::create_required_pages();
+
         self::maybe_upgrade();
+    }
+
+    /**
+     * Create required pages with shortcodes (Commit 2.2.1)
+     */
+    private static function create_required_pages() {
+        // Check if pages already exist to avoid duplicates
+        $workspace_page = get_page_by_path( 'workspace' );
+        
+        // For nested pages, try get_page_by_path first, then check by parent
+        $supplier_queue_page = get_page_by_path( 'supplier/queue' );
+        $admin_queue_page = get_page_by_path( 'admin/queue' );
+        
+        // If get_page_by_path didn't work, try finding by parent and slug
+        if ( ! $supplier_queue_page ) {
+            $supplier_parent_check = get_page_by_path( 'supplier' );
+            if ( $supplier_parent_check ) {
+                $pages = get_pages( array(
+                    'post_status' => 'publish',
+                    'parent' => $supplier_parent_check->ID,
+                ) );
+                foreach ( $pages as $page ) {
+                    if ( $page->post_name === 'queue' ) {
+                        $supplier_queue_page = $page;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if ( ! $admin_queue_page ) {
+            $admin_parent_check = get_page_by_path( 'admin' );
+            if ( $admin_parent_check ) {
+                $pages = get_pages( array(
+                    'post_status' => 'publish',
+                    'parent' => $admin_parent_check->ID,
+                ) );
+                foreach ( $pages as $page ) {
+                    if ( $page->post_name === 'queue' ) {
+                        $admin_queue_page = $page;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Create Workspace page
+        if ( ! $workspace_page ) {
+            $workspace_id = wp_insert_post( array(
+                'post_title'    => 'Workspace',
+                'post_name'    => 'workspace',
+                'post_content' => '[n88_workspace]',
+                'post_status'  => 'publish',
+                'post_type'    => 'page',
+                'post_author'  => 1,
+            ) );
+
+            if ( is_wp_error( $workspace_id ) ) {
+                error_log( 'N88 RFQ: Failed to create workspace page: ' . $workspace_id->get_error_message() );
+            } else {
+                update_option( 'n88_rfq_workspace_page_id', $workspace_id );
+            }
+        } else {
+            // Update existing page to ensure it has the shortcode
+            if ( strpos( $workspace_page->post_content, '[n88_workspace]' ) === false ) {
+                wp_update_post( array(
+                    'ID'           => $workspace_page->ID,
+                    'post_content' => '[n88_workspace]',
+                ) );
+            }
+            update_option( 'n88_rfq_workspace_page_id', $workspace_page->ID );
+        }
+
+        // Create Supplier parent page if it doesn't exist
+        $supplier_parent = get_page_by_path( 'supplier' );
+        if ( ! $supplier_parent ) {
+            $supplier_parent_id = wp_insert_post( array(
+                'post_title'    => 'Supplier',
+                'post_name'    => 'supplier',
+                'post_content' => '',
+                'post_status'  => 'publish',
+                'post_type'    => 'page',
+                'post_author'  => 1,
+            ) );
+
+            if ( is_wp_error( $supplier_parent_id ) ) {
+                error_log( 'N88 RFQ: Failed to create supplier parent page: ' . $supplier_parent_id->get_error_message() );
+                $supplier_parent_id = 0;
+            }
+        } else {
+            $supplier_parent_id = $supplier_parent->ID;
+        }
+
+        // Create Supplier Queue page
+        if ( ! $supplier_queue_page ) {
+            $supplier_queue_id = wp_insert_post( array(
+                'post_title'    => 'Supplier Queue',
+                'post_name'    => 'queue',
+                'post_content' => '[n88_supplier_queue]',
+                'post_status'  => 'publish',
+                'post_type'    => 'page',
+                'post_author'  => 1,
+                'post_parent'  => $supplier_parent_id > 0 ? $supplier_parent_id : 0,
+            ) );
+
+            if ( is_wp_error( $supplier_queue_id ) ) {
+                error_log( 'N88 RFQ: Failed to create supplier queue page: ' . $supplier_queue_id->get_error_message() );
+            } else {
+                update_option( 'n88_rfq_supplier_queue_page_id', $supplier_queue_id );
+            }
+        } else {
+            // Update existing page to ensure it has the shortcode
+            if ( strpos( $supplier_queue_page->post_content, '[n88_supplier_queue]' ) === false ) {
+                wp_update_post( array(
+                    'ID'           => $supplier_queue_page->ID,
+                    'post_content' => '[n88_supplier_queue]',
+                    'post_parent' => $supplier_parent_id > 0 ? $supplier_parent_id : $supplier_queue_page->post_parent,
+                ) );
+            }
+            update_option( 'n88_rfq_supplier_queue_page_id', $supplier_queue_page->ID );
+        }
+
+        // Create Admin parent page if it doesn't exist
+        $admin_parent = get_page_by_path( 'admin' );
+        if ( ! $admin_parent ) {
+            $admin_parent_id = wp_insert_post( array(
+                'post_title'    => 'Admin',
+                'post_name'    => 'admin',
+                'post_content' => '',
+                'post_status'  => 'publish',
+                'post_type'    => 'page',
+                'post_author'  => 1,
+            ) );
+
+            if ( is_wp_error( $admin_parent_id ) ) {
+                error_log( 'N88 RFQ: Failed to create admin parent page: ' . $admin_parent_id->get_error_message() );
+                $admin_parent_id = 0;
+            }
+        } else {
+            $admin_parent_id = $admin_parent->ID;
+        }
+
+        // Create Admin Queue page
+        if ( ! $admin_queue_page ) {
+            $admin_queue_id = wp_insert_post( array(
+                'post_title'    => 'Admin Queue',
+                'post_name'    => 'queue',
+                'post_content' => '[n88_admin_queue]',
+                'post_status'  => 'publish',
+                'post_type'    => 'page',
+                'post_author'  => 1,
+                'post_parent'  => $admin_parent_id > 0 ? $admin_parent_id : 0,
+            ) );
+
+            if ( is_wp_error( $admin_queue_id ) ) {
+                error_log( 'N88 RFQ: Failed to create admin queue page: ' . $admin_queue_id->get_error_message() );
+            } else {
+                update_option( 'n88_rfq_admin_queue_page_id', $admin_queue_id );
+            }
+        } else {
+            // Update existing page to ensure it has the shortcode
+            if ( strpos( $admin_queue_page->post_content, '[n88_admin_queue]' ) === false ) {
+                wp_update_post( array(
+                    'ID'           => $admin_queue_page->ID,
+                    'post_content' => '[n88_admin_queue]',
+                    'post_parent' => $admin_parent_id > 0 ? $admin_parent_id : $admin_queue_page->post_parent,
+                ) );
+            }
+            update_option( 'n88_rfq_admin_queue_page_id', $admin_queue_page->ID );
+        }
+
+        // Flush rewrite rules to ensure permalinks work
+        flush_rewrite_rules();
+    }
+
+    /**
+     * Create custom roles (Commit 2.2.1)
+     */
+    private static function create_custom_roles() {
+        // Create n88_designer role
+        if ( ! get_role( 'n88_designer' ) ) {
+            add_role(
+                'n88_designer',
+                __( 'Designer', 'n88-rfq' ),
+                array(
+                    'read' => true,
+                    'upload_files' => true,
+                    'n88_access_boards' => true,
+                    'n88_access_items' => true,
+                    'n88_access_projects' => true,
+                )
+            );
+        }
+
+        // Create n88_supplier_admin role
+        if ( ! get_role( 'n88_supplier_admin' ) ) {
+            add_role(
+                'n88_supplier_admin',
+                __( 'Supplier Admin', 'n88-rfq' ),
+                array(
+                    'read' => true,
+                    'n88_view_supplier_queue' => true,
+                )
+            );
+        }
+
+        // Create n88_system_operator role
+        if ( ! get_role( 'n88_system_operator' ) ) {
+            add_role(
+                'n88_system_operator',
+                __( 'System Operator', 'n88-rfq' ),
+                array(
+                    'read' => true,
+                    'n88_view_supplier_queue' => true,
+                    'n88_view_global_queue' => true,
+                    'manage_options' => true,
+                )
+            );
+        }
     }
 
     /**
@@ -619,6 +844,9 @@ class N88_RFQ_Installer {
         if ( version_compare( $current_phase_1_2_version, self::PHASE_1_2_SCHEMA_VERSION, '<' ) ) {
             self::create_phase_1_2_tables( $charset_collate );
         }
+
+        // Commit 2.2.1: Ensure required pages exist (runs on every upgrade check)
+        self::create_required_pages();
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
