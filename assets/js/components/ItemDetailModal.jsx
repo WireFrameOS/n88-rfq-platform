@@ -190,47 +190,32 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
         }
     };
     
-    // Handle inspiration image upload via WordPress Media Library
-    const handleInspirationAdd = () => {
-        // Check if wp.media is available
-        if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
-            alert('WordPress Media Library is not available. Please refresh the page.');
-            return;
-        }
+    // Handle inspiration image upload via file input
+    const handleInspirationFileChange = (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
         
-        // Create or reuse media frame
-        if (!window.n88InspirationMediaFrame) {
-            window.n88InspirationMediaFrame = wp.media({
-                title: 'Select Inspiration Image',
-                button: {
-                    text: 'Use this image'
-                },
-                multiple: true,
-                library: {
-                    type: 'image'
-                }
-            });
-            
-            // When images are selected
-            window.n88InspirationMediaFrame.on('select', () => {
-                const attachments = window.n88InspirationMediaFrame.state().get('selection').toJSON();
-                const newInspiration = [...inspiration];
-                
-                attachments.forEach((attachment) => {
+        const newInspiration = [...inspiration];
+        
+        Array.from(files).forEach((file) => {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
                     newInspiration.push({
                         type: 'image',
-                        url: attachment.url,
-                        id: attachment.id,
-                        title: attachment.title || attachment.filename
+                        url: event.target.result,
+                        id: null,
+                        title: file.name,
+                        file: file
                     });
-                });
-                
-                setInspiration(newInspiration);
-            });
-        }
+                    setInspiration([...newInspiration]);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
         
-        // Open the media frame
-        window.n88InspirationMediaFrame.open();
+        // Reset input
+        e.target.value = '';
     };
     
     if (!isOpen) return null;
@@ -314,22 +299,115 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                             overflowY: 'auto',
                             padding: '20px',
                         }}>
-                            {/* Image Preview */}
+                            {/* Image Preview Box (at top - shows uploaded material images or placeholder) */}
                             <div style={{ marginBottom: '24px' }}>
-                                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
-                                    Image Preview
-                                </h3>
-                                <div style={{
-                                    width: '100%',
-                                    height: '200px',
-                                    backgroundColor: '#f0f0f0',
-                                    backgroundImage: item.imageUrl ? `url(${item.imageUrl})` : 'none',
-                                    backgroundSize: 'contain',
-                                    backgroundPosition: 'center',
-                                    backgroundRepeat: 'no-repeat',
-                                    border: '1px solid #e0e0e0',
-                                    borderRadius: '4px',
-                                }} />
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
+                                    Materials / Inspiration
+                                </label>
+                                {inspiration.length > 0 ? (
+                                    <div style={{ 
+                                        width: '100%',
+                                        minHeight: inspiration.length === 1 ? '300px' : '200px',
+                                        backgroundColor: '#f0f0f0',
+                                        border: '1px solid #e0e0e0',
+                                        borderRadius: '4px',
+                                        padding: '10px',
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '10px',
+                                        alignItems: 'stretch'
+                                    }}>
+                                        {inspiration.map((insp, idx) => {
+                                            // Calculate image size based on count: 1 image = full width, 2 images = 50% each, 3+ = grid
+                                            const imageCount = inspiration.length;
+                                            let containerStyle = {};
+                                            
+                                            if (imageCount === 1) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: '100%',
+                                                    height: '300px',
+                                                    flex: '0 0 100%'
+                                                };
+                                            } else if (imageCount === 2) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(50% - 5px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(50% - 5px)'
+                                                };
+                                            } else {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(33.333% - 7px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(33.333% - 7px)'
+                                                };
+                                            }
+                                            
+                                            return (
+                                                <div key={idx} style={containerStyle}>
+                                                    {insp.url && (
+                                                        <img 
+                                                            src={insp.url} 
+                                                            alt={insp.title || 'Material'} 
+                                                            style={{ 
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'contain',
+                                                                border: '1px solid #ddd',
+                                                                borderRadius: '4px',
+                                                                backgroundColor: '#fff'
+                                                            }} 
+                                                        />
+                                                    )}
+                                                    <button
+                                                        onClick={() => setInspiration(inspiration.filter((_, i) => i !== idx))}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: '5px',
+                                                            right: '5px',
+                                                            background: '#d32f2f',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '50%',
+                                                            width: '24px',
+                                                            height: '24px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '16px',
+                                                            lineHeight: '24px',
+                                                            padding: 0,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                        }}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div style={{ 
+                                        width: '100%',
+                                        height: '200px',
+                                        backgroundColor: '#f0f0f0',
+                                        border: '2px dashed #ccc',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#999',
+                                        fontSize: '14px'
+                                    }}>
+                                        <div style={{ textAlign: 'center', color: '#999' }}>
+                                            <div style={{ fontSize: '48px', marginBottom: '10px', opacity: 0.3 }}>📷</div>
+                                            <div>No images Preview yet</div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             
                             {/* Category */}
@@ -482,40 +560,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                                 </div>
                             </div>
                             
-                            {/* Materials / Inspiration */}
+                            {/* Materials / Inspiration (label and upload button at bottom) */}
                             <div style={{ marginBottom: '24px' }}>
                                 <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }}>
                                     Materials / Inspiration
                                 </label>
-                                <div style={{ marginBottom: '10px' }}>
-                                    {inspiration.map((insp, idx) => (
-                                        <div key={idx} style={{
-                                            marginBottom: '8px',
-                                            padding: '8px',
-                                            backgroundColor: '#f9f9f9',
-                                            borderRadius: '4px',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                        }}>
-                                            <span style={{ fontSize: '13px', color: '#666' }}>{insp.url}</span>
-                                            <button
-                                                onClick={() => setInspiration(inspiration.filter((_, i) => i !== idx))}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    color: '#d32f2f',
-                                                    cursor: 'pointer',
-                                                    fontSize: '18px',
-                                                }}
-                                            >
-                                                ×
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
+                                <input
+                                    type="file"
+                                    id="inspiration-file-input"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={handleInspirationFileChange}
+                                    style={{ display: 'none' }}
+                                />
                                 <button
-                                    onClick={handleInspirationAdd}
+                                    type="button"
+                                    onClick={() => {
+                                        const input = document.getElementById('inspiration-file-input');
+                                        if (input) input.click();
+                                    }}
                                     style={{
                                         padding: '8px 16px',
                                         backgroundColor: '#f0f0f0',
@@ -528,7 +591,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave }) => {
                                     + Upload Image
                                 </button>
                             </div>
-                        </div>
+                                                    </div>
                         
                         {/* Footer Actions */}
                         <div style={{

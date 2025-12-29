@@ -12,6 +12,7 @@ class N88_RFQ_Admin {
 
     public function __construct() {
         add_action( 'admin_menu', array( $this, 'register_menus' ) );
+        add_action( 'admin_menu', array( $this, 'modify_board_menu_url' ), 999 ); // Run after menus are registered
     }
 
     public function render_notifications_center() {
@@ -303,8 +304,8 @@ class N88_RFQ_Admin {
         // Milestone 1.3.4a: Board Demo Harness (testing only)
         add_submenu_page(
             'n88-rfq-dashboard',
-            __( 'Board Demo (1.3.4a)', 'n88-rfq' ),
-            __( 'Board Demo', 'n88-rfq' ),
+            __( 'Board', 'n88-rfq' ),
+            __( 'Board', 'n88-rfq' ),
             $capability,
             'n88-rfq-board-demo',
             array( $this, 'render_board_demo' )
@@ -321,6 +322,75 @@ class N88_RFQ_Admin {
             'n88-rfq-materials',
             array( $this, 'render_material_bank' )
         );
+
+        // Commit 2.2.1: Role Management (only for system operators)
+        if ( current_user_can( 'n88_view_global_queue' ) || current_user_can( 'manage_options' ) ) {
+            add_submenu_page(
+                'n88-rfq-dashboard',
+                __( 'Role Management', 'n88-rfq' ),
+                __( 'Role Management', 'n88-rfq' ),
+                'manage_options',
+                'n88-rfq-role-management',
+                array( $this, 'render_role_management' )
+            );
+        }
+    }
+
+    /**
+     * Modify Board menu URL for designers to include their board_id using JavaScript
+     * This avoids WordPress permission issues with modified menu slugs
+     */
+    public function modify_board_menu_url() {
+        $current_user = wp_get_current_user();
+        if ( $current_user && ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
+            $user_id = get_current_user_id();
+            $designer_board = $this->get_designer_board( $user_id );
+            
+            if ( $designer_board ) {
+                // Add JavaScript to modify the menu link after page loads
+                add_action( 'admin_footer', function() use ( $designer_board ) {
+                    ?>
+                    <script>
+                    (function() {
+                        function modifyBoardLink() {
+                            // Find the Board menu link in the admin sidebar
+                            // Try multiple selectors to find the menu item
+                            var selectors = [
+                                '#toplevel_page_n88-rfq-dashboard a[href*="page=n88-rfq-board-demo"]',
+                                '#toplevel_page_n88-rfq-dashboard .wp-submenu a[href*="page=n88-rfq-board-demo"]',
+                                'a[href*="page=n88-rfq-board-demo"]'
+                            ];
+                            
+                            for (var s = 0; s < selectors.length; s++) {
+                                var links = document.querySelectorAll(selectors[s]);
+                                for (var i = 0; i < links.length; i++) {
+                                    var link = links[i];
+                                    if (link.href && link.href.indexOf('page=n88-rfq-board-demo') !== -1) {
+                                        // Modify the href to include board_id
+                                        var url = new URL(link.href);
+                                        url.searchParams.set('board_id', '<?php echo absint( $designer_board->id ); ?>');
+                                        link.href = url.toString();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Wait for menu to be rendered
+                        if (document.readyState === 'loading') {
+                            document.addEventListener('DOMContentLoaded', modifyBoardLink);
+                        } else {
+                            modifyBoardLink();
+                        }
+                        
+                        // Also try after a short delay in case menu loads asynchronously
+                        setTimeout(modifyBoardLink, 500);
+                    })();
+                    </script>
+                    <?php
+                });
+            }
+        }
     }
 
     /**
@@ -329,7 +399,7 @@ class N88_RFQ_Admin {
      */
     private function get_plugin_capability() {
         $current_user = wp_get_current_user();
-        if ( $current_user && in_array( 'designer', $current_user->roles, true ) ) {
+        if ( $current_user && ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
             return 'read';
         }
         return 'manage_options';
@@ -344,7 +414,7 @@ class N88_RFQ_Admin {
             return true;
         }
         $current_user = wp_get_current_user();
-        if ( $current_user && in_array( 'designer', $current_user->roles, true ) ) {
+        if ( $current_user && ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
             return true;
         }
         return false;
@@ -354,7 +424,40 @@ class N88_RFQ_Admin {
         if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
-        echo '<div class="wrap"><h1>NorthEightyEight RFQ – Admin Dashboard</h1><p>TODO: Implement cards and metrics per design.</p></div>';
+        
+        // Check if user is designer and has items
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $user_id = get_current_user_id();
+        $has_items = false;
+        
+        if ( $is_designer ) {
+            global $wpdb;
+            $items_table = $wpdb->prefix . 'n88_items';
+            $item_count = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$items_table} WHERE owner_user_id = %d AND deleted_at IS NULL",
+                    $user_id
+                )
+            );
+            $has_items = $item_count > 0;
+        }
+        
+        ?>
+        <div class="wrap">
+            <h1>NorthEightyEight RFQ</h1>
+            <div style="text-align: center; margin: 50px 0;">
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
+                   class="button button-primary button-large" 
+                   style="padding: 15px 30px; font-size: 16px; text-decoration: none; display: inline-block;">
+                    <?php echo $has_items ? 'Create your items' : 'Add your First Item'; ?>
+                </a>
+            </div>
+            <?php if ( ! $is_designer ) : ?>
+                <p>TODO: Implement cards and metrics per design.</p>
+            <?php endif; ?>
+        </div>
+        <?php
     }
 
     public function render_projects_list() {
@@ -1924,6 +2027,131 @@ class N88_RFQ_Admin {
         <?php
     }
 
+    /**
+     * Render role management page (Commit 2.2.1)
+     */
+    public function render_role_management() {
+        // Check if user has permission
+        if ( ! current_user_can( 'n88_view_global_queue' ) && ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ), 'Access Denied', array( 'response' => 403 ) );
+        }
+
+        // Handle role assignment
+        if ( isset( $_POST['assign_role'] ) && check_admin_referer( 'n88_assign_role' ) ) {
+            $user_id = isset( $_POST['user_id'] ) ? absint( $_POST['user_id'] ) : 0;
+            $new_role = isset( $_POST['new_role'] ) ? sanitize_text_field( wp_unslash( $_POST['new_role'] ) ) : '';
+            
+            $allowed_roles = array( 'n88_designer', 'n88_supplier_admin', 'n88_system_operator' );
+            
+            if ( $user_id > 0 && in_array( $new_role, $allowed_roles, true ) ) {
+                $user = new WP_User( $user_id );
+                // Remove all custom roles first
+                foreach ( $allowed_roles as $role ) {
+                    $user->remove_role( $role );
+                }
+                // Also remove legacy designer role
+                $user->remove_role( 'designer' );
+                // Assign new role
+                $user->add_role( $new_role );
+                
+                echo '<div class="notice notice-success"><p>Role assigned successfully!</p></div>';
+            } else {
+                echo '<div class="notice notice-error"><p>Invalid user or role.</p></div>';
+            }
+        }
+
+        // Get all users
+        $users = get_users( array( 'number' => 100 ) );
+        $allowed_roles = array(
+            'n88_designer' => 'Designer',
+            'n88_supplier_admin' => 'Supplier Admin',
+            'n88_system_operator' => 'System Operator',
+        );
+
+        ?>
+        <div class="wrap">
+            <h1>Role Management</h1>
+            <p>Assign roles to users. This tool is for testing and managing user roles.</p>
+            
+            <h2>Assign Role to User</h2>
+            <form method="post" action="">
+                <?php wp_nonce_field( 'n88_assign_role' ); ?>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="user_id">User</label></th>
+                        <td>
+                            <select name="user_id" id="user_id" required>
+                                <option value="">Select a user...</option>
+                                <?php foreach ( $users as $user ) : ?>
+                                    <option value="<?php echo esc_attr( $user->ID ); ?>">
+                                        <?php echo esc_html( $user->display_name ); ?> (<?php echo esc_html( $user->user_login ); ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="new_role">Role</label></th>
+                        <td>
+                            <select name="new_role" id="new_role" required>
+                                <option value="">Select a role...</option>
+                                <?php foreach ( $allowed_roles as $role_key => $role_label ) : ?>
+                                    <option value="<?php echo esc_attr( $role_key ); ?>">
+                                        <?php echo esc_html( $role_label ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <input type="submit" name="assign_role" class="button button-primary" value="Assign Role" />
+                </p>
+            </form>
+
+            <h2>Current User Roles</h2>
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th>User ID</th>
+                        <th>Username</th>
+                        <th>Display Name</th>
+                        <th>Email</th>
+                        <th>Current Roles</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ( empty( $users ) ) : ?>
+                        <tr>
+                            <td colspan="5">No users found.</td>
+                        </tr>
+                    <?php else : ?>
+                        <?php foreach ( $users as $user ) : ?>
+                            <tr>
+                                <td><?php echo esc_html( $user->ID ); ?></td>
+                                <td><strong><?php echo esc_html( $user->user_login ); ?></strong></td>
+                                <td><?php echo esc_html( $user->display_name ); ?></td>
+                                <td><?php echo esc_html( $user->user_email ); ?></td>
+                                <td>
+                                    <?php
+                                    $user_roles = $user->roles;
+                                    $custom_roles = array_intersect( $user_roles, array_keys( $allowed_roles ) );
+                                    if ( ! empty( $custom_roles ) ) {
+                                        echo esc_html( implode( ', ', $custom_roles ) );
+                                    } else {
+                                        echo '<em>' . esc_html( implode( ', ', $user_roles ) ) . '</em>';
+                                    }
+                                    ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
+    }
+
     public function render_comments_hub() {
         if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
@@ -2154,6 +2382,20 @@ class N88_RFQ_Admin {
      * Temporary test interface for Milestone 1.1 endpoints.
      * This is NOT a production UI - only for testing the foundation.
      */
+    /**
+     * Get designer's board (designers can only have 1 board)
+     */
+    private function get_designer_board( $user_id ) {
+        global $wpdb;
+        $boards_table = $wpdb->prefix . 'n88_boards';
+        return $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$boards_table} WHERE owner_user_id = %d AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1",
+                $user_id
+            )
+        );
+    }
+
     public function render_items_boards_test() {
         if ( ! $this->check_plugin_access() ) {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
@@ -2164,15 +2406,52 @@ class N88_RFQ_Admin {
 
         // Get nonce for AJAX requests
         $nonce = wp_create_nonce( 'n88-rfq-nonce' );
+        
+        // Check if user is designer
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $user_id = get_current_user_id();
+        $designer_board = $is_designer ? $this->get_designer_board( $user_id ) : null;
+        $has_board = $designer_board !== null;
+        
         ?>
         <div class="wrap n88-items-boards-test">
-            <h1>Milestone 1.1 - Items & Boards Test Page</h1>
-            <p><strong>Note:</strong> This is a temporary test interface. Milestone 1.1 is foundation-only (no production UI).</p>
+            <h1>Create Workspace</h1>
+            
+            <?php if ( $is_designer && $has_board ) : ?>
+                <div class="notice notice-success" style="margin: 20px 0;">
+                    <p><strong>Your workspace board has been created! Now create items for your board.</strong></p>
+                </div>
+            <?php endif; ?>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
-                <!-- Create Item Form -->
-                <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px;">
-                    <h2>Create Item</h2>
+            <?php if ( $is_designer && ! $has_board ) : ?>
+                <!-- Designer without board: Show only board creation form -->
+                <div style="max-width: 600px; margin: 20px auto;">
+                    <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px;">
+                        <h2>Create Your Workspace</h2>
+                        <form id="n88-create-board-form">
+                            <table class="form-table">
+                                <tr>
+                                    <th><label for="board-name">Workspace Name *</label></th>
+                                    <td><input type="text" id="board-name" name="name" required style="width: 100%;" /></td>
+                                </tr>
+                                <tr>
+                                    <th><label for="board-description">Description</label></th>
+                                    <td><textarea id="board-description" name="description" rows="3" style="width: 100%;"></textarea></td>
+                                </tr>
+                            </table>
+                            <p class="submit">
+                                <button type="submit" class="button button-primary">Create Workspace</button>
+                            </p>
+                            <div id="create-board-result" style="margin-top: 10px;"></div>
+                        </form>
+                    </div>
+                </div>
+            <?php else : ?>
+                <!-- Designer with board OR Admin: Show item creation form -->
+                <div style="max-width: 800px; margin: 20px auto;">
+                    <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px;">
+                        <h2>Add an Item</h2>
                     <form id="n88-create-item-form">
                         <table class="form-table">
                             <tr>
@@ -2196,26 +2475,16 @@ class N88_RFQ_Admin {
                                 </td>
                             </tr>
                             <tr>
-                                <th><label for="item-status">Status</label></th>
-                                <td>
-                                    <select id="item-status" name="status" style="width: 100%;">
-                                        <option value="draft">Draft</option>
-                                        <option value="active">Active</option>
-                                        <option value="archived">Archived</option>
-                                    </select>
-                                </td>
-                            </tr>
-                            <tr>
                                 <th><label for="item-image-url">Image</label></th>
                                 <td>
                                     <input type="hidden" id="item-image-id" name="image_id" />
-                                    <input type="url" id="item-image-url" name="image_url" placeholder="https://example.com/image.jpg" style="width: calc(100% - 120px);" />
-                                    <button type="button" id="item-image-upload-btn" class="button" style="margin-left: 10px;">Upload Image</button>
-                                    <button type="button" id="item-image-remove-btn" class="button" style="margin-left: 5px; display: none;">Remove</button>
+                                    <input type="file" id="item-image-file" accept="image/*" style="margin-bottom: 10px;" />
+                                    <!-- <input type="url" id="item-image-url" name="image_url" placeholder="Or enter image URL (optional)" style="width: 100%; margin-bottom: 10px;" /> -->
+                                    <button type="button" id="item-image-remove-btn" class="button" style="display: none;">Remove</button>
                                     <div id="item-image-preview" style="margin-top: 10px; max-width: 200px; display: none;">
                                         <img id="item-image-preview-img" src="" style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px;" />
                                     </div>
-                                    <p class="description">Upload an image from media library or enter image URL</p>
+                                    <p class="description">Upload an image from your device</p>
                                 </td>
                             </tr>
                             <tr>
@@ -2230,6 +2499,7 @@ class N88_RFQ_Admin {
                                     <p class="description">Default size when item is added to a board</p>
                                 </td>
                             </tr>
+                            <?php if ( ! $is_designer || ! $has_board ) : ?>
                             <tr>
                                 <th><label for="item-board">Add to Board (Optional)</label></th>
                                 <td>
@@ -2257,48 +2527,41 @@ class N88_RFQ_Admin {
                                     <p class="description">Optionally add this item to a board immediately after creation</p>
                                 </td>
                             </tr>
+                            <?php else : ?>
+                            <input type="hidden" id="item-board" name="board_id" value="<?php echo esc_attr( $designer_board->id ); ?>" />
+                            <?php endif; ?>
                         </table>
                         <p class="submit">
-                            <button type="submit" class="button button-primary">Create Item</button>
+                            <button type="submit" class="button button-primary">Add Item</button>
                         </p>
                         <div id="create-item-result" style="margin-top: 10px;"></div>
                     </form>
                 </div>
-
-                <!-- Create Board Form -->
-                <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px;">
-                    <h2>Create Board</h2>
-                    <form id="n88-create-board-form">
-                        <table class="form-table">
-                            <tr>
-                                <th><label for="board-name">Name *</label></th>
-                                <td><input type="text" id="board-name" name="name" required style="width: 100%;" /></td>
-                            </tr>
-                            <tr>
-                                <th><label for="board-description">Description</label></th>
-                                <td><textarea id="board-description" name="description" rows="3" style="width: 100%;"></textarea></td>
-                            </tr>
-                            <!-- View Mode option hidden for now -->
-                            <!--
-                            <tr>
-                                <th><label for="board-view-mode">View Mode</label></th>
-                                <td>
-                                    <select id="board-view-mode" name="view_mode" style="width: 100%;">
-                                        <option value="grid">Grid</option>
-                                        <option value="list">List</option>
-                                        <option value="3d">3D</option>
-                                    </select>
-                                </td>
-                            </tr>
-                            -->
-                        </table>
-                        <p class="submit">
-                            <button type="submit" class="button button-primary">Create Board</button>
-                        </p>
-                        <div id="create-board-result" style="margin-top: 10px;"></div>
-                    </form>
+                
+                <?php if ( ! $is_designer ) : ?>
+                    <!-- Admin: Show board creation form too -->
+                    <div style="border: 1px solid #ccc; padding: 20px; border-radius: 4px; margin-top: 20px;">
+                        <h2>Create Board</h2>
+                        <form id="n88-create-board-form">
+                            <table class="form-table">
+                                <tr>
+                                    <th><label for="board-name">Name *</label></th>
+                                    <td><input type="text" id="board-name" name="name" required style="width: 100%;" /></td>
+                                </tr>
+                                <tr>
+                                    <th><label for="board-description">Description</label></th>
+                                    <td><textarea id="board-description" name="description" rows="3" style="width: 100%;"></textarea></td>
+                                </tr>
+                            </table>
+                            <p class="submit">
+                                <button type="submit" class="button button-primary">Create Board</button>
+                            </p>
+                            <div id="create-board-result" style="margin-top: 10px;"></div>
+                        </form>
+                    </div>
+                <?php endif; ?>
                 </div>
-            </div>
+            <?php endif; ?>
 
             <!-- Update Item Form - COMMENTED OUT FOR NOW -->
             <?php /*
@@ -2432,38 +2695,19 @@ class N88_RFQ_Admin {
                 var nonce = '<?php echo esc_js( $nonce ); ?>';
                 var ajaxurl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
                 
-                // WordPress Media Library Uploader for Item Image
-                var itemImageFrame;
-                $('#item-image-upload-btn').on('click', function(e) {
-                    e.preventDefault();
-                    
-                    // If the frame already exists, reopen it
-                    if (itemImageFrame) {
-                        itemImageFrame.open();
-                        return;
+                // Handle file input for item image
+                $('#item-image-file').on('change', function(e) {
+                    var file = e.target.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        var reader = new FileReader();
+                        reader.onload = function(event) {
+                            $('#item-image-url').val(event.target.result);
+                            $('#item-image-preview-img').attr('src', event.target.result);
+                            $('#item-image-preview').show();
+                            $('#item-image-remove-btn').show();
+                        };
+                        reader.readAsDataURL(file);
                     }
-                    
-                    // Create the media frame
-                    itemImageFrame = wp.media({
-                        title: 'Select Item Image',
-                        button: {
-                            text: 'Use this image'
-                        },
-                        multiple: false
-                    });
-                    
-                    // When an image is selected, run a callback
-                    itemImageFrame.on('select', function() {
-                        var attachment = itemImageFrame.state().get('selection').first().toJSON();
-                        $('#item-image-id').val(attachment.id);
-                        $('#item-image-url').val(attachment.url);
-                        $('#item-image-preview-img').attr('src', attachment.url);
-                        $('#item-image-preview').show();
-                        $('#item-image-remove-btn').show();
-                    });
-                    
-                    // Open the media frame
-                    itemImageFrame.open();
                 });
                 
                 // Remove image button
@@ -2471,6 +2715,7 @@ class N88_RFQ_Admin {
                     e.preventDefault();
                     $('#item-image-id').val('');
                     $('#item-image-url').val('');
+                    $('#item-image-file').val('');
                     $('#item-image-preview').hide();
                     $('#item-image-remove-btn').hide();
                 });
@@ -2481,8 +2726,10 @@ class N88_RFQ_Admin {
                     if (url) {
                         $('#item-image-preview-img').attr('src', url);
                         $('#item-image-preview').show();
+                        $('#item-image-remove-btn').show();
                     } else {
                         $('#item-image-preview').hide();
+                        $('#item-image-remove-btn').hide();
                     }
                 });
 
@@ -2490,41 +2737,101 @@ class N88_RFQ_Admin {
                 $('#n88-create-item-form').on('submit', function(e) {
                     e.preventDefault();
                     var $result = $('#create-item-result');
-                    $result.html('<p>Creating...</p>');
+                    var $submitBtn = $('#n88-create-item-form button[type="submit"]');
+                    
+                    // Show loader and disable button
+                    $result.html('<p style="color: #666;"><span class="spinner is-active" style="float: none; margin: 0 5px 0 0;"></span>Adding item...</p>');
+                    $submitBtn.prop('disabled', true).text('Adding...');
+
+                    var boardId = $('#item-board').val();
+                    <?php if ( $is_designer && $has_board ) : ?>
+                    // For designers, always use their board
+                    boardId = '<?php echo esc_js( $designer_board->id ); ?>';
+                    <?php endif; ?>
+
+                    // Store boardId for redirect
+                    var redirectBoardId = boardId;
+
+                    // Helper function to convert data URL to blob
+                    function dataURLtoBlob(dataurl) {
+                        var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+                            bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+                        while(n--){
+                            u8arr[n] = bstr.charCodeAt(n);
+                        }
+                        return new Blob([u8arr], {type:mime});
+                    }
+                    
+                    // Always use 'active' status
+                    var formData = new FormData();
+                    formData.append('action', 'n88_create_item');
+                    formData.append('nonce', nonce);
+                    formData.append('title', $('#item-title').val());
+                    formData.append('description', $('#item-description').val());
+                    formData.append('item_type', $('#item-type').val());
+                    formData.append('status', 'active'); // Always active
+                    formData.append('size', $('#item-size').val());
+                    formData.append('board_id', boardId);
+                    
+                    // Handle image: prefer file upload, fallback to URL
+                    var imageFile = $('#item-image-file')[0].files[0];
+                    var imageUrl = $('#item-image-url').val();
+                    
+                    if (imageFile) {
+                        // Upload file
+                        formData.append('image_file', imageFile);
+                    } else if (imageUrl && !imageUrl.startsWith('data:')) {
+                        // Use URL if provided and not a data URL
+                        formData.append('image_url', imageUrl);
+                        formData.append('image_id', $('#item-image-id').val());
+                    } else if (imageUrl && imageUrl.startsWith('data:')) {
+                        // Convert data URL to blob and upload
+                        var blob = dataURLtoBlob(imageUrl);
+                        formData.append('image_file', blob, 'item-image.png');
+                    }
 
                     $.ajax({
                         url: ajaxurl,
                         type: 'POST',
-                        data: {
-                            action: 'n88_create_item',
-                            nonce: nonce,
-                            title: $('#item-title').val(),
-                            description: $('#item-description').val(),
-                            item_type: $('#item-type').val(),
-                            status: $('#item-status').val(),
-                            image_url: $('#item-image-url').val(),
-                            image_id: $('#item-image-id').val(),
-                            size: $('#item-size').val(),
-                            board_id: $('#item-board').val()
-                        },
+                        data: formData,
+                        processData: false,
+                        contentType: false,
                         success: function(response) {
                             if (response.success) {
-                                var message = '<p style="color: green;">✓ Item created! ID: ' + response.data.item_id + '</p>';
-                                var boardId = $('#item-board').val();
-                                if (boardId && response.data.added_to_board) {
-                                    message += '<p style="color: green;">✓ Item added to board!</p>';
+                                // Use board_id from response if available, otherwise use the one we sent
+                                if (response.data.board_id) {
+                                    redirectBoardId = response.data.board_id;
                                 }
-                                $result.html(message);
-                                // Reset form
+                                
+                                <?php if ( $is_designer && $has_board ) : ?>
+                                // Redirect directly to board page with success message
+                                if (redirectBoardId) {
+                                    // Build redirect URL with success parameter
+                                    var baseUrl = '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>';
+                                    var boardUrl = baseUrl + '?page=n88-rfq-board-demo&board_id=' + parseInt(redirectBoardId) + '&item_added=1';
+                                    // Redirect immediately
+                                    window.location.href = boardUrl;
+                                } else {
+                                    // Fallback: show success message if no board ID
+                                    $result.html('<p style="color: green;">✓ Item created successfully! ID: ' + response.data.item_id + '</p>');
+                                    $submitBtn.prop('disabled', false).text('Add Item');
+                                }
+                                <?php else : ?>
+                                // Reset form for non-designers
+                                $result.html('<p style="color: green;">✓ Item created! ID: ' + response.data.item_id + '</p>');
                                 $('#n88-create-item-form')[0].reset();
                                 $('#item-image-preview').hide();
                                 $('#item-image-remove-btn').hide();
+                                $submitBtn.prop('disabled', false).text('Add Item');
+                                <?php endif; ?>
                             } else {
                                 $result.html('<p style="color: red;">✗ Error: ' + (response.data.message || 'Unknown error') + '</p>');
+                                $submitBtn.prop('disabled', false).text('Add Item');
                             }
                         },
                         error: function() {
-                            $result.html('<p style="color: red;">✗ AJAX request failed</p>');
+                            $result.html('<p style="color: red;">✗ AJAX request failed. Please try again.</p>');
+                            $submitBtn.prop('disabled', false).text('Add Item');
                         }
                     });
                 });
@@ -2548,6 +2855,12 @@ class N88_RFQ_Admin {
                         success: function(response) {
                             if (response.success) {
                                 $result.html('<p style="color: green;">✓ Board created! ID: ' + response.data.board_id + '</p>');
+                                // For designers, reload page to show item form
+                                <?php if ( $is_designer ) : ?>
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1000);
+                                <?php endif; ?>
                             } else {
                                 $result.html('<p style="color: red;">✗ Error: ' + (response.data.message || 'Unknown error') + '</p>');
                             }
@@ -2676,12 +2989,24 @@ class N88_RFQ_Admin {
             wp_die( __( 'You do not have permission to view this page.', 'n88-rfq' ) );
         }
 
+        $user_id = get_current_user_id();
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+
+        // If designer and no board_id in URL, redirect to their board
+        if ( $is_designer && ! isset( $_GET['board_id'] ) ) {
+            $designer_board = $this->get_designer_board( $user_id );
+            if ( $designer_board ) {
+                wp_safe_redirect( admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . $designer_board->id ) );
+                exit;
+            }
+        }
+
         // Enqueue WordPress media library for image uploader
         wp_enqueue_media();
 
         // Check if board_id parameter exists - if yes, load real board; if no, use demo seed items
         $board_id = isset( $_GET['board_id'] ) ? absint( $_GET['board_id'] ) : 0;
-        $user_id = get_current_user_id();
         $items = array();
         $is_real_board = false;
         $board_name = 'Demo Board';
@@ -2734,6 +3059,37 @@ class N88_RFQ_Admin {
                     error_log('Please run the migration to add meta_json column, or deactivate/reactivate the plugin.');
                 }
                 
+                // Add a comprehensive cache flush to ensure fresh data (for both new items and deleted items)
+                // This is critical when redirecting immediately after item creation or deletion
+                wp_cache_flush();
+                
+                // Also clear the query cache specifically for wpdb
+                if ( isset( $wpdb->query_cache ) ) {
+                    $wpdb->query_cache = array();
+                }
+                
+                // Check if this is a redirect after item creation (item_added parameter)
+                $is_after_item_creation = isset( $_GET['item_added'] ) && $_GET['item_added'] == '1';
+                
+                // DEBUG: Log if this is after item creation
+                if ( $is_after_item_creation ) {
+                    error_log('=== PHP: FETCHING BOARD ITEMS AFTER ITEM CREATION ===');
+                    error_log('PHP: Board ID: ' . $board_id);
+                    error_log('PHP: User ID: ' . $user_id);
+                }
+                
+                // Clear cache for fresh data
+                wp_cache_flush();
+                if ( isset( $wpdb->query_cache ) ) {
+                    $wpdb->query_cache = array();
+                }
+                
+                // Query board items - MUST filter removed_at IS NULL to exclude deleted items
+                // If this is after item creation, log the query for debugging
+                if ( $is_after_item_creation ) {
+                    error_log('PHP: Cache cleared, now querying database...');
+                }
+                
                 $board_items = $wpdb->get_results(
                     $wpdb->prepare(
                         "SELECT {$select_fields}
@@ -2746,6 +3102,20 @@ class N88_RFQ_Admin {
                         $board_id
                     )
                 );
+                
+                // Log results if after item creation
+                if ( $is_after_item_creation ) {
+                    error_log('PHP: Board items found: ' . count( $board_items ));
+                    if ( count( $board_items ) > 0 ) {
+                        error_log('PHP: First item ID: ' . $board_items[0]->item_id);
+                        error_log('PHP: Last item ID: ' . $board_items[ count( $board_items ) - 1 ]->item_id);
+                        error_log('PHP: Items will be passed to JavaScript as initialItems');
+                    } else {
+                        error_log('PHP: WARNING: No items found after item creation redirect!');
+                        error_log('PHP: This might cause empty page - items may not be committed yet');
+                    }
+                    error_log('PHP: === END FETCHING BOARD ITEMS ===');
+                }
                 
                 // Debug: Log board items count and meta_json status
                 error_log('Board items fetched from database: ' . count( $board_items ));
@@ -2791,7 +3161,15 @@ class N88_RFQ_Admin {
 
                 $z_index = 1;
                 $items_count_before = count( $items );
+                $processed_item_ids = array(); // Track processed items to prevent duplicates
                 foreach ( $board_items as $board_item ) {
+                    // Prevent duplicate items
+                    $item_id = intval( $board_item->item_id );
+                    if ( in_array( $item_id, $processed_item_ids, true ) ) {
+                        error_log('WARNING: Duplicate item ID ' . $item_id . ' detected, skipping...');
+                        continue;
+                    }
+                    $processed_item_ids[] = $item_id;
                     $item_id = intval( $board_item->item_id ); // Ensure numeric for consistent matching
                     $item_id_string = 'item-' . $item_id;
                     
@@ -3022,10 +3400,12 @@ class N88_RFQ_Admin {
         // Enqueue our store AFTER Zustand loads
         // Add cache busting and ensure proper load order
         $plugin_url = N88_RFQ_PLUGIN_URL;
-        wp_enqueue_script( 'n88-board-store', $plugin_url . 'assets/js/stores/useBoardStore.js', array( 'zustand', 'react' ), N88_RFQ_VERSION . '?v=' . time(), true );
+        // Use version with timestamp for cache busting to ensure fresh load in new tabs
+        $cache_buster = time();
+        wp_enqueue_script( 'n88-board-store', $plugin_url . 'assets/js/stores/useBoardStore.js', array( 'zustand', 'react' ), N88_RFQ_VERSION . '.' . $cache_buster, true );
         
         // Milestone 1.3.5: Enqueue debounced save hook
-        wp_enqueue_script( 'n88-debounced-save', $plugin_url . 'assets/js/hooks/useDebouncedSave.js', array( 'react' ), N88_RFQ_VERSION . '?v=' . time(), true );
+        wp_enqueue_script( 'n88-debounced-save', $plugin_url . 'assets/js/hooks/useDebouncedSave.js', array( 'n88-board-store', 'react' ), N88_RFQ_VERSION . '.' . $cache_buster, true );
         
         // Note: JSX files are not enqueued - we use inline React.createElement code instead
         // This avoids ES6 module import errors in WordPress
@@ -3040,8 +3420,46 @@ class N88_RFQ_Admin {
         ?>
         <div class="wrap">
             <h1><?php echo $is_real_board ? 'Real Board - ' . esc_html( $board_name ) : 'Board Demo (Milestone 1.3.4a)'; ?></h1>
+            
+            <?php if ( isset( $_GET['item_added'] ) && $_GET['item_added'] == '1' ) : ?>
+                <div id="n88-item-added-toast" class="notice notice-success is-dismissible" style="margin: 20px 0; position: relative;">
+                    <p><strong>✓ Item added successfully!</strong> The item has been added to your board.</p>
+                </div>
+                <script>
+                // Auto-dismiss toast after 5 seconds
+                setTimeout(function() {
+                    var toast = document.getElementById('n88-item-added-toast');
+                    if (toast) {
+                        toast.style.transition = 'opacity 0.5s';
+                        toast.style.opacity = '0';
+                        setTimeout(function() {
+                            toast.remove();
+                            // Remove item_added parameter from URL without reload
+                            if (window.history && window.history.replaceState) {
+                                var url = new URL(window.location);
+                                url.searchParams.delete('item_added');
+                                window.history.replaceState({}, '', url);
+                            }
+                        }, 500);
+                    }
+                }, 5000);
+                </script>
+            <?php endif; ?>
+            
+            <?php if ( $is_real_board && empty( $items ) ) : ?>
+                <!-- <div class="notice notice-info" style="margin: 20px 0;">
+                    <p><strong>No items found on this board yet.</strong> Items may still be loading. If items were just created, please wait a moment and refresh the page.</p>
+                </div> -->
+            <?php endif; ?>
             <?php if ( $is_real_board ) : ?>
-                <p><strong>Board ID:</strong> <?php echo esc_html( $board_id ); ?> | <strong>Items:</strong> <?php echo count( $items ); ?></p>
+                <p style="display: flex; align-items: center; gap: 15px;">
+                    <span><strong>Board ID:</strong> <?php echo esc_html( $board_id ); ?> | <strong>Items:</strong> <span data-item-count><?php echo count( $items ); ?></span></span>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
+                       class="button" 
+                       style="background-color: #000; color: #fff; padding: 2px 10px; text-decoration: none; border: none; cursor: pointer;">
+                        Add Item
+                    </a>
+                </p>
             <?php else : ?>
                 <p><strong>Testing Only:</strong> This page demonstrates board interactions without API calls.</p>
                 <p><strong>Tip:</strong> Add <code>&board_id=3</code> to the URL to load a real board.</p>
@@ -3066,6 +3484,80 @@ class N88_RFQ_Admin {
             function updateDebug(msg) {
                 const debugEl = document.getElementById('n88-board-demo-debug');
                 if (debugEl) debugEl.innerHTML = '<div>' + msg + '</div>';
+            }
+            
+            // Ensure DOM is ready before initializing (critical for new tabs)
+            function startInitialization() {
+                // Wait for DOM to be ready
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function() {
+                        // Wait a bit more for scripts to load, especially in new tabs
+                        setTimeout(initializeBoard, 300);
+                    });
+                } else {
+                    // DOM already ready - wait a bit for scripts to load
+                    setTimeout(initializeBoard, 300);
+                }
+                
+                // Also try when window fully loads (backup for new tabs)
+                window.addEventListener('load', function() {
+                    setTimeout(function() {
+                        // Check if board is already initialized
+                        var rootEl = document.getElementById('n88-board-demo-root');
+                        if (rootEl && !rootEl.hasChildNodes()) {
+                            console.log('Window loaded but board not initialized - retrying...');
+                            initializeBoard();
+                        }
+                    }, 500);
+                });
+            }
+            
+            function initializeBoard() {
+                // Start checking for dependencies
+                var checkCount = 0;
+                var maxChecks = 100; // 10 seconds max (increased from 5 seconds for new tabs)
+                var boardInitialized = false;
+                var checkInterval = setInterval(function() {
+                    checkCount++;
+                    if (initBoard()) {
+                        boardInitialized = true;
+                        clearInterval(checkInterval);
+                        // Hide debug after 3 seconds
+                        setTimeout(function() {
+                            var debugEl = document.getElementById('n88-board-demo-debug');
+                            if (debugEl) debugEl.style.display = 'none';
+                        }, 3000);
+                    } else if (checkCount >= maxChecks) {
+                        clearInterval(checkInterval);
+                        updateDebug('ERROR: Timeout waiting for dependencies. Reloading page...');
+                        // Reload page if scripts don't load after 10 seconds (for new tabs)
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1000);
+                    }
+                }, 100);
+                
+                // Also try to initialize when window is fully loaded (critical for new tabs)
+                window.addEventListener('load', function() {
+                    // Wait a bit more for scripts to load in new tabs
+                    setTimeout(function() {
+                        if (!boardInitialized) {
+                            console.log('Window loaded - retrying board initialization...');
+                            if (initBoard()) {
+                                boardInitialized = true;
+                                clearInterval(checkInterval);
+                            } else {
+                                // If still not initialized after window load, wait a bit more
+                                setTimeout(function() {
+                                    if (!boardInitialized && initBoard()) {
+                                        boardInitialized = true;
+                                        clearInterval(checkInterval);
+                                    }
+                                }, 1000);
+                            }
+                        }
+                    }, 500);
+                });
             }
 
             function initBoard() {
@@ -3186,6 +3678,20 @@ class N88_RFQ_Admin {
                 
                 // Board ID: real board ID or 0 for demo mode
                 const testBoardId = <?php echo $is_real_board ? absint( $board_id ) : 0; ?>;
+                
+                // Check if this is a redirect after item creation (for showing success message)
+                var urlParams = new URLSearchParams(window.location.search);
+                var isAfterItemCreation = urlParams.get('item_added') === '1';
+                
+                console.log('=== BOARD PAGE DEBUG INFO ===');
+                console.log('URL:', window.location.href);
+                console.log('isAfterItemCreation:', isAfterItemCreation);
+                console.log('testBoardId:', testBoardId);
+                console.log('initialItems.length:', initialItems.length);
+                console.log('document.readyState:', document.readyState);
+                
+                // Success message is shown via PHP toast notification above
+                // No auto-reload needed - page loads directly with fresh items from server
                 
                 // User ID for welcome modal (get from WordPress)
                 const currentUserId = <?php echo get_current_user_id(); ?>;
@@ -3489,6 +3995,121 @@ class N88_RFQ_Admin {
                         },
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
+                    // Delete button - always visible
+                    React.createElement('button', {
+                        onClick: function(e) {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            if (window.confirm('Are you sure you want to delete this item?')) {
+                                var boardId = props.boardId || 0;
+                                if (!boardId || boardId === 0) {
+                                    alert('Cannot delete item: Board ID is missing.');
+                                    return;
+                                }
+                                
+                                // Extract numeric ID from item.id (handles both "item-5" and "5" formats)
+                                var itemId = item.id;
+                                if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) {
+                                    itemId = parseInt(itemId.replace('item-', ''), 10);
+                                } else if (typeof itemId === 'string') {
+                                    itemId = parseInt(itemId, 10);
+                                }
+                                
+                                if (isNaN(itemId) || itemId <= 0) {
+                                    alert('Invalid item ID. Cannot delete item.');
+                                    return;
+                                }
+                                
+                                fetch(window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : '/wp-admin/admin-ajax.php', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: new URLSearchParams({
+                                        action: 'n88_remove_item_from_board',
+                                        board_id: boardId,
+                                        item_id: itemId,
+                                        nonce: window.n88BoardData && window.n88BoardData.nonce ? window.n88BoardData.nonce : '',
+                                    }),
+                                }).then(function(response) {
+                                    return response.json();
+                                }).then(function(data) {
+                                    if (data.success) {
+                                        // Remove item from store - use the item_id from response for accurate matching
+                                        var deletedItemId = data.data && data.data.item_id ? parseInt(data.data.item_id, 10) : null;
+                                        var currentItems = window.N88StudioOS.useBoardStore.getState().items;
+                                        
+                                        // If we have the deleted item ID from response, use it; otherwise fall back to item.id
+                                        var itemIdToRemove = deletedItemId || itemId;
+                                        
+                                        // Filter out the deleted item by comparing numeric IDs
+                                        var updatedItems = currentItems.filter(function(i) {
+                                            // Extract numeric ID from item.id (handles "item-5", "5", or 5)
+                                            var currentNumericId = null;
+                                            if (typeof i.id === 'string' && i.id.indexOf('item-') === 0) {
+                                                currentNumericId = parseInt(i.id.replace('item-', ''), 10);
+                                            } else if (typeof i.id === 'string') {
+                                                currentNumericId = parseInt(i.id, 10);
+                                            } else {
+                                                currentNumericId = parseInt(i.id, 10);
+                                            }
+                                            
+                                            // Compare with deleted item ID
+                                            return currentNumericId !== itemIdToRemove;
+                                        });
+                                        
+                                        // Update store with filtered items
+                                        window.N88StudioOS.useBoardStore.getState().setItems(updatedItems);
+                                        
+                                        // Update item count display immediately
+                                        var countElement = document.querySelector('span[data-item-count]');
+                                        if (countElement) {
+                                            countElement.textContent = updatedItems.length;
+                                        }
+                                        
+                                        // Force a re-render by triggering layout update
+                                        if (typeof onLayoutChanged === 'function') {
+                                            onLayoutChanged();
+                                        }
+                                    } else {
+                                        alert(data.data && data.data.message ? data.data.message : 'Failed to delete item. Please try again.');
+                                    }
+                                }).catch(function(error) {
+                                    console.error('Error deleting item:', error);
+                                    alert('An error occurred while deleting the item. Please try again.');
+                                });
+                            }
+                        },
+                        style: {
+                            position: 'absolute',
+                            top: '10px',
+                            right: '10px',
+                            width: '24px',
+                            height: '24px',
+                            padding: 0,
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            backgroundColor: '#d32f2f',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '50%',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            transition: 'all 0.2s',
+                            zIndex: 20,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            lineHeight: '1',
+                        },
+                        onMouseEnter: function(e) {
+                            e.target.style.backgroundColor = '#b71c1c';
+                            e.target.style.transform = 'scale(1.1)';
+                        },
+                        onMouseLeave: function(e) {
+                            e.target.style.backgroundColor = '#d32f2f';
+                            e.target.style.transform = 'scale(1)';
+                        },
+                        title: 'Delete item'
+                    }, '×'),
                     // Show Card button - appears when in photo_only mode
                     item.displayMode === 'photo_only' ? React.createElement('button', {
                         onClick: function(e) {
@@ -3506,7 +4127,7 @@ class N88_RFQ_Admin {
                         style: {
                             position: 'absolute',
                             top: '10px',
-                            right: '10px',
+                            right: '40px',
                             padding: '6px 12px',
                             fontSize: '11px',
                             fontWeight: '500',
@@ -3899,47 +4520,44 @@ class N88_RFQ_Admin {
                         }
                     };
                     
-                    // Handle inspiration image add via WordPress Media Library
-                    var handleInspirationAdd = function() {
-                        // Check if wp.media is available
-                        if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
-                            alert('WordPress Media Library is not available. Please refresh the page.');
+                    // Handle inspiration image upload via file input
+                    var handleInspirationFileChange = function(e) {
+                        var files = e.target.files;
+                        if (!files || files.length === 0) return;
+                        
+                        var newInspiration = inspiration.slice();
+                        var imageFiles = Array.from(files).filter(function(file) {
+                            return file.type.startsWith('image/');
+                        });
+                        
+                        if (imageFiles.length === 0) {
+                            e.target.value = '';
                             return;
                         }
                         
-                        // Create or reuse media frame
-                        if (!window.n88InspirationMediaFrame) {
-                            window.n88InspirationMediaFrame = wp.media({
-                                title: 'Select Inspiration Image',
-                                button: {
-                                    text: 'Use this image'
-                                },
-                                multiple: true,
-                                library: {
-                                    type: 'image'
-                                }
-                            });
-                            
-                            // When images are selected
-                            window.n88InspirationMediaFrame.on('select', function() {
-                                var attachments = window.n88InspirationMediaFrame.state().get('selection').toJSON();
-                                var newInspiration = inspiration.slice();
-                                
-                                attachments.forEach(function(attachment) {
-                                    newInspiration.push({
-                                        type: 'image',
-                                        url: attachment.url,
-                                        id: attachment.id,
-                                        title: attachment.title || attachment.filename
-                                    });
-                                });
-                                
-                                setInspiration(newInspiration);
-                            });
-                        }
+                        var processedCount = 0;
+                        var totalFiles = imageFiles.length;
                         
-                        // Open the media frame
-                        window.n88InspirationMediaFrame.open();
+                        imageFiles.forEach(function(file) {
+                            var reader = new FileReader();
+                            reader.onload = function(event) {
+                                newInspiration.push({
+                                    type: 'image',
+                                    url: event.target.result,
+                                    id: null,
+                                    title: file.name,
+                                    file: file
+                                });
+                                processedCount++;
+                                if (processedCount === totalFiles) {
+                                    setInspiration(newInspiration);
+                                }
+                            };
+                            reader.readAsDataURL(file);
+                        });
+                        
+                        // Reset input
+                        e.target.value = '';
                     };
                     
                     if (!isOpen) return null;
@@ -4008,24 +4626,128 @@ class N88_RFQ_Admin {
                                     padding: '20px',
                                 }
                             },
-                                // Image Preview
+                                // Image Preview Box (at top - shows uploaded material images or placeholder)
                                 React.createElement('div', { style: { marginBottom: '24px' } },
-                                    React.createElement('h3', {
-                                        style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
-                                    }, 'Image Preview'),
-                                    React.createElement('div', {
+                                    React.createElement('label', {
+                                        style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
+                                    }, 'Materials / Inspiration'),
+                                    inspiration.length > 0 ? React.createElement('div', {
+                                        style: {
+                                            width: '100%',
+                                            minHeight: inspiration.length === 1 ? '300px' : '200px',
+                                            backgroundColor: '#f0f0f0',
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: '4px',
+                                            padding: '10px',
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            gap: '10px',
+                                            alignItems: 'stretch'
+                                        }
+                                    },
+                                        inspiration.map(function(insp, idx) {
+                                            // Calculate image size based on count: 1 image = full width, 2 images = 50% each, 3+ = grid
+                                            var imageCount = inspiration.length;
+                                            var containerStyle = {};
+                                            
+                                            if (imageCount === 1) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: '100%',
+                                                    height: '300px',
+                                                    flex: '0 0 100%'
+                                                };
+                                            } else if (imageCount === 2) {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(50% - 5px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(50% - 5px)'
+                                                };
+                                            } else {
+                                                containerStyle = {
+                                                    position: 'relative',
+                                                    width: 'calc(33.333% - 7px)',
+                                                    height: '200px',
+                                                    flex: '0 0 calc(33.333% - 7px)'
+                                                };
+                                            }
+                                            
+                                            return React.createElement('div', {
+                                                key: idx,
+                                                style: containerStyle
+                                            },
+                                                insp.url ? React.createElement('img', {
+                                                    src: insp.url,
+                                                    alt: insp.title || 'Material',
+                                                    style: {
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: 'contain',
+                                                        border: '1px solid #ddd',
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#fff'
+                                                    }
+                                                }) : null,
+                                                React.createElement('button', {
+                                                    onClick: function() {
+                                                        var newInspiration = inspiration.slice();
+                                                        newInspiration.splice(idx, 1);
+                                                        setInspiration(newInspiration);
+                                                    },
+                                                    style: {
+                                                        position: 'absolute',
+                                                        top: '5px',
+                                                        right: '5px',
+                                                        background: '#d32f2f',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        borderRadius: '50%',
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '16px',
+                                                        lineHeight: '24px',
+                                                        padding: 0,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                    }
+                                                }, '×')
+                                            );
+                                        })
+                                    ) : React.createElement('div', {
                                         style: {
                                             width: '100%',
                                             height: '200px',
                                             backgroundColor: '#f0f0f0',
-                                            backgroundImage: item.imageUrl ? 'url(' + item.imageUrl + ')' : 'none',
-                                            backgroundSize: 'contain',
-                                            backgroundPosition: 'center',
-                                            backgroundRepeat: 'no-repeat',
-                                            border: '1px solid #e0e0e0',
+                                            border: '2px dashed #ccc',
                                             borderRadius: '4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: '#999',
+                                            fontSize: '14px',
+                                            position: 'relative'
                                         }
-                                    })
+                                    },
+                                        React.createElement('div', {
+                                            style: {
+                                                textAlign: 'center',
+                                                color: '#999'
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '48px',
+                                                    marginBottom: '10px',
+                                                    opacity: 0.3
+                                                }
+                                            }, '📷'),
+                                            React.createElement('div', null, 'No Preview Available')
+                                        )
+                                    )
                                 ),
                                 // Category
                                 React.createElement('div', { style: { marginBottom: '24px' } },
@@ -4152,45 +4874,30 @@ class N88_RFQ_Admin {
                                         computedValues.timelineType || '—'
                                     )
                                 ),
-                                // Materials / Inspiration
+                                // Materials / Inspiration (label and upload button at bottom)
                                 React.createElement('div', { style: { marginBottom: '24px' } },
                                     React.createElement('label', {
                                         style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', color: '#666' }
                                     }, 'Materials / Inspiration'),
-                                    inspiration.length > 0 ? React.createElement('div', { style: { marginBottom: '10px' } },
-                                        inspiration.map(function(insp, idx) {
-                                            return React.createElement('div', {
-                                                key: idx,
-                                                style: {
-                                                    marginBottom: '8px',
-                                                    padding: '8px',
-                                                    backgroundColor: '#f9f9f9',
-                                                    borderRadius: '4px',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                }
-                                            },
-                                                React.createElement('span', { style: { fontSize: '13px', color: '#666' } }, insp.url),
-                                                React.createElement('button', {
-                                                    onClick: function() {
-                                                        var newInspiration = inspiration.slice();
-                                                        newInspiration.splice(idx, 1);
-                                                        setInspiration(newInspiration);
-                                                    },
-                                                    style: {
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: '#d32f2f',
-                                                        cursor: 'pointer',
-                                                        fontSize: '18px',
-                                                    }
-                                                }, '×')
-                                            );
-                                        })
-                                    ) : null,
+                                    React.createElement('input', {
+                                        type: 'file',
+                                        id: 'inspiration-file-input-' + (item.id ? String(item.id).replace(/[^a-zA-Z0-9]/g, '-') : 'default'),
+                                        accept: 'image/*',
+                                        multiple: true,
+                                        onChange: handleInspirationFileChange,
+                                        style: { display: 'none' }
+                                    }),
                                     React.createElement('button', {
-                                        onClick: handleInspirationAdd,
+                                        type: 'button',
+                                        onClick: function() {
+                                            var inputId = 'inspiration-file-input-' + (item.id ? String(item.id).replace(/[^a-zA-Z0-9]/g, '-') : 'default');
+                                            var input = document.getElementById(inputId);
+                                            if (input) {
+                                                input.click();
+                                            } else {
+                                                console.error('File input not found:', inputId);
+                                            }
+                                        },
                                         style: {
                                             padding: '8px 16px',
                                             backgroundColor: '#f0f0f0',
@@ -4661,6 +5368,23 @@ class N88_RFQ_Admin {
                         onLayoutChanged: function(data) { console.log('Layout changed:', data); },
                     }));
                     updateDebug('Board rendered! Items: ' + initialItems.length + (testBoardId > 0 ? ' (Real board - persistence enabled)' : ' (Demo mode - localStorage)'));
+                    
+                    // If after item creation and still no items, check again after React renders
+                    var urlParamsCheck = new URLSearchParams(window.location.search);
+                    var isAfterItemCreationCheck = urlParamsCheck.get('item_added') === '1';
+                    if (isAfterItemCreationCheck && initialItems.length === 0 && testBoardId > 0) {
+                        // Wait for React to render, then check store
+                        setTimeout(function() {
+                            var storeItems = window.N88StudioOS.useBoardStore.getState().items;
+                            console.log('After render check - Store items:', storeItems.length);
+                            if (storeItems.length === 0) {
+                                console.log('Still no items after render. Reloading page...');
+                                var newUrl = window.location.pathname + '?page=n88-rfq-board-demo&board_id=' + testBoardId;
+                                window.location.href = newUrl;
+                            }
+                        }, 3000);
+                    }
+                    
                     return true;
                 } catch (e) {
                     updateDebug('ERROR: ' + e.message);
@@ -4668,24 +5392,9 @@ class N88_RFQ_Admin {
                     return false;
                 }
             }
-
-            // Wait for dependencies to load
-            var checkCount = 0;
-            var maxChecks = 50; // 5 seconds max
-            var checkInterval = setInterval(function() {
-                checkCount++;
-                if (initBoard()) {
-                    clearInterval(checkInterval);
-                    // Hide debug after 3 seconds
-                    setTimeout(function() {
-                        var debugEl = document.getElementById('n88-board-demo-debug');
-                        if (debugEl) debugEl.style.display = 'none';
-                    }, 3000);
-                } else if (checkCount >= maxChecks) {
-                    clearInterval(checkInterval);
-                    updateDebug('ERROR: Timeout waiting for dependencies');
-                }
-            }, 100);
+            
+            // Start initialization when DOM is ready
+            startInitialization();
         })();
         </script>
         <?php

@@ -107,13 +107,39 @@ class N88_Items {
 
         $user_id = get_current_user_id();
 
+        // Handle file upload if provided
+        $image_id = 0;
+        $image_url = '';
+        if ( ! empty( $_FILES['image_file'] ) && $_FILES['image_file']['error'] === UPLOAD_ERR_OK ) {
+            require_once( ABSPATH . 'wp-admin/includes/file.php' );
+            require_once( ABSPATH . 'wp-admin/includes/media.php' );
+            require_once( ABSPATH . 'wp-admin/includes/image.php' );
+            
+            $upload = wp_handle_upload( $_FILES['image_file'], array( 'test_form' => false ) );
+            if ( ! isset( $upload['error'] ) ) {
+                $attachment = array(
+                    'post_mime_type' => $upload['type'],
+                    'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                    'post_content'   => '',
+                    'post_status'    => 'inherit'
+                );
+                $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                wp_update_attachment_metadata( $attach_id, $attach_data );
+                $image_id = $attach_id;
+                $image_url = $upload['url'];
+            }
+        } else {
+            // Fallback to POST data if no file upload
+            $image_id = isset( $_POST['image_id'] ) ? absint( $_POST['image_id'] ) : 0;
+            $image_url = isset( $_POST['image_url'] ) ? esc_url_raw( wp_unslash( $_POST['image_url'] ) ) : '';
+        }
+
         // Sanitize and validate inputs
         $title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
         $description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
         $item_type = isset( $_POST['item_type'] ) ? sanitize_text_field( wp_unslash( $_POST['item_type'] ) ) : 'furniture';
-        $status = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'draft';
-        $image_id = isset( $_POST['image_id'] ) ? absint( $_POST['image_id'] ) : 0;
-        $image_url = isset( $_POST['image_url'] ) ? esc_url_raw( wp_unslash( $_POST['image_url'] ) ) : '';
+        $status = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'active'; // Default to active
         $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'D';
         
         // Validate size
@@ -284,6 +310,26 @@ class N88_Items {
                                 'item_id'   => $item_id,
                             )
                         );
+                        
+                        // Force database commit to ensure item is available immediately
+                        // This is critical when redirecting right after item creation
+                        global $wpdb;
+                        
+                        // Clear all caches
+                        if ( function_exists( 'wp_cache_flush' ) ) {
+                            wp_cache_flush();
+                        }
+                        
+                        // Clear wpdb query cache
+                        if ( isset( $wpdb->query_cache ) ) {
+                            $wpdb->query_cache = array();
+                        }
+                        
+                        // Clear caches to ensure fresh data
+                        wp_cache_flush();
+                        if ( isset( $wpdb->query_cache ) ) {
+                            $wpdb->query_cache = array();
+                        }
                     }
                 }
             }
@@ -293,6 +339,7 @@ class N88_Items {
             'item_id' => $item_id,
             'message' => 'Item created successfully.',
             'added_to_board' => $added_to_board,
+            'board_id' => $added_to_board ? $board_id : null,
         ) );
     }
 
