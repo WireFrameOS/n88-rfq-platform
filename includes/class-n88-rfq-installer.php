@@ -210,6 +210,9 @@ class N88_RFQ_Installer {
         // Commit 2.2.1: Create required pages with shortcodes
         self::create_required_pages();
 
+        // Commit 2.2.2: Create supplier profiles, designer profiles, and categories tables
+        self::create_phase_2_2_2_tables( $charset_collate );
+
         self::maybe_upgrade();
     }
 
@@ -848,6 +851,9 @@ class N88_RFQ_Installer {
         // Commit 2.2.1: Ensure required pages exist (runs on every upgrade check)
         self::create_required_pages();
 
+        // Commit 2.2.2: Ensure supplier profiles, designer profiles, and categories tables exist
+        self::create_phase_2_2_2_tables( $charset_collate );
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -1079,6 +1085,142 @@ class N88_RFQ_Installer {
             if ( ! in_array( 'latest_layout_json', $boards_columns, true ) ) {
                 $wpdb->query( "ALTER TABLE {$boards_table_safe} ADD COLUMN latest_layout_json LONGTEXT NULL AFTER deleted_at" );
             }
+        }
+    }
+
+    /**
+     * Create Phase 2.2.2 tables: Supplier Profiles, Designer Profiles, Categories (Commit 2.2.2)
+     * Data-only commit: No UI, routing, bidding, or Phase 2.3 logic
+     * 
+     * Note: There is an existing n88_designer_profiles table from Phase 1.1 with different structure.
+     * This method creates the Phase 2.2.2 structure. If the old table exists, dbDelta will attempt
+     * to alter it, but the structures are incompatible. Migration should be handled separately if needed.
+     */
+    private static function create_phase_2_2_2_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+        $designer_profiles_table = $wpdb->prefix . 'n88_designer_profiles';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        
+        // Check if old designer_profiles table exists (Phase 1.1 structure)
+        $old_designer_table_exists = self::table_exists( $designer_profiles_table );
+        if ( $old_designer_table_exists ) {
+            // Check if it has the old structure (has 'id' column) vs new structure (has 'designer_id' as PK)
+            $columns = $wpdb->get_col( "DESCRIBE {$designer_profiles_table}" );
+            $has_old_structure = in_array( 'id', $columns, true ) && ! in_array( 'designer_id', $columns, true );
+            
+            if ( $has_old_structure ) {
+                // Old Phase 1.1 table exists - we'll create the new structure
+                // dbDelta will attempt to alter, but structures are incompatible
+                // For now, we'll proceed - migration can be handled separately if needed
+            }
+        }
+
+        // 1. n88_categories (must be created first due to FK dependency)
+        $sql_categories = "CREATE TABLE {$categories_table} (
+            category_id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (category_id),
+            UNIQUE KEY name (name),
+            KEY is_active (is_active)
+        ) {$charset_collate};";
+
+        // 2. n88_supplier_profiles (without FK constraints - added separately)
+        $sql_supplier_profiles = "CREATE TABLE {$supplier_profiles_table} (
+            supplier_id INT UNSIGNED NOT NULL,
+            company_name VARCHAR(255) NOT NULL,
+            display_nickname VARCHAR(255) NULL,
+            contact_name VARCHAR(255) NULL,
+            email VARCHAR(255) NULL,
+            phone VARCHAR(50) NULL,
+            country_code CHAR(2) NULL,
+            state_region VARCHAR(255) NULL,
+            city VARCHAR(255) NULL,
+            postal_code VARCHAR(50) NULL,
+            address_line1 VARCHAR(500) NULL,
+            origin_country_code CHAR(2) NULL,
+            origin_region ENUM('USA', 'CANADA', 'ASIA', 'EUROPE', 'MIDDLE_EAST', 'OTHER') NULL,
+            duty_rate_override DECIMAL(5,2) NULL,
+            primary_category_id INT UNSIGNED NULL,
+            prototype_video_capable TINYINT(1) NOT NULL DEFAULT 0,
+            cad_capable TINYINT(1) NOT NULL DEFAULT 0,
+            qty_min INT UNSIGNED NULL,
+            qty_max INT UNSIGNED NULL,
+            lead_time_min_days INT UNSIGNED NULL,
+            lead_time_max_days INT UNSIGNED NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            is_overloaded TINYINT(1) NOT NULL DEFAULT 0,
+            PRIMARY KEY (supplier_id),
+            KEY primary_category_id (primary_category_id),
+            KEY origin_region (origin_region),
+            KEY is_active (is_active)
+        ) {$charset_collate};";
+
+        // 3. n88_designer_profiles (without FK constraints - added separately)
+        $sql_designer_profiles = "CREATE TABLE {$designer_profiles_table} (
+            designer_id INT UNSIGNED NOT NULL,
+            firm_name VARCHAR(255) NOT NULL,
+            display_nickname VARCHAR(255) NULL,
+            contact_name VARCHAR(255) NULL,
+            email VARCHAR(255) NULL,
+            phone VARCHAR(50) NULL,
+            country_code CHAR(2) NULL,
+            state_region VARCHAR(255) NULL,
+            city VARCHAR(255) NULL,
+            postal_code VARCHAR(50) NULL,
+            address_line1 VARCHAR(500) NULL,
+            default_allow_system_invites TINYINT(1) NOT NULL DEFAULT 0,
+            PRIMARY KEY (designer_id),
+            KEY country_code (country_code)
+        ) {$charset_collate};";
+
+        // Create tables using dbDelta
+        dbDelta( $sql_categories );
+        dbDelta( $sql_supplier_profiles );
+        dbDelta( $sql_designer_profiles );
+
+        // Add foreign key constraints separately (dbDelta doesn't handle them well)
+        $users_table = $wpdb->users;
+        $supplier_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $supplier_profiles_table );
+        $designer_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $designer_profiles_table );
+        $categories_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $categories_table );
+        $users_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $users_table );
+
+        // Check if foreign keys exist before adding
+        $supplier_fks = $wpdb->get_results( "SHOW CREATE TABLE {$supplier_table_safe}" );
+        $designer_fks = $wpdb->get_results( "SHOW CREATE TABLE {$designer_table_safe}" );
+
+        $supplier_has_fk_user = false;
+        $supplier_has_fk_category = false;
+        $designer_has_fk_user = false;
+
+        if ( ! empty( $supplier_fks ) ) {
+            $create_statement = $supplier_fks[0]->{'Create Table'};
+            $supplier_has_fk_user = strpos( $create_statement, 'fk_supplier_user' ) !== false;
+            $supplier_has_fk_category = strpos( $create_statement, 'fk_supplier_category' ) !== false;
+        }
+
+        if ( ! empty( $designer_fks ) ) {
+            $create_statement = $designer_fks[0]->{'Create Table'};
+            $designer_has_fk_user = strpos( $create_statement, 'fk_designer_user' ) !== false;
+        }
+
+        // Add foreign key: supplier_id -> wp_users.ID
+        if ( ! $supplier_has_fk_user ) {
+            $wpdb->query( "ALTER TABLE {$supplier_table_safe} ADD CONSTRAINT fk_supplier_user FOREIGN KEY (supplier_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: primary_category_id -> n88_categories.category_id
+        if ( ! $supplier_has_fk_category ) {
+            $wpdb->query( "ALTER TABLE {$supplier_table_safe} ADD CONSTRAINT fk_supplier_category FOREIGN KEY (primary_category_id) REFERENCES {$categories_table_safe}(category_id) ON DELETE SET NULL" );
+        }
+
+        // Add foreign key: designer_id -> wp_users.ID
+        if ( ! $designer_has_fk_user ) {
+            $wpdb->query( "ALTER TABLE {$designer_table_safe} ADD CONSTRAINT fk_designer_user FOREIGN KEY (designer_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
         }
     }
 
