@@ -15,11 +15,6 @@ class N88_RFQ_Auth {
         add_shortcode( 'n88_signup', array( $this, 'render_signup_form' ) );
         add_shortcode( 'n88_login', array( $this, 'render_login_form' ) );
         add_shortcode( 'n88_designer_dashboard', array( $this, 'render_designer_dashboard' ) );
-        
-        // Commit 2.2.1: Register new route shortcodes
-        add_shortcode( 'n88_workspace', array( $this, 'render_workspace' ) );
-        add_shortcode( 'n88_supplier_queue', array( $this, 'render_supplier_queue' ) );
-        add_shortcode( 'n88_admin_queue', array( $this, 'render_admin_queue' ) );
 
         // AJAX handlers
         add_action( 'wp_ajax_n88_register_user', array( $this, 'ajax_register_user' ) );
@@ -27,8 +22,8 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_login_user', array( $this, 'ajax_login_user' ) );
         add_action( 'wp_ajax_nopriv_n88_login_user', array( $this, 'ajax_login_user' ) );
 
-        // Create custom roles on activation
-        add_action( 'init', array( $this, 'create_custom_roles' ) );
+        // Create designer role on activation
+        add_action( 'init', array( $this, 'create_designer_role' ) );
 
         // Redirect designers to custom dashboard after login
         add_filter( 'login_redirect', array( $this, 'redirect_designer_after_login' ), 10, 3 );
@@ -48,71 +43,30 @@ class N88_RFQ_Auth {
 
         // Enqueue styles
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_auth_styles' ) );
-
-        // Route guards (Commit 2.2.1)
-        add_action( 'template_redirect', array( $this, 'enforce_route_guards' ) );
-        add_action( 'admin_init', array( $this, 'enforce_admin_route_guards' ) );
     }
 
     /**
-     * Create custom roles with appropriate capabilities (Commit 2.2.1)
+     * Create designer role with appropriate capabilities
      */
-    public function create_custom_roles() {
-        // Create n88_designer role
-        if ( ! get_role( 'n88_designer' ) ) {
-            add_role(
-                'n88_designer',
-                __( 'Designer', 'n88-rfq' ),
-                array(
-                    'read' => true,
-                    'upload_files' => true,
-                    // Legacy capabilities for backward compatibility
-                    'n88_access_boards' => true,
-                    'n88_access_items' => true,
-                    'n88_access_projects' => true,
-                )
-            );
+    public function create_designer_role() {
+        // Check if role already exists
+        if ( get_role( 'designer' ) ) {
+            return;
         }
 
-        // Create n88_supplier_admin role
-        if ( ! get_role( 'n88_supplier_admin' ) ) {
-            add_role(
-                'n88_supplier_admin',
-                __( 'Supplier Admin', 'n88-rfq' ),
-                array(
-                    'read' => true,
-                    'n88_view_supplier_queue' => true,
-                )
-            );
-        }
-
-        // Create n88_system_operator role
-        if ( ! get_role( 'n88_system_operator' ) ) {
-            add_role(
-                'n88_system_operator',
-                __( 'System Operator', 'n88-rfq' ),
-                array(
-                    'read' => true,
-                    'n88_view_supplier_queue' => true,
-                    'n88_view_global_queue' => true,
-                    'manage_options' => true, // Full admin access
-                )
-            );
-        }
-
-        // Migrate existing 'designer' role to 'n88_designer' if it exists
-        $old_designer_role = get_role( 'designer' );
-        if ( $old_designer_role ) {
-            // Get all users with old designer role
-            $users = get_users( array( 'role' => 'designer' ) );
-            foreach ( $users as $user ) {
-                $user_obj = new WP_User( $user->ID );
-                $user_obj->remove_role( 'designer' );
-                $user_obj->add_role( 'n88_designer' );
-            }
-            // Remove old role (optional - keeping for backward compatibility during migration)
-            // remove_role( 'designer' );
-        }
+        // Create designer role with capabilities similar to subscriber but with access to our plugin
+        add_role(
+            'designer',
+            __( 'Designer', 'n88-rfq' ),
+            array(
+                'read' => true,
+                'upload_files' => true,
+                // Add custom capabilities for plugin access
+                'n88_access_boards' => true,
+                'n88_access_items' => true,
+                'n88_access_projects' => true,
+            )
+        );
     }
 
     /**
@@ -141,8 +95,8 @@ class N88_RFQ_Auth {
         // If user is already logged in, redirect or show message
         if ( is_user_logged_in() ) {
             $current_user = wp_get_current_user();
-            if ( in_array( 'n88_designer', $current_user->roles ) || in_array( 'designer', $current_user->roles ) ) {
-                return '<p>You are already logged in. <a href="' . esc_url( home_url( '/workspace' ) ) . '">Go to Workspace</a></p>';
+            if ( in_array( 'designer', $current_user->roles ) ) {
+                return '<p>You are already logged in. <a href="' . esc_url( home_url( '/designer-dashboard/' ) ) . '">Go to Dashboard</a></p>';
             }
             return '<p>You are already logged in.</p>';
         }
@@ -293,12 +247,11 @@ class N88_RFQ_Auth {
      * Render login form shortcode
      */
     public function render_login_form( $atts = array() ) {
-        // If user is already logged in, redirect based on role (Commit 2.2.1)
+        // If user is already logged in, redirect
         if ( is_user_logged_in() ) {
             $current_user = wp_get_current_user();
-            $redirect_url = $this->get_role_redirect_url( $current_user );
-            if ( $redirect_url ) {
-                wp_redirect( $redirect_url );
+            if ( in_array( 'designer', $current_user->roles ) ) {
+                wp_redirect( home_url( '/designer-dashboard/' ) );
                 exit;
             }
             return '<p>You are already logged in.</p>';
@@ -383,7 +336,7 @@ class N88_RFQ_Auth {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        window.location.href = data.data.redirect_url || '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
+                        window.location.href = data.data.redirect_url || '<?php echo esc_url( home_url( '/designer-dashboard/' ) ); ?>';
                     } else {
                         alert(data.data.message || 'Login failed. Please check your credentials.');
                         submitBtn.disabled = false;
@@ -458,9 +411,9 @@ class N88_RFQ_Auth {
             'display_name' => $name,
         ) );
 
-        // Assign n88_designer role (Commit 2.2.1)
+        // Assign designer role
         $user = new WP_User( $user_id );
-        $user->set_role( 'n88_designer' );
+        $user->set_role( 'designer' );
 
         // Save custom user meta
         update_user_meta( $user_id, 'company_name', $company_name );
@@ -508,26 +461,17 @@ class N88_RFQ_Auth {
             wp_send_json_error( array( 'message' => 'Invalid username or password.' ) );
         }
 
-        // Check if user has one of our custom roles (Commit 2.2.1)
-        $allowed_roles = array( 'n88_designer', 'n88_supplier_admin', 'n88_system_operator', 'designer' ); // Include 'designer' for backward compatibility
-        $user_has_role = false;
-        foreach ( $allowed_roles as $role ) {
-            if ( in_array( $role, $user->roles, true ) ) {
-                $user_has_role = true;
-                break;
-            }
-        }
-
-        if ( ! $user_has_role ) {
-            wp_send_json_error( array( 'message' => 'Access denied. Valid account required.' ) );
+        // Check if user has designer role
+        if ( ! in_array( 'designer', $user->roles ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
         }
 
         // Log the user in
         wp_set_current_user( $user->ID );
         wp_set_auth_cookie( $user->ID, $remember );
 
-        // Determine redirect URL based on role (Commit 2.2.1)
-        $redirect_url = $this->get_role_redirect_url( $user );
+        // Determine redirect URL
+        $redirect_url = home_url( '/designer-dashboard/' );
 
         wp_send_json_success( array(
             'message' => 'Login successful!',
@@ -536,46 +480,23 @@ class N88_RFQ_Auth {
     }
 
     /**
-     * Get redirect URL based on user role (Commit 2.2.1)
-     */
-    private function get_role_redirect_url( $user ) {
-        if ( ! $user || ! isset( $user->roles ) ) {
-            return null;
-        }
-
-        // Check roles in priority order
-        if ( in_array( 'n88_system_operator', $user->roles, true ) ) {
-            return home_url( '/admin/queue?scope=global' );
-        }
-        
-        if ( in_array( 'n88_supplier_admin', $user->roles, true ) ) {
-            return home_url( '/supplier/queue' );
-        }
-        
-        if ( in_array( 'n88_designer', $user->roles, true ) || in_array( 'designer', $user->roles, true ) ) {
-            return home_url( '/workspace' );
-        }
-
-        return null;
-    }
-
-    /**
-     * Redirect user after login based on role (Commit 2.2.1)
+     * Redirect designer after login
      */
     public function redirect_designer_after_login( $redirect_to, $requested_redirect_to, $user ) {
-        $role_redirect = $this->get_role_redirect_url( $user );
-        if ( $role_redirect ) {
-            return $role_redirect;
+        // Check if user has designer role
+        if ( isset( $user->roles ) && in_array( 'designer', $user->roles ) ) {
+            return home_url( '/designer-dashboard/' );
         }
         return $redirect_to;
     }
 
     /**
-     * Handle user login (updated for all roles)
+     * Handle designer login
      */
     public function handle_designer_login( $user_login, $user ) {
-        // Additional logic on login if needed
-        // Can be used for logging, notifications, etc.
+        if ( in_array( 'designer', $user->roles ) ) {
+            // Additional logic on designer login if needed
+        }
     }
 
     /**
@@ -603,11 +524,11 @@ class N88_RFQ_Auth {
     }
 
     /**
-     * Hide WordPress admin menus for designers (Commit 2.2.1)
+     * Hide WordPress admin menus for designers
      */
     public function hide_wp_menus_for_designer() {
         $current_user = wp_get_current_user();
-        if ( ! $current_user || ! ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
+        if ( ! $current_user || ! in_array( 'designer', $current_user->roles, true ) ) {
             return;
         }
 
@@ -631,11 +552,11 @@ class N88_RFQ_Auth {
     }
 
     /**
-     * Remove WordPress admin bar items for designers (Commit 2.2.1)
+     * Remove WordPress admin bar items for designers
      */
     public function remove_wp_admin_bar_items( $wp_admin_bar ) {
         $current_user = wp_get_current_user();
-        if ( ! $current_user || ! ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
+        if ( ! $current_user || ! in_array( 'designer', $current_user->roles, true ) ) {
             return;
         }
 
@@ -653,11 +574,11 @@ class N88_RFQ_Auth {
     }
 
     /**
-     * Redirect designers away from WordPress admin pages (Commit 2.2.1)
+     * Redirect designers away from WordPress admin pages
      */
     public function redirect_designer_from_wp_admin() {
         $current_user = wp_get_current_user();
-        if ( ! $current_user || ! ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
+        if ( ! $current_user || ! in_array( 'designer', $current_user->roles, true ) ) {
             return;
         }
 
@@ -711,117 +632,6 @@ class N88_RFQ_Auth {
     }
 
     /**
-     * Enforce route guards for frontend routes (Commit 2.2.1)
-     * Only applies to frontend pages, not WordPress admin
-     */
-    public function enforce_route_guards() {
-        // Only apply to frontend, not admin
-        if ( is_admin() ) {
-            return;
-        }
-
-        if ( ! is_user_logged_in() ) {
-            return;
-        }
-
-        $current_user = wp_get_current_user();
-        $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
-        $parsed_url = parse_url( $request_uri );
-        $path = isset( $parsed_url['path'] ) ? $parsed_url['path'] : '';
-
-        // Skip if this is a WordPress admin path (wp-admin, wp-login, etc.)
-        if ( strpos( $path, '/wp-admin' ) !== false || strpos( $path, '/wp-login' ) !== false ) {
-            return;
-        }
-
-        // Check if user is a designer
-        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
-        
-        // Check if user is a supplier
-        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
-        
-        // Check if user is a system operator
-        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
-
-        // Designers blocked from frontend /admin/* and /supplier/* routes (not WordPress admin)
-        if ( $is_designer && ! $is_system_operator ) {
-            // Only block if it's a frontend route, not WordPress admin
-            if ( ( strpos( $path, '/admin/' ) !== false || strpos( $path, '/supplier/' ) !== false ) && strpos( $path, '/wp-admin' ) === false ) {
-                wp_die( 'Access denied. You do not have permission to access this page.', 'Access Denied', array( 'response' => 403 ) );
-            }
-        }
-
-        // Suppliers blocked from global queue scope on frontend
-        if ( $is_supplier && ! $is_system_operator ) {
-            if ( strpos( $path, '/admin/queue' ) !== false && strpos( $path, '/wp-admin' ) === false ) {
-                $query_params = isset( $parsed_url['query'] ) ? $parsed_url['query'] : '';
-                parse_str( $query_params, $query_vars );
-                if ( isset( $query_vars['scope'] ) && $query_vars['scope'] === 'global' ) {
-                    wp_die( 'Access denied. You do not have permission to access the global queue.', 'Access Denied', array( 'response' => 403 ) );
-                }
-            }
-        }
-    }
-
-    /**
-     * Enforce route guards for admin routes (Commit 2.2.1)
-     * Only applies to our plugin admin pages, not WordPress core admin (posts, pages, etc.)
-     */
-    public function enforce_admin_route_guards() {
-        if ( ! is_user_logged_in() ) {
-            return;
-        }
-
-        $current_user = wp_get_current_user();
-        $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
-        $parsed_url = parse_url( $request_uri );
-        $path = isset( $parsed_url['path'] ) ? $parsed_url['path'] : '';
-        $query_params = isset( $parsed_url['query'] ) ? $parsed_url['query'] : '';
-        parse_str( $query_params, $query_vars );
-
-        // Only apply guards to our plugin admin pages (admin.php?page=n88-rfq-*)
-        // Allow all WordPress core admin operations (post.php, post-new.php, edit.php, etc.)
-        if ( strpos( $path, '/wp-admin/admin.php' ) === false ) {
-            return; // Not our plugin admin page, allow it
-        }
-
-        // If it's our plugin page, check the page parameter
-        if ( ! isset( $query_vars['page'] ) ) {
-            return; // No page parameter, allow it
-        }
-
-        // Check if user is a designer
-        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
-        
-        // Check if user is a supplier
-        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
-        
-        // Check if user is a system operator
-        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
-
-        // Designers blocked from our plugin admin pages that aren't their workspace
-        if ( $is_designer && ! $is_system_operator ) {
-            // Allow access to their workspace board pages
-            $allowed_pages = array( 'n88-rfq-dashboard', 'n88-rfq-board-demo', 'n88-rfq-items-boards-test', 'n88-rfq-materials' );
-            if ( ! in_array( $query_vars['page'], $allowed_pages, true ) ) {
-                // Check if it's a supplier or admin queue page
-                if ( strpos( $query_vars['page'], 'supplier' ) !== false || strpos( $query_vars['page'], 'admin-queue' ) !== false ) {
-                    wp_die( 'Access denied. You do not have permission to access this page.', 'Access Denied', array( 'response' => 403 ) );
-                }
-            }
-        }
-
-        // Suppliers blocked from global queue scope in our plugin admin
-        if ( $is_supplier && ! $is_system_operator ) {
-            if ( strpos( $query_vars['page'], 'admin-queue' ) !== false || strpos( $query_vars['page'], 'n88-rfq-role-management' ) !== false ) {
-                if ( isset( $query_vars['scope'] ) && $query_vars['scope'] === 'global' ) {
-                    wp_die( 'Access denied. You do not have permission to access the global queue.', 'Access Denied', array( 'response' => 403 ) );
-                }
-            }
-        }
-    }
-
-    /**
      * Render designer dashboard
      */
     public function render_designer_dashboard( $atts = array() ) {
@@ -831,7 +641,7 @@ class N88_RFQ_Auth {
         }
 
         $current_user = wp_get_current_user();
-        if ( ! ( in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true ) ) ) {
+        if ( ! in_array( 'designer', $current_user->roles ) ) {
             return '<p>Access denied. Designer account required.</p>';
         }
 
@@ -863,111 +673,6 @@ class N88_RFQ_Auth {
                     </div>
                 <?php endif; ?>
             </div>
-        </div>
-        <?php
-        return ob_get_clean();
-    }
-
-    /**
-     * Render workspace page for designers (Commit 2.2.1)
-     */
-    public function render_workspace( $atts = array() ) {
-        // Allow admins to edit pages even if they don't have designer role
-        if ( is_admin() && current_user_can( 'edit_pages' ) ) {
-            return '<p><em>Workspace page - This shortcode will redirect designers to their workspace.</em></p>';
-        }
-
-        // Check if user is logged in and is a designer
-        if ( ! is_user_logged_in() ) {
-            wp_redirect( home_url( '/login/' ) );
-            exit;
-        }
-
-        $current_user = wp_get_current_user();
-        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
-        
-        if ( ! $is_designer ) {
-            wp_die( 'Access denied. Designer account required.', 'Access Denied', array( 'response' => 403 ) );
-        }
-
-        // Redirect to board page if designer has a board
-        $user_id = $current_user->ID;
-        $designer_board = $this->get_designer_board( $user_id );
-        
-        if ( $designer_board ) {
-            wp_redirect( admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . $designer_board->id ) );
-            exit;
-        }
-
-        // Otherwise show workspace creation page
-        return $this->render_designer_dashboard( $atts );
-    }
-
-    /**
-     * Render supplier queue page (Commit 2.2.1)
-     */
-    public function render_supplier_queue( $atts = array() ) {
-        // Allow admins to edit pages even if they don't have supplier role
-        if ( is_admin() && current_user_can( 'edit_pages' ) ) {
-            return '<p><em>Supplier Queue page - This shortcode will display the supplier queue for authorized users.</em></p>';
-        }
-
-        // Check if user is logged in and is a supplier or system operator
-        if ( ! is_user_logged_in() ) {
-            wp_redirect( home_url( '/login/' ) );
-            exit;
-        }
-
-        $current_user = wp_get_current_user();
-        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
-        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
-        
-        if ( ! $is_supplier && ! $is_system_operator ) {
-            wp_die( 'Access denied. Supplier or System Operator account required.', 'Access Denied', array( 'response' => 403 ) );
-        }
-
-        ob_start();
-        ?>
-        <div class="n88-supplier-queue" style="max-width: 1200px; margin: 50px auto; padding: 20px;">
-            <h1>Supplier Queue</h1>
-            <p>This is the supplier queue page. (Stub - to be implemented in later commits)</p>
-            <p>User: <?php echo esc_html( $current_user->display_name ); ?> (<?php echo esc_html( implode( ', ', $current_user->roles ) ); ?>)</p>
-        </div>
-        <?php
-        return ob_get_clean();
-    }
-
-    /**
-     * Render admin queue page (Commit 2.2.1)
-     */
-    public function render_admin_queue( $atts = array() ) {
-        // Allow admins to edit pages even if they don't have system operator role
-        if ( is_admin() && current_user_can( 'edit_pages' ) ) {
-            return '<p><em>Admin Queue page - This shortcode will display the admin queue for system operators.</em></p>';
-        }
-
-        // Check if user is logged in and is a system operator
-        if ( ! is_user_logged_in() ) {
-            wp_redirect( home_url( '/login/' ) );
-            exit;
-        }
-
-        $current_user = wp_get_current_user();
-        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
-        
-        if ( ! $is_system_operator ) {
-            wp_die( 'Access denied. System Operator account required.', 'Access Denied', array( 'response' => 403 ) );
-        }
-
-        $scope = isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : 'global';
-
-        ob_start();
-        ?>
-        <div class="n88-admin-queue" style="max-width: 1200px; margin: 50px auto; padding: 20px;">
-            <h1>Admin Queue</h1>
-            <p>Scope: <?php echo esc_html( $scope ); ?></p>
-            <p>This is the admin queue page. (Stub - to be implemented in later commits)</p>
-            <p>User: <?php echo esc_html( $current_user->display_name ); ?> (<?php echo esc_html( implode( ', ', $current_user->roles ) ); ?>)</p>
         </div>
         <?php
         return ob_get_clean();

@@ -26,7 +26,6 @@ class N88_Boards {
         // Register AJAX endpoints (logged-in users only)
         add_action( 'wp_ajax_n88_create_board', array( $this, 'ajax_create_board' ) );
         add_action( 'wp_ajax_n88_add_item_to_board', array( $this, 'ajax_add_item_to_board' ) );
-        add_action( 'wp_ajax_n88_remove_item_from_board', array( $this, 'ajax_remove_item_from_board' ) );
         // Milestone 1.3: Board layout read endpoint
         add_action( 'wp_ajax_n88_get_board_layout', array( $this, 'ajax_get_board_layout' ) );
     }
@@ -49,7 +48,7 @@ class N88_Boards {
 
         // Check if user is designer - designers can only have 1 board
         $current_user = wp_get_current_user();
-        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_designer = in_array( 'designer', $current_user->roles, true );
         
         if ( $is_designer ) {
             global $wpdb;
@@ -220,100 +219,6 @@ class N88_Boards {
             'board_id' => $board_id,
             'item_id'  => $item_id,
             'message'  => 'Item added to board successfully.',
-        ) );
-    }
-
-    /**
-     * AJAX: Remove Item from Board
-     * 
-     * Removes an item from a board (soft delete by setting removed_at).
-     */
-    public function ajax_remove_item_from_board() {
-        // Nonce verification
-        N88_RFQ_Helpers::verify_ajax_nonce();
-
-        // Login check
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( array( 'message' => 'You must be logged in to remove items from boards.' ), 401 );
-        }
-
-        $user_id = get_current_user_id();
-
-        // Sanitize and validate inputs
-        $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
-        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
-
-        if ( $board_id === 0 || $item_id === 0 ) {
-            wp_send_json_error( array( 'message' => 'Invalid board ID or item ID.' ), 400 );
-        }
-
-        // Ownership validation: user must own the board (OR be admin)
-        $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
-        if ( ! $board ) {
-            wp_send_json_error( array( 'message' => 'Board not found or access denied.' ), 403 );
-        }
-
-        // Verify board-item relationship exists and is active
-        global $wpdb;
-        $board_items_table = $wpdb->prefix . 'n88_board_items';
-        $relationship = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT id FROM {$board_items_table} WHERE board_id = %d AND item_id = %d AND removed_at IS NULL",
-                $board_id,
-                $item_id
-            )
-        );
-
-        if ( ! $relationship ) {
-            wp_send_json_error( array( 'message' => 'Item is not on this board or has already been removed.' ), 404 );
-        }
-
-        // Soft delete: set removed_at timestamp
-        $now = current_time( 'mysql' );
-        $updated = $wpdb->update(
-            $board_items_table,
-            array( 'removed_at' => $now ),
-            array( 'id' => $relationship->id ),
-            array( '%s' ),
-            array( '%d' )
-        );
-
-        if ( $updated === false ) {
-            wp_send_json_error( array( 'message' => 'Failed to remove item from board.' ), 500 );
-        }
-        
-        // Verify the update was successful
-        if ( $updated === 0 ) {
-            // No rows were updated - item might already be deleted
-            wp_send_json_error( array( 'message' => 'Item not found or already removed.' ), 404 );
-        }
-
-        // Clear cache to ensure deleted item doesn't reappear on refresh
-        if ( function_exists( 'wp_cache_flush' ) ) {
-            wp_cache_flush();
-        }
-        
-        // Clear wpdb query cache
-        global $wpdb;
-        if ( isset( $wpdb->query_cache ) ) {
-            $wpdb->query_cache = array();
-        }
-
-        // Log event
-        n88_log_event(
-            'item_removed_from_board',
-            'board',
-            array(
-                'object_id' => $board_id,
-                'board_id'  => $board_id,
-                'item_id'   => $item_id,
-            )
-        );
-
-        wp_send_json_success( array(
-            'board_id' => $board_id,
-            'item_id'  => $item_id,
-            'message'  => 'Item removed from board successfully.',
         ) );
     }
 

@@ -310,26 +310,6 @@ class N88_Items {
                                 'item_id'   => $item_id,
                             )
                         );
-                        
-                        // Force database commit to ensure item is available immediately
-                        // This is critical when redirecting right after item creation
-                        global $wpdb;
-                        
-                        // Clear all caches
-                        if ( function_exists( 'wp_cache_flush' ) ) {
-                            wp_cache_flush();
-                        }
-                        
-                        // Clear wpdb query cache
-                        if ( isset( $wpdb->query_cache ) ) {
-                            $wpdb->query_cache = array();
-                        }
-                        
-                        // Clear caches to ensure fresh data
-                        wp_cache_flush();
-                        if ( isset( $wpdb->query_cache ) ) {
-                            $wpdb->query_cache = array();
-                        }
                     }
                 }
             }
