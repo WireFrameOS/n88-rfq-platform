@@ -213,6 +213,10 @@ class N88_RFQ_Installer {
         // Commit 2.2.2: Create supplier profiles, designer profiles, and categories tables
         self::create_phase_2_2_2_tables( $charset_collate );
 
+        // Commit 2.2.5: Create keyword tables and seed keyword library
+        self::create_phase_2_2_5_tables( $charset_collate );
+        self::seed_keyword_library();
+
         self::maybe_upgrade();
     }
 
@@ -854,6 +858,10 @@ class N88_RFQ_Installer {
         // Commit 2.2.2: Ensure supplier profiles, designer profiles, and categories tables exist
         self::create_phase_2_2_2_tables( $charset_collate );
 
+        // Commit 2.2.5: Ensure keyword tables exist and seed keyword library
+        self::create_phase_2_2_5_tables( $charset_collate );
+        self::seed_keyword_library();
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -1207,6 +1215,373 @@ class N88_RFQ_Installer {
         // Add foreign key: designer_id -> wp_users.ID
         if ( ! $designer_has_fk_user ) {
             $wpdb->query( "ALTER TABLE {$designer_table_safe} ADD CONSTRAINT fk_designer_user FOREIGN KEY (designer_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+    }
+
+    /**
+     * Create Phase 2.2.5 tables: Keywords, Supplier Keyword Mapping, Freeform Keywords (Commit 2.2.5)
+     * Data-only commit: No UI, routing, bidding, or Phase 2.3 logic
+     */
+    private static function create_phase_2_2_5_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+        $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
+        $supplier_keyword_freeform_table = $wpdb->prefix . 'n88_supplier_keyword_freeform';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->users;
+
+        // 1. n88_keywords (master keyword library)
+        $sql_keywords = "CREATE TABLE {$keywords_table} (
+            keyword_id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            category_id INT UNSIGNED NULL,
+            keyword VARCHAR(255) NOT NULL,
+            is_suggested TINYINT(1) NOT NULL DEFAULT 1,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (keyword_id),
+            KEY category_id (category_id),
+            KEY is_active (is_active)
+        ) {$charset_collate};";
+
+        // 2. n88_supplier_keyword_map (maps suppliers to approved keywords)
+        $sql_supplier_keyword_map = "CREATE TABLE {$supplier_keyword_map_table} (
+            supplier_id INT UNSIGNED NOT NULL,
+            keyword_id INT UNSIGNED NOT NULL,
+            PRIMARY KEY (supplier_id, keyword_id),
+            KEY supplier_id (supplier_id),
+            KEY keyword_id (keyword_id)
+        ) {$charset_collate};";
+
+        // 3. n88_supplier_keyword_freeform (freeform keywords from suppliers)
+        $sql_supplier_keyword_freeform = "CREATE TABLE {$supplier_keyword_freeform_table} (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            supplier_id INT UNSIGNED NOT NULL,
+            freeform_keyword VARCHAR(255) NOT NULL,
+            status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY supplier_id (supplier_id),
+            KEY status (status)
+        ) {$charset_collate};";
+
+        // Create tables using dbDelta
+        dbDelta( $sql_keywords );
+        dbDelta( $sql_supplier_keyword_map );
+        dbDelta( $sql_supplier_keyword_freeform );
+
+        // Add foreign key constraints separately
+        $keywords_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $keywords_table );
+        $supplier_keyword_map_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $supplier_keyword_map_table );
+        $supplier_keyword_freeform_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $supplier_keyword_freeform_table );
+        $categories_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $categories_table );
+        $users_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $users_table );
+
+        // Check if foreign keys exist before adding
+        $keywords_fks = $wpdb->get_results( "SHOW CREATE TABLE {$keywords_table_safe}" );
+        $map_fks = $wpdb->get_results( "SHOW CREATE TABLE {$supplier_keyword_map_table_safe}" );
+        $freeform_fks = $wpdb->get_results( "SHOW CREATE TABLE {$supplier_keyword_freeform_table_safe}" );
+
+        $keywords_has_fk_category = false;
+        $map_has_fk_supplier = false;
+        $map_has_fk_keyword = false;
+        $freeform_has_fk_supplier = false;
+
+        if ( ! empty( $keywords_fks ) ) {
+            $create_statement = $keywords_fks[0]->{'Create Table'};
+            $keywords_has_fk_category = strpos( $create_statement, 'fk_keyword_category' ) !== false;
+        }
+
+        if ( ! empty( $map_fks ) ) {
+            $create_statement = $map_fks[0]->{'Create Table'};
+            $map_has_fk_supplier = strpos( $create_statement, 'fk_map_supplier' ) !== false;
+            $map_has_fk_keyword = strpos( $create_statement, 'fk_map_keyword' ) !== false;
+        }
+
+        if ( ! empty( $freeform_fks ) ) {
+            $create_statement = $freeform_fks[0]->{'Create Table'};
+            $freeform_has_fk_supplier = strpos( $create_statement, 'fk_freeform_supplier' ) !== false;
+        }
+
+        // Add foreign key: category_id -> n88_categories.category_id
+        if ( ! $keywords_has_fk_category ) {
+            $wpdb->query( "ALTER TABLE {$keywords_table_safe} ADD CONSTRAINT fk_keyword_category FOREIGN KEY (category_id) REFERENCES {$categories_table_safe}(category_id) ON DELETE SET NULL" );
+        }
+
+        // Add foreign key: supplier_id -> wp_users.ID (map table)
+        if ( ! $map_has_fk_supplier ) {
+            $wpdb->query( "ALTER TABLE {$supplier_keyword_map_table_safe} ADD CONSTRAINT fk_map_supplier FOREIGN KEY (supplier_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: keyword_id -> n88_keywords.keyword_id (map table)
+        if ( ! $map_has_fk_keyword ) {
+            $wpdb->query( "ALTER TABLE {$supplier_keyword_map_table_safe} ADD CONSTRAINT fk_map_keyword FOREIGN KEY (keyword_id) REFERENCES {$keywords_table_safe}(keyword_id) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: supplier_id -> wp_users.ID (freeform table)
+        if ( ! $freeform_has_fk_supplier ) {
+            $wpdb->query( "ALTER TABLE {$supplier_keyword_freeform_table_safe} ADD CONSTRAINT fk_freeform_supplier FOREIGN KEY (supplier_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+    }
+
+    /**
+     * Seed keyword library with suggested keywords per SOT (Commit 2.2.5)
+     * Seeds keywords exactly as specified, linked to correct categories
+     */
+    private static function seed_keyword_library() {
+        global $wpdb;
+
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+
+        // First, ensure categories exist (create if they don't)
+        $categories = array(
+            'Upholstery',
+            'Indoor Furniture (Casegoods)',
+            'Outdoor Furniture',
+            'Lighting',
+            'Stone (Marble / Granite / Quartz)',
+            'Metalwork',
+            'Millwork / Cabinetry',
+            'Flooring',
+            'Drapery / Window Treatments',
+            'Glass / Mirrors',
+            'Hardware / Accessories',
+            'Rugs / Carpets',
+            'Wallcoverings / Finishes',
+            'Appliances'
+        );
+
+        $category_ids = array();
+
+        foreach ( $categories as $category_name ) {
+            $existing = $wpdb->get_var( $wpdb->prepare(
+                "SELECT category_id FROM {$categories_table} WHERE name = %s",
+                $category_name
+            ) );
+
+            if ( $existing ) {
+                $category_ids[ $category_name ] = $existing;
+            } else {
+                $wpdb->insert(
+                    $categories_table,
+                    array(
+                        'name' => $category_name,
+                        'is_active' => 1,
+                    ),
+                    array( '%s', '%d' )
+                );
+                $category_ids[ $category_name ] = $wpdb->insert_id;
+            }
+        }
+
+        // Define keywords by category (exactly as specified in SOT)
+        $keywords_by_category = array(
+            'Upholstery' => array(
+                'COM / COL',
+                'Banquettes',
+                'Curved seating',
+                'Tufting',
+                'Channel stitching',
+                'Tight seat / loose seat',
+                'Bench seating',
+                'Dining chairs',
+                'Barstools upholstery',
+                'Headboards',
+                'Ottomans',
+                'Booth seating (F&B)',
+                'Leather',
+                'Performance fabric',
+                'Hospitality grade',
+                'CAL117 / FR compliance'
+            ),
+            'Indoor Furniture (Casegoods)' => array(
+                'Solid wood',
+                'Veneer',
+                'Lacquer finish',
+                'High gloss',
+                'Matte finish',
+                'RTA / KD (knockdown)',
+                'Tables (dining / coffee / side)',
+                'Nightstands',
+                'Dressers',
+                'Desks',
+                'Credenzas',
+                'Built-in look',
+                'Hospitality casegoods',
+                'Contract grade',
+                'Mixed materials'
+            ),
+            'Outdoor Furniture' => array(
+                'Aluminum frames',
+                'Stainless steel',
+                'Teak',
+                'Powder coat',
+                'Rope weave',
+                'Wicker / resin weave',
+                'Sling',
+                'Upholstered outdoor cushions',
+                'Quick dry foam',
+                'Sunbrella / outdoor fabrics',
+                'Sectionals',
+                'Daybeds',
+                'Chaise lounges',
+                'Outdoor dining',
+                'Salt-air / coastal spec'
+            ),
+            'Lighting' => array(
+                'Decorative lighting',
+                'Custom chandeliers',
+                'Sconces',
+                'Pendants',
+                'Table lamps',
+                'Floor lamps',
+                'LED',
+                'Dimmable',
+                'UL / ETL',
+                'Hospitality lighting',
+                'Custom finishes',
+                'Glass shades',
+                'Metal shades'
+            ),
+            'Stone (Marble / Granite / Quartz)' => array(
+                'Marble',
+                'Granite',
+                'Quartz',
+                'Sintered stone',
+                'Porcelain slab',
+                'Waterjet',
+                'Edge profiles',
+                'Bookmatch',
+                'Honed / polished / leathered',
+                'Thickness (2cm / 3cm)',
+                'Vanity tops',
+                'Tabletops',
+                'Feature walls',
+                'Hospitality stone packages'
+            ),
+            'Metalwork' => array(
+                'Stainless steel',
+                'Aluminum',
+                'Brass',
+                'Bronze',
+                'Blackened steel',
+                'Patina finishes',
+                'Welded frames',
+                'Sheet metal',
+                'Laser cut',
+                'CNC bending',
+                'Architectural metal',
+                'Custom hardware'
+            ),
+            'Millwork / Cabinetry' => array(
+                'Kitchen cabinetry',
+                'Bathroom vanities',
+                'Veneer matching',
+                'Laminate',
+                'Thermofoil',
+                'Paint grade',
+                'Stain grade',
+                'Soft-close hardware',
+                'Hospitality millwork',
+                'Reception desks',
+                'Built-ins',
+                'Shop drawings / submittals'
+            ),
+            'Flooring' => array(
+                'Engineered wood',
+                'Solid wood',
+                'LVT',
+                'Tile',
+                'Stone flooring',
+                'Terrazzo',
+                'Underlayment',
+                'Moisture barrier',
+                'Commercial spec',
+                'Hospitality corridors',
+                'Stair nosings'
+            ),
+            'Drapery / Window Treatments' => array(
+                'Blackout',
+                'Sheer',
+                'Motorized',
+                'Manual',
+                'Roller shades',
+                'Roman shades',
+                'Track systems',
+                'Hospitality drapery',
+                'COM',
+                'Hardware included'
+            ),
+            'Glass / Mirrors' => array(
+                'Tempered',
+                'Laminated',
+                'Safety glass',
+                'Mirrors (antique, smoked)',
+                'Beveled',
+                'Custom shapes',
+                'Back-painted'
+            ),
+            'Hardware / Accessories' => array(
+                'Pulls / knobs',
+                'Hinges',
+                'Locks',
+                'Bathroom accessories',
+                'Door hardware',
+                'Custom finishes',
+                'Hospitality durability'
+            ),
+            'Rugs / Carpets' => array(
+                'Broadloom',
+                'Area rugs',
+                'Hand-tufted',
+                'Hand-knotted',
+                'Flatweave',
+                'Custom patterns',
+                'Hospitality rating',
+                'Stain resistant'
+            ),
+            'Wallcoverings / Finishes' => array(
+                'Wallpaper',
+                'Vinyl wallcovering',
+                'Acoustic panels',
+                'Decorative panels',
+                'Paint systems',
+                'Hospitality durability'
+            ),
+            'Appliances' => array(
+                'Built-in',
+                'Commercial kitchen spec',
+                'Panels / integrated fronts',
+                'Voltage requirements'
+            )
+        );
+
+        // Insert keywords, avoiding duplicates
+        foreach ( $keywords_by_category as $category_name => $keywords ) {
+            $category_id = isset( $category_ids[ $category_name ] ) ? $category_ids[ $category_name ] : null;
+
+            foreach ( $keywords as $keyword ) {
+                // Check if keyword already exists
+                $existing = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT keyword_id FROM {$keywords_table} WHERE keyword = %s AND category_id = %d",
+                    $keyword,
+                    $category_id
+                ) );
+
+                if ( ! $existing ) {
+                    $wpdb->insert(
+                        $keywords_table,
+                        array(
+                            'category_id' => $category_id,
+                            'keyword' => $keyword,
+                            'is_suggested' => 1,
+                            'is_active' => 1,
+                        ),
+                        array( '%d', '%s', '%d', '%d' )
+                    );
+                }
+            }
         }
     }
 
