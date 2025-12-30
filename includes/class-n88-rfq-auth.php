@@ -976,6 +976,12 @@ class N88_RFQ_Auth {
             wp_die( 'Access denied. Supplier or System Operator account required.', 'Access Denied', array( 'response' => 403 ) );
         }
 
+        // Read filter values from URL query parameters
+        // These values are restored on page refresh, ensuring filter state persists across page reloads
+        $status = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : 'all';
+        $category_id = isset( $_GET['category_id'] ) ? sanitize_text_field( wp_unslash( $_GET['category_id'] ) ) : 'all';
+        $search = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
+
         ob_start();
         ?>
         <div class="n88-supplier-queue" style="max-width: 1400px; margin: 0 auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
@@ -993,26 +999,26 @@ class N88_RFQ_Auth {
                 <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Status</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="all">All</option>
-                            <option value="pending">Pending</option>
-                            <option value="awaiting_bid">Awaiting Bid</option>
-                            <option value="bid_submitted">Bid Submitted</option>
+                        <select id="n88-supplier-status" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="all" <?php selected( $status, 'all' ); ?>>All</option>
+                            <option value="pending" <?php selected( $status, 'pending' ); ?>>Pending</option>
+                            <option value="awaiting_bid" <?php selected( $status, 'awaiting_bid' ); ?>>Awaiting Bid</option>
+                            <option value="bid_submitted" <?php selected( $status, 'bid_submitted' ); ?>>Bid Submitted</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Category</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="all">All</option>
-                            <option value="upholstery">Upholstery</option>
-                            <option value="casegoods">Casegoods</option>
-                            <option value="lighting">Lighting</option>
-                            <option value="accessories">Accessories</option>
+                        <select id="n88-supplier-category" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="all" <?php selected( $category_id, 'all' ); ?>>All</option>
+                            <option value="upholstery" <?php selected( $category_id, 'upholstery' ); ?>>Upholstery</option>
+                            <option value="casegoods" <?php selected( $category_id, 'casegoods' ); ?>>Casegoods</option>
+                            <option value="lighting" <?php selected( $category_id, 'lighting' ); ?>>Lighting</option>
+                            <option value="accessories" <?php selected( $category_id, 'accessories' ); ?>>Accessories</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;">
                         <label style="font-size: 14px; color: #666;">Search</label>
-                        <input type="text" placeholder="Search items..." style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        <input type="text" id="n88-supplier-search" value="<?php echo esc_attr( $search ); ?>" placeholder="Search items..." style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
                     </div>
                 </div>
             </div>
@@ -1090,6 +1096,59 @@ class N88_RFQ_Auth {
         
         <script>
         (function() {
+            // Filter persistence via URL query parameters
+            // When filters change, update the URL. On page refresh, PHP reads these params and restores filter values
+            var searchTimeout;
+            function updateSupplierQueueURL() {
+                var status = document.getElementById('n88-supplier-status')?.value || 'all';
+                var category = document.getElementById('n88-supplier-category')?.value || 'all';
+                var search = document.getElementById('n88-supplier-search')?.value || '';
+                
+                var params = new URLSearchParams(window.location.search);
+                
+                if (status && status !== 'all') {
+                    params.set('status', status);
+                } else {
+                    params.delete('status');
+                }
+                
+                if (category && category !== 'all') {
+                    params.set('category_id', category);
+                } else {
+                    params.delete('category_id');
+                }
+                
+                if (search && search.trim()) {
+                    params.set('search', search.trim());
+                } else {
+                    params.delete('search');
+                }
+                
+                var newURL = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+                window.history.replaceState({}, '', newURL);
+            }
+            
+            // Attach event listeners to filter elements
+            document.addEventListener('DOMContentLoaded', function() {
+                var statusSelect = document.getElementById('n88-supplier-status');
+                var categorySelect = document.getElementById('n88-supplier-category');
+                var searchInput = document.getElementById('n88-supplier-search');
+                
+                if (statusSelect) {
+                    statusSelect.addEventListener('change', updateSupplierQueueURL);
+                }
+                if (categorySelect) {
+                    categorySelect.addEventListener('change', updateSupplierQueueURL);
+                }
+                if (searchInput) {
+                    // Debounce search input
+                    searchInput.addEventListener('input', function() {
+                        clearTimeout(searchTimeout);
+                        searchTimeout = setTimeout(updateSupplierQueueURL, 500);
+                    });
+                }
+            });
+            
             // Demo item data
             var demoItems = {
                 '1023': {
@@ -1267,6 +1326,15 @@ class N88_RFQ_Auth {
         }
 
         $scope = isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : 'global';
+        
+        // Read filter values from URL query parameters
+        // These values are restored on page refresh, ensuring filter state persists across page reloads
+        // This works for all user types: supplier, admin, and designer
+        $queue_type = isset( $_GET['queue_type'] ) ? sanitize_text_field( wp_unslash( $_GET['queue_type'] ) ) : 'pricing';
+        $status = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : 'all';
+        $supplier_id = isset( $_GET['supplier_id'] ) ? sanitize_text_field( wp_unslash( $_GET['supplier_id'] ) ) : 'all';
+        $designer_id = isset( $_GET['designer_id'] ) ? sanitize_text_field( wp_unslash( $_GET['designer_id'] ) ) : 'all';
+        $search = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
 
         ob_start();
         ?>
@@ -1285,38 +1353,38 @@ class N88_RFQ_Auth {
                 <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Queue Type</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="pricing" selected>Pricing</option>
-                            <option value="prototype">Prototype</option>
-                            <option value="shipping">Shipping</option>
-                            <option value="all">All</option>
+                        <select id="n88-admin-queue-type" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="pricing" <?php selected( $queue_type, 'pricing' ); ?>>Pricing</option>
+                            <option value="prototype" <?php selected( $queue_type, 'prototype' ); ?>>Prototype</option>
+                            <option value="shipping" <?php selected( $queue_type, 'shipping' ); ?>>Shipping</option>
+                            <option value="all" <?php selected( $queue_type, 'all' ); ?>>All</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Status</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="all" selected>All</option>
-                            <option value="pending">Pending</option>
-                            <option value="assigned">Assigned</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="completed">Completed</option>
+                        <select id="n88-admin-status" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="all" <?php selected( $status, 'all' ); ?>>All</option>
+                            <option value="pending" <?php selected( $status, 'pending' ); ?>>Pending</option>
+                            <option value="assigned" <?php selected( $status, 'assigned' ); ?>>Assigned</option>
+                            <option value="in_progress" <?php selected( $status, 'in_progress' ); ?>>In Progress</option>
+                            <option value="completed" <?php selected( $status, 'completed' ); ?>>Completed</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Supplier</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="all" selected>All</option>
-                            <option value="supplier_x">Supplier X</option>
-                            <option value="supplier_y">Supplier Y</option>
-                            <option value="unassigned">Unassigned</option>
+                        <select id="n88-admin-supplier" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="all" <?php selected( $supplier_id, 'all' ); ?>>All</option>
+                            <option value="supplier_x" <?php selected( $supplier_id, 'supplier_x' ); ?>>Supplier X</option>
+                            <option value="supplier_y" <?php selected( $supplier_id, 'supplier_y' ); ?>>Supplier Y</option>
+                            <option value="unassigned" <?php selected( $supplier_id, 'unassigned' ); ?>>Unassigned</option>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="font-size: 14px; color: #666;">Designer</label>
-                        <select style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
-                            <option value="all" selected>All</option>
-                            <option value="sarah">Sarah (Firm A)</option>
-                            <option value="vikram">Vikram (Firm B)</option>
+                        <select id="n88-admin-designer" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer; min-width: 120px;">
+                            <option value="all" <?php selected( $designer_id, 'all' ); ?>>All</option>
+                            <option value="sarah" <?php selected( $designer_id, 'sarah' ); ?>>Sarah (Firm A)</option>
+                            <option value="vikram" <?php selected( $designer_id, 'vikram' ); ?>>Vikram (Firm B)</option>
                         </select>
                     </div>
                 </div>
@@ -1405,6 +1473,73 @@ class N88_RFQ_Auth {
         
         <script>
         (function() {
+            // Filter persistence via URL query parameters
+            // When filters change, update the URL. On page refresh, PHP reads these params and restores filter values
+            function updateAdminQueueURL() {
+                var queueType = document.getElementById('n88-admin-queue-type')?.value || 'pricing';
+                var status = document.getElementById('n88-admin-status')?.value || 'all';
+                var supplier = document.getElementById('n88-admin-supplier')?.value || 'all';
+                var designer = document.getElementById('n88-admin-designer')?.value || 'all';
+                
+                var params = new URLSearchParams(window.location.search);
+                
+                // Preserve scope parameter
+                if (params.has('scope')) {
+                    // Keep existing scope
+                } else {
+                    params.set('scope', '<?php echo esc_js( $scope ); ?>');
+                }
+                
+                // Only add queue_type if it's not the default 'pricing'
+                if (queueType && queueType !== 'pricing') {
+                    params.set('queue_type', queueType);
+                } else {
+                    params.delete('queue_type');
+                }
+                
+                if (status && status !== 'all') {
+                    params.set('status', status);
+                } else {
+                    params.delete('status');
+                }
+                
+                if (supplier && supplier !== 'all') {
+                    params.set('supplier_id', supplier);
+                } else {
+                    params.delete('supplier_id');
+                }
+                
+                if (designer && designer !== 'all') {
+                    params.set('designer_id', designer);
+                } else {
+                    params.delete('designer_id');
+                }
+                
+                var newURL = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+                window.history.replaceState({}, '', newURL);
+            }
+            
+            // Attach event listeners to filter elements
+            document.addEventListener('DOMContentLoaded', function() {
+                var queueTypeSelect = document.getElementById('n88-admin-queue-type');
+                var statusSelect = document.getElementById('n88-admin-status');
+                var supplierSelect = document.getElementById('n88-admin-supplier');
+                var designerSelect = document.getElementById('n88-admin-designer');
+                
+                if (queueTypeSelect) {
+                    queueTypeSelect.addEventListener('change', updateAdminQueueURL);
+                }
+                if (statusSelect) {
+                    statusSelect.addEventListener('change', updateAdminQueueURL);
+                }
+                if (supplierSelect) {
+                    supplierSelect.addEventListener('change', updateAdminQueueURL);
+                }
+                if (designerSelect) {
+                    designerSelect.addEventListener('change', updateAdminQueueURL);
+                }
+            });
+            
             // Demo item data for admin queue
             var adminItems = {
                 '1023': {
