@@ -221,6 +221,9 @@ class N88_RFQ_Installer {
         self::create_phase_2_2_6_tables( $charset_collate );
         self::seed_practice_types();
 
+        // Commit 2.2.9: Create RFQ routing rails and item delivery context tables
+        self::create_phase_2_2_9_tables( $charset_collate );
+
         self::maybe_upgrade();
     }
 
@@ -981,6 +984,9 @@ class N88_RFQ_Installer {
         // Commit 2.2.6: Ensure practice types tables exist and seed practice types
         self::create_phase_2_2_6_tables( $charset_collate );
         self::seed_practice_types();
+
+        // Commit 2.2.9: Create RFQ routing rails and item delivery context tables
+        self::create_phase_2_2_9_tables( $charset_collate );
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -1864,6 +1870,104 @@ class N88_RFQ_Installer {
         );
         
         return $results;
+    }
+
+    /**
+     * Create Phase 2.2.9 tables: RFQ Routing Rails + Item Delivery Context (Commit 2.2.9)
+     * Data-only commit: No UI, routing logic, bids, pricing, prototype, or payment logic
+     * 
+     * Tables:
+     * - n88_rfq_routes: RFQ routing ledger (who received RFQ, when eligible)
+     * - n88_item_delivery_context: Item delivery destination and shipping eligibility
+     */
+    private static function create_phase_2_2_9_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $users_table = $wpdb->prefix . 'users';
+
+        // 1. n88_rfq_routes - RFQ Routing Ledger
+        $sql_rfq_routes = "CREATE TABLE {$rfq_routes_table} (
+            route_id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id INT UNSIGNED NOT NULL,
+            supplier_id INT UNSIGNED NOT NULL,
+            route_type ENUM('designer_invited', 'system_invited') NOT NULL,
+            eligible_after DATETIME NULL,
+            routed_at DATETIME NULL,
+            status ENUM('queued', 'sent', 'viewed', 'bid_submitted', 'expired') NOT NULL DEFAULT 'queued',
+            PRIMARY KEY (route_id),
+            UNIQUE KEY unique_item_supplier (item_id, supplier_id),
+            KEY idx_item_id (item_id),
+            KEY idx_supplier_id (supplier_id),
+            KEY idx_route_type (route_type),
+            KEY idx_status (status),
+            KEY idx_eligible_after (eligible_after)
+        ) {$charset_collate};";
+
+        // 2. n88_item_delivery_context - Item Delivery + Shipping Eligibility
+        $sql_item_delivery_context = "CREATE TABLE {$item_delivery_context_table} (
+            item_id INT UNSIGNED NOT NULL,
+            delivery_country_code CHAR(2) NOT NULL,
+            delivery_postal_code VARCHAR(20) NULL,
+            shipping_estimate_mode ENUM('auto', 'manual') NOT NULL DEFAULT 'manual',
+            PRIMARY KEY (item_id)
+        ) {$charset_collate};";
+
+        // Create tables using dbDelta
+        dbDelta( $sql_rfq_routes );
+        dbDelta( $sql_item_delivery_context );
+
+        // Add foreign keys separately (dbDelta doesn't handle FKs well)
+        $rfq_routes_table_safe = esc_sql( $rfq_routes_table );
+        $item_delivery_context_table_safe = esc_sql( $item_delivery_context_table );
+        $items_table_safe = esc_sql( $items_table );
+        $users_table_safe = esc_sql( $users_table );
+
+        // Check if foreign keys already exist
+        $fk_routes_item = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_routes_item'",
+            DB_NAME,
+            $rfq_routes_table
+        ) );
+
+        $fk_routes_supplier = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_routes_supplier'",
+            DB_NAME,
+            $rfq_routes_table
+        ) );
+
+        $fk_delivery_item = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_delivery_item'",
+            DB_NAME,
+            $item_delivery_context_table
+        ) );
+
+        // Add foreign key: item_id -> n88_items.item_id (routes table)
+        if ( ! $fk_routes_item ) {
+            $wpdb->query( "ALTER TABLE {$rfq_routes_table_safe} ADD CONSTRAINT fk_routes_item FOREIGN KEY (item_id) REFERENCES {$items_table_safe}(item_id) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: supplier_id -> wp_users.ID (routes table)
+        if ( ! $fk_routes_supplier ) {
+            $wpdb->query( "ALTER TABLE {$rfq_routes_table_safe} ADD CONSTRAINT fk_routes_supplier FOREIGN KEY (supplier_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: item_id -> n88_items.item_id (delivery context table)
+        if ( ! $fk_delivery_item ) {
+            $wpdb->query( "ALTER TABLE {$item_delivery_context_table_safe} ADD CONSTRAINT fk_delivery_item FOREIGN KEY (item_id) REFERENCES {$items_table_safe}(item_id) ON DELETE CASCADE" );
+        }
     }
 
     /**

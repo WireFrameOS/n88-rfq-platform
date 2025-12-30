@@ -2574,7 +2574,7 @@ class N88_RFQ_Auth {
                             <input type="text" id="n88-city" name="city" value="<?php echo $existing_profile ? esc_attr( $existing_profile->city ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
                         </div>
                         <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Postal Code</label>
+                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Zip Code</label>
                             <input type="text" id="n88-postal-code" name="postal_code" value="<?php echo $existing_profile ? esc_attr( $existing_profile->postal_code ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
                         </div>
                     </div>
