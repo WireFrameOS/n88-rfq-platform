@@ -224,6 +224,9 @@ class N88_RFQ_Installer {
         // Commit 2.2.9: Create RFQ routing rails and item delivery context tables
         self::create_phase_2_2_9_tables( $charset_collate );
 
+        // Commit 2.3.1: Create bid tables (DB only, no UI)
+        self::create_phase_2_3_1_tables( $charset_collate );
+
         self::maybe_upgrade();
     }
 
@@ -987,6 +990,9 @@ class N88_RFQ_Installer {
 
         // Commit 2.2.9: Create RFQ routing rails and item delivery context tables
         self::create_phase_2_2_9_tables( $charset_collate );
+
+        // Commit 2.3.1: Create bid tables (DB only, no UI)
+        self::create_phase_2_3_1_tables( $charset_collate );
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -1967,6 +1973,111 @@ class N88_RFQ_Installer {
         // Add foreign key: item_id -> n88_items.item_id (delivery context table)
         if ( ! $fk_delivery_item ) {
             $wpdb->query( "ALTER TABLE {$item_delivery_context_table_safe} ADD CONSTRAINT fk_delivery_item FOREIGN KEY (item_id) REFERENCES {$items_table_safe}(item_id) ON DELETE CASCADE" );
+        }
+    }
+
+    /**
+     * Create Phase 2.3.1 tables: Bid Tables (Commit 2.3.1)
+     * DB-only commit: No UI, no workflow logic, no routing writes, no prototype payment logic
+     * 
+     * Tables:
+     * - n88_item_bids: Stores one bid per supplier per item
+     * - n88_bid_media_links: Embedded video links for bids (YouTube/Vimeo/Loom)
+     */
+    private static function create_phase_2_3_1_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $users_table = $wpdb->prefix . 'users';
+
+        // 1. n88_item_bids - Stores one bid per supplier per item
+        $sql_item_bids = "CREATE TABLE {$item_bids_table} (
+            bid_id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id INT UNSIGNED NOT NULL,
+            supplier_id INT UNSIGNED NOT NULL,
+            is_anonymous TINYINT(1) NOT NULL DEFAULT 1,
+            unit_price DECIMAL(10,2) NULL,
+            production_lead_time_text VARCHAR(255) NULL,
+            prototype_video_yes TINYINT(1) NULL,
+            prototype_timeline_option VARCHAR(100) NULL,
+            prototype_cost DECIMAL(10,2) NULL,
+            cad_yes TINYINT(1) NULL,
+            status ENUM('submitted', 'withdrawn', 'awarded', 'declined') NOT NULL DEFAULT 'submitted',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (bid_id),
+            UNIQUE KEY unique_item_supplier_bid (item_id, supplier_id),
+            KEY idx_item_id (item_id),
+            KEY idx_supplier_id (supplier_id),
+            KEY idx_status (status),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+
+        // 2. n88_bid_media_links - Embedded video links for bids
+        $sql_bid_media_links = "CREATE TABLE {$bid_media_links_table} (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            bid_id INT UNSIGNED NOT NULL,
+            provider ENUM('youtube', 'vimeo', 'loom') NOT NULL,
+            url VARCHAR(500) NOT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_sort_order (sort_order)
+        ) {$charset_collate};";
+
+        // Create tables using dbDelta
+        dbDelta( $sql_item_bids );
+        dbDelta( $sql_bid_media_links );
+
+        // Add foreign keys separately (dbDelta doesn't handle FKs well)
+        $item_bids_table_safe = esc_sql( $item_bids_table );
+        $bid_media_links_table_safe = esc_sql( $bid_media_links_table );
+        $items_table_safe = esc_sql( $items_table );
+        $users_table_safe = esc_sql( $users_table );
+
+        // Check if foreign keys already exist
+        $fk_bids_item = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_bids_item'",
+            DB_NAME,
+            $item_bids_table
+        ) );
+
+        $fk_bids_supplier = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_bids_supplier'",
+            DB_NAME,
+            $item_bids_table
+        ) );
+
+        $fk_media_bid = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_media_bid'",
+            DB_NAME,
+            $bid_media_links_table
+        ) );
+
+        // Add foreign key: item_id -> n88_items.item_id (bids table)
+        if ( ! $fk_bids_item ) {
+            $wpdb->query( "ALTER TABLE {$item_bids_table_safe} ADD CONSTRAINT fk_bids_item FOREIGN KEY (item_id) REFERENCES {$items_table_safe}(item_id) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: supplier_id -> wp_users.ID (bids table)
+        if ( ! $fk_bids_supplier ) {
+            $wpdb->query( "ALTER TABLE {$item_bids_table_safe} ADD CONSTRAINT fk_bids_supplier FOREIGN KEY (supplier_id) REFERENCES {$users_table_safe}(ID) ON DELETE CASCADE" );
+        }
+
+        // Add foreign key: bid_id -> n88_item_bids.bid_id (media links table)
+        if ( ! $fk_media_bid ) {
+            $wpdb->query( "ALTER TABLE {$bid_media_links_table_safe} ADD CONSTRAINT fk_media_bid FOREIGN KEY (bid_id) REFERENCES {$item_bids_table_safe}(bid_id) ON DELETE CASCADE" );
         }
     }
 
