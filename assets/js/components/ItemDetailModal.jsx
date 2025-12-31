@@ -800,8 +800,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         type="button"
                                         onClick={() => {
                                             // Commit 2.3.4: Open RFQ submission modal
+                                            var itemIdToSubmit = itemId || item.id || item.item_id;
+                                            console.log('Request Quote clicked for item:', itemIdToSubmit);
                                             if (window.openRfqSubmissionModal) {
-                                                window.openRfqSubmissionModal([itemId || item.id || item.item_id]);
+                                                window.openRfqSubmissionModal([itemIdToSubmit]);
+                                            } else {
+                                                console.error('openRfqSubmissionModal function not found. Make sure you are on the board page.');
+                                                alert('RFQ submission is only available on the board page. Please navigate to your workspace board.');
                                             }
                                         }}
                                         style={{
@@ -855,7 +860,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 </div>
                             </div>
                             </div>
-                        </div>
+                                                    </div>
                         
                         {/* Footer Actions */}
                         <div style={{

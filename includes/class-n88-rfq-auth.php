@@ -3852,13 +3852,31 @@ class N88_RFQ_Auth {
         }
 
         // Routing options
-        $invite_supplier = isset( $_POST['invite_supplier'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['invite_supplier'] ) ) ) : '';
+        $invited_suppliers_raw = isset( $_POST['invited_suppliers'] ) ? wp_unslash( $_POST['invited_suppliers'] ) : '[]';
+        $invited_suppliers = json_decode( $invited_suppliers_raw, true );
+        if ( ! is_array( $invited_suppliers ) ) {
+            $invited_suppliers = array();
+        }
+        // Sanitize each invited supplier
+        $invited_suppliers = array_map( function( $supplier ) {
+            return trim( sanitize_text_field( $supplier ) );
+        }, $invited_suppliers );
+        $invited_suppliers = array_filter( $invited_suppliers ); // Remove empty values
+        
+        // Validate max 5 invited suppliers
+        if ( count( $invited_suppliers ) > 5 ) {
+            wp_send_json_error( array(
+                'message' => 'Maximum 5 invited suppliers allowed.',
+                'errors' => array( 'invited_suppliers' => 'Maximum 5 invited suppliers allowed.' ),
+            ) );
+        }
+        
         $allow_system_invites = isset( $_POST['allow_system_invites'] ) ? (bool) $_POST['allow_system_invites'] : false;
 
-        // Validation: Scenario B - if no invite and toggle OFF, block
-        if ( empty( $invite_supplier ) && ! $allow_system_invites ) {
+        // Validation: Case D - if no invite and toggle OFF, block
+        if ( empty( $invited_suppliers ) && ! $allow_system_invites ) {
             wp_send_json_error( array(
-                'message' => 'Please invite a supplier or allow the system to invite suppliers.',
+                'message' => 'Invite at least one supplier or allow the system to invite suppliers.',
                 'errors' => array( 'routing' => 'At least one routing option must be selected.' ),
             ) );
         }
@@ -3944,36 +3962,43 @@ class N88_RFQ_Auth {
         $wpdb->query( 'START TRANSACTION' );
 
         try {
-            $invited_supplier_id = null;
-            $invite_email_sent = false;
+            $invited_supplier_ids = array(); // Array of supplier IDs that exist
+            $invite_emails_sent = array(); // Array of emails that were sent (non-existent suppliers)
 
-            // Handle supplier invite (if provided)
-            if ( ! empty( $invite_supplier ) ) {
+            // Handle multiple supplier invites
+            foreach ( $invited_suppliers as $invite_value ) {
+                if ( empty( $invite_value ) ) {
+                    continue;
+                }
+                
                 // Check if it's an email or username
-                if ( is_email( $invite_supplier ) ) {
+                if ( is_email( $invite_value ) ) {
                     // Email: check if user exists
-                    $user = get_user_by( 'email', $invite_supplier );
+                    $user = get_user_by( 'email', $invite_value );
                     if ( $user && in_array( 'n88_supplier_admin', $user->roles, true ) ) {
-                        $invited_supplier_id = $user->ID;
+                        $invited_supplier_ids[] = $user->ID;
                     } else {
                         // Email doesn't exist or user is not a supplier - send invite email
                         $subject = "You've been invited to bid on an RFQ";
                         $message = "You've been invited to submit a bid. Create your supplier account to view details.\n\n";
                         $message .= "Sign up here: " . home_url( '/supplier/onboarding' ) . "\n";
-                        wp_mail( $invite_supplier, $subject, $message );
-                        $invite_email_sent = true;
+                        wp_mail( $invite_value, $subject, $message );
+                        $invite_emails_sent[] = $invite_value;
                         // Do NOT create route yet - wait for supplier to sign up
                     }
                 } else {
                     // Username: find user
-                    $user = get_user_by( 'login', $invite_supplier );
+                    $user = get_user_by( 'login', $invite_value );
                     if ( $user && in_array( 'n88_supplier_admin', $user->roles, true ) ) {
-                        $invited_supplier_id = $user->ID;
+                        $invited_supplier_ids[] = $user->ID;
                     } else {
-                        $errors['invite_supplier'] = 'Supplier not found. Please enter a valid supplier username or email.';
+                        $errors['invited_suppliers'] = 'Supplier "' . esc_html( $invite_value ) . '" not found. Please enter a valid supplier username or email.';
                     }
                 }
             }
+            
+            // Remove duplicates from invited supplier IDs
+            $invited_supplier_ids = array_unique( $invited_supplier_ids );
 
             // Process each item
             foreach ( $validated_items as $item_data ) {
@@ -4011,8 +4036,8 @@ class N88_RFQ_Auth {
                     );
                 }
 
-                // 2. Create designer_invited route (if supplier was invited and found)
-                if ( $invited_supplier_id ) {
+                // 2. Create designer_invited routes (for each invited supplier that exists)
+                foreach ( $invited_supplier_ids as $invited_supplier_id ) {
                     // Check if route already exists (idempotent)
                     $existing_route = $wpdb->get_var( $wpdb->prepare(
                         "SELECT route_id FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d",
@@ -4038,7 +4063,9 @@ class N88_RFQ_Auth {
 
                 // 3. Create system_invited routes (if toggle is ON)
                 if ( $allow_system_invites ) {
-                    $system_suppliers = $this->match_suppliers_for_item( $item, $invited_supplier_id, $wpdb );
+                    // Exclude already invited suppliers from system matching
+                    $exclude_supplier_ids = $invited_supplier_ids;
+                    $system_suppliers = $this->match_suppliers_for_item( $item, $exclude_supplier_ids, $wpdb );
 
                     foreach ( $system_suppliers as $supplier_id ) {
                         // Check if route already exists (idempotent)
@@ -4049,10 +4076,10 @@ class N88_RFQ_Auth {
                         ) );
 
                         if ( ! $existing_route ) {
-                            // Scenario A: If designer invited supplier, system routes are delayed 24h
-                            // Scenario B: If no invite, system routes are immediate
-                            if ( $invited_supplier_id ) {
-                                // Scenario A: Delayed system routes
+                            // Case B: If 1+ invited suppliers exist, system routes are delayed 24h
+                            // Case C: If no invited suppliers, system routes are immediate
+                            if ( ! empty( $invited_supplier_ids ) ) {
+                                // Case B: Delayed system routes (24h delay)
                                 $eligible_after = date( 'Y-m-d H:i:s', strtotime( '+24 hours' ) );
                                 $wpdb->insert(
                                     $rfq_routes_table,
@@ -4067,7 +4094,7 @@ class N88_RFQ_Auth {
                                     array( '%d', '%d', '%s', '%s', '%s', '%s' )
                                 );
                             } else {
-                                // Scenario B: Immediate system routes
+                                // Case C: Immediate system routes
                                 $wpdb->insert(
                                     $rfq_routes_table,
                                     array(
@@ -4088,19 +4115,29 @@ class N88_RFQ_Auth {
 
             $wpdb->query( 'COMMIT' );
 
-            // Build success message
+            // Build success message based on cases
             $message = 'RFQ submitted successfully.';
-            if ( $invited_supplier_id ) {
-                $message .= ' Supplier invited.';
-            }
-            if ( $invite_email_sent ) {
-                $message .= ' Invite email sent to supplier.';
-            }
+            $invited_count = count( $invited_supplier_ids );
+            $email_count = count( $invite_emails_sent );
+            
             if ( $allow_system_invites ) {
-                if ( $invited_supplier_id ) {
-                    $message .= ' We\'ll invite 2 additional suppliers in 24 hours.';
+                if ( $invited_count > 0 ) {
+                    // Toggle ON + supplier email(s) entered
+                    $message .= ' Your invited supplier(s) will receive this request first. WireFrame (OS) will invite additional suppliers after 24 hours.';
+                    if ( $email_count > 0 ) {
+                        $message .= ' Invite email(s) sent to ' . $email_count . ' supplier(s).';
+                    }
                 } else {
+                    // Toggle ON + NO supplier email entered
                     $message .= ' We sent your request to suppliers that match your category and keywords.';
+                }
+            } else {
+                // Toggle OFF - only invited suppliers
+                if ( $invited_count > 0 ) {
+                    $message .= ' We sent this request to your invited supplier(s).';
+                    if ( $email_count > 0 ) {
+                        $message .= ' Invite email(s) sent to ' . $email_count . ' supplier(s).';
+                    }
                 }
             }
 
@@ -4122,11 +4159,11 @@ class N88_RFQ_Auth {
      * Returns up to 2 supplier IDs
      * 
      * @param object $item Item row from database
-     * @param int|null $exclude_supplier_id Supplier ID to exclude (already invited)
+     * @param int|array|null $exclude_supplier_ids Supplier ID(s) to exclude (already invited) - can be single ID or array
      * @param wpdb $wpdb Database instance
      * @return array Array of supplier IDs (max 2)
      */
-    private function match_suppliers_for_item( $item, $exclude_supplier_id = null, $wpdb ) {
+    private function match_suppliers_for_item( $item, $exclude_supplier_ids = null, $wpdb ) {
         $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
         $categories_table = $wpdb->prefix . 'n88_categories';
         $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
@@ -4157,10 +4194,18 @@ class N88_RFQ_Auth {
             $where_params[] = $category_id;
         }
 
-        // Exclude already invited supplier
-        if ( $exclude_supplier_id ) {
-            $where_conditions[] = "sp.supplier_id != %d";
-            $where_params[] = $exclude_supplier_id;
+        // Exclude already invited suppliers (can be single ID or array of IDs)
+        if ( ! empty( $exclude_supplier_ids ) ) {
+            if ( is_array( $exclude_supplier_ids ) ) {
+                if ( count( $exclude_supplier_ids ) > 0 ) {
+                    $placeholders = implode( ',', array_fill( 0, count( $exclude_supplier_ids ), '%d' ) );
+                    $where_conditions[] = "sp.supplier_id NOT IN ({$placeholders})";
+                    $where_params = array_merge( $where_params, $exclude_supplier_ids );
+                }
+            } else {
+                $where_conditions[] = "sp.supplier_id != %d";
+                $where_params[] = $exclude_supplier_ids;
+            }
         }
 
         $where_clause = implode( ' AND ', $where_conditions );
