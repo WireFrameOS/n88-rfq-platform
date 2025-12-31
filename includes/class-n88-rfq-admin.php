@@ -475,7 +475,7 @@ class N88_RFQ_Admin {
     }
 
     /**
-     * Render quotes manager page 
+     * Render quotes manager page
      */
     public function render_quotes_manager() {
         if ( ! $this->check_plugin_access() ) {
@@ -6033,6 +6033,291 @@ class N88_RFQ_Admin {
                     updateDebug('ERROR: Timeout waiting for dependencies');
                 }
             }, 100);
+        })();
+
+        // Commit 2.3.4: RFQ Submission Modal
+        (function() {
+            // Create modal HTML
+            var modalHTML = '<div id="n88-rfq-submission-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 20000; overflow-y: auto;">' +
+                '<div id="n88-rfq-submission-modal-content" style="position: relative; max-width: 600px; margin: 50px auto; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 90vh;">' +
+                '</div>' +
+                '</div>';
+            
+            // Append modal to body if it doesn't exist
+            if (!document.getElementById('n88-rfq-submission-modal')) {
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+            }
+
+            // Global function to open RFQ submission modal
+            window.openRfqSubmissionModal = function(itemIds) {
+                if (!Array.isArray(itemIds) || itemIds.length === 0) {
+                    alert('No items selected.');
+                    return;
+                }
+
+                var modal = document.getElementById('n88-rfq-submission-modal');
+                var modalContent = document.getElementById('n88-rfq-submission-modal-content');
+                if (!modal || !modalContent) return;
+
+                // Build form HTML
+                var formHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
+                    '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote' + (itemIds.length > 1 ? 's' : '') + '</h2>' +
+                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '</div>' +
+                    '<div style="flex: 1; overflow-y: auto; padding: 20px; background-color: #fff;">' +
+                    '<form id="n88-rfq-submission-form" onsubmit="return submitRfqForm(event);">' +
+                    '<input type="hidden" name="item_ids" value=\'' + JSON.stringify(itemIds) + '\' />' +
+                    
+                    // Items section (one form per item, or combined if same delivery)
+                    '<div id="n88-rfq-items-container"></div>' +
+                    
+                    // Invite Supplier section
+                    '<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">' +
+                    '<h3 style="margin: 0 0 12px 0; font-size: 16px; font-weight: 600; color: #333;">Invite a Supplier</h3>' +
+                    '<p style="margin: 0 0 12px 0; font-size: 13px; color: #666;">Enter an existing supplier username or an email address.</p>' +
+                    '<input type="text" id="n88-invite-supplier" name="invite_supplier" placeholder="Username or email" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;" />' +
+                    '</div>' +
+                    
+                    // System Invites toggle
+                    '<div style="margin-top: 24px;">' +
+                    '<label style="display: flex; align-items: center; cursor: pointer;">' +
+                    '<input type="checkbox" id="n88-allow-system-invites" name="allow_system_invites" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;" onchange="updateSystemInvitesMessage()" />' +
+                    '<span style="font-size: 14px; font-weight: 500; color: #333;">Allow the system to invite additional suppliers</span>' +
+                    '</label>' +
+                    '<div id="n88-system-invites-message" style="margin-top: 8px; font-size: 13px; color: #666; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // Submit button
+                    '<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">' +
+                    '<button type="submit" id="n88-submit-rfq-btn" style="width: 100%; padding: 12px 24px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer;">Submit RFQ</button>' +
+                    '<div id="n88-rfq-errors" style="margin-top: 12px; color: #d32f2f; font-size: 13px; display: none;"></div>' +
+                    '</div>' +
+                    '</form>' +
+                    '</div>';
+
+                modalContent.innerHTML = formHTML;
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+
+                // Load item forms
+                loadItemForms(itemIds);
+                updateSystemInvitesMessage();
+            };
+
+            // Load forms for each item
+            function loadItemForms(itemIds) {
+                var container = document.getElementById('n88-rfq-items-container');
+                if (!container) return;
+
+                container.innerHTML = '';
+
+                itemIds.forEach(function(itemId, index) {
+                    var itemHTML = '<div class="n88-rfq-item-form" data-item-id="' + itemId + '" style="margin-bottom: 30px; padding-bottom: 30px; border-bottom: 1px solid #e0e0e0;">' +
+                        '<h4 style="margin: 0 0 16px 0; font-size: 15px; font-weight: 600; color: #333;">Item #' + itemId + '</h4>' +
+                        
+                        // Quantity
+                        '<div style="margin-bottom: 16px;">' +
+                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #333;">Quantity <span style="color: #d32f2f;">*</span></label>' +
+                        '<input type="number" name="quantity[]" min="1" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;" />' +
+                        '</div>' +
+                        
+                        // Dimensions
+                        '<div style="margin-bottom: 16px;">' +
+                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #333;">Dimensions <span style="color: #d32f2f;">*</span></label>' +
+                        '<div style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+                        '<input type="number" name="width[]" step="0.01" min="0.01" placeholder="Width" required style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" />' +
+                        '<input type="number" name="depth[]" step="0.01" min="0.01" placeholder="Depth" required style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" />' +
+                        '<input type="number" name="height[]" step="0.01" min="0.01" placeholder="Height" required style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" />' +
+                        '</div>' +
+                        '<select name="dimension_unit[]" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">' +
+                        '<option value="in">Inches</option>' +
+                        '<option value="cm">Centimeters</option>' +
+                        '</select>' +
+                        '</div>' +
+                        
+                        // Delivery
+                        '<div style="margin-bottom: 16px;">' +
+                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #333;">Delivery Country <span style="color: #d32f2f;">*</span></label>' +
+                        '<input type="text" name="delivery_country[]" maxlength="2" placeholder="US, CA, GB, etc." required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; text-transform: uppercase;" />' +
+                        '</div>' +
+                        
+                        '<div style="margin-bottom: 16px;">' +
+                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #333;">ZIP/Postal Code</label>' +
+                        '<input type="text" name="delivery_postal[]" placeholder="Required for US/CA" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;" />' +
+                        '<div id="n88-delivery-note-' + itemId + '" style="margin-top: 8px; font-size: 12px; color: #666; display: none;"></div>' +
+                        '</div>' +
+                        '</div>';
+
+                    container.insertAdjacentHTML('beforeend', itemHTML);
+                });
+
+                // Add delivery country change listeners
+                var countryInputs = container.querySelectorAll('input[name="delivery_country[]"]');
+                countryInputs.forEach(function(input) {
+                    input.addEventListener('input', function() {
+                        var itemForm = input.closest('.n88-rfq-item-form');
+                        var itemId = itemForm ? itemForm.getAttribute('data-item-id') : '';
+                        var country = input.value.toUpperCase();
+                        var postalInput = itemForm ? itemForm.querySelector('input[name="delivery_postal[]"]') : null;
+                        var noteDiv = document.getElementById('n88-delivery-note-' + itemId);
+
+                        if (country === 'US' || country === 'CA') {
+                            if (postalInput) postalInput.required = true;
+                            if (noteDiv) {
+                                noteDiv.style.display = 'block';
+                                noteDiv.textContent = 'ZIP/postal code is required for US and Canada.';
+                            }
+                        } else {
+                            if (postalInput) postalInput.required = false;
+                            if (noteDiv && country.length === 2) {
+                                noteDiv.style.display = 'block';
+                                noteDiv.textContent = 'We\'re not able to calculate an instant shipping estimate for this delivery location yet, but our team can get back to you with a shipping range within 24 hours.';
+                            } else if (noteDiv) {
+                                noteDiv.style.display = 'none';
+                            }
+                        }
+                    });
+                });
+            }
+
+            // Update system invites message
+            window.updateSystemInvitesMessage = function() {
+                var checkbox = document.getElementById('n88-allow-system-invites');
+                var messageDiv = document.getElementById('n88-system-invites-message');
+                var inviteInput = document.getElementById('n88-invite-supplier');
+
+                if (!checkbox || !messageDiv) return;
+
+                if (checkbox.checked) {
+                    messageDiv.style.display = 'block';
+                    if (inviteInput && inviteInput.value.trim()) {
+                        messageDiv.textContent = 'We\'ll invite 2 additional suppliers in 24 hours.';
+                    } else {
+                        messageDiv.textContent = 'We sent your request to 2 suppliers that match your category and keywords.';
+                    }
+                } else {
+                    messageDiv.style.display = 'none';
+                }
+            };
+
+            // Close modal
+            window.closeRfqSubmissionModal = function() {
+                var modal = document.getElementById('n88-rfq-submission-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            };
+
+            // Submit form
+            window.submitRfqForm = function(e) {
+                e.preventDefault();
+
+                var form = document.getElementById('n88-rfq-submission-form');
+                var submitBtn = document.getElementById('n88-submit-rfq-btn');
+                var errorsDiv = document.getElementById('n88-rfq-errors');
+                var itemIdsJson = form.querySelector('input[name="item_ids"]').value;
+                var itemIds = JSON.parse(itemIdsJson);
+
+                if (!form || !submitBtn) return false;
+
+                // Disable submit button
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+                errorsDiv.style.display = 'none';
+
+                // Collect form data
+                var items = [];
+                var itemForms = form.querySelectorAll('.n88-rfq-item-form');
+                itemForms.forEach(function(itemForm, index) {
+                    var itemId = parseInt(itemForm.getAttribute('data-item-id'));
+                    var quantity = parseInt(itemForm.querySelector('input[name="quantity[]"]').value);
+                    var width = parseFloat(itemForm.querySelector('input[name="width[]"]').value);
+                    var depth = parseFloat(itemForm.querySelector('input[name="depth[]"]').value);
+                    var height = parseFloat(itemForm.querySelector('input[name="height[]"]').value);
+                    var dimensionUnit = itemForm.querySelector('select[name="dimension_unit[]"]').value;
+                    var deliveryCountry = itemForm.querySelector('input[name="delivery_country[]"]').value.toUpperCase().trim();
+                    var deliveryPostal = itemForm.querySelector('input[name="delivery_postal[]"]').value.trim();
+
+                    items.push({
+                        item_id: itemId,
+                        quantity: quantity,
+                        width: width,
+                        depth: depth,
+                        height: height,
+                        dimension_unit: dimensionUnit,
+                        delivery_country: deliveryCountry,
+                        delivery_postal: deliveryPostal,
+                    });
+                });
+
+                var inviteSupplier = document.getElementById('n88-invite-supplier').value.trim();
+                var allowSystemInvites = document.getElementById('n88-allow-system-invites').checked;
+
+                // Validate: Scenario B
+                if (!inviteSupplier && !allowSystemInvites) {
+                    errorsDiv.style.display = 'block';
+                    errorsDiv.textContent = 'Please invite a supplier or allow the system to invite suppliers.';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit RFQ';
+                    return false;
+                }
+
+                // Submit via AJAX
+                var formData = new FormData();
+                formData.append('action', 'n88_submit_rfq');
+                formData.append('items', JSON.stringify(items));
+                formData.append('invite_supplier', inviteSupplier);
+                formData.append('allow_system_invites', allowSystemInvites ? '1' : '0');
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_rfq' ); ?>');
+
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        alert(data.data.message || 'RFQ submitted successfully!');
+                        closeRfqSubmissionModal();
+                        // Optionally reload page or refresh queue
+                        if (window.location.href.indexOf('admin.php') > -1) {
+                            window.location.reload();
+                        }
+                    } else {
+                        errorsDiv.style.display = 'block';
+                        if (data.data && data.data.errors) {
+                            var errorMessages = [];
+                            for (var key in data.data.errors) {
+                                errorMessages.push(data.data.errors[key]);
+                            }
+                            errorsDiv.textContent = errorMessages.join(' ');
+                        } else {
+                            errorsDiv.textContent = data.data && data.data.message ? data.data.message : 'An error occurred. Please try again.';
+                        }
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Submit RFQ';
+                    }
+                })
+                .catch(function(error) {
+                    errorsDiv.style.display = 'block';
+                    errorsDiv.textContent = 'Network error. Please try again.';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit RFQ';
+                });
+
+                return false;
+            };
+
+            // Close modal on backdrop click
+            document.addEventListener('click', function(e) {
+                var modal = document.getElementById('n88-rfq-submission-modal');
+                if (modal && e.target === modal) {
+                    closeRfqSubmissionModal();
+                }
+            });
         })();
         </script>
         <?php

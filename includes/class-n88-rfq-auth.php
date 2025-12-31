@@ -47,6 +47,9 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.3: Supplier bid validation (no persistence)
         add_action( 'wp_ajax_n88_validate_supplier_bid', array( $this, 'ajax_validate_supplier_bid' ) );
+        
+        // Commit 2.3.4: RFQ submission routing
+        add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -1095,40 +1098,103 @@ class N88_RFQ_Auth {
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Demo data from wireframe -->
-                        <tr style="border-bottom: 1px solid #e0e0e0;">
-                            <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#1023</td>
-                            <td style="padding: 15px; font-size: 14px; color: #333;">Curved Sofa</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Upholstery</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Pricing Req</td>
+                        <?php
+                        // DEMO ITEM FOR TESTING (Commit 2.3.2/2.3.3) - Remove when routing is implemented
+                        $demo_item_id = 9999;
+                        $demo_item = array(
+                            'id' => $demo_item_id,
+                            'title' => 'Demo Curved Sofa',
+                            'category' => 'Upholstery',
+                            'request_type' => 'Pricing Req',
+                            'route_type' => 'designer_invited'
+                        );
+                        ?>
+                        <tr style="border-bottom: 1px solid #e0e0e0; background-color: #fff9e6;">
+                            <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#<?php echo esc_html( $demo_item_id ); ?> <span style="font-size: 11px; color: #999;">(Demo)</span></td>
+                            <td style="padding: 15px; font-size: 14px; color: #333;"><?php echo esc_html( $demo_item['title'] ); ?></td>
+                            <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo esc_html( $demo_item['category'] ); ?></td>
+                            <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo esc_html( $demo_item['request_type'] ); ?></td>
                             <td style="padding: 15px;">
-                                <button class="n88-open-bid-modal" data-item-id="1023" data-item-title="Curved Sofa" data-category="Upholstery" data-request-type="Pricing Req" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
+                                <button class="n88-open-bid-modal" data-item-id="<?php echo esc_attr( $demo_item_id ); ?>" data-item-title="<?php echo esc_attr( $demo_item['title'] ); ?>" data-category="<?php echo esc_attr( $demo_item['category'] ); ?>" data-request-type="<?php echo esc_attr( $demo_item['request_type'] ); ?>" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
                                     Open ►
                                 </button>
                             </td>
                         </tr>
-                        <tr style="border-bottom: 1px solid #e0e0e0;">
-                            <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#1027</td>
-                            <td style="padding: 15px; font-size: 14px; color: #333;">Dining Chair</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Casegoods</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Awaiting Bid</td>
-                            <td style="padding: 15px;">
-                                <button class="n88-open-bid-modal" data-item-id="1027" data-item-title="Dining Chair" data-category="Casegoods" data-request-type="Awaiting Bid" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                                    Open ►
-                                </button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#1031</td>
-                            <td style="padding: 15px; font-size: 14px; color: #333;">Banquette</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Upholstery</td>
-                            <td style="padding: 15px; font-size: 14px; color: #666;">Bid Submitted</td>
-                            <td style="padding: 15px;">
-                                <button class="n88-open-bid-modal" data-item-id="1031" data-item-title="Banquette" data-category="Upholstery" data-request-type="Bid Submitted" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                                    View ►
-                                </button>
-                            </td>
-                        </tr>
+                        <?php
+                        // Fetch real routed items from database (Commit 2.3.2)
+                        global $wpdb;
+                        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+                        $items_table = $wpdb->prefix . 'n88_items';
+                        $categories_table = $wpdb->prefix . 'n88_categories';
+                        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                        
+                        // Get items routed to this supplier
+                        $routed_items = $wpdb->get_results( $wpdb->prepare(
+                            "SELECT DISTINCT
+                                r.item_id,
+                                r.status as route_status,
+                                r.route_type,
+                                i.id,
+                                i.title,
+                                i.item_type,
+                                i.status as item_status,
+                                c.name as category_name,
+                                b.status as bid_status
+                            FROM {$rfq_routes_table} r
+                            INNER JOIN {$items_table} i ON r.item_id = i.id
+                            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+                            LEFT JOIN {$item_bids_table} b ON r.item_id = b.item_id AND r.supplier_id = b.supplier_id
+                            WHERE r.supplier_id = %d
+                            AND r.status IN ('queued', 'sent', 'viewed', 'bid_submitted')
+                            AND i.deleted_at IS NULL
+                            ORDER BY r.route_id DESC",
+                            $current_user->ID
+                        ), ARRAY_A );
+                        
+                        // Display real routed items
+                        if ( ! empty( $routed_items ) ) {
+                            foreach ( $routed_items as $item ) {
+                                $item_id = intval( $item['id'] );
+                                // Skip demo item if it exists in real data
+                                if ( $item_id === $demo_item_id ) {
+                                    continue;
+                                }
+                                $item_title = esc_html( $item['title'] ?: 'Untitled Item' );
+                                $category = esc_html( $item['category_name'] ?: $item['item_type'] ?: 'Uncategorized' );
+                                
+                                // Determine request type based on bid status
+                                $request_type = 'Awaiting Bid';
+                                if ( ! empty( $item['bid_status'] ) ) {
+                                    if ( $item['bid_status'] === 'submitted' ) {
+                                        $request_type = 'Bid Submitted';
+                                    } elseif ( $item['bid_status'] === 'awarded' ) {
+                                        $request_type = 'Awarded';
+                                    } elseif ( $item['bid_status'] === 'declined' ) {
+                                        $request_type = 'Declined';
+                                    }
+                                } elseif ( $item['route_status'] === 'queued' ) {
+                                    $request_type = 'Queued';
+                                } elseif ( $item['route_status'] === 'sent' ) {
+                                    $request_type = 'Pricing Req';
+                                }
+                                
+                                $button_text = ( ! empty( $item['bid_status'] ) && $item['bid_status'] === 'submitted' ) ? 'View ►' : 'Open ►';
+                                ?>
+                                <tr style="border-bottom: 1px solid #e0e0e0;">
+                                    <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#<?php echo esc_html( $item_id ); ?></td>
+                                    <td style="padding: 15px; font-size: 14px; color: #333;"><?php echo $item_title; ?></td>
+                                    <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo $category; ?></td>
+                                    <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo esc_html( $request_type ); ?></td>
+                                    <td style="padding: 15px;">
+                                        <button class="n88-open-bid-modal" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-item-title="<?php echo esc_attr( $item_title ); ?>" data-category="<?php echo esc_attr( $category ); ?>" data-request-type="<?php echo esc_attr( $request_type ); ?>" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
+                                            <?php echo esc_html( $button_text ); ?>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <?php
+                            }
+                        }
+                        ?>
                     </tbody>
                 </table>
             </div>
@@ -1141,9 +1207,16 @@ class N88_RFQ_Auth {
             </div>
         </div>
         
-        <!-- Supplier Bid Modal -->
+        <!-- Supplier RFQ Detail Modal (Commit 2.3.2) -->
         <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 10000; overflow: hidden;">
             <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 0; right: 0; width: 480px; max-width: 90vw; height: 100vh; background-color: #fff; box-shadow: -2px 0 10px rgba(0,0,0,0.2); z-index: 10001; display: flex; flex-direction: column; overflow: hidden;">
+                <!-- Modal content will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <!-- Supplier Bid Form Modal (Commit 2.3.3) -->
+        <div id="n88-supplier-bid-form-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 10002; overflow: hidden;">
+            <div id="n88-supplier-bid-form-modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; max-width: 90vw; max-height: 90vh; background-color: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border-radius: 8px;">
                 <!-- Modal content will be populated by JavaScript -->
             </div>
         </div>
@@ -1404,10 +1477,11 @@ class N88_RFQ_Auth {
                     // 1. Video links (min 1, max 3)
                     '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Video Links <span style="color: #d32f2f;">*</span></label>' +
+                    '<div style="font-size: 11px; color: #888; margin-bottom: 4px; font-style: italic;">Add video of similar item so designer can see your capability</div>' +
                     '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Paste up to 3 links (YouTube, Vimeo, or Loom). At least 1 is required.</div>' +
                     '<div id="n88-video-links-container">' +
                     '<div style="margin-bottom: 8px; display: flex; gap: 8px;">' +
-                    '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" />' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
                     '<button type="button" onclick="removeVideoLink(this)" style="padding: 10px 16px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer; display: none;">Remove</button>' +
                     '</div>' +
                     '</div>' +
@@ -1495,8 +1569,10 @@ class N88_RFQ_Auth {
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
                 
-                // Initial validation
-                validateBidForm();
+                // Initial validation - use setTimeout to ensure DOM is ready
+                setTimeout(function() {
+                    validateBidForm();
+                }, 100);
             }
             
             // Close bid form modal
@@ -1605,7 +1681,8 @@ class N88_RFQ_Auth {
                 if (errorDiv) {
                     errorDiv.style.display = 'none';
                 }
-                validateBidForm();
+                // Don't call validateBidForm() here to avoid infinite recursion
+                // Validation will be triggered by oninput/onchange events
                 return true;
             }
             
@@ -1620,10 +1697,29 @@ class N88_RFQ_Auth {
                 // 1. Video links: min 1, max 3, all valid
                 var videoLinks = form.querySelectorAll('.n88-video-link-input');
                 var validVideoLinks = 0;
+                var allowedDomains = [
+                    'youtube.com', 'youtu.be', 'www.youtube.com',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                ];
+                
                 videoLinks.forEach(function(input) {
                     var url = input.value.trim();
-                    if (url && validateVideoLink(input)) {
-                        validVideoLinks++;
+                    if (url) {
+                        // Validate URL format and domain
+                        try {
+                            var urlObj = new URL(url);
+                            var hostname = urlObj.hostname.toLowerCase().replace('www.', '');
+                            var isAllowed = allowedDomains.some(function(domain) {
+                                var domainClean = domain.replace('www.', '');
+                                return hostname === domainClean || hostname.endsWith('.' + domainClean);
+                            });
+                            if (isAllowed) {
+                                validVideoLinks++;
+                            }
+                        } catch (e) {
+                            // Invalid URL format - don't count
+                        }
                     }
                 });
                 
@@ -1645,8 +1741,12 @@ class N88_RFQ_Auth {
                 
                 // 4. Prototype cost: numeric >= 0
                 var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                var costValue = parseFloat(prototypeCost ? prototypeCost.value : 0);
-                if (!prototypeCost || !prototypeCost.value || isNaN(costValue) || costValue < 0) {
+                if (prototypeCost && prototypeCost.value) {
+                    var costValue = parseFloat(prototypeCost.value);
+                    if (isNaN(costValue) || costValue < 0) {
+                        isValid = false;
+                    }
+                } else {
                     isValid = false;
                 }
                 
@@ -1658,14 +1758,18 @@ class N88_RFQ_Auth {
                 
                 // 6. Production lead time: non-empty
                 var leadTime = form.querySelector('input[name="production_lead_time_text"]');
-                if (!leadTime || !leadTime.value.trim()) {
+                if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
                     isValid = false;
                 }
                 
                 // 7. Unit price: numeric > 0
                 var unitPrice = form.querySelector('input[name="unit_price"]');
-                var priceValue = parseFloat(unitPrice ? unitPrice.value : 0);
-                if (!unitPrice || !unitPrice.value || isNaN(priceValue) || priceValue <= 0) {
+                if (unitPrice && unitPrice.value) {
+                    var priceValue = parseFloat(unitPrice.value);
+                    if (isNaN(priceValue) || priceValue <= 0) {
+                        isValid = false;
+                    }
+                } else {
                     isValid = false;
                 }
                 
@@ -1682,6 +1786,20 @@ class N88_RFQ_Auth {
                         submitBtn.style.color = '#666';
                         submitBtn.style.cursor = 'not-allowed';
                     }
+                }
+                
+                // Debug: Log validation status (remove in production)
+                if (window.console && window.console.log) {
+                    console.log('Bid form validation:', {
+                        validVideoLinks: validVideoLinks,
+                        prototypeYes: prototypeYes ? prototypeYes.checked : false,
+                        timeline: timeline ? timeline.value : '',
+                        prototypeCost: prototypeCost ? prototypeCost.value : '',
+                        cadYes: cadYes ? cadYes.value : '',
+                        leadTime: leadTime ? leadTime.value : '',
+                        unitPrice: unitPrice ? unitPrice.value : '',
+                        isValid: isValid
+                    });
                 }
                 
                 return isValid;
@@ -1812,6 +1930,16 @@ class N88_RFQ_Auth {
                     modal.addEventListener('click', function(e) {
                         if (e.target === modal) {
                             closeBidModal();
+                        }
+                    });
+                }
+                
+                // Close bid form modal on backdrop click
+                var bidFormModal = document.getElementById('n88-supplier-bid-form-modal');
+                if (bidFormModal) {
+                    bidFormModal.addEventListener('click', function(e) {
+                        if (e.target === bidFormModal) {
+                            closeBidFormModal();
                         }
                     });
                 }
@@ -3315,6 +3443,35 @@ class N88_RFQ_Auth {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
         }
 
+        // DEMO ITEM FOR TESTING (Commit 2.3.2/2.3.3) - Remove when routing is implemented
+        $demo_item_id = 9999;
+        if ( $item_id === $demo_item_id ) {
+            // Return demo item data
+            $response = array(
+                'item_id' => $demo_item_id,
+                'title' => 'Demo Curved Sofa',
+                'description' => 'Modern curved sofa for reception area. This is a demo item for testing the RFQ detail view and bid modal functionality.',
+                'category' => 'Upholstery',
+                'image_url' => '', // No image for demo
+                'quantity' => 2,
+                'dimensions' => array(
+                    'w' => 240,
+                    'd' => 100,
+                    'h' => 85,
+                    'unit' => 'cm'
+                ),
+                'sourcing_type' => 'furniture',
+                'timeline_type' => '6-step furniture',
+                'delivery_country' => 'US',
+                'delivery_postal_code' => '10001',
+                'shipping_mode_label' => 'Instant shipping estimate available',
+                'route_label' => 'Designer-invited RFQ',
+                'reference_images' => array(),
+                'media_links' => array(),
+            );
+            wp_send_json_success( $response );
+        }
+
         global $wpdb;
         $items_table = $wpdb->prefix . 'n88_items';
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
@@ -3339,15 +3496,31 @@ class N88_RFQ_Auth {
         }
 
         // Fetch item data
+        // First check if item exists (even if deleted)
+        $item_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        
+        if ( ! $item_exists || intval( $item_exists ) === 0 ) {
+            wp_send_json_error( array( 'message' => 'Item not found. Item ID: ' . $item_id . ' does not exist in the database.' ) );
+        }
+        
+        // Now fetch the item (must not be deleted)
         $item = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, title, description, item_type, primary_image_id, meta_json, quantity
+            "SELECT id, title, description, item_type, primary_image_id, meta_json, quantity, deleted_at
              FROM {$items_table}
-             WHERE id = %d AND deleted_at IS NULL",
+             WHERE id = %d",
             $item_id
         ), ARRAY_A );
 
         if ( ! $item ) {
             wp_send_json_error( array( 'message' => 'Item not found.' ) );
+        }
+        
+        // Check if item is soft-deleted
+        if ( ! empty( $item['deleted_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Item has been deleted. deleted_at: ' . esc_html( $item['deleted_at'] ) ) );
         }
 
         // Parse meta_json for dimensions, sourcing_type, timeline_type, etc.
@@ -3505,21 +3678,27 @@ class N88_RFQ_Auth {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
         }
 
-        // Verify supplier has route for this item (unless system operator)
-        if ( ! $is_system_operator ) {
-            global $wpdb;
-            $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
-            $route_exists = $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$rfq_routes_table} 
-                WHERE item_id = %d 
-                AND supplier_id = %d 
-                AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
-                $item_id,
-                $current_user->ID
-            ) );
+        // DEMO ITEM FOR TESTING (Commit 2.3.3) - Allow demo item without route check
+        $demo_item_id = 9999;
+        if ( $item_id === $demo_item_id ) {
+            // Skip route check for demo item - allow validation
+        } else {
+            // Verify supplier has route for this item (unless system operator)
+            if ( ! $is_system_operator ) {
+                global $wpdb;
+                $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+                $route_exists = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                    WHERE item_id = %d 
+                    AND supplier_id = %d 
+                    AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                    $item_id,
+                    $current_user->ID
+                ) );
 
-            if ( ! $route_exists || intval( $route_exists ) === 0 ) {
-                wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+                if ( ! $route_exists || intval( $route_exists ) === 0 ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+                }
             }
         }
 
@@ -3633,6 +3812,376 @@ class N88_RFQ_Auth {
         wp_send_json_success( array(
             'message' => 'Bid validation successful. (Note: Bid is not saved yet - this will be implemented in Commit 2.3.4)',
         ) );
+    }
+
+    /**
+     * AJAX handler for RFQ submission routing (Commit 2.3.4)
+     * Handles single-item and multi-item submissions
+     * Creates routes and delivery context per item
+     */
+    public function ajax_submit_rfq() {
+        check_ajax_referer( 'n88_submit_rfq', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+
+        if ( ! $is_designer && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer or System Operator account required.' ) );
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+        $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->prefix . 'users';
+
+        // Parse input: items array (each item has: item_id, quantity, dimensions, delivery)
+        $items_json = isset( $_POST['items'] ) ? wp_unslash( $_POST['items'] ) : '[]';
+        $items = json_decode( $items_json, true );
+
+        if ( ! is_array( $items ) || empty( $items ) ) {
+            wp_send_json_error( array( 'message' => 'At least one item is required.' ) );
+        }
+
+        // Routing options
+        $invite_supplier = isset( $_POST['invite_supplier'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['invite_supplier'] ) ) ) : '';
+        $allow_system_invites = isset( $_POST['allow_system_invites'] ) ? (bool) $_POST['allow_system_invites'] : false;
+
+        // Validation: Scenario B - if no invite and toggle OFF, block
+        if ( empty( $invite_supplier ) && ! $allow_system_invites ) {
+            wp_send_json_error( array(
+                'message' => 'Please invite a supplier or allow the system to invite suppliers.',
+                'errors' => array( 'routing' => 'At least one routing option must be selected.' ),
+            ) );
+        }
+
+        $errors = array();
+        $validated_items = array();
+
+        // Validate each item
+        foreach ( $items as $index => $item_data ) {
+            $item_id = isset( $item_data['item_id'] ) ? intval( $item_data['item_id'] ) : 0;
+            $quantity = isset( $item_data['quantity'] ) ? intval( $item_data['quantity'] ) : 0;
+            $width = isset( $item_data['width'] ) ? floatval( $item_data['width'] ) : 0;
+            $depth = isset( $item_data['depth'] ) ? floatval( $item_data['depth'] ) : 0;
+            $height = isset( $item_data['height'] ) ? floatval( $item_data['height'] ) : 0;
+            $dimension_unit = isset( $item_data['dimension_unit'] ) ? sanitize_text_field( $item_data['dimension_unit'] ) : 'in';
+            $delivery_country = isset( $item_data['delivery_country'] ) ? strtoupper( trim( sanitize_text_field( $item_data['delivery_country'] ) ) ) : '';
+            $delivery_postal = isset( $item_data['delivery_postal'] ) ? trim( sanitize_text_field( $item_data['delivery_postal'] ) ) : '';
+
+            // Validate item exists and user owns it
+            $item = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id, owner_user_id, item_type, deleted_at FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+
+            if ( ! $item || $item->deleted_at !== null ) {
+                $errors[ "item_{$index}" ] = "Item #{$item_id} not found or deleted.";
+                continue;
+            }
+
+            if ( (int) $item->owner_user_id !== $current_user->ID && ! $is_system_operator ) {
+                $errors[ "item_{$index}" ] = "You do not have permission to submit RFQ for item #{$item_id}.";
+                continue;
+            }
+
+            // Validate quantity
+            if ( $quantity < 1 ) {
+                $errors[ "item_{$index}_quantity" ] = 'Quantity must be at least 1.';
+            }
+
+            // Validate dimensions
+            if ( $width <= 0 || $depth <= 0 || $height <= 0 ) {
+                $errors[ "item_{$index}_dimensions" ] = 'All dimensions (width, depth, height) must be greater than 0.';
+            }
+
+            if ( ! in_array( $dimension_unit, array( 'in', 'cm' ), true ) ) {
+                $errors[ "item_{$index}_dimension_unit" ] = 'Dimension unit must be "in" or "cm".';
+            }
+
+            // Validate delivery country
+            if ( empty( $delivery_country ) || strlen( $delivery_country ) !== 2 ) {
+                $errors[ "item_{$index}_delivery_country" ] = 'Valid delivery country code (2 letters) is required.';
+            }
+
+            // Validate ZIP for US/CA
+            if ( in_array( $delivery_country, array( 'US', 'CA' ), true ) && empty( $delivery_postal ) ) {
+                $errors[ "item_{$index}_delivery_postal" ] = 'ZIP/postal code is required for US and Canada.';
+            }
+
+            if ( empty( $errors ) ) {
+                $validated_items[] = array(
+                    'item_id' => $item_id,
+                    'item' => $item,
+                    'quantity' => $quantity,
+                    'width' => $width,
+                    'depth' => $depth,
+                    'height' => $height,
+                    'dimension_unit' => $dimension_unit,
+                    'delivery_country' => $delivery_country,
+                    'delivery_postal' => $delivery_postal,
+                );
+            }
+        }
+
+        // If validation errors, return them
+        if ( ! empty( $errors ) ) {
+            wp_send_json_error( array(
+                'message' => 'Validation failed. Please correct the errors below.',
+                'errors' => $errors,
+            ) );
+        }
+
+        // Start transaction
+        $wpdb->query( 'START TRANSACTION' );
+
+        try {
+            $invited_supplier_id = null;
+            $invite_email_sent = false;
+
+            // Handle supplier invite (if provided)
+            if ( ! empty( $invite_supplier ) ) {
+                // Check if it's an email or username
+                if ( is_email( $invite_supplier ) ) {
+                    // Email: check if user exists
+                    $user = get_user_by( 'email', $invite_supplier );
+                    if ( $user && in_array( 'n88_supplier_admin', $user->roles, true ) ) {
+                        $invited_supplier_id = $user->ID;
+                    } else {
+                        // Email doesn't exist or user is not a supplier - send invite email
+                        $subject = "You've been invited to bid on an RFQ";
+                        $message = "You've been invited to submit a bid. Create your supplier account to view details.\n\n";
+                        $message .= "Sign up here: " . home_url( '/supplier/onboarding' ) . "\n";
+                        wp_mail( $invite_supplier, $subject, $message );
+                        $invite_email_sent = true;
+                        // Do NOT create route yet - wait for supplier to sign up
+                    }
+                } else {
+                    // Username: find user
+                    $user = get_user_by( 'login', $invite_supplier );
+                    if ( $user && in_array( 'n88_supplier_admin', $user->roles, true ) ) {
+                        $invited_supplier_id = $user->ID;
+                    } else {
+                        $errors['invite_supplier'] = 'Supplier not found. Please enter a valid supplier username or email.';
+                    }
+                }
+            }
+
+            // Process each item
+            foreach ( $validated_items as $item_data ) {
+                $item_id = $item_data['item_id'];
+                $item = $item_data['item'];
+
+                // 1. Write/update delivery context
+                $shipping_mode = in_array( $item_data['delivery_country'], array( 'US', 'CA' ), true ) ? 'auto' : 'manual';
+
+                $existing_delivery = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT item_id FROM {$item_delivery_context_table} WHERE item_id = %d",
+                    $item_id
+                ) );
+
+                $delivery_data = array(
+                    'item_id' => $item_id,
+                    'delivery_country_code' => $item_data['delivery_country'],
+                    'delivery_postal_code' => ! empty( $item_data['delivery_postal'] ) ? $item_data['delivery_postal'] : null,
+                    'shipping_estimate_mode' => $shipping_mode,
+                );
+
+                if ( $existing_delivery ) {
+                    $wpdb->update(
+                        $item_delivery_context_table,
+                        $delivery_data,
+                        array( 'item_id' => $item_id ),
+                        array( '%d', '%s', '%s', '%s' ),
+                        array( '%d' )
+                    );
+                } else {
+                    $wpdb->insert(
+                        $item_delivery_context_table,
+                        $delivery_data,
+                        array( '%d', '%s', '%s', '%s' )
+                    );
+                }
+
+                // 2. Create designer_invited route (if supplier was invited and found)
+                if ( $invited_supplier_id ) {
+                    // Check if route already exists (idempotent)
+                    $existing_route = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT route_id FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d",
+                        $item_id,
+                        $invited_supplier_id
+                    ) );
+
+                    if ( ! $existing_route ) {
+                        $wpdb->insert(
+                            $rfq_routes_table,
+                            array(
+                                'item_id' => $item_id,
+                                'supplier_id' => $invited_supplier_id,
+                                'route_type' => 'designer_invited',
+                                'eligible_after' => null,
+                                'routed_at' => current_time( 'mysql' ),
+                                'status' => 'sent',
+                            ),
+                            array( '%d', '%d', '%s', '%s', '%s', '%s' )
+                        );
+                    }
+                }
+
+                // 3. Create system_invited routes (if toggle is ON)
+                if ( $allow_system_invites ) {
+                    $system_suppliers = $this->match_suppliers_for_item( $item, $invited_supplier_id, $wpdb );
+
+                    foreach ( $system_suppliers as $supplier_id ) {
+                        // Check if route already exists (idempotent)
+                        $existing_route = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT route_id FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d",
+                            $item_id,
+                            $supplier_id
+                        ) );
+
+                        if ( ! $existing_route ) {
+                            // Scenario A: If designer invited supplier, system routes are delayed 24h
+                            // Scenario B: If no invite, system routes are immediate
+                            if ( $invited_supplier_id ) {
+                                // Scenario A: Delayed system routes
+                                $eligible_after = date( 'Y-m-d H:i:s', strtotime( '+24 hours' ) );
+                                $wpdb->insert(
+                                    $rfq_routes_table,
+                                    array(
+                                        'item_id' => $item_id,
+                                        'supplier_id' => $supplier_id,
+                                        'route_type' => 'system_invited',
+                                        'eligible_after' => $eligible_after,
+                                        'routed_at' => null,
+                                        'status' => 'queued',
+                                    ),
+                                    array( '%d', '%d', '%s', '%s', '%s', '%s' )
+                                );
+                            } else {
+                                // Scenario B: Immediate system routes
+                                $wpdb->insert(
+                                    $rfq_routes_table,
+                                    array(
+                                        'item_id' => $item_id,
+                                        'supplier_id' => $supplier_id,
+                                        'route_type' => 'system_invited',
+                                        'eligible_after' => null,
+                                        'routed_at' => current_time( 'mysql' ),
+                                        'status' => 'sent',
+                                    ),
+                                    array( '%d', '%d', '%s', '%s', '%s', '%s' )
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            $wpdb->query( 'COMMIT' );
+
+            // Build success message
+            $message = 'RFQ submitted successfully.';
+            if ( $invited_supplier_id ) {
+                $message .= ' Supplier invited.';
+            }
+            if ( $invite_email_sent ) {
+                $message .= ' Invite email sent to supplier.';
+            }
+            if ( $allow_system_invites ) {
+                if ( $invited_supplier_id ) {
+                    $message .= ' We\'ll invite 2 additional suppliers in 24 hours.';
+                } else {
+                    $message .= ' We sent your request to suppliers that match your category and keywords.';
+                }
+            }
+
+            wp_send_json_success( array(
+                'message' => $message,
+                'items_processed' => count( $validated_items ),
+            ) );
+
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            wp_send_json_error( array(
+                'message' => 'An error occurred while submitting the RFQ: ' . $e->getMessage(),
+            ) );
+        }
+    }
+
+    /**
+     * Match suppliers for an item based on category, keywords, geography, and status (Commit 2.3.4)
+     * Returns up to 2 supplier IDs
+     * 
+     * @param object $item Item row from database
+     * @param int|null $exclude_supplier_id Supplier ID to exclude (already invited)
+     * @param wpdb $wpdb Database instance
+     * @return array Array of supplier IDs (max 2)
+     */
+    private function match_suppliers_for_item( $item, $exclude_supplier_id = null, $wpdb ) {
+        $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
+
+        // Map item_type to category (simplified - you may need to adjust based on your category structure)
+        // For now, we'll match by item_type directly or find category by name
+        $item_type = $item->item_type;
+
+        // Find category ID by name (item_type should match category name)
+        $category_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT category_id FROM {$categories_table} WHERE name = %s AND is_active = 1 LIMIT 1",
+            $item_type
+        ) );
+
+        // Build base query for supplier matching
+        $where_conditions = array(
+            "sp.is_active = 1",
+            "sp.is_overloaded = 0",
+            "sp.prototype_video_capable = 1",
+            "sp.origin_region IN ('USA', 'ASIA', 'CANADA')",
+        );
+
+        $where_params = array();
+
+        // Category match
+        if ( $category_id ) {
+            $where_conditions[] = "sp.primary_category_id = %d";
+            $where_params[] = $category_id;
+        }
+
+        // Exclude already invited supplier
+        if ( $exclude_supplier_id ) {
+            $where_conditions[] = "sp.supplier_id != %d";
+            $where_params[] = $exclude_supplier_id;
+        }
+
+        $where_clause = implode( ' AND ', $where_conditions );
+
+        // Build query
+        if ( ! empty( $where_params ) ) {
+            $query = $wpdb->prepare(
+                "SELECT sp.supplier_id FROM {$supplier_profiles_table} sp
+                WHERE {$where_clause}
+                LIMIT 2",
+                $where_params
+            );
+        } else {
+            $query = "SELECT sp.supplier_id FROM {$supplier_profiles_table} sp
+                WHERE {$where_clause}
+                LIMIT 2";
+        }
+
+        $supplier_ids = $wpdb->get_col( $query );
+
+        return array_map( 'intval', $supplier_ids );
     }
 }
 

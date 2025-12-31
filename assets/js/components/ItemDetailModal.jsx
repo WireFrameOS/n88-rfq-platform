@@ -798,13 +798,19 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     </button>
                                     <button
                                         type="button"
+                                        onClick={() => {
+                                            // Commit 2.3.4: Open RFQ submission modal
+                                            if (window.openRfqSubmissionModal) {
+                                                window.openRfqSubmissionModal([itemId || item.id || item.item_id]);
+                                            }
+                                        }}
                                         style={{
                                             flex: 1,
                                             padding: '8px 12px',
                                             fontWeight: '500',
-                                            backgroundColor: '#f0f0f0',
-                                            color: '#666',
-                                            border: '1px solid #ddd',
+                                            backgroundColor: '#0073aa',
+                                            color: '#fff',
+                                            border: '1px solid #0073aa',
                                             borderRadius: '4px',
                                             cursor: 'pointer',
                                             fontSize: '12px',
@@ -813,13 +819,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                                         }}
                                         onMouseEnter={(e) => {
-                                            e.target.style.backgroundColor = '#e0e0e0';
+                                            e.target.style.backgroundColor = '#005a87';
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.target.style.backgroundColor = '#f0f0f0';
+                                            e.target.style.backgroundColor = '#0073aa';
                                         }}
                                     >
-                                        Request Shipping
+                                        Request Quote
                                     </button>
                                 </div>
                             </div>
