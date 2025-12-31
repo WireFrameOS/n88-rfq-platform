@@ -44,6 +44,9 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.2: Supplier RFQ detail view (read-only)
         add_action( 'wp_ajax_n88_get_supplier_item_details', array( $this, 'ajax_get_supplier_item_details' ) );
+        
+        // Commit 2.3.3: Supplier bid validation (no persistence)
+        add_action( 'wp_ajax_n88_validate_supplier_bid', array( $this, 'ajax_validate_supplier_bid' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -1357,9 +1360,9 @@ class N88_RFQ_Auth {
                         '</div>' +
                         
                         '</div>' +
-                        // Footer - Read-only notice
-                        '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff;">' +
-                        '<div style="font-size: 12px; color: #999; font-style: italic; text-align: center;">Read-only view. No bid form, prototype UI, or uploads available.</div>' +
+                        // Footer - Start Bid button (Commit 2.3.3)
+                        '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff; display: flex; justify-content: center;">' +
+                        '<button onclick="openBidFormModal(' + item.item_id + ')" style="padding: 12px 24px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.2s;">Start Bid</button>' +
                         '</div>';
                     
                     modalContent.innerHTML = modalHTML;
@@ -1378,6 +1381,420 @@ class N88_RFQ_Auth {
                     modal.style.display = 'none';
                     document.body.style.overflow = '';
                 }
+            }
+            
+            // Commit 2.3.3: Open bid form modal
+            function openBidFormModal(itemId) {
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                var modalContent = document.getElementById('n88-supplier-bid-form-modal-content');
+                
+                if (!modal || !modalContent) return;
+                
+                // Store item ID for form submission
+                modal.setAttribute('data-item-id', itemId);
+                
+                // Build bid form modal HTML
+                var modalHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
+                    '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Submit Bid - Item #' + itemId + '</h2>' +
+                    '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '</div>' +
+                    '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #fff;">' +
+                    '<form id="n88-bid-form" style="padding: 20px;" onsubmit="return validateAndSubmitBid(event);">' +
+                    
+                    // 1. Video links (min 1, max 3)
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Video Links <span style="color: #d32f2f;">*</span></label>' +
+                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Paste up to 3 links (YouTube, Vimeo, or Loom). At least 1 is required.</div>' +
+                    '<div id="n88-video-links-container">' +
+                    '<div style="margin-bottom: 8px; display: flex; gap: 8px;">' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" />' +
+                    '<button type="button" onclick="removeVideoLink(this)" style="padding: 10px 16px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer; display: none;">Remove</button>' +
+                    '</div>' +
+                    '</div>' +
+                    '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 8px 16px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 13px;">+ Add Another Link</button>' +
+                    '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 2. Prototype video commitment (must be YES)
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Will you prepare and video a prototype? <span style="color: #d32f2f;">*</span></label>' +
+                    '<div style="font-size: 12px; color: #856404; margin-bottom: 8px; padding: 8px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">Prototype video is required to submit a bid.</div>' +
+                    '<div style="display: flex; gap: 16px;">' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="prototype_video_yes" value="1" required style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
+                    '<span style="font-size: 14px;">Yes</span>' +
+                    '</label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="prototype_video_yes" value="0" style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
+                    '<span style="font-size: 14px;">No</span>' +
+                    '</label>' +
+                    '</div>' +
+                    '<div id="n88-prototype-video-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 3. Prototype timeline
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Prototype Timeline <span style="color: #d32f2f;">*</span></label>' +
+                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer;" onchange="validateBidForm();">' +
+                    '<option value="">Select timeline...</option>' +
+                    '<option value="1-2w">1–2w</option>' +
+                    '<option value="2-4w">2–4w</option>' +
+                    '<option value="4-6w">4–6w</option>' +
+                    '<option value="6-8w">6–8w</option>' +
+                    '<option value="8-10w">8–10w</option>' +
+                    '</select>' +
+                    '<div id="n88-prototype-timeline-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 4. Prototype cost
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Prototype Cost ($) <span style="color: #d32f2f;">*</span></label>' +
+                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
+                    '<div id="n88-prototype-cost-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 5. CAD / shop drawings
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">CAD / shop drawings for prototype review? <span style="color: #d32f2f;">*</span></label>' +
+                    '<div style="display: flex; gap: 16px;">' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="cad_yes" value="1" required style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
+                    '<span style="font-size: 14px;">Yes</span>' +
+                    '</label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="cad_yes" value="0" style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
+                    '<span style="font-size: 14px;">No</span>' +
+                    '</label>' +
+                    '</div>' +
+                    '<div id="n88-cad-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 6. Production lead time
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Production Lead Time <span style="color: #d32f2f;">*</span></label>' +
+                    '<input type="text" name="production_lead_time_text" required placeholder="e.g., 4-6 weeks" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
+                    '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 7. Unit price
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Unit Price ($) <span style="color: #d32f2f;">*</span></label>' +
+                    '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
+                    '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    '</form>' +
+                    '</div>' +
+                    // Footer with submit button
+                    '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff; display: flex; justify-content: flex-end; gap: 12px;">' +
+                    '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; cursor: pointer;">Cancel</button>' +
+                    '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #ccc; color: #666; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: not-allowed;">Validate Bid</button>' +
+                    '</div>';
+                
+                modalContent.innerHTML = modalHTML;
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                
+                // Initial validation
+                validateBidForm();
+            }
+            
+            // Close bid form modal
+            function closeBidFormModal() {
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            }
+            
+            // Add video link input
+            function addVideoLink() {
+                var container = document.getElementById('n88-video-links-container');
+                var linkCount = container.querySelectorAll('.n88-video-link-input').length;
+                
+                if (linkCount >= 3) {
+                    alert('Maximum 3 video links allowed.');
+                    return;
+                }
+                
+                var newLinkDiv = document.createElement('div');
+                newLinkDiv.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px;';
+                newLinkDiv.innerHTML = '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" />' +
+                    '<button type="button" onclick="removeVideoLink(this)" style="padding: 10px 16px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Remove</button>';
+                
+                container.appendChild(newLinkDiv);
+                
+                // Show remove buttons if more than 1 link
+                updateVideoLinkButtons();
+                validateBidForm();
+            }
+            
+            // Remove video link input
+            function removeVideoLink(button) {
+                var container = document.getElementById('n88-video-links-container');
+                var linkDiv = button.parentElement;
+                container.removeChild(linkDiv);
+                updateVideoLinkButtons();
+                validateBidForm();
+            }
+            
+            // Update video link remove buttons visibility
+            function updateVideoLinkButtons() {
+                var container = document.getElementById('n88-video-links-container');
+                var links = container.querySelectorAll('.n88-video-link-input');
+                var removeButtons = container.querySelectorAll('button[onclick*="removeVideoLink"]');
+                
+                if (links.length > 1) {
+                    removeButtons.forEach(function(btn) { btn.style.display = 'block'; });
+                } else {
+                    removeButtons.forEach(function(btn) { btn.style.display = 'none'; });
+                }
+                
+                // Show/hide add button
+                var addBtn = document.getElementById('n88-add-video-link-btn');
+                if (addBtn) {
+                    addBtn.style.display = links.length >= 3 ? 'none' : 'block';
+                }
+            }
+            
+            // Validate individual video link
+            function validateVideoLink(input) {
+                var url = input.value.trim();
+                var errorDiv = document.getElementById('n88-video-links-error');
+                
+                if (!url) {
+                    input.style.borderColor = '#ddd';
+                    return true; // Empty is OK if not the only link
+                }
+                
+                // Allowed providers: YouTube, Vimeo, Loom
+                var allowedDomains = [
+                    'youtube.com', 'youtu.be', 'www.youtube.com',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                ];
+                
+                var urlObj;
+                try {
+                    urlObj = new URL(url);
+                } catch (e) {
+                    input.style.borderColor = '#d32f2f';
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Invalid URL format.';
+                        errorDiv.style.display = 'block';
+                    }
+                    return false;
+                }
+                
+                var hostname = urlObj.hostname.toLowerCase().replace('www.', '');
+                var isValid = allowedDomains.some(function(domain) {
+                    return hostname === domain || hostname.endsWith('.' + domain);
+                });
+                
+                if (!isValid) {
+                    input.style.borderColor = '#d32f2f';
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Only YouTube, Vimeo, or Loom links are allowed.';
+                        errorDiv.style.display = 'block';
+                    }
+                    return false;
+                }
+                
+                input.style.borderColor = '#28a745';
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                }
+                validateBidForm();
+                return true;
+            }
+            
+            // Validate entire bid form (client-side)
+            function validateBidForm() {
+                var form = document.getElementById('n88-bid-form');
+                if (!form) return false;
+                
+                var isValid = true;
+                var submitBtn = document.getElementById('n88-validate-bid-btn');
+                
+                // 1. Video links: min 1, max 3, all valid
+                var videoLinks = form.querySelectorAll('.n88-video-link-input');
+                var validVideoLinks = 0;
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url && validateVideoLink(input)) {
+                        validVideoLinks++;
+                    }
+                });
+                
+                if (validVideoLinks < 1) {
+                    isValid = false;
+                }
+                
+                // 2. Prototype video must be YES
+                var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
+                if (!prototypeYes || !prototypeYes.checked) {
+                    isValid = false;
+                }
+                
+                // 3. Prototype timeline required
+                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
+                if (!timeline || !timeline.value) {
+                    isValid = false;
+                }
+                
+                // 4. Prototype cost: numeric >= 0
+                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
+                var costValue = parseFloat(prototypeCost ? prototypeCost.value : 0);
+                if (!prototypeCost || !prototypeCost.value || isNaN(costValue) || costValue < 0) {
+                    isValid = false;
+                }
+                
+                // 5. CAD required
+                var cadYes = form.querySelector('input[name="cad_yes"]:checked');
+                if (!cadYes) {
+                    isValid = false;
+                }
+                
+                // 6. Production lead time: non-empty
+                var leadTime = form.querySelector('input[name="production_lead_time_text"]');
+                if (!leadTime || !leadTime.value.trim()) {
+                    isValid = false;
+                }
+                
+                // 7. Unit price: numeric > 0
+                var unitPrice = form.querySelector('input[name="unit_price"]');
+                var priceValue = parseFloat(unitPrice ? unitPrice.value : 0);
+                if (!unitPrice || !unitPrice.value || isNaN(priceValue) || priceValue <= 0) {
+                    isValid = false;
+                }
+                
+                // Enable/disable submit button
+                if (submitBtn) {
+                    if (isValid) {
+                        submitBtn.disabled = false;
+                        submitBtn.style.backgroundColor = '#0073aa';
+                        submitBtn.style.color = '#fff';
+                        submitBtn.style.cursor = 'pointer';
+                    } else {
+                        submitBtn.disabled = true;
+                        submitBtn.style.backgroundColor = '#ccc';
+                        submitBtn.style.color = '#666';
+                        submitBtn.style.cursor = 'not-allowed';
+                    }
+                }
+                
+                return isValid;
+            }
+            
+            // Validate and submit bid (server-side validation)
+            function validateAndSubmitBid(event) {
+                if (event) {
+                    event.preventDefault();
+                }
+                
+                var form = document.getElementById('n88-bid-form');
+                if (!form) return false;
+                
+                // Client-side validation
+                if (!validateBidForm()) {
+                    alert('Please complete all required fields correctly.');
+                    return false;
+                }
+                
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                var itemId = modal ? modal.getAttribute('data-item-id') : null;
+                
+                if (!itemId) {
+                    alert('Item ID not found.');
+                    return false;
+                }
+                
+                // Collect form data
+                var formData = new FormData();
+                formData.append('action', 'n88_validate_supplier_bid');
+                formData.append('item_id', itemId);
+                
+                // Video links
+                var videoLinks = form.querySelectorAll('.n88-video-link-input');
+                var videoLinksArray = [];
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        videoLinksArray.push(url);
+                    }
+                });
+                formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Other fields
+                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('cad_yes', form.querySelector('input[name="cad_yes"]:checked') ? form.querySelector('input[name="cad_yes"]:checked').value : '');
+                formData.append('production_lead_time_text', form.querySelector('input[name="production_lead_time_text"]').value);
+                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
+                
+                // Disable submit button during validation
+                var submitBtn = document.getElementById('n88-validate-bid-btn');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Validating...';
+                }
+                
+                // Submit to server for validation
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Validate Bid';
+                    }
+                    
+                    if (!data.success) {
+                        // Show validation errors
+                        if (data.data && data.data.errors) {
+                            var errorHtml = '<div style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
+                                '<strong style="color: #d32f2f;">Validation Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
+                            for (var field in data.data.errors) {
+                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
+                            }
+                            errorHtml += '</ul></div>';
+                            
+                            var form = document.getElementById('n88-bid-form');
+                            var existingError = form.querySelector('.n88-validation-errors');
+                            if (existingError) {
+                                existingError.remove();
+                            }
+                            form.insertAdjacentHTML('afterbegin', errorHtml);
+                            form.querySelector('.n88-validation-errors').classList.add('n88-validation-errors');
+                            
+                            // Scroll to top
+                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
+                        }
+                    } else {
+                        // Validation passed (but no save in 2.3.3)
+                        alert('Bid validation successful! (Note: Bid is not saved yet - this will be implemented in Commit 2.3.4)');
+                        closeBidFormModal();
+                    }
+                })
+                .catch(function(error) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Validate Bid';
+                    }
+                    alert('Error validating bid. Please try again.');
+                    console.error('Validation error:', error);
+                });
+                
+                return false;
             }
             
             // Attach event listeners
@@ -1403,6 +1820,13 @@ class N88_RFQ_Auth {
             // Expose to global scope
             window.openBidModal = openBidModal;
             window.closeBidModal = closeBidModal;
+            window.openBidFormModal = openBidFormModal;
+            window.closeBidFormModal = closeBidFormModal;
+            window.addVideoLink = addVideoLink;
+            window.removeVideoLink = removeVideoLink;
+            window.validateVideoLink = validateVideoLink;
+            window.validateBidForm = validateBidForm;
+            window.validateAndSubmitBid = validateAndSubmitBid;
         })();
         </script>
         <?php
@@ -3054,6 +3478,161 @@ class N88_RFQ_Auth {
         );
 
         wp_send_json_success( $response );
+    }
+
+    /**
+     * AJAX handler to validate supplier bid (Commit 2.3.3)
+     * Server-side validation only - NO database writes
+     */
+    public function ajax_validate_supplier_bid() {
+        check_ajax_referer( 'n88_validate_supplier_bid', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        // Verify supplier has route for this item (unless system operator)
+        if ( ! $is_system_operator ) {
+            global $wpdb;
+            $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+            $route_exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                WHERE item_id = %d 
+                AND supplier_id = %d 
+                AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                $item_id,
+                $current_user->ID
+            ) );
+
+            if ( ! $route_exists || intval( $route_exists ) === 0 ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+            }
+        }
+
+        $errors = array();
+
+        // 1. Video links validation (min 1, max 3, allowed providers only)
+        $video_links_json = isset( $_POST['video_links'] ) ? wp_unslash( $_POST['video_links'] ) : '[]';
+        $video_links = json_decode( $video_links_json, true );
+        
+        if ( ! is_array( $video_links ) ) {
+            $video_links = array();
+        }
+        
+        // Filter out empty links
+        $video_links = array_filter( array_map( 'trim', $video_links ) );
+        
+        if ( count( $video_links ) < 1 ) {
+            $errors['video_links'] = 'At least 1 video link is required.';
+        } elseif ( count( $video_links ) > 3 ) {
+            $errors['video_links'] = 'Maximum 3 video links allowed.';
+        } else {
+            // Validate each link against allowlist
+            $allowed_domains = array(
+                'youtube.com', 'www.youtube.com', 'youtu.be',
+                'vimeo.com', 'www.vimeo.com',
+                'loom.com', 'www.loom.com'
+            );
+            
+            foreach ( $video_links as $link ) {
+                $parsed_url = wp_parse_url( $link );
+                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                    break;
+                }
+                
+                $hostname = strtolower( $parsed_url['host'] );
+                $hostname = preg_replace( '/^www\./', '', $hostname );
+                
+                $is_allowed = false;
+                foreach ( $allowed_domains as $domain ) {
+                    $domain_clean = preg_replace( '/^www\./', '', $domain );
+                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                        $is_allowed = true;
+                        break;
+                    }
+                }
+                
+                if ( ! $is_allowed ) {
+                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                    break;
+                }
+            }
+        }
+
+        // 2. Prototype video commitment (must be YES)
+        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
+        if ( $prototype_video_yes !== 1 ) {
+            $errors['prototype_video_yes'] = 'Prototype video is required to submit a bid.';
+        }
+
+        // 3. Prototype timeline (required)
+        $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
+        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+        }
+
+        // 4. Prototype cost (numeric >= 0)
+        $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
+        if ( empty( $prototype_cost ) ) {
+            $errors['prototype_cost'] = 'Prototype cost is required.';
+        } else {
+            $prototype_cost_float = floatval( $prototype_cost );
+            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+            }
+        }
+
+        // 5. CAD / shop drawings (required)
+        $cad_yes = isset( $_POST['cad_yes'] ) ? sanitize_text_field( wp_unslash( $_POST['cad_yes'] ) ) : '';
+        if ( empty( $cad_yes ) || ! in_array( $cad_yes, array( '0', '1' ), true ) ) {
+            $errors['cad_yes'] = 'Please specify if you will provide CAD/shop drawings.';
+        }
+
+        // 6. Production lead time (non-empty text)
+        $production_lead_time_text = isset( $_POST['production_lead_time_text'] ) ? sanitize_text_field( wp_unslash( $_POST['production_lead_time_text'] ) ) : '';
+        if ( empty( trim( $production_lead_time_text ) ) ) {
+            $errors['production_lead_time_text'] = 'Production lead time is required.';
+        }
+
+        // 7. Unit price (numeric > 0)
+        $unit_price = isset( $_POST['unit_price'] ) ? sanitize_text_field( wp_unslash( $_POST['unit_price'] ) ) : '';
+        if ( empty( $unit_price ) ) {
+            $errors['unit_price'] = 'Unit price is required.';
+        } else {
+            $unit_price_float = floatval( $unit_price );
+            if ( ! is_numeric( $unit_price ) || $unit_price_float <= 0 ) {
+                $errors['unit_price'] = 'Unit price must be a number greater than 0.';
+            }
+        }
+
+        // If there are errors, return them
+        if ( ! empty( $errors ) ) {
+            wp_send_json_error( array(
+                'message' => 'Validation failed. Please correct the errors below.',
+                'errors' => $errors,
+            ) );
+        }
+
+        // Validation passed (but NO database writes in 2.3.3)
+        wp_send_json_success( array(
+            'message' => 'Bid validation successful. (Note: Bid is not saved yet - this will be implemented in Commit 2.3.4)',
+        ) );
     }
 }
 
