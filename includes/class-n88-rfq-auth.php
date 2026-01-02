@@ -47,6 +47,10 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.3: Supplier bid validation (no persistence)
         add_action( 'wp_ajax_n88_validate_supplier_bid', array( $this, 'ajax_validate_supplier_bid' ) );
+        // Commit 2.3.5: Supplier bid submission (persistence)
+        add_action( 'wp_ajax_n88_submit_supplier_bid', array( $this, 'ajax_submit_supplier_bid' ) );
+        // Commit 2.3.5: Withdraw bid (optional)
+        add_action( 'wp_ajax_n88_withdraw_supplier_bid', array( $this, 'ajax_withdraw_supplier_bid' ) );
         
         // Commit 2.3.4: RFQ submission routing
         add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
@@ -1563,6 +1567,7 @@ class N88_RFQ_Auth {
                     '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff; display: flex; justify-content: flex-end; gap: 12px;">' +
                     '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; cursor: pointer;">Cancel</button>' +
                     '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #ccc; color: #666; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: not-allowed;">Validate Bid</button>' +
+                    '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer;">Submit Bid</button>' +
                     '</div>';
                 
                 modalContent.innerHTML = modalHTML;
@@ -1573,6 +1578,19 @@ class N88_RFQ_Auth {
                 setTimeout(function() {
                     validateBidForm();
                 }, 100);
+                
+                // Reset button states (Commit 2.3.5)
+                setTimeout(function() {
+                    var validateBtn = document.getElementById('n88-validate-bid-btn');
+                    var submitBtn = document.getElementById('n88-submit-bid-btn');
+                    if (validateBtn) {
+                        validateBtn.style.display = 'inline-block';
+                    }
+                    if (submitBtn) {
+                        submitBtn.style.display = 'none';
+                        submitBtn.disabled = true;
+                    }
+                }, 150);
             }
             
             // Close bid form modal
@@ -1898,9 +1916,30 @@ class N88_RFQ_Auth {
                             alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
                         }
                     } else {
-                        // Validation passed (but no save in 2.3.3)
-                        alert('Bid validation successful! (Note: Bid is not saved yet - this will be implemented in Commit 2.3.4)');
-                        closeBidFormModal();
+                        // Validation passed - show Submit Bid button (Commit 2.3.5)
+                        var validateBtn = document.getElementById('n88-validate-bid-btn');
+                        var submitBtn = document.getElementById('n88-submit-bid-btn');
+                        
+                        if (validateBtn && submitBtn) {
+                            validateBtn.style.display = 'none';
+                            submitBtn.style.display = 'inline-block';
+                            submitBtn.disabled = false;
+                        }
+                        
+                        // Show success message
+                        var form = document.getElementById('n88-bid-form');
+                        var existingError = form.querySelector('.n88-validation-errors');
+                        if (existingError) {
+                            existingError.remove();
+                        }
+                        var successHtml = '<div style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
+                            '<strong>✓ Validation successful!</strong> Click "Submit Bid" to save your bid.' +
+                            '</div>';
+                        form.insertAdjacentHTML('afterbegin', successHtml);
+                        form.querySelector('.n88-validation-errors').classList.add('n88-validation-errors');
+                        
+                        // Scroll to top
+                        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 })
                 .catch(function(error) {
@@ -1914,6 +1953,115 @@ class N88_RFQ_Auth {
                 
                 return false;
             }
+            
+            // Commit 2.3.5: Submit bid function
+            function submitBid(e) {
+                e.preventDefault();
+                
+                var form = document.getElementById('n88-bid-form');
+                if (!form) return false;
+                
+                var modal = document.getElementById('n88-supplier-bid-form-modal');
+                var itemId = modal ? modal.getAttribute('data-item-id') : null;
+                
+                if (!itemId) {
+                    alert('Item ID not found.');
+                    return false;
+                }
+                
+                // Collect form data (same as validation)
+                var formData = new FormData();
+                formData.append('action', 'n88_submit_supplier_bid');
+                formData.append('item_id', itemId);
+                
+                // Video links
+                var videoLinks = form.querySelectorAll('.n88-video-link-input');
+                var videoLinksArray = [];
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        videoLinksArray.push(url);
+                    }
+                });
+                formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Other fields
+                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('cad_yes', form.querySelector('input[name="cad_yes"]:checked') ? form.querySelector('input[name="cad_yes"]:checked').value : '');
+                formData.append('production_lead_time_text', form.querySelector('input[name="production_lead_time_text"]').value);
+                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
+                
+                // Disable submit button
+                var submitBtn = document.getElementById('n88-submit-bid-btn');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Submitting...';
+                }
+                
+                // Submit to server
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Submit Bid';
+                    }
+                    
+                    if (!data.success) {
+                        // Show errors
+                        if (data.data && data.data.errors) {
+                            var errorHtml = '<div style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
+                                '<strong style="color: #d32f2f;">Submission Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
+                            for (var field in data.data.errors) {
+                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
+                            }
+                            errorHtml += '</ul></div>';
+                            
+                            var form = document.getElementById('n88-bid-form');
+                            var existingError = form.querySelector('.n88-validation-errors');
+                            if (existingError) {
+                                existingError.remove();
+                            }
+                            form.insertAdjacentHTML('afterbegin', errorHtml);
+                            form.querySelector('.n88-validation-errors').classList.add('n88-validation-errors');
+                            
+                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
+                        }
+                    } else {
+                        // Success - close modal and refresh
+                        alert(data.data && data.data.message || 'Bid submitted successfully!');
+                        closeBidFormModal();
+                        // Refresh the page to show updated status
+                        if (window.location.href.indexOf('queue') > -1) {
+                            window.location.reload();
+                        }
+                    }
+                })
+                .catch(function(error) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Submit Bid';
+                    }
+                    alert('Error submitting bid. Please try again.');
+                    console.error('Submission error:', error);
+                });
+                
+                return false;
+            }
+            
+            // Make functions globally accessible
+            window.validateAndSubmitBid = validateAndSubmitBid;
+            window.submitBid = submitBid;
             
             // Attach event listeners
             document.addEventListener('DOMContentLoaded', function() {
@@ -3810,7 +3958,349 @@ class N88_RFQ_Auth {
 
         // Validation passed (but NO database writes in 2.3.3)
         wp_send_json_success( array(
-            'message' => 'Bid validation successful. (Note: Bid is not saved yet - this will be implemented in Commit 2.3.4)',
+            'message' => 'Bid validation successful. (Note: Bid is not saved yet - this will be implemented in Commit 2.3.5)',
+        ) );
+    }
+
+    /**
+     * AJAX handler to submit supplier bid (Commit 2.3.5)
+     * Persists validated bid to database and updates route status
+     */
+    public function ajax_submit_supplier_bid() {
+        check_ajax_referer( 'n88_submit_supplier_bid', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        global $wpdb;
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+
+        // Verify supplier has route for this item (unless system operator)
+        if ( ! $is_system_operator ) {
+            $route = $wpdb->get_row( $wpdb->prepare(
+                "SELECT route_id, status FROM {$rfq_routes_table} 
+                WHERE item_id = %d 
+                AND supplier_id = %d",
+                $item_id,
+                $current_user->ID
+            ) );
+
+            if ( ! $route ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+            }
+
+            // Block if route is still queued
+            if ( $route->status === 'queued' ) {
+                wp_send_json_error( array( 'message' => 'This RFQ is not yet available for bidding.' ) );
+            }
+        }
+
+        // Re-validate using exact rules from 2.3.3
+        $errors = array();
+
+        // 1. Video links validation (min 1, max 3, allowed providers only)
+        $video_links_json = isset( $_POST['video_links'] ) ? wp_unslash( $_POST['video_links'] ) : '[]';
+        $video_links = json_decode( $video_links_json, true );
+        
+        if ( ! is_array( $video_links ) ) {
+            $video_links = array();
+        }
+        
+        // Filter out empty links
+        $video_links = array_filter( array_map( 'trim', $video_links ) );
+        
+        if ( count( $video_links ) < 1 ) {
+            $errors['video_links'] = 'At least 1 video link is required.';
+        } elseif ( count( $video_links ) > 3 ) {
+            $errors['video_links'] = 'Maximum 3 video links allowed.';
+        } else {
+            // Validate each link against allowlist
+            $allowed_domains = array(
+                'youtube.com', 'www.youtube.com', 'youtu.be',
+                'vimeo.com', 'www.vimeo.com',
+                'loom.com', 'www.loom.com'
+            );
+            
+            foreach ( $video_links as $link ) {
+                $parsed_url = wp_parse_url( $link );
+                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                    break;
+                }
+                
+                $hostname = strtolower( $parsed_url['host'] );
+                $hostname = preg_replace( '/^www\./', '', $hostname );
+                
+                $is_allowed = false;
+                foreach ( $allowed_domains as $domain ) {
+                    $domain_clean = preg_replace( '/^www\./', '', $domain );
+                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                        $is_allowed = true;
+                        break;
+                    }
+                }
+                
+                if ( ! $is_allowed ) {
+                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                    break;
+                }
+            }
+        }
+
+        // 2. Prototype video commitment (must be YES)
+        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
+        if ( $prototype_video_yes !== 1 ) {
+            $errors['prototype_video_yes'] = 'Prototype video is required to submit a bid.';
+        }
+
+        // 3. Prototype timeline (required)
+        $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
+        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+        }
+
+        // 4. Prototype cost (numeric >= 0)
+        $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
+        if ( empty( $prototype_cost ) ) {
+            $errors['prototype_cost'] = 'Prototype cost is required.';
+        } else {
+            $prototype_cost_float = floatval( $prototype_cost );
+            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+            }
+        }
+
+        // 5. CAD / shop drawings (required)
+        $cad_yes = isset( $_POST['cad_yes'] ) ? sanitize_text_field( wp_unslash( $_POST['cad_yes'] ) ) : '';
+        if ( empty( $cad_yes ) || ! in_array( $cad_yes, array( '0', '1' ), true ) ) {
+            $errors['cad_yes'] = 'Please specify if you will provide CAD/shop drawings.';
+        }
+
+        // 6. Production lead time (non-empty text)
+        $production_lead_time_text = isset( $_POST['production_lead_time_text'] ) ? sanitize_text_field( wp_unslash( $_POST['production_lead_time_text'] ) ) : '';
+        if ( empty( trim( $production_lead_time_text ) ) ) {
+            $errors['production_lead_time_text'] = 'Production lead time is required.';
+        }
+
+        // 7. Unit price (numeric > 0)
+        $unit_price = isset( $_POST['unit_price'] ) ? sanitize_text_field( wp_unslash( $_POST['unit_price'] ) ) : '';
+        if ( empty( $unit_price ) ) {
+            $errors['unit_price'] = 'Unit price is required.';
+        } else {
+            $unit_price_float = floatval( $unit_price );
+            if ( ! is_numeric( $unit_price ) || $unit_price_float <= 0 ) {
+                $errors['unit_price'] = 'Unit price must be a number greater than 0.';
+            }
+        }
+
+        // If validation errors, return them
+        if ( ! empty( $errors ) ) {
+            wp_send_json_error( array(
+                'message' => 'Validation failed. Please correct the errors below.',
+                'errors' => $errors,
+            ) );
+        }
+
+        // Start transaction
+        $wpdb->query( 'START TRANSACTION' );
+
+        try {
+            // Check for existing bid
+            $existing_bid = $wpdb->get_row( $wpdb->prepare(
+                "SELECT bid_id, status FROM {$item_bids_table} 
+                WHERE item_id = %d AND supplier_id = %d",
+                $item_id,
+                $current_user->ID
+            ) );
+
+            // Block if bid already submitted
+            if ( $existing_bid && $existing_bid->status === 'submitted' ) {
+                $wpdb->query( 'ROLLBACK' );
+                wp_send_json_error( array(
+                    'message' => 'You\'ve already submitted a bid for this item.',
+                ) );
+            }
+
+            // Prepare bid data
+            $bid_data = array(
+                'item_id' => $item_id,
+                'supplier_id' => $current_user->ID,
+                'is_anonymous' => 1, // Default
+                'unit_price' => $unit_price_float,
+                'production_lead_time_text' => $production_lead_time_text,
+                'prototype_video_yes' => 1, // Must be 1
+                'prototype_timeline_option' => $prototype_timeline_option,
+                'prototype_cost' => $prototype_cost_float,
+                'cad_yes' => intval( $cad_yes ),
+                'status' => 'submitted',
+            );
+
+            if ( $existing_bid && $existing_bid->status === 'withdrawn' ) {
+                // UPDATE existing withdrawn bid
+                $wpdb->update(
+                    $item_bids_table,
+                    $bid_data,
+                    array( 'bid_id' => $existing_bid->bid_id ),
+                    array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%d', '%s' ),
+                    array( '%d' )
+                );
+                $bid_id = $existing_bid->bid_id;
+            } else {
+                // INSERT new bid
+                $wpdb->insert(
+                    $item_bids_table,
+                    $bid_data,
+                    array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%d', '%s' )
+                );
+                $bid_id = $wpdb->insert_id;
+            }
+
+            if ( ! $bid_id ) {
+                throw new Exception( 'Failed to save bid.' );
+            }
+
+            // Replace media links (DELETE old, INSERT new)
+            $wpdb->delete(
+                $bid_media_links_table,
+                array( 'bid_id' => $bid_id ),
+                array( '%d' )
+            );
+
+            // Insert new media links
+            $sort_order = 0;
+            foreach ( $video_links as $link ) {
+                // Determine provider from URL (matching validation logic)
+                $parsed_url = wp_parse_url( $link );
+                $hostname = strtolower( $parsed_url['host'] );
+                $hostname = preg_replace( '/^www\./', '', $hostname );
+                
+                $provider = 'youtube'; // Default
+                $hostname_clean = preg_replace( '/^www\./', '', $hostname );
+                
+                if ( $hostname_clean === 'vimeo.com' || strpos( $hostname_clean, '.vimeo.com' ) !== false ) {
+                    $provider = 'vimeo';
+                } elseif ( $hostname_clean === 'loom.com' || strpos( $hostname_clean, '.loom.com' ) !== false ) {
+                    $provider = 'loom';
+                } elseif ( $hostname_clean === 'youtube.com' || $hostname_clean === 'youtu.be' || strpos( $hostname_clean, '.youtube.com' ) !== false ) {
+                    $provider = 'youtube';
+                }
+
+                $wpdb->insert(
+                    $bid_media_links_table,
+                    array(
+                        'bid_id' => $bid_id,
+                        'provider' => $provider,
+                        'url' => $link,
+                        'sort_order' => $sort_order,
+                    ),
+                    array( '%d', '%s', '%s', '%d' )
+                );
+                $sort_order++;
+            }
+
+            // Update route status to bid_submitted
+            $wpdb->update(
+                $rfq_routes_table,
+                array( 'status' => 'bid_submitted' ),
+                array(
+                    'item_id' => $item_id,
+                    'supplier_id' => $current_user->ID,
+                ),
+                array( '%s' ),
+                array( '%d', '%d' )
+            );
+
+            $wpdb->query( 'COMMIT' );
+
+            wp_send_json_success( array(
+                'message' => 'Bid submitted successfully!',
+                'bid_id' => $bid_id,
+            ) );
+
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            wp_send_json_error( array(
+                'message' => 'An error occurred while submitting the bid: ' . $e->getMessage(),
+            ) );
+        }
+    }
+
+    /**
+     * AJAX handler to withdraw supplier bid (Commit 2.3.5 - Optional)
+     */
+    public function ajax_withdraw_supplier_bid() {
+        check_ajax_referer( 'n88_withdraw_supplier_bid', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        global $wpdb;
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+
+        // Find existing bid
+        $existing_bid = $wpdb->get_row( $wpdb->prepare(
+            "SELECT bid_id, status FROM {$item_bids_table} 
+            WHERE item_id = %d AND supplier_id = %d",
+            $item_id,
+            $current_user->ID
+        ) );
+
+        if ( ! $existing_bid ) {
+            wp_send_json_error( array( 'message' => 'No bid found to withdraw.' ) );
+        }
+
+        if ( $existing_bid->status === 'withdrawn' ) {
+            wp_send_json_error( array( 'message' => 'This bid has already been withdrawn.' ) );
+        }
+
+        // Update bid status to withdrawn
+        $updated = $wpdb->update(
+            $item_bids_table,
+            array( 'status' => 'withdrawn' ),
+            array( 'bid_id' => $existing_bid->bid_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        if ( $updated === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to withdraw bid. Please try again.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message' => 'Bid withdrawn successfully. You can resubmit a new bid.',
         ) );
     }
 
@@ -4067,6 +4557,9 @@ class N88_RFQ_Auth {
                     $exclude_supplier_ids = $invited_supplier_ids;
                     $system_suppliers = $this->match_suppliers_for_item( $item, $exclude_supplier_ids, $wpdb );
 
+                    // Check if any invites were provided (existing suppliers OR emails sent)
+                    $has_any_invites_for_delay = ! empty( $invited_supplier_ids ) || ! empty( $invite_emails_sent );
+
                     foreach ( $system_suppliers as $supplier_id ) {
                         // Check if route already exists (idempotent)
                         $existing_route = $wpdb->get_var( $wpdb->prepare(
@@ -4076,9 +4569,9 @@ class N88_RFQ_Auth {
                         ) );
 
                         if ( ! $existing_route ) {
-                            // Case B: If 1+ invited suppliers exist, system routes are delayed 24h
+                            // Case B: If 1+ invited suppliers OR emails sent, system routes are delayed 24h
                             // Case C: If no invited suppliers, system routes are immediate
-                            if ( ! empty( $invited_supplier_ids ) ) {
+                            if ( $has_any_invites_for_delay ) {
                                 // Case B: Delayed system routes (24h delay)
                                 $eligible_after = date( 'Y-m-d H:i:s', strtotime( '+24 hours' ) );
                                 $wpdb->insert(
@@ -4119,25 +4612,22 @@ class N88_RFQ_Auth {
             $message = 'RFQ submitted successfully.';
             $invited_count = count( $invited_supplier_ids );
             $email_count = count( $invite_emails_sent );
+            $has_any_invites = $invited_count > 0 || $email_count > 0;
             
             if ( $allow_system_invites ) {
-                if ( $invited_count > 0 ) {
-                    // Toggle ON + supplier email(s) entered
+                // Toggle ON
+                if ( $has_any_invites ) {
+                    // Toggle ON + email added
                     $message .= ' Your invited supplier(s) will receive this request first. WireFrame (OS) will invite additional suppliers after 24 hours.';
-                    if ( $email_count > 0 ) {
-                        $message .= ' Invite email(s) sent to ' . $email_count . ' supplier(s).';
-                    }
                 } else {
-                    // Toggle ON + NO supplier email entered
+                    // Toggle ON + NO email entered
                     $message .= ' We sent your request to suppliers that match your category and keywords.';
                 }
             } else {
                 // Toggle OFF - only invited suppliers
-                if ( $invited_count > 0 ) {
-                    $message .= ' We sent this request to your invited supplier(s).';
-                    if ( $email_count > 0 ) {
-                        $message .= ' Invite email(s) sent to ' . $email_count . ' supplier(s).';
-                    }
+                if ( $has_any_invites ) {
+                    // Only email added (toggle OFF)
+                    $message .= ' Your invited supplier(s) will receive this request.';
                 }
             }
 

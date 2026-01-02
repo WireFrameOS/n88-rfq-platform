@@ -3711,13 +3711,13 @@ class N88_RFQ_Admin {
                 }
 
                 if (checkbox.checked) {
-                    messageDiv.style.display = 'block';
                     if (invitedCount > 0) {
                         // Toggle ON + supplier email(s) entered
+                        messageDiv.style.display = 'block';
                         messageDiv.textContent = 'Your invited supplier(s) will receive this request first. WireFrame (OS) will invite additional suppliers after 24 hours.';
                     } else {
-                        // Toggle ON + NO supplier email entered
-                        messageDiv.textContent = 'We sent your request to suppliers that match your category and keywords.';
+                        // Toggle ON + NO supplier email entered - hide confirmation message
+                        messageDiv.style.display = 'none';
                     }
                 } else {
                     // Toggle OFF (email empty or filled) - hide confirmation message
@@ -3881,7 +3881,13 @@ class N88_RFQ_Admin {
                     }
                 }
                 
+                // Debug: Log invited suppliers
+                console.log('Invited suppliers being sent:', invitedSuppliers);
+                
                 var allowSystemInvitesValue = allowSystemInvites.checked;
+                
+                // Debug: Log toggle state
+                console.log('Allow system invites:', allowSystemInvitesValue);
 
                 // Validate: Case D - No invited suppliers + toggle OFF
                 if (invitedSuppliers.length === 0 && !allowSystemInvitesValue) {
