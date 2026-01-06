@@ -1253,16 +1253,16 @@ class N88_RFQ_Auth {
             </div>
         </div>
         
-        <!-- Supplier RFQ Detail Modal (Commit 2.3.2) -->
-        <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 10000; overflow: hidden;">
-            <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 0; right: 0; width: 480px; max-width: 90vw; height: 100vh; background-color: #fff; box-shadow: -2px 0 10px rgba(0,0,0,0.2); z-index: 10001; display: flex; flex-direction: column; overflow: hidden;">
+        <!-- Supplier RFQ Detail Modal (Commit 2.3.5.2: Dark theme) -->
+        <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
+            <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 0; right: 0; width: 480px; max-width: 90vw; height: 100vh; background-color: #000 !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid #00ff00 !important;">
                 <!-- Modal content will be populated by JavaScript -->
             </div>
         </div>
         
-        <!-- Supplier Bid Form Modal (Commit 2.3.3) -->
-        <div id="n88-supplier-bid-form-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 10002; overflow: hidden;">
-            <div id="n88-supplier-bid-form-modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; max-width: 90vw; max-height: 90vh; background-color: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border-radius: 8px;">
+        <!-- Supplier Bid Form Modal (Commit 2.3.5.2: Dark theme with green accents) -->
+        <div id="n88-supplier-bid-form-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10002; overflow: hidden;">
+            <div id="n88-supplier-bid-form-modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 95vw; max-height: 95vh; background-color: #000; box-shadow: 0 4px 20px rgba(0,255,0,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border: none; border-radius: 4px;">
                 <!-- Modal content will be populated by JavaScript -->
             </div>
         </div>
@@ -1413,6 +1413,8 @@ class N88_RFQ_Auth {
                             // Only add image if we have a valid URL
                             if (imgUrl && imgUrl.trim() !== '' && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
                                 var imgId = 'n88-ref-img-view-' + item.item_id + '-' + index;
+                                // Commit 2.3.5.1: Use lightbox instead of opening in new tab
+                                var escapedFullUrl = (fullUrl || imgUrl).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
                                 refImagesHTML += '<div style="position: relative;">' +
                                     '<img id="' + imgId + '" ' +
                                     'src="' + imgUrl.replace(/"/g, '&quot;') + '" ' +
@@ -1421,8 +1423,8 @@ class N88_RFQ_Auth {
                                     'style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 2px solid #e0e0e0; cursor: pointer; transition: all 0.2s; background-color: #f0f0f0;" ' +
                                     'onmouseover="this.style.borderColor=\'#0073aa\'; this.style.transform=\'scale(1.05)\';" ' +
                                     'onmouseout="this.style.borderColor=\'#e0e0e0\'; this.style.transform=\'scale(1)\';" ' +
-                                    'onclick="(function(e){var url=e.getAttribute(\'data-full-url\');if(url&&url.trim()){window.open(url,\'_blank\',\'noopener,noreferrer\');}})(this);" ' +
-                                    'title="Click to view full size" ' +
+                                    'onclick="event.preventDefault();event.stopPropagation();(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(url);}else{console.error(\'openSupplierImageLightbox not available\');}}else{console.error(\'No URL found for image\');}})(this);return false;" ' +
+                                    'title="Click to enlarge" ' +
                                     'alt="Reference image ' + (index + 1) + '" />' +
                                     '</div>';
                             }
@@ -1451,120 +1453,210 @@ class N88_RFQ_Auth {
                         mediaLinksHTML = '<div style="color: #999; font-size: 12px;">No media links available</div>';
                     }
                     
-                    // Build modal HTML - Read-only Supplier RFQ Detail View (Commit 2.3.2)
-                    var modalHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
-                        '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Item #' + item.item_id + ' <span style="color: #666; font-weight: 400;">(Maker View)</span></h2>' +
-                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    // Build reference images HTML with dark theme styling
+                    var refImagesHTMLDark = '';
+                    if (refImages && refImages.length > 0) {
+                        refImagesHTMLDark = '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;">';
+                        refImages.forEach(function(img, index) {
+                            var imgUrl = '';
+                            var fullUrl = '';
+                            
+                            if (typeof img === 'string') {
+                                imgUrl = img;
+                                fullUrl = img;
+                            } else if (typeof img === 'object') {
+                                imgUrl = img.url || img.thumbnail || img.thumb_url || '';
+                                fullUrl = img.full_url || img.url || img.thumbnail || img.thumb_url || '';
+                            }
+                            
+                            if (imgUrl && imgUrl.trim() !== '' && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
+                                var imgId = 'n88-ref-img-view-dark-' + item.item_id + '-' + index;
+                                var escapedFullUrl = (fullUrl || imgUrl).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
+                                refImagesHTMLDark += '<div style="position: relative;">' +
+                                    '<img id="' + imgId + '" ' +
+                                    'src="' + imgUrl.replace(/"/g, '&quot;') + '" ' +
+                                    'data-full-url="' + (fullUrl || imgUrl).replace(/"/g, '&quot;') + '" ' +
+                                    'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3EImage%3C/text%3E%3C/svg%3E\';" ' +
+                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                    'onclick="event.preventDefault();event.stopPropagation();(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(url);}else{console.error(\'openSupplierImageLightbox not available\');}}else{console.error(\'No URL found for image\');}})(this);return false;" ' +
+                                    'title="Click to enlarge" ' +
+                                    'alt="Reference image ' + (index + 1) + '" />' +
+                                    '</div>';
+                            }
+                        });
+                        refImagesHTMLDark += '</div>';
+                        if (refImagesHTMLDark === '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;"></div>') {
+                            refImagesHTMLDark = '<div style="color: #999; font-size: 12px; padding: 8px; font-family: monospace;">No valid reference images available</div>';
+                        }
+                    } else {
+                        refImagesHTMLDark = '<div style="color: #999; font-size: 12px; padding: 8px; font-family: monospace;">No reference images available</div>';
+                    }
+                    
+                    // Build modal HTML - Dark theme with inline bid form expansion
+                    var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #00ff00; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">Item #' + item.item_id + ' <span style="color: #00ff00;">(Maker View)</span></h2>' +
+                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
                         '</div>' +
-                        '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #fff;">' +
-                        '<div style="padding: 20px;">' +
+                        '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
+                        '<div style="padding: 20px; font-family: monospace;">' +
                         
-                        // Item Image - reduced size (Commit 2.3.5.1: Make clickable to open in lightbox)
+                        // Item Image
                         (item.image_url || item.primary_image_url ? (function() {
                             var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
                             return '<div style="margin-bottom: 16px; text-align: center;">' +
-                                '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 180px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity=\'0.8\'; this.style.borderColor=\'#0073aa\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#e0e0e0\';" title="Click to enlarge" />' +
+                                '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 250px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,255,0,0.3);" onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" title="Click to enlarge" />' +
                                 '</div>';
                         })() : '') +
                         
-                        // Item Title
-                        '<div style="margin-bottom: 16px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Item Title:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + (item.title || '—') + '</div>' +
-                        '</div>' +
-                        
-                        // Category
-                        '<div style="margin-bottom: 16px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Category:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + (item.category || '—') + '</div>' +
-                        '</div>' +
-                        
-                        // Routing Context (if available)
-                        (item.route_label ? '<div style="margin-bottom: 16px;">' +
-                            '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Routing:</label>' +
-                            '<div style="padding: 10px 12px; background-color: #e3f2fd; border-radius: 4px; font-size: 14px; border: 1px solid #90caf9; color: #1976d2;">' + item.route_label + '</div>' +
-                            '<div style="margin-top: 6px; font-size: 12px; color: #666; font-style: italic;">Creator identity remains hidden until award.</div>' +
-                            '</div>' : '') +
-                        
-                        // Delivery Context
-                        '<div style="margin-bottom: 16px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Delivery:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' +
-                            (item.delivery_country ? 'Country: ' + item.delivery_country + '<br>' : '') +
-                            (item.delivery_postal_code ? 'Postal Code: ' + item.delivery_postal_code + '<br>' : '') +
-                            '<strong>Shipping:</strong> ' + item.shipping_mode_label +
-                        '</div>' +
-                        '</div>' +
-                        
-                        // Specs
-                        '<div style="margin-bottom: 24px;">' +
-                        '<h3 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: #333; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px;">Specifications</h3>' +
-                        '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #666;">Quantity:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + (item.quantity || '—') + '</div>' +
-                        '</div>' +
-                        '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #666;">Dimensions:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + dimsText + '</div>' +
-                        '</div>' +
-                        '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #666;">Sourcing Type:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + sourcingTypeText + '</div>' +
-                        '</div>' +
-                        '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #666;">Timeline Type:</label>' +
-                        '<div style="padding: 10px 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' + timelineTypeText + '</div>' +
-                        '</div>' +
-                        '</div>' +
-                        
-                        // Notes/Description
-                        '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Notes/Description:</label>' +
-                        '<div style="padding: 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; min-height: 100px; color: #333; white-space: pre-wrap;">' + (item.description || '—') + '</div>' +
-                        '</div>' +
-                        
-                        // Smart Alternatives (Optional)
-                        '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Smart Alternatives (Optional):</label>' +
-                        '<div style="padding: 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' +
-                            '<div style="margin-bottom: 8px;">' +
-                                '<strong>Status:</strong> ' + (item.smart_alternatives_enabled ? '<span style="color: #2e7d32;">Enabled</span>' : '<span style="color: #666;">Disabled</span>') +
-                            '</div>' +
-                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                                '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e0e0e0;">' +
-                                    '<strong>Note:</strong> ' +
-                                    '<div style="margin-top: 4px; color: #555; white-space: pre-wrap;">' + (item.smart_alternatives_note || '—') + '</div>' +
-                                '</div>' : 
-                                '<div style="margin-top: 8px; color: #999; font-style: italic;">No note provided</div>'
-                            ) +
-                        '</div>' +
-                        '</div>' +
-                        
                         // Reference Images
                         '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Reference Images:</label>' +
-                        refImagesHTML +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference Images:</label>' +
+                        refImagesHTMLDark +
                         '</div>' +
                         
-                        // // Media Links
-                        // '<div style="margin-bottom: 24px;">' +
-                        // '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Media Links:</label>' +
-                        // mediaLinksHTML +
-                        // '</div>' +
+                        // Warning Banner
+                        (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
+                            '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
+                            '</div>' : '') +
+                        
+                        // All fields in one bordered box with inline labels
+                        '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
+                        '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Title:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dimensions:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Total CBM:</strong> <span style="color: #00ff00; font-weight: 600;">' + (item.total_cbm !== null && item.total_cbm !== undefined ? item.total_cbm.toFixed(3) + ' m³' : '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
+                        (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Routing:</strong> <span style="color: #00ff00;">' + item.route_label + '</span></div>' : '') +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' +
+                            (item.delivery_country ? 'Country: ' + item.delivery_country + ' ' : '') +
+                            (item.delivery_postal_code ? 'Postal Code: ' + item.delivery_postal_code + ' ' : '') +
+                            'Shipping: ' + item.shipping_mode_label +
+                        '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Sourcing Type:</strong> <span style="color: #fff;">' + sourcingTypeText + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Timeline Type:</strong> <span style="color: #fff;">' + timelineTypeText + '</span></div>' +
+                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Description:</strong></div>' +
+                        '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + (item.description || '—') + '</div>' +
+                        '</div>' +
+                        '</div>' +
+                        
+                        (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '') +
+                        
+                        // Bid Details Box (only shown when bid is submitted)
+                        (item.bid_status === 'submitted' && item.bid_data ? (function() {
+                            var bid = item.bid_data;
+                            var videoLinksHTML = '';
+                            if (bid.video_links && bid.video_links.length > 0) {
+                                bid.video_links.forEach(function(link, index) {
+                                    videoLinksHTML += '<div style="margin-bottom: 4px;"><a href="' + link.replace(/"/g, '&quot;') + '" target="_blank" style="color: #00ff00; text-decoration: none;">' + link + '</a></div>';
+                                });
+                            } else {
+                                videoLinksHTML = '<span style="color: #999;">None</span>';
+                            }
+                            
+                            var bidPhotosHTML = '';
+                            if (bid.bid_photos && bid.bid_photos.length > 0) {
+                                bidPhotosHTML = '<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">';
+                                bid.bid_photos.forEach(function(photoUrl) {
+                                    bidPhotosHTML += '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 80px; height: 80px; object-fit: cover; border-radius: 2px; border: none; cursor: pointer;" onclick="if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + photoUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}" title="Click to enlarge" />';
+                                });
+                                bidPhotosHTML += '</div>';
+                            } else {
+                                bidPhotosHTML = '<span style="color: #999;">None</span>';
+                            }
+                            
+                            // Build Smart Alternatives HTML if present
+                            var smartAltHTML = '';
+                            if (bid.smart_alternatives_suggestion && typeof bid.smart_alternatives_suggestion === 'object' && bid.smart_alternatives_suggestion.category) {
+                                var smartAlt = bid.smart_alternatives_suggestion;
+                                var categoryLabels = {
+                                    'material': 'Material',
+                                    'finish': 'Finish',
+                                    'hardware': 'Hardware',
+                                    'dimensions': 'Dimensions',
+                                    'construction': 'Construction Method',
+                                    'packaging': 'Packaging'
+                                };
+                                var fromLabels = {
+                                    'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                    'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                    'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                };
+                                var toLabels = fromLabels;
+                                var comparisonLabels = {
+                                    'cost-reduction': 'Cost Reduction',
+                                    'faster-production': 'Faster Production',
+                                    'better-durability': 'Better Durability',
+                                    'easier-sourcing': 'Easier Sourcing',
+                                    'lighter-weight': 'Lighter Weight',
+                                    'eco-friendly': 'Eco-Friendly'
+                                };
+                                var priceLabels = {
+                                    'reduces-10-20': 'Reduces 10-20%',
+                                    'reduces-20-30': 'Reduces 20-30%',
+                                    'reduces-30-plus': 'Reduces 30%+',
+                                    'similar': 'Similar Price',
+                                    'increases-10-20': 'Increases 10-20%',
+                                    'increases-20-plus': 'Increases 20%+'
+                                };
+                                var leadTimeLabels = {
+                                    'reduces-1-2w': 'Reduces 1-2 weeks',
+                                    'reduces-2-4w': 'Reduces 2-4 weeks',
+                                    'reduces-4w-plus': 'Reduces 4+ weeks',
+                                    'similar': 'Similar Lead Time',
+                                    'increases-1-2w': 'Increases 1-2 weeks',
+                                    'increases-2w-plus': 'Increases 2+ weeks'
+                                };
+                                
+                                smartAltHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                                    '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Smart Alternative Suggestion:</strong></div>' +
+                                    '<div style="padding-left: 12px; font-size: 13px; color: #fff; line-height: 1.6;">' +
+                                    '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (categoryLabels[smartAlt.category] || smartAlt.category) + '</span></div>' +
+                                    (smartAlt.from && smartAlt.to ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">From:</strong> <span style="color: #fff;">' + (fromLabels[smartAlt.from] || smartAlt.from) + '</span> <strong style="color: #00ff00;">To:</strong> <span style="color: #fff;">' + (toLabels[smartAlt.to] || smartAlt.to) + '</span></div>' : '') +
+                                    (smartAlt.comparison_points && smartAlt.comparison_points.length > 0 ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Comparison Points:</strong> <span style="color: #fff;">' + smartAlt.comparison_points.map(function(cp) { return comparisonLabels[cp] || cp; }).join(', ') + '</span></div>' : '') +
+                                    (smartAlt.price_impact ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Price Impact:</strong> <span style="color: #fff;">' + (priceLabels[smartAlt.price_impact] || smartAlt.price_impact) + '</span></div>' : '') +
+                                    (smartAlt.lead_time_impact ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Lead Time Impact:</strong> <span style="color: #fff;">' + (leadTimeLabels[smartAlt.lead_time_impact] || smartAlt.lead_time_impact) + '</span></div>' : '') +
+                                    '</div>' +
+                                    '</div>';
+                            }
+                            
+                            return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
+                                '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid</div>' +
+                                '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #fff;">' + (bid.prototype_video_yes ? 'YES' : 'NO') + '</span></div>' +
+                                (bid.prototype_timeline ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Timeline:</strong> <span style="color: #fff;">' + bid.prototype_timeline + '</span></div>' : '') +
+                                (bid.prototype_cost !== null && bid.prototype_cost !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Cost:</strong> <span style="color: #fff;">$' + parseFloat(bid.prototype_cost).toFixed(2) + '</span></div>' : '') +
+                                (bid.production_lead_time ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Production Lead Time:</strong> <span style="color: #fff;">' + bid.production_lead_time + '</span></div>' : '') +
+                                (bid.unit_price !== null && bid.unit_price !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Unit Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>' : '') +
+                                smartAltHTML +
+                            '</div>' +
+                                '</div>';
+                        })() : '') +
                         
                         '</div>' +
-                        // Footer - Start Bid / Withdraw Bid button (Commit 2.3.3/2.3.5)
-                        '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
+                        // Footer - Start Bid / Withdraw Bid button
+                        '<div style="padding: 20px; border-top: 1px solid #00ff00; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
                         (item.bid_status === 'submitted' ? 
                             '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
-                            '<div style="padding: 12px 24px; background-color: #e8f5e9; color: #2e7d32; border: 1px solid #4caf50; border-radius: 4px; font-size: 14px; font-weight: 600;">✓ Bid Already Submitted</div>' +
-                            '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.2s;">Withdraw Bid</button>' +
+                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ Bid Already Submitted</div>' +
+                            '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' +
                             '</div>' :
-                            '<button onclick="openBidFormModal(' + item.item_id + ')" style="padding: 12px 24px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.2s;">Start Bid</button>'
+                            '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Start Bid ]</button>'
                         ) +
+                        '</div>' +
+                        // Expandable Bid Form Section (hidden by default)
+                        '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #00ff00;">' +
+                        '<div id="n88-bid-form-content-' + item.item_id + '"></div>' +
                         '</div>';
                     
                     modalContent.innerHTML = modalHTML;
+                    
+                    // Store item data for inline bid form
+                    window.currentItemData = item;
                 })
                 .catch(function(error) {
                     modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' +
@@ -1580,6 +1672,401 @@ class N88_RFQ_Auth {
                     modal.style.display = 'none';
                     document.body.style.overflow = '';
                 }
+            }
+            
+            // Toggle bid form section inside the modal
+            function toggleBidForm(itemId) {
+                var formSection = document.getElementById('n88-bid-form-section-' + itemId);
+                var formContent = document.getElementById('n88-bid-form-content-' + itemId);
+                var toggleBtn = document.getElementById('n88-toggle-bid-form-btn-' + itemId);
+                
+                if (!formSection || !formContent) return;
+                
+                if (formSection.style.display === 'none' || !formSection.style.display) {
+                    // Show form section
+                    formSection.style.display = 'block';
+                    if (toggleBtn) {
+                        toggleBtn.textContent = '[ Hide Bid Form ]';
+                        toggleBtn.style.backgroundColor = '#1a1a1a';
+                        toggleBtn.style.color = '#00ff00';
+                        toggleBtn.style.borderColor = '#00ff00';
+                    }
+                    
+                    // Scroll to form section
+                    formSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    
+                    // Load bid form content if not already loaded
+                    if (!formContent.innerHTML || formContent.innerHTML.trim() === '') {
+                        loadBidFormContent(itemId, formContent);
+                    }
+                } else {
+                    // Hide form section
+                    formSection.style.display = 'none';
+                    if (toggleBtn) {
+                        toggleBtn.textContent = '[ Start Bid ]';
+                        toggleBtn.style.backgroundColor = '#1a1a1a';
+                        toggleBtn.style.color = '#00ff00';
+                        toggleBtn.style.borderColor = '#00ff00';
+                    }
+                }
+            }
+            
+            // Load bid form content into the embedded section
+            function loadBidFormContent(itemId, container) {
+                container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff; font-family: monospace;">Loading bid form...</div>';
+                
+                // Fetch item details
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_item_details');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (!data.success) {
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details.</div>';
+                        return;
+                    }
+                    
+                    var item = data.data;
+                    var bidFormHTML = buildEmbeddedBidFormHTML(item, itemId);
+                    container.innerHTML = bidFormHTML;
+                    
+                    // Initialize form validation
+                    setTimeout(function() {
+                        validateBidFormEmbedded(itemId);
+                    }, 100);
+                })
+                .catch(function(error) {
+                    console.error('Error loading bid form:', error);
+                    container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Network error. Please try again.</div>';
+                });
+            }
+            
+            // Build embedded bid form HTML (adapted from openBidFormModalInternal)
+            function buildEmbeddedBidFormHTML(item, itemId) {
+                // Get primary image URL
+                var primaryImageUrl = item.primary_image_url || item.image_url || '';
+                
+                // Get inspiration images
+                var inspirationImages = item.inspiration_images || item.reference_images || [];
+                
+                // Filter and prepare valid reference images
+                var validReferenceImages = [];
+                if (inspirationImages && inspirationImages.length > 0) {
+                    inspirationImages.forEach(function(img) {
+                        var imgUrl = '';
+                        var fullUrl = '';
+                        
+                        if (typeof img === 'string') {
+                            imgUrl = img;
+                            fullUrl = img;
+                        } else if (typeof img === 'object') {
+                            imgUrl = img.url || img.thumbnail || img.thumb_url || '';
+                            fullUrl = img.full_url || img.url || img.thumbnail || img.thumb_url || '';
+                        }
+                        
+                        if (imgUrl && imgUrl.trim() !== '' && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
+                            validReferenceImages.push({
+                                url: imgUrl,
+                                fullUrl: fullUrl || imgUrl
+                            });
+                        }
+                    });
+                }
+                
+                // Build image gallery layout
+                var imageGalleryHTML = '';
+                if (primaryImageUrl || validReferenceImages.length > 0) {
+                    var leftImages = [];
+                    var rightImages = [];
+                    validReferenceImages.forEach(function(img, index) {
+                        if (index % 2 === 0) {
+                            leftImages.push(img);
+                        } else {
+                            rightImages.push(img);
+                        }
+                    });
+                    
+                    var leftColumnHTML = '<div style="display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; min-width: 120px;">';
+                    leftImages.forEach(function(img, index) {
+                        var imgId = 'n88-ref-left-embedded-' + itemId + '-' + index;
+                        leftColumnHTML += '<div style="position: relative; width: 100px; height: 100px;">' +
+                            '<img id="' + imgId + '" ' +
+                            'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
+                            'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
+                            'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
+                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                            'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
+                            'title="Click to view full size" ' +
+                            'alt="Reference photo" />' +
+                            '</div>';
+                    });
+                    leftColumnHTML += '</div>';
+                    
+                    var centerColumnHTML = '<div style="flex: 1; display: flex; align-items: center; justify-content: center; min-height: 300px; padding: 0 20px; max-width: 500px;">';
+                    if (primaryImageUrl) {
+                        centerColumnHTML += '<img src="' + primaryImageUrl.replace(/"/g, '&quot;') + '" ' +
+                            'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23f0f0f0\' width=\'400\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EItem Image%3C/text%3E%3C/svg%3E\';" ' +
+                            'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + primaryImageUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}return false;" ' +
+                            'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
+                            'title="Click to enlarge" ' +
+                            'alt="Item main image" />';
+                    } else {
+                        centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #00ff00; font-family: monospace; font-size: 12px;">No main image available</div>';
+                    }
+                    centerColumnHTML += '</div>';
+                    
+                    var rightColumnHTML = '<div style="display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; min-width: 120px;">';
+                    rightImages.forEach(function(img, index) {
+                        var imgId = 'n88-ref-right-embedded-' + itemId + '-' + index;
+                        rightColumnHTML += '<div style="position: relative; width: 100px; height: 100px;">' +
+                            '<img id="' + imgId + '" ' +
+                            'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
+                            'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
+                            'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
+                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                            'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
+                            'title="Click to view full size" ' +
+                            'alt="Reference photo" />' +
+                            '</div>';
+                    });
+                    rightColumnHTML += '</div>';
+                    
+                    imageGalleryHTML = '<div style="margin-bottom: 24px; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 16px; background-color: #1a1a1a; border-radius: 4px; border: none;">' +
+                        leftColumnHTML +
+                        centerColumnHTML +
+                        rightColumnHTML +
+                        '</div>';
+                }
+                
+                // Build bid form HTML with dark background and green accents (#00ff00)
+                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
+                    imageGalleryHTML +
+                    
+                    // BID FORM Title (green heading)
+                    '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
+                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM (Anonymous • No contact info allowed)</h2>' +
+                        '</div>' +
+                        
+                    // Video links (optional) - white heading
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
+                    '<div id="n88-video-links-container-embedded-' + itemId + '">' +
+                    '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
+                    '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">1)</span>' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button>' +
+                        '</div>' +
+                        '</div>' +
+                    '<button type="button" onclick="addVideoLinkEmbedded(' + itemId + ')" id="n88-add-video-link-btn-embedded-' + itemId + '" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
+                    '<div id="n88-video-links-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                    // Bid Photos (Required) - white heading
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">BID PHOTOS <span style="color: #ff0000;">*</span></label>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
+                    '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
+                    '<div id="n88-bid-photos-preview-embedded-' + itemId + '" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                    '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                    // Prototype (Required) - white heading
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">PROTOTYPE (Required)</label>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Will you prepare and video a prototype?</div>' +
+                    '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">(●) YES</span>' +
+                    '</label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                    '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">() NO</span>' +
+                    '</label>' +
+                        '</div>' +
+                    '<div style="font-size: 10px; color: #00ff00; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
+                    '<div id="n88-prototype-video-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                    // Prototype timeline - white subheading
+                        '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Prototype timeline (Required):</label>' +
+                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
+                    '<option value="">[ Select timeline... ▼ ]</option>' +
+                    '<option value="1-2w">1–2w</option>' +
+                    '<option value="2-4w">2–4w</option>' +
+                    '<option value="4-6w">4–6w</option>' +
+                    '<option value="6-8w">6–8w</option>' +
+                    '<option value="8-10w">8–10w</option>' +
+                    '</select>' +
+                    '<div id="n88-prototype-timeline-error-embedded-' + itemId + '" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                    // Prototype cost - white subheading
+                    '<div style="margin-bottom: 0;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Prototype cost (Required):</label>' +
+                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-prototype-cost-error-embedded-' + itemId + '" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        '</div>' +
+                        
+                    // Production lead time - white heading
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) — Dropdown</label>' +
+                    '<select name="production_lead_time_text" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
+                    '<option value="">[ Select lead time... ▼ ]</option>' +
+                    '<option value="2-4 weeks">2–4 weeks</option>' +
+                    '<option value="4-6 weeks">4–6 weeks</option>' +
+                    '<option value="6-8 weeks">6–8 weeks</option>' +
+                    '<option value="8-12 weeks">8–12 weeks</option>' +
+                    '<option value="12-16 weeks">12–16 weeks</option>' +
+                    '</select>' +
+                    '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                    // Unit price - white heading
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Unit price (Required)</label>' +
+                    '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-unit-price-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                            '</div>' +
+                    
+                    // Smart Alternatives (Optional) - Display + Response Area
+                    ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
+                    '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVES (DFM) (Optional)</label>' +
+                    '<div style="font-size: 10px; color: #fff; margin-bottom: 8px; font-family: monospace; font-style: italic;">(Optional – shown ONLY if creator enabled)</div>' +
+                    // C1: Display designer's Smart Alternatives setting + note (read-only)
+                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
+                    '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
+                    '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
+                        '</div>' +
+                    (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
+                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
+                        '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #00ff00;">' +
+                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 4px;"><strong>Designer Note:</strong></div>' +
+                        '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 11px; font-family: monospace;">' + (item.smart_alternatives_note || '—') + '</div>' +
+                                '</div>' : 
+                        (item.smart_alternatives_enabled ? '<div style="margin-top: 8px; color: #666; font-style: italic; font-size: 10px; font-family: monospace;">No note provided</div>' : '')
+                            ) +
+                        '</div>' +
+                    // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
+                    (item.smart_alternatives_enabled ? 
+                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-top: 12px;">' +
+                    '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
+                    // Category dropdown
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Category:</label>' +
+                    '<select name="smart_alt_category" id="n88-smart-alt-category-' + itemId + '" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreview(' + itemId + ');">' +
+                    '<option value="">[ Select category... ]</option>' +
+                    '<option value="material">Material</option>' +
+                    '<option value="finish">Finish</option>' +
+                    '<option value="hardware">Hardware</option>' +
+                    '<option value="dimensions">Dimensions</option>' +
+                    '<option value="construction">Construction Method</option>' +
+                    '<option value="packaging">Packaging</option>' +
+                    '</select>' +
+                        '</div>' +
+                    // From dropdown
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">From:</label>' +
+                    '<select name="smart_alt_from" id="n88-smart-alt-from-' + itemId + '" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreview(' + itemId + ');">' +
+                    '<option value="">[ Select from... ]</option>' +
+                    '<option value="solid-wood">Solid Wood</option>' +
+                    '<option value="plywood">Plywood</option>' +
+                    '<option value="mdf">MDF</option>' +
+                    '<option value="metal">Metal</option>' +
+                    '<option value="plastic">Plastic</option>' +
+                    '<option value="glass">Glass</option>' +
+                    '<option value="fabric">Fabric</option>' +
+                    '<option value="leather">Leather</option>' +
+                    '<option value="other">Other</option>' +
+                    '</select>' +
+                        '</div>' +
+                    // To dropdown
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">To:</label>' +
+                    '<select name="smart_alt_to" id="n88-smart-alt-to-' + itemId + '" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreview(' + itemId + ');">' +
+                    '<option value="">[ Select to... ]</option>' +
+                    '<option value="solid-wood">Solid Wood</option>' +
+                    '<option value="plywood">Plywood</option>' +
+                    '<option value="mdf">MDF</option>' +
+                    '<option value="metal">Metal</option>' +
+                    '<option value="plastic">Plastic</option>' +
+                    '<option value="glass">Glass</option>' +
+                    '<option value="fabric">Fabric</option>' +
+                    '<option value="leather">Leather</option>' +
+                    '<option value="other">Other</option>' +
+                    '</select>' +
+                    '</div>' +
+                    // Comparison points (checkboxes, max 3)
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 6px; color: #fff; font-family: monospace;">Comparison Points (max 3):</label>' +
+                    '<div style="display: flex; flex-direction: column; gap: 6px;">' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
+                    '</div>' +
+                    '</div>' +
+                    // Price impact dropdown
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Price Impact:</label>' +
+                    '<select name="smart_alt_price_impact" id="n88-smart-alt-price-' + itemId + '" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreview(' + itemId + ');">' +
+                    '<option value="">[ Select impact... ]</option>' +
+                    '<option value="reduces-10-20">Reduces 10-20%</option>' +
+                    '<option value="reduces-20-30">Reduces 20-30%</option>' +
+                    '<option value="reduces-30-plus">Reduces 30%+</option>' +
+                    '<option value="similar">Similar Price</option>' +
+                    '<option value="increases-10-20">Increases 10-20%</option>' +
+                    '<option value="increases-20-plus">Increases 20%+</option>' +
+                    '</select>' +
+                    '</div>' +
+                    // Lead time impact dropdown
+                    '<div style="margin-bottom: 12px;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Lead Time Impact:</label>' +
+                    '<select name="smart_alt_lead_time_impact" id="n88-smart-alt-leadtime-' + itemId + '" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreview(' + itemId + ');">' +
+                    '<option value="">[ Select impact... ]</option>' +
+                    '<option value="reduces-1-2w">Reduces 1-2 weeks</option>' +
+                    '<option value="reduces-2-4w">Reduces 2-4 weeks</option>' +
+                    '<option value="reduces-4w-plus">Reduces 4+ weeks</option>' +
+                    '<option value="similar">Similar Lead Time</option>' +
+                    '<option value="increases-1-2w">Increases 1-2 weeks</option>' +
+                    '<option value="increases-2w-plus">Increases 2+ weeks</option>' +
+                    '</select>' +
+                    '</div>' +
+                    // Preview sentence (read-only)
+                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace; font-weight: 600;">Preview:</label>' +
+                    '<div id="n88-smart-alt-preview-' + itemId + '" style="padding: 8px; background-color: #1a1a1a; border: none; border-radius: 2px; font-size: 11px; color: #999; font-family: monospace; min-height: 40px; font-style: italic;">Fill in the fields above to generate preview...</div>' +
+                    '</div>' +
+                    '</div>' : '') +
+                    '</div>' : '') +
+                    
+                    // Footer buttons
+                    '<div style="padding: 20px 0; border-top: 1px solid #00ff00; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
+                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
+                    '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
+                        '</div>' +
+                    '</form>';
+                
+                return bidFormHTML;
             }
             
             // Commit 2.3.3: Open bid form modal
@@ -1648,6 +2135,35 @@ class N88_RFQ_Auth {
                     
                     var item = data.data;
                     
+                    // Format dimensions for item header (Commit 2.3.5.2)
+                    var dimsText = '—';
+                    if (item.dimensions) {
+                        var w = item.dimensions.width || item.dimensions.w || '—';
+                        var d = item.dimensions.depth || item.dimensions.d || '—';
+                        var h = item.dimensions.height || item.dimensions.h || '—';
+                        var unit = item.dimensions.unit || '';
+                        if (w !== '—' && d !== '—' && h !== '—') {
+                            dimsText = w + '"W × ' + d + '"D × ' + h + '"H';
+                            if (unit && unit !== 'in') {
+                                dimsText = w + unit + 'W × ' + d + unit + 'D × ' + h + unit + 'H';
+                            }
+                        }
+                    }
+                    
+                    // Format delivery location
+                    var deliveryText = '—';
+                    if (item.delivery_country && item.delivery_postal_code) {
+                        deliveryText = item.delivery_country + ' ' + item.delivery_postal_code;
+                    } else if (item.delivery_country) {
+                        deliveryText = item.delivery_country;
+                    }
+                    
+                    // Format item title with category
+                    var itemTitleText = (item.title || 'Item #' + itemId);
+                    if (item.category) {
+                        itemTitleText += ' (' + item.category + ')';
+                    }
+                    
                     // Get primary image URL (use standardized key, fallback to legacy)
                     var primaryImageUrl = item.primary_image_url || item.image_url || '';
                     
@@ -1703,9 +2219,9 @@ class N88_RFQ_Auth {
                                     'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                                     'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                                     'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 2px solid #ddd; cursor: pointer; transition: all 0.2s; background-color: #000;" ' +
-                                    'onmouseover="this.style.borderColor=\'#0073aa\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,115,170,0.3)\';" ' +
-                                    'onmouseout="this.style.borderColor=\'#ddd\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                                     'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
@@ -1722,14 +2238,14 @@ class N88_RFQ_Auth {
                         if (primaryImageUrl) {
                             centerColumnHTML += '<img src="' + primaryImageUrl.replace(/"/g, '&quot;') + '" ' +
                                 'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23f0f0f0\' width=\'400\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EItem Image%3C/text%3E%3C/svg%3E\';" ' +
-                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer; transition: opacity 0.2s;" ' +
+                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
                                 'onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + primaryImageUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}return false;" ' +
-                                'onmouseover="this.style.opacity=\'0.9\';" ' +
-                                'onmouseout="this.style.opacity=\'1\';" ' +
+                                'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
+                                'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
                                 'title="Click to enlarge" ' +
                                 'alt="Item main image" />';
                         } else {
-                            centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #f0f0f0; border-radius: 4px; border: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999;">No main image available</div>';
+                            centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #00ff00; font-family: monospace; font-size: 12px;">No main image available</div>';
                         }
                         centerColumnHTML += '</div>';
                         
@@ -1743,9 +2259,9 @@ class N88_RFQ_Auth {
                                     'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                                     'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                                     'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 2px solid #ddd; cursor: pointer; transition: all 0.2s; background-color: #000;" ' +
-                                    'onmouseover="this.style.borderColor=\'#0073aa\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,115,170,0.3)\';" ' +
-                                    'onmouseout="this.style.borderColor=\'#ddd\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                                     'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
@@ -1757,136 +2273,253 @@ class N88_RFQ_Auth {
                         }
                         rightColumnHTML += '</div>';
                         
-                        // Combine into gallery layout
-                        imageGalleryHTML = '<div style="margin-bottom: 24px; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 16px; background-color: #fafafa; border-radius: 4px; border: 1px solid #e0e0e0;">' +
+                        // Combine into gallery layout (Commit 2.3.5.2: Dark theme)
+                        imageGalleryHTML = '<div style="margin-bottom: 24px; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 16px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #00ff00;">' +
                             leftColumnHTML +
                             centerColumnHTML +
                             rightColumnHTML +
                             '</div>';
                     }
                     
-                    // Build bid form modal HTML
-                    var modalHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
-                        '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Submit Bid - Item #' + itemId + '</h2>' +
-                        '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    // Build bid form modal HTML (Commit 2.3.5.2: Dark theme with green accents - terminal style)
+                    var modalHTML = 
+                        // Item Header Section (RFQ, Qty, Dims, Delivery)
+                        '<div style="padding: 16px 20px; border-bottom: 1px solid #00ff00; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
+                        '<div style="flex: 1;">' +
+                        '<div style="font-size: 12px; color: #00ff00; font-family: monospace; margin-bottom: 4px;">RFQ: <span style="color: #fff;">' + itemTitleText + '</span></div>' +
+                        '<div style="display: flex; gap: 16px; font-size: 11px; color: #00ff00; font-family: monospace; flex-wrap: wrap;">' +
+                        '<span>Qty: <span style="color: #fff;">' + (item.quantity || '—') + '</span></span>' +
+                        '<span>Dims: <span style="color: #fff;">' + dimsText + '</span></span>' +
+                        '<span>Delivery: <span style="color: #fff;">' + deliveryText + '</span></span>' +
                         '</div>' +
-                        '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #fff;">' +
-                        '<form id="n88-bid-form" style="padding: 20px;" onsubmit="return validateAndSubmitBid(event);">' +
+                        '</div>' +
+                        '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
+                        '</div>' +
+                        '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
+                        '<form id="n88-bid-form" style="padding: 20px; font-family: monospace;" onsubmit="return validateAndSubmitBid(event);">' +
                         
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
                         
-                        // Smart Alternatives (Optional) - Read-only display
-                        '<div style="margin-bottom: 24px; padding: 16px; background-color: #f9f9f9; border-radius: 4px; border: 1px solid #e0e0e0;">' +
-                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Smart Alternatives (Optional)</label>' +
-                        '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">The creator\'s preference for alternative materials:</div>' +
-                        '<div style="padding: 12px; background-color: #fff; border-radius: 4px; border: 1px solid #e0e0e0;">' +
-                            '<div style="margin-bottom: 8px;">' +
-                                '<strong>Status:</strong> ' + (item.smart_alternatives_enabled ? '<span style="color: #2e7d32;">Enabled</span> - Creator is open to alternative materials' : '<span style="color: #666;">Disabled</span> - Creator wants the specified material only') +
-                            '</div>' +
-                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                                '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e0e0e0;">' +
-                                    '<strong>Creator\'s Note:</strong> ' +
-                                    '<div style="margin-top: 4px; color: #555; white-space: pre-wrap; font-size: 13px;">' + (item.smart_alternatives_note || '—') + '</div>' +
-                                '</div>' : 
-                                '<div style="margin-top: 8px; color: #999; font-style: italic; font-size: 12px;">No additional note provided</div>'
-                            ) +
+                        // BID FORM Title
+                        '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM (Anonymous • No contact info allowed)</h2>' +
+                        '</div>' +
+                        
+                        // 1. Video links (optional, 0-3) - Commit 2.3.5.2: Dark theme
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 1, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
+                        '<div id="n88-video-links-container">' +
+                        '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
+                        '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">1)</span>' +
+                        '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
+                        '<button type="button" onclick="removeVideoLink(this)" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button>' +
+                        '</div>' +
+                        '</div>' +
+                        '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
+                        '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                        // 1.5. Bid Photos (Required, min 1, max 5) - Commit 2.3.5.2: Dark theme
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">BID PHOTOS <span style="color: #ff0000;">*</span></label>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
+                        '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
+                        '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
+                        '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                        '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                    
+                        // 2. Prototype video commitment (must be YES) - Commit 2.3.5.2: Dark theme
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">PROTOTYPE (Required)</label>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Will you prepare and video a prototype?</div>' +
+                        '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                        '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidForm();" />' +
+                        '<span style="font-size: 12px; color: #fff; font-family: monospace;">(●) YES</span>' +
+                        '</label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
+                        '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidForm();" />' +
+                        '<span style="font-size: 12px; color: #fff; font-family: monospace;">() NO</span>' +
+                        '</label>' +
+                        '</div>' +
+                        '<div style="font-size: 10px; color: #00ff00; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
+                        '<div id="n88-prototype-video-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        // Prototype timeline
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace;">Prototype timeline (Required):</label>' +
+                        '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
+                        '<option value="">[ Select timeline... ▼ ]</option>' +
+                        '<option value="1-2w">1–2w</option>' +
+                        '<option value="2-4w">2–4w</option>' +
+                        '<option value="4-6w">4–6w</option>' +
+                        '<option value="6-8w">6–8w</option>' +
+                        '<option value="8-10w">8–10w</option>' +
+                        '</select>' +
+                        '<div id="n88-prototype-timeline-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        // Prototype cost
+                        '<div style="margin-bottom: 0;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace;">Prototype cost (Required):</label>' +
+                        '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
+                        '<div id="n88-prototype-cost-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         '</div>' +
                         
+                        // 3. Production lead time - Commit 2.3.5.2: Dark theme
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) — Dropdown</label>' +
+                        '<select name="production_lead_time_text" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
+                        '<option value="">[ Select lead time... ▼ ]</option>' +
+                        '<option value="2-4 weeks">2–4 weeks</option>' +
+                        '<option value="4-6 weeks">4–6 weeks</option>' +
+                        '<option value="6-8 weeks">6–8 weeks</option>' +
+                        '<option value="8-12 weeks">8–12 weeks</option>' +
+                        '<option value="12-16 weeks">12–16 weeks</option>' +
+                        '</select>' +
+                        '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                        // 4. Unit price - Commit 2.3.5.2: Dark theme
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Unit price (Required)</label>' +
+                        '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
+                        '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                        // Smart Alternatives (Optional) - Display + Response Area
+                        ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
+                        '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVES (DFM) (Optional)</label>' +
+                        '<div style="font-size: 10px; color: #fff; margin-bottom: 8px; font-family: monospace; font-style: italic;">(Optional – shown ONLY if creator enabled)</div>' +
+                        // C1: Display designer's Smart Alternatives setting + note (read-only)
+                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
+                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
+                        '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
+                        '</div>' +
+                        (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
+                        (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
+                            '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #00ff00;">' +
+                            '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 4px;"><strong>Designer Note:</strong></div>' +
+                            '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 11px; font-family: monospace;">' + (item.smart_alternatives_note || '—') + '</div>' +
+                            '</div>' : 
+                            (item.smart_alternatives_enabled ? '<div style="margin-top: 8px; color: #666; font-style: italic; font-size: 10px; font-family: monospace;">No note provided</div>' : '')
+                        ) +
+                        '</div>' +
+                        // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
+                        (item.smart_alternatives_enabled ? 
+                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-top: 12px;">' +
+                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
+                        // Category dropdown
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Category:</label>' +
+                        '<select name="smart_alt_category" id="n88-smart-alt-category-modal" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreviewModal();">' +
+                        '<option value="">[ Select category... ]</option>' +
+                        '<option value="material">Material</option>' +
+                        '<option value="finish">Finish</option>' +
+                        '<option value="hardware">Hardware</option>' +
+                        '<option value="dimensions">Dimensions</option>' +
+                        '<option value="construction">Construction Method</option>' +
+                        '<option value="packaging">Packaging</option>' +
+                        '</select>' +
+                        '</div>' +
+                        // From dropdown
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">From:</label>' +
+                        '<select name="smart_alt_from" id="n88-smart-alt-from-modal" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreviewModal();">' +
+                        '<option value="">[ Select from... ]</option>' +
+                        '<option value="solid-wood">Solid Wood</option>' +
+                        '<option value="plywood">Plywood</option>' +
+                        '<option value="mdf">MDF</option>' +
+                        '<option value="metal">Metal</option>' +
+                        '<option value="plastic">Plastic</option>' +
+                        '<option value="glass">Glass</option>' +
+                        '<option value="fabric">Fabric</option>' +
+                        '<option value="leather">Leather</option>' +
+                        '<option value="other">Other</option>' +
+                        '</select>' +
+                        '</div>' +
+                        // To dropdown
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">To:</label>' +
+                        '<select name="smart_alt_to" id="n88-smart-alt-to-modal" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreviewModal();">' +
+                        '<option value="">[ Select to... ]</option>' +
+                        '<option value="solid-wood">Solid Wood</option>' +
+                        '<option value="plywood">Plywood</option>' +
+                        '<option value="mdf">MDF</option>' +
+                        '<option value="metal">Metal</option>' +
+                        '<option value="plastic">Plastic</option>' +
+                        '<option value="glass">Glass</option>' +
+                        '<option value="fabric">Fabric</option>' +
+                        '<option value="leather">Leather</option>' +
+                        '<option value="other">Other</option>' +
+                        '</select>' +
+                        '</div>' +
+                        // Comparison points (checkboxes, max 3)
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 6px; color: #fff; font-family: monospace;">Comparison Points (max 3):</label>' +
+                        '<div style="display: flex; flex-direction: column; gap: 6px;">' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
+                        '</div>' +
+                        '</div>' +
+                        // Price impact dropdown
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Price Impact:</label>' +
+                        '<select name="smart_alt_price_impact" id="n88-smart-alt-price-modal" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreviewModal();">' +
+                        '<option value="">[ Select impact... ]</option>' +
+                        '<option value="reduces-10-20">Reduces 10-20%</option>' +
+                        '<option value="reduces-20-30">Reduces 20-30%</option>' +
+                        '<option value="reduces-30-plus">Reduces 30%+</option>' +
+                        '<option value="similar">Similar Price</option>' +
+                        '<option value="increases-10-20">Increases 10-20%</option>' +
+                        '<option value="increases-20-plus">Increases 20%+</option>' +
+                        '</select>' +
+                        '</div>' +
+                        // Lead time impact dropdown
+                        '<div style="margin-bottom: 12px;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Lead Time Impact:</label>' +
+                        '<select name="smart_alt_lead_time_impact" id="n88-smart-alt-leadtime-modal" style="width: 100%; padding: 6px 10px; border: none; border-radius: 2px; font-size: 11px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="updateSmartAltPreviewModal();">' +
+                        '<option value="">[ Select impact... ]</option>' +
+                        '<option value="reduces-1-2w">Reduces 1-2 weeks</option>' +
+                        '<option value="reduces-2-4w">Reduces 2-4 weeks</option>' +
+                        '<option value="reduces-4w-plus">Reduces 4+ weeks</option>' +
+                        '<option value="similar">Similar Lead Time</option>' +
+                        '<option value="increases-1-2w">Increases 1-2 weeks</option>' +
+                        '<option value="increases-2w-plus">Increases 2+ weeks</option>' +
+                        '</select>' +
+                        '</div>' +
+                        // Preview sentence (read-only)
+                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace; font-weight: 600;">Preview:</label>' +
+                        '<div id="n88-smart-alt-preview-modal" style="padding: 8px; background-color: #1a1a1a; border: none; border-radius: 2px; font-size: 11px; color: #999; font-family: monospace; min-height: 40px; font-style: italic;">Fill in the fields above to generate preview...</div>' +
+                        '</div>' +
+                        '</div>' : '') +
+                        '</div>' : '') +
                     
-                    // 1. Video links (optional, 0-3) - Commit 2.3.5.1: Remove mandatory requirement
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Video Links (Optional)</label>' +
-                    '<div style="font-size: 11px; color: #888; margin-bottom: 4px; font-style: italic;">Add video of similar item so creator can see your capability</div>' +
-                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Paste up to 3 links (YouTube, Vimeo, or Loom). Optional.</div>' +
-                    '<div id="n88-video-links-container">' +
-                    '<div style="margin-bottom: 8px; display: flex; gap: 8px;">' +
-                    '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
-                    '<button type="button" onclick="removeVideoLink(this)" style="padding: 10px 16px; background-color: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer; display: none;">Remove</button>' +
-                    '</div>' +
-                    '</div>' +
-                    '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 8px 16px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 13px;">+ Add Another Link</button>' +
-                    '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 1.5. Bid Photos (Required, min 1, max 5) - Commit 2.3.5.1
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Bid Photos <span style="color: #d32f2f;">*</span></label>' +
-                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
-                    '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
-                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 10px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-bottom: 12px;">+ Add Photos</button>' +
-                    '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
-                    '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 2. Prototype video commitment (must be YES)
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Will you prepare and video a prototype? <span style="color: #d32f2f;">*</span></label>' +
-                    '<div style="font-size: 12px; color: #856404; margin-bottom: 8px; padding: 8px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">Prototype video is required to submit a bid.</div>' +
-                    '<div style="display: flex; gap: 16px;">' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                    '<input type="radio" name="prototype_video_yes" value="1" required style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
-                    '<span style="font-size: 14px;">Yes</span>' +
-                    '</label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                    '<input type="radio" name="prototype_video_yes" value="0" style="width: 18px; height: 18px; cursor: pointer;" onchange="validateBidForm();" />' +
-                    '<span style="font-size: 14px;">No</span>' +
-                    '</label>' +
-                    '</div>' +
-                    '<div id="n88-prototype-video-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 3. Prototype timeline
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Prototype Timeline <span style="color: #d32f2f;">*</span></label>' +
-                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer;" onchange="validateBidForm();">' +
-                    '<option value="">Select timeline...</option>' +
-                    '<option value="1-2w">1–2w</option>' +
-                    '<option value="2-4w">2–4w</option>' +
-                    '<option value="4-6w">4–6w</option>' +
-                    '<option value="6-8w">6–8w</option>' +
-                    '<option value="8-10w">8–10w</option>' +
-                    '</select>' +
-                    '<div id="n88-prototype-timeline-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 4. Prototype cost
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Prototype Cost ($) <span style="color: #d32f2f;">*</span></label>' +
-                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
-                    '<div id="n88-prototype-cost-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 5. Production lead time
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Production Lead Time <span style="color: #d32f2f;">*</span></label>' +
-                    '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff;" onchange="validateBidForm();">' +
-                    '<option value="">Select lead time</option>' +
-                    '<option value="2-4 weeks">2-4 weeks</option>' +
-                    '<option value="4-6 weeks">4-6 weeks</option>' +
-                    '<option value="6-8 weeks">6-8 weeks</option>' +
-                    '<option value="8-12 weeks">8-12 weeks</option>' +
-                    '<option value="12-16 weeks">12-16 weeks</option>' +
-                    '</select>' +
-                    '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    // 6. Unit price
-                    '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Unit Price ($) <span style="color: #d32f2f;">*</span></label>' +
-                    '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
-                    '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
-                    '</div>' +
-                    
-                    '</form>' +
-                    '</div>' +
-                    // Footer with submit button
-                    '<div style="padding: 20px; border-top: 1px solid #e0e0e0; background-color: #fff; display: flex; justify-content: flex-end; gap: 12px;">' +
-                    '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; cursor: pointer;">Cancel</button>' +
-                    '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #ccc; color: #666; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: not-allowed;">Validate Bid</button>' +
-                    '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer;">Submit Bid</button>' +
-                    '</div>';
+                        '</form>' +
+                        '</div>' +
+                        // Footer with submit button - Commit 2.3.5.2: Dark theme with green buttons
+                        '<div style="padding: 20px; border-top: 1px solid #00ff00; background-color: #000; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
+                        '<div style="flex: 1; min-width: 200px;">' +
+                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Rules:</div>' +
+                        '<div style="font-size: 10px; color: #fff; font-family: monospace;">Rules: No emails / phones / URLs / contact text. No uploads. No links here.</div>' +
+                        '</div>' +
+                        '<div style="display: flex; gap: 12px; align-items: center;">' +
+                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
+                        '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
+                        '<div id="n88-validate-status" style="font-size: 10px; color: #666; font-family: monospace; display: none;">(disabled until required fields complete)</div>' +
+                        '<div id="n88-after-validation" style="display: none; font-size: 10px; color: #00ff00; font-family: monospace; margin-left: 8px;">After validation success → show:</div>' +
+                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
+                        '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace; margin-left: 8px;">[ Cancel ]</button>' +
+                        '</div>' +
+                        '</div>';
                     
                     modalContent.innerHTML = modalHTML;
                     
@@ -2236,13 +2869,29 @@ class N88_RFQ_Auth {
             // Commit 2.3.5.1: Handle bid photos change - UPLOAD TO WORDPRESS MEDIA
             // This function is already defined above, but keeping this comment for reference
             
-            // Validate entire bid form (client-side)
+            // Validate entire bid form (client-side) - works with both modal and embedded forms
             function validateBidForm() {
                 var form = document.getElementById('n88-bid-form');
+                var isEmbedded = false;
+                var itemId = null;
+                
+                // Check if it's an embedded form
+                if (!form) {
+                    var embeddedForms = document.querySelectorAll('[id^="n88-bid-form-embedded-"]');
+                    if (embeddedForms.length > 0) {
+                        form = embeddedForms[0];
+                        isEmbedded = true;
+                        var formId = form.id;
+                        itemId = formId.replace('n88-bid-form-embedded-', '');
+                    }
+                }
+                
                 if (!form) return false;
                 
                 var isValid = true;
-                var submitBtn = document.getElementById('n88-validate-bid-btn');
+                var submitBtn = isEmbedded ? 
+                    document.getElementById('n88-validate-bid-btn-embedded-' + itemId) : 
+                    document.getElementById('n88-validate-bid-btn');
                 
                 // 1. Video links: optional, max 3, all valid (Commit 2.3.5.1: Remove mandatory requirement)
                 var videoLinks = form.querySelectorAll('.n88-video-link-input');
@@ -2287,7 +2936,9 @@ class N88_RFQ_Auth {
                 }
                 
                 // Also check preview container as fallback
-                var previewContainer = document.getElementById('n88-bid-photos-preview');
+                var previewContainer = isEmbedded ? 
+                    document.getElementById('n88-bid-photos-preview-embedded-' + itemId) : 
+                    document.getElementById('n88-bid-photos-preview');
                 if (previewContainer) {
                     var previewInputs = previewContainer.querySelectorAll('input[name="bid_photo_ids[]"]');
                     Array.from(previewInputs).forEach(function(input) {
@@ -2318,7 +2969,13 @@ class N88_RFQ_Auth {
                     }
                 }
                 
-                var photosError = document.getElementById('n88-bid-photos-error');
+                var photosError = isEmbedded ? 
+                    document.getElementById('n88-bid-photos-error-embedded-' + itemId) : 
+                    document.getElementById('n88-bid-photos-error');
+                var previewContainer = isEmbedded ? 
+                    document.getElementById('n88-bid-photos-preview-embedded-' + itemId) : 
+                    document.getElementById('n88-bid-photos-preview');
+                
                 console.log('Photo validation - Inputs found:', photoIdInputs.length, 'Photos counted:', bidPhotosCount, 'Form:', !!form, 'Preview container:', !!previewContainer);
                 
                 if (bidPhotosCount < 1) {
@@ -2346,12 +3003,40 @@ class N88_RFQ_Auth {
                 var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
                 if (!prototypeYes || !prototypeYes.checked) {
                     isValid = false;
+                    var prototypeError = isEmbedded ? 
+                        document.getElementById('n88-prototype-video-error-embedded-' + itemId) : 
+                        document.getElementById('n88-prototype-video-error');
+                    if (prototypeError) {
+                        prototypeError.textContent = 'Prototype video commitment must be YES.';
+                        prototypeError.style.display = 'block';
+                    }
+                } else {
+                    var prototypeError = isEmbedded ? 
+                        document.getElementById('n88-prototype-video-error-embedded-' + itemId) : 
+                        document.getElementById('n88-prototype-video-error');
+                    if (prototypeError) {
+                        prototypeError.style.display = 'none';
+                    }
                 }
                 
                 // 3. Prototype timeline required
                 var timeline = form.querySelector('select[name="prototype_timeline_option"]');
                 if (!timeline || !timeline.value) {
                     isValid = false;
+                    var timelineError = isEmbedded ? 
+                        document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
+                        document.getElementById('n88-prototype-timeline-error');
+                    if (timelineError) {
+                        timelineError.textContent = 'Prototype timeline is required.';
+                        timelineError.style.display = 'block';
+                    }
+                } else {
+                    var timelineError = isEmbedded ? 
+                        document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
+                        document.getElementById('n88-prototype-timeline-error');
+                    if (timelineError) {
+                        timelineError.style.display = 'none';
+                    }
                 }
                 
                 // 4. Prototype cost: numeric >= 0
@@ -2360,15 +3045,50 @@ class N88_RFQ_Auth {
                     var costValue = parseFloat(prototypeCost.value);
                     if (isNaN(costValue) || costValue < 0) {
                         isValid = false;
+                        var costError = isEmbedded ? 
+                            document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
+                            document.getElementById('n88-prototype-cost-error');
+                        if (costError) {
+                            costError.textContent = 'Prototype cost must be a valid number >= 0.';
+                            costError.style.display = 'block';
+                        }
+                    } else {
+                        var costError = isEmbedded ? 
+                            document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
+                            document.getElementById('n88-prototype-cost-error');
+                        if (costError) {
+                            costError.style.display = 'none';
+                        }
                     }
                 } else {
                     isValid = false;
+                    var costError = isEmbedded ? 
+                        document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
+                        document.getElementById('n88-prototype-cost-error');
+                    if (costError) {
+                        costError.textContent = 'Prototype cost is required.';
+                        costError.style.display = 'block';
+                    }
                 }
                 
                 // 5. Production lead time: non-empty
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
                     isValid = false;
+                    var leadTimeError = isEmbedded ? 
+                        document.getElementById('n88-lead-time-error-embedded-' + itemId) : 
+                        document.getElementById('n88-lead-time-error');
+                    if (leadTimeError) {
+                        leadTimeError.textContent = 'Production lead time is required.';
+                        leadTimeError.style.display = 'block';
+                    }
+                } else {
+                    var leadTimeError = isEmbedded ? 
+                        document.getElementById('n88-lead-time-error-embedded-' + itemId) : 
+                        document.getElementById('n88-lead-time-error');
+                    if (leadTimeError) {
+                        leadTimeError.style.display = 'none';
+                    }
                 }
                 
                 // 6. Unit price: numeric > 0
@@ -2377,9 +3097,30 @@ class N88_RFQ_Auth {
                     var priceValue = parseFloat(unitPrice.value);
                     if (isNaN(priceValue) || priceValue <= 0) {
                         isValid = false;
+                        var priceError = isEmbedded ? 
+                            document.getElementById('n88-unit-price-error-embedded-' + itemId) : 
+                            document.getElementById('n88-unit-price-error');
+                        if (priceError) {
+                            priceError.textContent = 'Unit price must be a valid number > 0.';
+                            priceError.style.display = 'block';
+                        }
+                    } else {
+                        var priceError = isEmbedded ? 
+                            document.getElementById('n88-unit-price-error-embedded-' + itemId) : 
+                            document.getElementById('n88-unit-price-error');
+                        if (priceError) {
+                            priceError.style.display = 'none';
+                        }
                     }
                 } else {
                     isValid = false;
+                    var priceError = isEmbedded ? 
+                        document.getElementById('n88-unit-price-error-embedded-' + itemId) : 
+                        document.getElementById('n88-unit-price-error');
+                    if (priceError) {
+                        priceError.textContent = 'Unit price is required.';
+                        priceError.style.display = 'block';
+                    }
                 }
                 
                 // Enable/disable submit button
@@ -2469,6 +3210,27 @@ class N88_RFQ_Auth {
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                
+                // Smart Alternatives suggestion (if enabled and filled)
+                var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
+                if (smartAltCategory && smartAltCategory.value) {
+                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                    
+                    var smartAltData = {
+                        category: smartAltCategory.value,
+                        from: smartAltFrom ? smartAltFrom.value : '',
+                        to: smartAltTo ? smartAltTo.value : '',
+                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
+                        price_impact: smartAltPrice ? smartAltPrice.value : '',
+                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                    };
+                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                }
+                
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
                 
                 // Disable submit button during validation
@@ -2604,6 +3366,27 @@ class N88_RFQ_Auth {
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                
+                // Smart Alternatives suggestion (if enabled and filled)
+                var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
+                if (smartAltCategory && smartAltCategory.value) {
+                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                    
+                    var smartAltData = {
+                        category: smartAltCategory.value,
+                        from: smartAltFrom ? smartAltFrom.value : '',
+                        to: smartAltTo ? smartAltTo.value : '',
+                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
+                        price_impact: smartAltPrice ? smartAltPrice.value : '',
+                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                    };
+                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                }
+                
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
                 
                 // Disable submit button
@@ -2674,9 +3457,886 @@ class N88_RFQ_Auth {
                 return false;
             }
             
+            // Embedded form helper functions
+            function addVideoLinkEmbedded(itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+                
+                var linkCount = container.querySelectorAll('.n88-video-link-input').length;
+                
+                if (linkCount >= 3) {
+                    alert('Maximum 3 video links allowed.');
+                    return;
+                }
+                
+                var newLinkDiv = document.createElement('div');
+                newLinkDiv.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px; align-items: center;';
+                newLinkDiv.innerHTML = '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px;">Remove</button>';
+                
+                container.appendChild(newLinkDiv);
+                updateVideoLinkButtonsEmbedded(itemId);
+                validateBidFormEmbedded(itemId);
+            }
+            
+            function handleBidPhotosChangeEmbedded(input, itemId) {
+                var files = input.files;
+                if (!files || files.length === 0) {
+                    return;
+                }
+                
+                // Validate file count (max 5)
+                if (files.length > 5) {
+                    alert('Maximum 5 photos allowed. Please select up to 5 photos.');
+                    input.value = '';
+                    return;
+                }
+                
+                // Validate file types
+                var imageFiles = Array.from(files).filter(function(file) {
+                    return file.type.startsWith('image/');
+                });
+                
+                if (imageFiles.length !== files.length) {
+                    alert('Please select image files only.');
+                    input.value = '';
+                    return;
+                }
+                
+                var previewContainer = document.getElementById('n88-bid-photos-preview-embedded-' + itemId);
+                var errorDiv = document.getElementById('n88-bid-photos-error-embedded-' + itemId);
+                
+                if (!previewContainer) {
+                    console.error('Bid photos preview container not found');
+                    return;
+                }
+                
+                // Clear previous previews
+                previewContainer.innerHTML = '';
+                
+                // Get nonce for AJAX
+                var nonce = '<?php echo wp_create_nonce( 'n88_upload_inspiration_image' ); ?>';
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+                
+                // Upload each file
+                var uploadPromises = imageFiles.map(function(file, index) {
+                    return new Promise(function(resolve, reject) {
+                        var formData = new FormData();
+                        formData.append('action', 'n88_upload_inspiration_image');
+                        formData.append('inspiration_image', file);
+                        formData.append('nonce', nonce);
+                        
+                        // Show loading placeholder
+                        var placeholderId = 'n88-bid-photo-placeholder-embedded-' + itemId + '-' + index;
+                        var placeholder = document.createElement('div');
+                        placeholder.id = placeholderId;
+                        placeholder.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px dashed #00ff00; border-radius: 4px; display: flex; align-items: center; justify-content: center; background-color: #1a1a1a;';
+                        placeholder.innerHTML = '<div style="font-size: 11px; color: #00ff00; font-family: monospace;">Uploading...</div>';
+                        previewContainer.appendChild(placeholder);
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            if (!response.ok) {
+                                throw new Error('HTTP error! status: ' + response.status);
+                            }
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            // Remove placeholder
+                            var placeholderEl = document.getElementById(placeholderId);
+                            if (placeholderEl) {
+                                placeholderEl.remove();
+                            }
+                            
+                            if (data.success && data.data && data.data.id && data.data.url) {
+                                // Create thumbnail
+                                var thumbDiv = document.createElement('div');
+                                thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                                thumbDiv.innerHTML = '<img src="' + data.data.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
+                                    '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + data.data.id + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(220, 53, 69, 0.9); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                
+                                // Add hidden input INSIDE THE FORM
+                                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                                if (form) {
+                                    var hiddenInput = document.createElement('input');
+                                    hiddenInput.type = 'hidden';
+                                    hiddenInput.name = 'bid_photo_ids[]';
+                                    hiddenInput.value = data.data.id;
+                                    hiddenInput.setAttribute('data-photo-id', data.data.id);
+                                    form.appendChild(hiddenInput);
+                                    console.log('✓ Added hidden input to embedded form - Photo ID:', data.data.id);
+                                } else {
+                                    console.error('✗ Embedded form #n88-bid-form-embedded-' + itemId + ' not found when adding photo!');
+                                }
+                                
+                                // Store reference in thumbDiv for easy removal
+                                thumbDiv.setAttribute('data-photo-id', data.data.id);
+                                previewContainer.appendChild(thumbDiv);
+                                
+                                resolve({ id: data.data.id, url: data.data.url });
+                            } else {
+                                var errorMsg = data.data && data.data.message ? data.data.message : 'Upload failed';
+                                throw new Error(errorMsg);
+                            }
+                        })
+                        .catch(function(error) {
+                            // Remove placeholder
+                            var placeholderEl = document.getElementById(placeholderId);
+                            if (placeholderEl) {
+                                placeholderEl.remove();
+                            }
+                            
+                            console.error('Error uploading photo:', error);
+                            if (errorDiv) {
+                                errorDiv.textContent = 'Failed to upload ' + file.name + ': ' + error.message;
+                                errorDiv.style.display = 'block';
+                            }
+                            reject(error);
+                        });
+                    });
+                });
+                
+                // Clear error on success
+                Promise.all(uploadPromises).then(function(results) {
+                    if (errorDiv) {
+                        errorDiv.style.display = 'none';
+                    }
+                    
+                    // Force validation after a delay to ensure DOM is fully updated
+                    setTimeout(function() {
+                        if (typeof validateBidFormEmbedded === 'function') {
+                            validateBidFormEmbedded(itemId);
+                        }
+                    }, 300);
+                }).catch(function() {
+                    // Errors already handled above
+                });
+            }
+            
+            function removeBidPhotoEmbedded(button, photoId, itemId) {
+                var thumbDiv = button.parentElement;
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                
+                if (form) {
+                    var hiddenInput = form.querySelector('input[name="bid_photo_ids[]"][value="' + photoId + '"]');
+                    if (hiddenInput) {
+                        hiddenInput.remove();
+                    }
+                }
+                
+                thumbDiv.remove();
+                
+                var previewContainer = document.getElementById('n88-bid-photos-preview-embedded-' + itemId);
+                var remainingPhotos = previewContainer ? previewContainer.querySelectorAll('div[data-photo-id]').length : 0;
+                if (remainingPhotos === 0) {
+                    var input = document.getElementById('n88-bid-photos-input-embedded-' + itemId);
+                    if (input) {
+                        input.value = '';
+                    }
+                }
+                
+                validateBidFormEmbedded(itemId);
+            }
+            
+            // Validate embedded bid form
+            function validateBidFormEmbedded(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) return false;
+                
+                var isValid = true;
+                var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                
+                // 1. Video links: optional, max 3
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var validVideoLinks = 0;
+                var allowedDomains = [
+                    'youtube.com', 'youtu.be', 'www.youtube.com',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                ];
+                
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        try {
+                            var urlObj = new URL(url);
+                            var hostname = urlObj.hostname.toLowerCase().replace('www.', '');
+                            var isAllowed = allowedDomains.some(function(domain) {
+                                var domainClean = domain.replace('www.', '');
+                                return hostname === domainClean || hostname.endsWith('.' + domainClean);
+                            });
+                            if (isAllowed) {
+                                validVideoLinks++;
+                            }
+                        } catch (e) {
+                            // Invalid URL format
+                        }
+                    }
+                });
+                
+                if (validVideoLinks > 3) {
+                    isValid = false;
+                }
+                
+                // 1.5. Bid Photos: required, min 1, max 5
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                var bidPhotosCount = 0;
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotosCount++;
+                    }
+                });
+                
+                var photosError = document.getElementById('n88-bid-photos-error-embedded-' + itemId);
+                if (bidPhotosCount < 1) {
+                    isValid = false;
+                    if (photosError) {
+                        photosError.textContent = 'At least 1 photo is required.';
+                        photosError.style.display = 'block';
+                    }
+                } else if (bidPhotosCount > 5) {
+                    isValid = false;
+                    if (photosError) {
+                        photosError.textContent = 'Maximum 5 photos allowed.';
+                        photosError.style.display = 'block';
+                    }
+                } else {
+                    if (photosError) {
+                        photosError.style.display = 'none';
+                    }
+                }
+                
+                // 2. Prototype video must be YES
+                var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
+                if (!prototypeYes || !prototypeYes.checked) {
+                    isValid = false;
+                }
+                
+                // 3. Prototype timeline required
+                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
+                if (!timeline || !timeline.value) {
+                    isValid = false;
+                }
+                
+                // 4. Prototype cost: numeric >= 0
+                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
+                if (prototypeCost && prototypeCost.value) {
+                    var costValue = parseFloat(prototypeCost.value);
+                    if (isNaN(costValue) || costValue < 0) {
+                        isValid = false;
+                    }
+                } else {
+                    isValid = false;
+                }
+                
+                // 5. Production lead time: non-empty
+                var leadTime = form.querySelector('select[name="production_lead_time_text"]');
+                if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
+                    isValid = false;
+                }
+                
+                // 6. Unit price: numeric > 0
+                var unitPrice = form.querySelector('input[name="unit_price"]');
+                if (unitPrice && unitPrice.value) {
+                    var priceValue = parseFloat(unitPrice.value);
+                    if (isNaN(priceValue) || priceValue <= 0) {
+                        isValid = false;
+                    }
+                } else {
+                    isValid = false;
+                }
+                
+                // Enable/disable validate button
+                if (validateBtn) {
+                    if (isValid) {
+                        validateBtn.disabled = false;
+                        validateBtn.style.opacity = '1';
+                        validateBtn.style.cursor = 'pointer';
+                    } else {
+                        validateBtn.disabled = true;
+                        validateBtn.style.opacity = '0.5';
+                        validateBtn.style.cursor = 'not-allowed';
+                    }
+                }
+                
+                return isValid;
+            }
+            
+            // Add video link for embedded form
+            function addVideoLinkEmbedded(itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+                
+                var linkCount = container.querySelectorAll('.n88-video-link-input-embedded').length;
+                
+                if (linkCount >= 3) {
+                    alert('Maximum 3 video links allowed.');
+                    return;
+                }
+                
+                var newLinkDiv = document.createElement('div');
+                newLinkDiv.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px; align-items: center;';
+                var linkNum = linkCount + 1;
+                newLinkDiv.innerHTML = '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">' + linkNum + ')</span>' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px;">Remove</button>';
+                
+                container.appendChild(newLinkDiv);
+                updateVideoLinkButtonsEmbedded(itemId);
+                validateBidFormEmbedded(itemId);
+            }
+            
+            // Remove video link for embedded form
+            function removeVideoLinkEmbedded(button, itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+                
+                var linkDiv = button.parentElement;
+                container.removeChild(linkDiv);
+                updateVideoLinkButtonsEmbedded(itemId);
+                validateBidFormEmbedded(itemId);
+            }
+            
+            // Update video link buttons for embedded form
+            function updateVideoLinkButtonsEmbedded(itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+                
+                var links = container.querySelectorAll('.n88-video-link-input-embedded');
+                var removeButtons = container.querySelectorAll('button[onclick*="removeVideoLinkEmbedded"]');
+                
+                if (links.length > 1) {
+                    removeButtons.forEach(function(btn) { btn.style.display = 'block'; });
+                } else {
+                    removeButtons.forEach(function(btn) { btn.style.display = 'none'; });
+                }
+                
+                var addBtn = document.getElementById('n88-add-video-link-btn-embedded-' + itemId);
+                if (addBtn) {
+                    addBtn.style.display = links.length >= 3 ? 'none' : 'block';
+                }
+            }
+            
+            // Validate individual video link for embedded form
+            function validateVideoLinkEmbedded(input, itemId) {
+                var url = input.value.trim();
+                var errorDiv = document.getElementById('n88-video-links-error-embedded-' + itemId);
+                
+                if (!url) {
+                    input.style.borderColor = '#00ff00';
+                    return true;
+                }
+                
+                var allowedDomains = [
+                    'youtube.com', 'youtu.be', 'www.youtube.com',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                ];
+                
+                var urlObj;
+                try {
+                    urlObj = new URL(url);
+                } catch (e) {
+                    input.style.borderColor = '#ff0000';
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Invalid URL format.';
+                        errorDiv.style.display = 'block';
+                    }
+                    return false;
+                }
+                
+                var hostname = urlObj.hostname.toLowerCase().replace('www.', '');
+                var isValid = allowedDomains.some(function(domain) {
+                    return hostname === domain || hostname.endsWith('.' + domain);
+                });
+                
+                if (!isValid) {
+                    input.style.borderColor = '#ff0000';
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Only YouTube, Vimeo, or Loom links are allowed.';
+                        errorDiv.style.display = 'block';
+                    }
+                    return false;
+                }
+                
+                input.style.borderColor = '#00ff00';
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                }
+                validateBidFormEmbedded(itemId);
+                return true;
+            }
+            
+            function validateAndSubmitBidEmbedded(event, itemId) {
+                if (event) {
+                    event.preventDefault();
+                }
+                
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) return false;
+                
+                // Client-side validation
+                if (!validateBidFormEmbedded(itemId)) {
+                    alert('Please complete all required fields correctly.');
+                    return false;
+                }
+                
+                if (!itemId) {
+                    alert('Item ID not found.');
+                    return false;
+                }
+                
+                // Collect form data
+                var formData = new FormData();
+                formData.append('action', 'n88_validate_supplier_bid');
+                formData.append('item_id', itemId);
+                
+                // Video links
+                var videoLinks = form.querySelectorAll('.n88-video-link-input');
+                var videoLinksArray = [];
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        videoLinksArray.push(url);
+                    }
+                });
+                formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Bid photos
+                var bidPhotoIds = [];
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotoIds.push(photoId);
+                    }
+                });
+                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
+                
+                // Other fields
+                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
+                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
+                
+                // Disable submit button during validation
+                var submitBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Validating...';
+                }
+                
+                // Submit to server for validation
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Validate Bid';
+                    }
+                    
+                    if (!data.success) {
+                        if (data.data && data.data.errors) {
+                            var errorHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
+                                '<strong style="color: #d32f2f;">Validation Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
+                            for (var field in data.data.errors) {
+                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
+                            }
+                            errorHtml += '</ul></div>';
+                            
+                            if (form) {
+                                var existingError = form.querySelector('.n88-validation-errors');
+                                if (existingError) {
+                                    existingError.remove();
+                                }
+                                form.insertAdjacentHTML('afterbegin', errorHtml);
+                                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
+                        }
+                    } else {
+                        // Validation passed - show Submit Bid button
+                        var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                        var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                        
+                        if (validateBtn && submitBtn) {
+                            validateBtn.style.display = 'none';
+                            submitBtn.style.display = 'inline-block';
+                            submitBtn.disabled = false;
+                        }
+                        
+                        // Show success message
+                        if (form) {
+                            var existingError = form.querySelector('.n88-validation-errors');
+                            if (existingError) {
+                                existingError.remove();
+                            }
+                            var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
+                                '<strong>✓ Validation successful!</strong> Click "Submit Bid" to save your bid.' +
+                                '</div>';
+                            form.insertAdjacentHTML('afterbegin', successHtml);
+                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    }
+                })
+                .catch(function(error) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Validate Bid';
+                    }
+                    alert('Error validating bid. Please try again.');
+                    console.error('Validation error:', error);
+                });
+                
+                return false;
+            }
+            
+            function submitBidEmbedded(event, itemId) {
+                if (event) {
+                    event.preventDefault();
+                }
+                
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) return false;
+                
+                if (!itemId) {
+                    alert('Item ID not found.');
+                    return false;
+                }
+                
+                // Collect form data
+                var formData = new FormData();
+                formData.append('action', 'n88_submit_supplier_bid');
+                formData.append('item_id', itemId);
+                
+                // Video links (use embedded class)
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var videoLinksArray = [];
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        videoLinksArray.push(url);
+                    }
+                });
+                formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Bid photos
+                var bidPhotoIds = [];
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotoIds.push(photoId);
+                    }
+                });
+                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
+                
+                // Other fields
+                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
+                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                
+                // Smart Alternatives suggestion (if enabled and filled)
+                var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
+                if (smartAltCategory && smartAltCategory.value) {
+                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                    
+                    var smartAltData = {
+                        category: smartAltCategory.value,
+                        from: smartAltFrom ? smartAltFrom.value : '',
+                        to: smartAltTo ? smartAltTo.value : '',
+                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
+                        price_impact: smartAltPrice ? smartAltPrice.value : '',
+                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                    };
+                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                }
+                
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
+                
+                // Disable submit button
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Submitting...';
+                }
+                
+                // Submit to server
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Submit Bid';
+                    }
+                    
+                    if (!data.success) {
+                        if (data.data && data.data.errors) {
+                            var errorHtml = '<div style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
+                                '<strong style="color: #d32f2f;">Submission Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
+                            for (var field in data.data.errors) {
+                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
+                            }
+                            errorHtml += '</ul></div>';
+                            
+                            if (form) {
+                                var existingError = form.querySelector('.n88-validation-errors');
+                                if (existingError) {
+                                    existingError.remove();
+                                }
+                                errorHtml = errorHtml.replace('<div style="', '<div class="n88-validation-errors" style="');
+                                form.insertAdjacentHTML('afterbegin', errorHtml);
+                                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
+                        }
+                    } else {
+                        // Success - close bid form section and refresh
+                        alert(data.data && data.data.message || 'Bid submitted successfully!');
+                        toggleBidForm(itemId);
+                        // Refresh the modal to show updated status
+                        openBidModal(itemId);
+                    }
+                })
+                .catch(function(error) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Submit Bid';
+                    }
+                    alert('Error submitting bid. Please try again.');
+                    console.error('Submission error:', error);
+                });
+                
+                return false;
+            }
+            
             // Make functions globally accessible
             window.validateAndSubmitBid = validateAndSubmitBid;
             window.submitBid = submitBid;
+            window.toggleBidForm = toggleBidForm;
+            window.addVideoLinkEmbedded = addVideoLinkEmbedded;
+            window.removeVideoLinkEmbedded = removeVideoLinkEmbedded;
+            window.validateVideoLinkEmbedded = validateVideoLinkEmbedded;
+            window.updateVideoLinkButtonsEmbedded = updateVideoLinkButtonsEmbedded;
+            window.handleBidPhotosChangeEmbedded = handleBidPhotosChangeEmbedded;
+            window.validateBidFormEmbedded = validateBidFormEmbedded;
+            window.validateAndSubmitBidEmbedded = validateAndSubmitBidEmbedded;
+            window.submitBidEmbedded = submitBidEmbedded;
+            
+            // Smart Alternatives preview update function
+            function updateSmartAltPreview(itemId) {
+                var category = document.getElementById('n88-smart-alt-category-' + itemId);
+                var from = document.getElementById('n88-smart-alt-from-' + itemId);
+                var to = document.getElementById('n88-smart-alt-to-' + itemId);
+                var priceImpact = document.getElementById('n88-smart-alt-price-' + itemId);
+                var leadTimeImpact = document.getElementById('n88-smart-alt-leadtime-' + itemId);
+                var checkboxes = document.querySelectorAll('#n88-bid-form-embedded-' + itemId + ' .n88-smart-alt-checkbox:checked');
+                var preview = document.getElementById('n88-smart-alt-preview-' + itemId);
+                
+                if (!preview) return;
+                
+                // Validate max 3 checkboxes
+                if (checkboxes.length > 3) {
+                    alert('Maximum 3 comparison points allowed. Please uncheck one.');
+                    event.target.checked = false;
+                    checkboxes = document.querySelectorAll('#n88-bid-form-embedded-' + itemId + ' .n88-smart-alt-checkbox:checked');
+                }
+                
+                var parts = [];
+                
+                if (category && category.value) {
+                    var categoryLabels = {
+                        'material': 'Material',
+                        'finish': 'Finish',
+                        'hardware': 'Hardware',
+                        'dimensions': 'Dimensions',
+                        'construction': 'Construction Method',
+                        'packaging': 'Packaging'
+                    };
+                    parts.push('Category: ' + (categoryLabels[category.value] || category.value));
+                }
+                
+                if (from && from.value && to && to.value) {
+                    var fromLabels = {
+                        'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                        'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                        'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                    };
+                    var toLabels = fromLabels;
+                    parts.push('From ' + (fromLabels[from.value] || from.value) + ' to ' + (toLabels[to.value] || to.value));
+                }
+                
+                if (checkboxes.length > 0) {
+                    var comparisonLabels = {
+                        'cost-reduction': 'Cost Reduction',
+                        'faster-production': 'Faster Production',
+                        'better-durability': 'Better Durability',
+                        'easier-sourcing': 'Easier Sourcing',
+                        'lighter-weight': 'Lighter Weight',
+                        'eco-friendly': 'Eco-Friendly'
+                    };
+                    var comparisons = Array.from(checkboxes).map(function(cb) {
+                        return comparisonLabels[cb.value] || cb.value;
+                    });
+                    parts.push('Benefits: ' + comparisons.join(', '));
+                }
+                
+                if (priceImpact && priceImpact.value) {
+                    var priceLabels = {
+                        'reduces-10-20': 'Price: Reduces 10-20%',
+                        'reduces-20-30': 'Price: Reduces 20-30%',
+                        'reduces-30-plus': 'Price: Reduces 30%+',
+                        'similar': 'Price: Similar',
+                        'increases-10-20': 'Price: Increases 10-20%',
+                        'increases-20-plus': 'Price: Increases 20%+'
+                    };
+                    parts.push(priceLabels[priceImpact.value] || priceImpact.value);
+                }
+                
+                if (leadTimeImpact && leadTimeImpact.value) {
+                    var leadTimeLabels = {
+                        'reduces-1-2w': 'Lead Time: Reduces 1-2 weeks',
+                        'reduces-2-4w': 'Lead Time: Reduces 2-4 weeks',
+                        'reduces-4w-plus': 'Lead Time: Reduces 4+ weeks',
+                        'similar': 'Lead Time: Similar',
+                        'increases-1-2w': 'Lead Time: Increases 1-2 weeks',
+                        'increases-2w-plus': 'Lead Time: Increases 2+ weeks'
+                    };
+                    parts.push(leadTimeLabels[leadTimeImpact.value] || leadTimeImpact.value);
+                }
+                
+                if (parts.length > 0) {
+                    preview.textContent = parts.join(' | ');
+                    preview.style.color = '#00ff00';
+                    preview.style.fontStyle = 'normal';
+                } else {
+                    preview.textContent = 'Fill in the fields above to generate preview...';
+                    preview.style.color = '#999';
+                    preview.style.fontStyle = 'italic';
+                }
+            }
+            
+            window.updateSmartAltPreview = updateSmartAltPreview;
+            
+            // Smart Alternatives preview update function for modal form
+            function updateSmartAltPreviewModal() {
+                var category = document.getElementById('n88-smart-alt-category-modal');
+                var from = document.getElementById('n88-smart-alt-from-modal');
+                var to = document.getElementById('n88-smart-alt-to-modal');
+                var priceImpact = document.getElementById('n88-smart-alt-price-modal');
+                var leadTimeImpact = document.getElementById('n88-smart-alt-leadtime-modal');
+                var checkboxes = document.querySelectorAll('#n88-bid-form .n88-smart-alt-checkbox-modal:checked');
+                var preview = document.getElementById('n88-smart-alt-preview-modal');
+                
+                if (!preview) return;
+                
+                // Validate max 3 checkboxes
+                if (checkboxes.length > 3) {
+                    alert('Maximum 3 comparison points allowed. Please uncheck one.');
+                    event.target.checked = false;
+                    checkboxes = document.querySelectorAll('#n88-bid-form .n88-smart-alt-checkbox-modal:checked');
+                }
+                
+                var parts = [];
+                
+                if (category && category.value) {
+                    var categoryLabels = {
+                        'material': 'Material',
+                        'finish': 'Finish',
+                        'hardware': 'Hardware',
+                        'dimensions': 'Dimensions',
+                        'construction': 'Construction Method',
+                        'packaging': 'Packaging'
+                    };
+                    parts.push('Category: ' + (categoryLabels[category.value] || category.value));
+                }
+                
+                if (from && from.value && to && to.value) {
+                    var fromLabels = {
+                        'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                        'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                        'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                    };
+                    var toLabels = fromLabels;
+                    parts.push('From ' + (fromLabels[from.value] || from.value) + ' to ' + (toLabels[to.value] || to.value));
+                }
+                
+                if (checkboxes.length > 0) {
+                    var comparisonLabels = {
+                        'cost-reduction': 'Cost Reduction',
+                        'faster-production': 'Faster Production',
+                        'better-durability': 'Better Durability',
+                        'easier-sourcing': 'Easier Sourcing',
+                        'lighter-weight': 'Lighter Weight',
+                        'eco-friendly': 'Eco-Friendly'
+                    };
+                    var comparisons = Array.from(checkboxes).map(function(cb) {
+                        return comparisonLabels[cb.value] || cb.value;
+                    });
+                    parts.push('Benefits: ' + comparisons.join(', '));
+                }
+                
+                if (priceImpact && priceImpact.value) {
+                    var priceLabels = {
+                        'reduces-10-20': 'Price: Reduces 10-20%',
+                        'reduces-20-30': 'Price: Reduces 20-30%',
+                        'reduces-30-plus': 'Price: Reduces 30%+',
+                        'similar': 'Price: Similar',
+                        'increases-10-20': 'Price: Increases 10-20%',
+                        'increases-20-plus': 'Price: Increases 20%+'
+                    };
+                    parts.push(priceLabels[priceImpact.value] || priceImpact.value);
+                }
+                
+                if (leadTimeImpact && leadTimeImpact.value) {
+                    var leadTimeLabels = {
+                        'reduces-1-2w': 'Lead Time: Reduces 1-2 weeks',
+                        'reduces-2-4w': 'Lead Time: Reduces 2-4 weeks',
+                        'reduces-4w-plus': 'Lead Time: Reduces 4+ weeks',
+                        'similar': 'Lead Time: Similar',
+                        'increases-1-2w': 'Lead Time: Increases 1-2 weeks',
+                        'increases-2w-plus': 'Lead Time: Increases 2+ weeks'
+                    };
+                    parts.push(leadTimeLabels[leadTimeImpact.value] || leadTimeImpact.value);
+                }
+                
+                if (parts.length > 0) {
+                    preview.textContent = parts.join(' | ');
+                    preview.style.color = '#00ff00';
+                    preview.style.fontStyle = 'normal';
+                } else {
+                    preview.textContent = 'Fill in the fields above to generate preview...';
+                    preview.style.color = '#999';
+                    preview.style.fontStyle = 'italic';
+                }
+            }
+            
+            window.updateSmartAltPreviewModal = updateSmartAltPreviewModal;
+            window.removeBidPhotoEmbedded = removeBidPhotoEmbedded;
             
             // Attach event listeners
             document.addEventListener('DOMContentLoaded', function() {
@@ -2755,6 +4415,7 @@ class N88_RFQ_Auth {
             window.closeSupplierImageLightbox = closeSupplierImageLightbox;
             window.handleBidPhotosChange = handleBidPhotosChange;
             window.removeBidPhoto = removeBidPhoto;
+            window.removeBidPhotoEmbedded = removeBidPhotoEmbedded;
         })();
         </script>
         <?php
@@ -4663,63 +6324,231 @@ class N88_RFQ_Auth {
             $media_links = $meta['media_links'];
         }
 
-        // Extract dimensions - prioritize RFQ submission dimensions over item meta
-        $dims = null;
-        if ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
-            // Use dimensions from RFQ submission (stored in delivery context)
-            $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
-            if ( is_array( $decoded_dims ) ) {
-                // Normalize to w/d/h format for frontend compatibility (frontend expects w, d, h, unit)
-                $dims = array(
-                    'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
-                    'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
-                    'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
-                    'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
-                );
-                error_log( 'Supplier Detail View - Using dimensions from delivery context for item ' . $item_id . ': ' . wp_json_encode( $dims ) );
-            } else {
-                error_log( 'Supplier Detail View - Failed to decode dimensions_json for item ' . $item_id . ': ' . $delivery_context['dimensions_json'] );
-            }
-        } elseif ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
-            // Fallback to item meta
-            $dims = $meta['dims'];
-            error_log( 'Supplier Detail View - Using dimensions from item meta (dims) for item ' . $item_id );
-        } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
-            // Fallback to item meta (cm)
-            $dims = $meta['dims_cm'];
-            error_log( 'Supplier Detail View - Using dimensions from item meta (dims_cm) for item ' . $item_id );
-        } else {
-            error_log( 'Supplier Detail View - No dimensions found for item ' . $item_id . ' (has_dimensions: ' . ( $has_dimensions ? 'true' : 'false' ) . ', delivery_context exists: ' . ( $delivery_context ? 'true' : 'false' ) . ')' );
-        }
-
-        // Get quantity - prioritize RFQ submission quantity over item meta
-        $quantity = null;
-        if ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
-            // Use quantity from RFQ submission (stored in delivery context)
-            $quantity = intval( $delivery_context['quantity'] );
-        } elseif ( isset( $meta['quantity'] ) ) {
-            // Fallback to item meta
-            $quantity = intval( $meta['quantity'] );
-        }
-
-        // Get bid status (Commit 2.3.5 - check if bid already submitted)
+        // Get bid status and created_at FIRST (Commit 2.3.5 - check if bid already submitted)
+        // Commit 2.3.5.1 Addendum: Also get created_at to detect if dims/qty changed after bid submission
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
         $bid_status = null;
+        $bid_created_at = null;
+        $show_dims_qty_warning = false;
+        $has_submitted_bid = false;
+        $bid_data = null;
         if ( ! $is_system_operator ) {
+            // Check if meta_json column exists in bids table
+            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+            $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
+            
+            $select_bid_fields = "bid_id, status, created_at, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost";
+            if ( $has_bid_meta_json ) {
+                $select_bid_fields .= ", meta_json";
+            }
+            
             $existing_bid = $wpdb->get_row( $wpdb->prepare(
-                "SELECT status FROM {$item_bids_table} 
+                "SELECT {$select_bid_fields} FROM {$item_bids_table} 
                 WHERE item_id = %d AND supplier_id = %d",
                 $item_id,
                 $current_user->ID
-            ) );
+            ), ARRAY_A );
             if ( $existing_bid ) {
-                $bid_status = $existing_bid->status;
+                $bid_status = $existing_bid['status'];
+                $bid_created_at = $existing_bid['created_at'];
+                $has_submitted_bid = ( $bid_status === 'submitted' );
+                
+                // If bid is submitted, get full bid data
+                if ( $has_submitted_bid ) {
+                    $bid_id = intval( $existing_bid['bid_id'] );
+                    
+                    // Get video links
+                    $video_links = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT url, provider FROM {$bid_media_links_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid_id
+                    ), ARRAY_A );
+                    
+                    // Get bid photos
+                    $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT attachment_id FROM {$bid_media_files_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid_id
+                    ), ARRAY_A );
+                    
+                    $photo_urls = array();
+                    foreach ( $bid_photos as $photo ) {
+                        $photo_url = wp_get_attachment_image_url( intval( $photo['attachment_id'] ), 'medium' );
+                        if ( $photo_url ) {
+                            $photo_urls[] = esc_url_raw( $photo_url );
+                        }
+                    }
+                    
+                    // Get Smart Alternatives suggestion from meta_json if available
+                    $smart_alternatives_suggestion = null;
+                    if ( $has_bid_meta_json && ! empty( $existing_bid['meta_json'] ) ) {
+                        $bid_meta = json_decode( $existing_bid['meta_json'], true );
+                        if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                            $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                        }
+                    }
+                    
+                    $bid_data = array(
+                        'unit_price' => $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null,
+                        'production_lead_time' => $existing_bid['production_lead_time_text'] ? sanitize_text_field( $existing_bid['production_lead_time_text'] ) : null,
+                        'prototype_video_yes' => intval( $existing_bid['prototype_video_yes'] ) === 1,
+                        'prototype_timeline' => $existing_bid['prototype_timeline_option'] ? sanitize_text_field( $existing_bid['prototype_timeline_option'] ) : null,
+                        'prototype_cost' => $existing_bid['prototype_cost'] ? floatval( $existing_bid['prototype_cost'] ) : null,
+                        'video_links' => array_map( function( $link ) {
+                            return esc_url_raw( $link['url'] );
+                        }, $video_links ),
+                        'bid_photos' => $photo_urls,
+                        'created_at' => $bid_created_at,
+                        'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
+                    );
+                }
+                
+                // Commit 2.3.5.1 Addendum: Check if dims/qty changed after bid submission
+                // Get latest item_facts_updated_after_rfq event timestamp
+                $events_table = $wpdb->prefix . 'n88_events';
+                $latest_update_event = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT created_at FROM {$events_table}
+                    WHERE event_type = 'item_facts_updated_after_rfq'
+                    AND item_id = %d
+                    ORDER BY created_at DESC
+                    LIMIT 1",
+                    $item_id
+                ) );
+                
+                // If event exists and is newer than bid creation, show warning
+                if ( $latest_update_event && $bid_created_at ) {
+                    $event_timestamp = strtotime( $latest_update_event->created_at );
+                    $bid_timestamp = strtotime( $bid_created_at );
+                    if ( $event_timestamp > $bid_timestamp ) {
+                        $show_dims_qty_warning = true;
+                    }
+                }
+            }
+        }
+
+        // Extract dimensions - Commit 2.3.5.1 Addendum: For suppliers with submitted bids where dims/qty changed,
+        // prioritize LATEST item meta values (not RFQ submission values) so they see updated values
+        $dims = null;
+        if ( $has_submitted_bid && $show_dims_qty_warning ) {
+            // Supplier has submitted bid AND dims/qty changed after bid: Show LATEST values from item meta
+            if ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
+                $dims = $meta['dims'];
+                error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims) for item ' . $item_id . ' (supplier has bid, values changed after bid)' );
+            } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
+                $dims = $meta['dims_cm'];
+                error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims_cm) for item ' . $item_id . ' (supplier has bid, values changed after bid)' );
+            } elseif ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
+                // Fallback to delivery context if meta not available
+                $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
+                if ( is_array( $decoded_dims ) ) {
+                    $dims = array(
+                        'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
+                        'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
+                        'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
+                        'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
+                    );
+                    error_log( 'Supplier Detail View - Using dimensions from delivery context (fallback) for item ' . $item_id );
+                }
+            }
+        } else {
+            // Normal case: Prioritize RFQ submission dimensions over item meta (for suppliers without bids or before changes)
+            if ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
+                // Use dimensions from RFQ submission (stored in delivery context)
+                $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
+                if ( is_array( $decoded_dims ) ) {
+                    // Normalize to w/d/h format for frontend compatibility (frontend expects w, d, h, unit)
+                    $dims = array(
+                        'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
+                        'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
+                        'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
+                        'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
+                    );
+                    error_log( 'Supplier Detail View - Using dimensions from delivery context for item ' . $item_id . ': ' . wp_json_encode( $dims ) );
+                } else {
+                    error_log( 'Supplier Detail View - Failed to decode dimensions_json for item ' . $item_id . ': ' . $delivery_context['dimensions_json'] );
+                }
+            } elseif ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
+                // Fallback to item meta
+                $dims = $meta['dims'];
+                error_log( 'Supplier Detail View - Using dimensions from item meta (dims) for item ' . $item_id );
+            } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
+                // Fallback to item meta (cm)
+                $dims = $meta['dims_cm'];
+                error_log( 'Supplier Detail View - Using dimensions from item meta (dims_cm) for item ' . $item_id );
+            } else {
+                error_log( 'Supplier Detail View - No dimensions found for item ' . $item_id . ' (has_dimensions: ' . ( $has_dimensions ? 'true' : 'false' ) . ', delivery_context exists: ' . ( $delivery_context ? 'true' : 'false' ) . ')' );
+            }
+        }
+
+        // Get quantity - Commit 2.3.5.1 Addendum: For suppliers with submitted bids where dims/qty changed,
+        // prioritize LATEST item meta values (not RFQ submission values) so they see updated values
+        $quantity = null;
+        if ( $has_submitted_bid && $show_dims_qty_warning ) {
+            // Supplier has submitted bid AND dims/qty changed after bid: Show LATEST values from item meta
+            if ( isset( $meta['quantity'] ) ) {
+                $quantity = intval( $meta['quantity'] );
+                error_log( 'Supplier Detail View - Using LATEST quantity from item meta for item ' . $item_id . ' (supplier has bid, values changed after bid): ' . $quantity );
+            } elseif ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
+                // Fallback to delivery context if meta not available
+                $quantity = intval( $delivery_context['quantity'] );
+                error_log( 'Supplier Detail View - Using quantity from delivery context (fallback) for item ' . $item_id );
+            }
+        } else {
+            // Normal case: Prioritize RFQ submission quantity over item meta (for suppliers without bids or before changes)
+            if ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
+                // Use quantity from RFQ submission (stored in delivery context)
+                $quantity = intval( $delivery_context['quantity'] );
+            } elseif ( isset( $meta['quantity'] ) ) {
+                // Fallback to item meta
+                $quantity = intval( $meta['quantity'] );
             }
         }
 
         // Get Smart Alternatives data from meta
         $smart_alternatives_enabled = isset( $meta['smart_alternatives'] ) && $meta['smart_alternatives'] === true;
         $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
+        
+        // Commit 2.3.5.1 Addendum: Calculate Total CBM from current item facts
+        $total_cbm = null;
+        if ( $dims && isset( $dims['w'] ) && isset( $dims['d'] ) && isset( $dims['h'] ) && isset( $dims['unit'] ) && $quantity && $quantity > 0 ) {
+            // Normalize dimensions to cm
+            $w_cm = null;
+            $d_cm = null;
+            $h_cm = null;
+            $unit = $dims['unit'];
+            
+            if ( $unit === 'mm' ) {
+                $w_cm = floatval( $dims['w'] ) / 10;
+                $d_cm = floatval( $dims['d'] ) / 10;
+                $h_cm = floatval( $dims['h'] ) / 10;
+            } elseif ( $unit === 'cm' ) {
+                $w_cm = floatval( $dims['w'] );
+                $d_cm = floatval( $dims['d'] );
+                $h_cm = floatval( $dims['h'] );
+            } elseif ( $unit === 'm' ) {
+                $w_cm = floatval( $dims['w'] ) * 100;
+                $d_cm = floatval( $dims['d'] ) * 100;
+                $h_cm = floatval( $dims['h'] ) * 100;
+            } elseif ( $unit === 'in' ) {
+                $w_cm = floatval( $dims['w'] ) * 2.54;
+                $d_cm = floatval( $dims['d'] ) * 2.54;
+                $h_cm = floatval( $dims['h'] ) * 2.54;
+            }
+            
+            if ( $w_cm && $d_cm && $h_cm ) {
+                // Convert cm to meters, then calculate CBM per unit
+                $w_m = $w_cm / 100;
+                $d_m = $d_cm / 100;
+                $h_m = $h_cm / 100;
+                $item_cbm = $w_m * $d_m * $h_m;
+                // Calculate Total CBM (item_cbm × quantity)
+                $total_cbm = round( $item_cbm * $quantity, 3 );
+            }
+        }
 
         // Build response (read-only, no writes)
         $response = array(
@@ -4731,6 +6560,7 @@ class N88_RFQ_Auth {
             'primary_image_url' => $primary_image_url ? esc_url_raw( $primary_image_url ) : '', // Standardized key
             'quantity' => $quantity,
             'dimensions' => $dims,
+            'total_cbm' => $total_cbm, // Commit 2.3.5.1 Addendum: Total CBM from current item facts
             'sourcing_type' => isset( $meta['sourcing_type'] ) ? sanitize_text_field( $meta['sourcing_type'] ) : null,
             'timeline_type' => isset( $meta['timeline_type'] ) ? sanitize_text_field( $meta['timeline_type'] ) : null,
             'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,
@@ -4743,6 +6573,8 @@ class N88_RFQ_Auth {
             'smart_alternatives_enabled' => $smart_alternatives_enabled,
             'smart_alternatives_note' => $smart_alternatives_note,
             'bid_status' => $bid_status, // Commit 2.3.5 - bid status to prevent duplicate submissions
+            'show_dims_qty_warning' => $show_dims_qty_warning, // Commit 2.3.5.1 Addendum: Flag to show warning banner
+            'bid_data' => $bid_data, // Bid details when bid is submitted
         );
 
         wp_send_json_success( $response );
@@ -5283,6 +7115,21 @@ class N88_RFQ_Auth {
             }
         }
 
+        // 7. Smart Alternatives suggestion (optional, structured data)
+        $smart_alternatives_suggestion = null;
+        if ( isset( $_POST['smart_alternatives_suggestion'] ) && ! empty( $_POST['smart_alternatives_suggestion'] ) ) {
+            $smart_alt_json = wp_unslash( $_POST['smart_alternatives_suggestion'] );
+            $smart_alt_data = json_decode( $smart_alt_json, true );
+            if ( is_array( $smart_alt_data ) && isset( $smart_alt_data['category'] ) && ! empty( $smart_alt_data['category'] ) ) {
+                // Validate comparison points max 3
+                if ( isset( $smart_alt_data['comparison_points'] ) && is_array( $smart_alt_data['comparison_points'] ) && count( $smart_alt_data['comparison_points'] ) > 3 ) {
+                    $errors['smart_alternatives'] = 'Maximum 3 comparison points allowed.';
+                } else {
+                    $smart_alternatives_suggestion = $smart_alt_data;
+                }
+            }
+        }
+
         // If validation errors, return them
         if ( ! empty( $errors ) ) {
             wp_send_json_error( array(
@@ -5324,6 +7171,24 @@ class N88_RFQ_Auth {
                 'cad_yes' => null, // CAD removed from bid process - set to NULL
                 'status' => 'submitted',
             );
+            
+            // Add Smart Alternatives suggestion to meta_json if provided
+            $meta_json = null;
+            if ( $smart_alternatives_suggestion !== null ) {
+                $meta_json = wp_json_encode( array( 'smart_alternatives_suggestion' => $smart_alternatives_suggestion ) );
+            }
+            
+            // Check if table has meta_json column, if so add it to bid_data
+            $table_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+            if ( in_array( 'meta_json', $table_columns, true ) ) {
+                $bid_data['meta_json'] = $meta_json;
+            }
+
+            // Prepare format array based on whether meta_json is included
+            $format_array = array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%s', '%s' );
+            if ( isset( $bid_data['meta_json'] ) ) {
+                $format_array[] = '%s';
+            }
 
             if ( $existing_bid && $existing_bid->status === 'withdrawn' ) {
                 // UPDATE existing withdrawn bid
@@ -5331,7 +7196,7 @@ class N88_RFQ_Auth {
                     $item_bids_table,
                     $bid_data,
                     array( 'bid_id' => $existing_bid->bid_id ),
-                    array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%s', '%s' ),
+                    $format_array,
                     array( '%d' )
                 );
                 $bid_id = $existing_bid->bid_id;
@@ -5340,7 +7205,7 @@ class N88_RFQ_Auth {
                 $wpdb->insert(
                     $item_bids_table,
                     $bid_data,
-                    array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%s', '%s' )
+                    $format_array
                 );
                 $bid_id = $wpdb->insert_id;
             }

@@ -2197,7 +2197,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             backgroundColor: '#330000',
                                             border: '1px solid #ff0000',
                                     borderRadius: '4px',
-                                    fontSize: '12px',
+                                    fontSize: '12px', 
                                             color: '#ff0000',
                                 }}>
                                             ⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.
@@ -2206,17 +2206,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     
                                     {/* Redirected warning - Show if item is redirected and bids are available */}
                                     {currentState === 'C' && item.redirected && itemState.bids && itemState.bids.length > 0 && (
-                                        <div style={{ 
+                                <div style={{ 
                                             marginBottom: '16px',
                                             padding: '12px',
                                             backgroundColor: '#331100',
                                             border: '1px solid #ff8800',
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
+                                    borderRadius: '4px',
+                                    fontSize: '12px',
                                             color: '#ff8800',
-                                        }}>
+                                }}>
                                             ⚠️ This item has been redirected. Existing bids may reflect previous routing.
-                                        </div>
+                                </div>
                                     )}
                                     
                                     {description && (
