@@ -1164,9 +1164,13 @@ class N88_Items {
         // Decode payload
         $payload = json_decode( $payload_json, true );
         if ( ! is_array( $payload ) ) {
+            error_log( 'Item Facts Save ERROR - Invalid payload format for item ' . $item_id . '. Payload JSON: ' . substr( $payload_json, 0, 500 ) );
             wp_send_json_error( array( 'message' => 'Invalid payload format.' ) );
             return;
         }
+        
+        // Log received payload for debugging
+        error_log( 'Item Facts Save - Received payload for item ' . $item_id . ': ' . wp_json_encode( $payload ) );
         
         // Verify item ownership
         $items_table = $wpdb->prefix . 'n88_items';
@@ -1213,6 +1217,9 @@ class N88_Items {
         if ( ! is_array( $meta ) ) {
             $meta = array();
         }
+        
+        // Log existing meta for debugging
+        error_log( 'Item Facts Save - Existing meta_json for item ' . $item_id . ': ' . wp_json_encode( $meta ) );
         
         // Store item facts in meta_json
         if ( isset( $payload['dims'] ) ) {
@@ -1285,9 +1292,63 @@ class N88_Items {
             }
         }
         
+        // Smart Alternatives (Commit: Designer Item Modal)
+        if ( isset( $payload['smart_alternatives'] ) ) {
+            $meta['smart_alternatives'] = (bool) $payload['smart_alternatives'];
+        }
+        
+        // Smart Alternatives Note (Notes for suppliers) - ALWAYS save if key exists
+        if ( array_key_exists( 'smart_alternatives_note', $payload ) ) {
+            $note_value = $payload['smart_alternatives_note'];
+            $meta['smart_alternatives_note'] = sanitize_textarea_field( $note_value );
+            error_log( 'Item Facts Save - Saving smart_alternatives_note for item ' . $item_id . ': ' . substr( $note_value, 0, 100 ) );
+        } else {
+            error_log( 'Item Facts Save - WARNING: smart_alternatives_note key NOT found in payload for item ' . $item_id );
+        }
+        
+        // Delivery info (Commit: Designer Item Modal)
+        if ( isset( $payload['delivery_country'] ) ) {
+            $meta['delivery_country'] = sanitize_text_field( $payload['delivery_country'] );
+        }
+        
+        if ( isset( $payload['delivery_postal'] ) ) {
+            $meta['delivery_postal'] = sanitize_text_field( $payload['delivery_postal'] );
+        }
+        
+        // Quantity (Commit: State B save fix) - ALWAYS save if key exists and value is valid
+        if ( array_key_exists( 'quantity', $payload ) ) {
+            $qty_value = $payload['quantity'];
+            error_log( 'Item Facts Save - Processing quantity for item ' . $item_id . '. Raw value: ' . var_export( $qty_value, true ) . ' (type: ' . gettype( $qty_value ) . ')' );
+            
+            // Save if it's not null, not empty string, and is numeric (including 0)
+            // Handle both string and numeric values
+            if ( $qty_value !== null && $qty_value !== '' ) {
+                $qty_int = intval( $qty_value );
+                error_log( 'Item Facts Save - Quantity converted to int: ' . $qty_int . ' (is_nan: ' . ( is_nan( $qty_int ) ? 'yes' : 'no' ) . ')' );
+                
+                // Only save if conversion was successful (not NaN) and value is >= 0
+                if ( ! is_nan( $qty_int ) && $qty_int >= 0 ) {
+                    $meta['quantity'] = $qty_int;
+                    error_log( 'Item Facts Save - SUCCESS: Saving quantity ' . $qty_int . ' for item ' . $item_id );
+                } else {
+                    error_log( 'Item Facts Save - ERROR: Quantity validation failed for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) . ', Int: ' . $qty_int );
+                }
+            } else {
+                error_log( 'Item Facts Save - WARNING: Quantity is null or empty for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
+            }
+        } else {
+            error_log( 'Item Facts Save - WARNING: quantity key NOT found in payload for item ' . $item_id );
+        }
+        
         // Update meta_json
-        $update_data['meta_json'] = wp_json_encode( $meta );
+        $meta_json_encoded = wp_json_encode( $meta );
+        $update_data['meta_json'] = $meta_json_encoded;
         $update_format[] = '%s';
+        
+        // Log final meta before save
+        error_log( 'Item Facts Save - Final meta_json to save for item ' . $item_id . ': ' . $meta_json_encoded );
+        error_log( 'Item Facts Save - Quantity in final meta: ' . ( isset( $meta['quantity'] ) ? var_export( $meta['quantity'], true ) : 'NOT SET' ) );
+        error_log( 'Item Facts Save - smart_alternatives_note in final meta: ' . ( isset( $meta['smart_alternatives_note'] ) ? substr( $meta['smart_alternatives_note'], 0, 100 ) : 'NOT SET' ) );
         
         // Update item
         $result = $wpdb->update(
@@ -1299,9 +1360,24 @@ class N88_Items {
         );
         
         if ( $result === false ) {
-            wp_send_json_error( array( 'message' => 'Failed to update item.' ) );
+            error_log( 'Item Facts Save - DATABASE UPDATE FAILED for item ' . $item_id . '. Error: ' . $wpdb->last_error );
+            error_log( 'Item Facts Save - Update data: ' . wp_json_encode( $update_data ) );
+            error_log( 'Item Facts Save - Update format: ' . wp_json_encode( $update_format ) );
+            wp_send_json_error( array( 'message' => 'Failed to update item. Database error: ' . $wpdb->last_error ) );
             return;
         }
+        
+        // Verify the save worked by reading back from database
+        $verify_meta_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $verify_meta = ! empty( $verify_meta_json ) ? json_decode( $verify_meta_json, true ) : array();
+        
+        error_log( 'Item Facts Save - Database update result: ' . ( $result > 0 ? 'SUCCESS (' . $result . ' rows updated)' : 'NO ROWS UPDATED' ) );
+        error_log( 'Item Facts Save - Verified meta_json after save: ' . wp_json_encode( $verify_meta ) );
+        error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
+        error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
         
         // Log event
         n88_log_event(

@@ -44,6 +44,7 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.2: Supplier RFQ detail view (read-only)
         add_action( 'wp_ajax_n88_get_supplier_item_details', array( $this, 'ajax_get_supplier_item_details' ) );
+        add_action( 'wp_ajax_n88_get_item_rfq_state', array( $this, 'ajax_get_item_rfq_state' ) );
         
         // Commit 2.3.3: Supplier bid validation (no persistence)
         add_action( 'wp_ajax_n88_validate_supplier_bid', array( $this, 'ajax_validate_supplier_bid' ) );
@@ -70,6 +71,9 @@ class N88_RFQ_Auth {
         // Hide WordPress admin menus for designers
         add_action( 'admin_menu', array( $this, 'hide_wp_menus_for_designer' ), 999 );
         add_action( 'admin_bar_menu', array( $this, 'remove_wp_admin_bar_items' ), 999 );
+        
+        // Hide WordPress admin bar completely for designers and suppliers
+        add_filter( 'show_admin_bar', array( $this, 'hide_admin_bar_for_custom_roles' ) );
 
         // Redirect designers away from WordPress admin pages
         add_action( 'admin_init', array( $this, 'redirect_designer_from_wp_admin' ) );
@@ -741,6 +745,43 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Hide WordPress admin bar completely for designers and suppliers
+     */
+    public function hide_admin_bar_for_custom_roles( $show ) {
+        if ( ! is_user_logged_in() ) {
+            return $show;
+        }
+        
+        $current_user = wp_get_current_user();
+        if ( ! $current_user ) {
+            return $show;
+        }
+        
+        // Check if user is a designer/creator
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        // Check if user is a supplier/maker
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        
+        // Check if user is a system operator (allow admin bar for system operators)
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        // Hide admin bar for designers and suppliers, but not for system operators
+        if ( ( $is_designer || $is_supplier ) && ! $is_system_operator ) {
+            // Also add inline CSS to forcefully hide admin bar
+            add_action( 'wp_head', function() {
+                echo '<style>#wpadminbar { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; overflow: hidden !important; } html { margin-top: 0 !important; } body.admin-bar { margin-top: 0 !important; }</style>';
+            }, 999 );
+            add_action( 'admin_head', function() {
+                echo '<style>#wpadminbar { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; overflow: hidden !important; } html { margin-top: 0 !important; } body.admin-bar { margin-top: 0 !important; }</style>';
+            }, 999 );
+            return false;
+        }
+        
+        return $show;
+    }
+
+    /**
      * Remove WordPress admin bar items for designers (Commit 2.2.1)
      */
     public function remove_wp_admin_bar_items( $wp_admin_bar ) {
@@ -1049,8 +1090,9 @@ class N88_RFQ_Auth {
             <!-- Header -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 2px solid #e0e0e0;">
                 <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #333;">Maker Queue</h1>
-                <div style="font-size: 14px; color: #666;">
-                    Logged in: <?php echo esc_html( $current_user->display_name ); ?>
+                <div style="display: flex; align-items: center; gap: 16px; font-size: 14px; color: #666;">
+                    <span>Logged in as: <strong><?php echo esc_html( $current_user->display_name ); ?></strong></span>
+                    <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="padding: 6px 12px; background-color: #dc3545; color: #fff; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: 500; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#c82333';" onmouseout="this.style.backgroundColor='#dc3545';">Logout</a>
                 </div>
             </div>
             
@@ -1460,6 +1502,23 @@ class N88_RFQ_Auth {
                         '<div style="padding: 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; min-height: 100px; color: #333; white-space: pre-wrap;">' + (item.description || '—') + '</div>' +
                         '</div>' +
                         
+                        // Smart Alternatives (Optional)
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Smart Alternatives (Optional):</label>' +
+                        '<div style="padding: 12px; background-color: #f5f5f5; border-radius: 4px; font-size: 14px; border: 1px solid #e0e0e0; color: #333;">' +
+                            '<div style="margin-bottom: 8px;">' +
+                                '<strong>Status:</strong> ' + (item.smart_alternatives_enabled ? '<span style="color: #2e7d32;">Enabled</span>' : '<span style="color: #666;">Disabled</span>') +
+                            '</div>' +
+                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
+                                '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e0e0e0;">' +
+                                    '<strong>Note:</strong> ' +
+                                    '<div style="margin-top: 4px; color: #555; white-space: pre-wrap;">' + (item.smart_alternatives_note || '—') + '</div>' +
+                                '</div>' : 
+                                '<div style="margin-top: 8px; color: #999; font-style: italic;">No note provided</div>'
+                            ) +
+                        '</div>' +
+                        '</div>' +
+                        
                         // Reference Images
                         '<div style="margin-bottom: 24px;">' +
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #666;">Reference Images:</label>' +
@@ -1692,6 +1751,24 @@ class N88_RFQ_Auth {
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
                         
+                        // Smart Alternatives (Optional) - Read-only display
+                        '<div style="margin-bottom: 24px; padding: 16px; background-color: #f9f9f9; border-radius: 4px; border: 1px solid #e0e0e0;">' +
+                        '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Smart Alternatives (Optional)</label>' +
+                        '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">The creator\'s preference for alternative materials:</div>' +
+                        '<div style="padding: 12px; background-color: #fff; border-radius: 4px; border: 1px solid #e0e0e0;">' +
+                            '<div style="margin-bottom: 8px;">' +
+                                '<strong>Status:</strong> ' + (item.smart_alternatives_enabled ? '<span style="color: #2e7d32;">Enabled</span> - Creator is open to alternative materials' : '<span style="color: #666;">Disabled</span> - Creator wants the specified material only') +
+                            '</div>' +
+                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
+                                '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e0e0e0;">' +
+                                    '<strong>Creator\'s Note:</strong> ' +
+                                    '<div style="margin-top: 4px; color: #555; white-space: pre-wrap; font-size: 13px;">' + (item.smart_alternatives_note || '—') + '</div>' +
+                                '</div>' : 
+                                '<div style="margin-top: 8px; color: #999; font-style: italic; font-size: 12px;">No additional note provided</div>'
+                            ) +
+                        '</div>' +
+                        '</div>' +
+                        
                     
                     // 1. Video links (min 1, max 3)
                     '<div style="margin-bottom: 24px;">' +
@@ -1749,7 +1826,14 @@ class N88_RFQ_Auth {
                     // 5. Production lead time
                     '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Production Lead Time <span style="color: #d32f2f;">*</span></label>' +
-                    '<input type="text" name="production_lead_time_text" required placeholder="e.g., 4-6 weeks" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="validateBidForm();" />' +
+                    '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff;" onchange="validateBidForm();">' +
+                    '<option value="">Select lead time</option>' +
+                    '<option value="2-4 weeks">2-4 weeks</option>' +
+                    '<option value="4-6 weeks">4-6 weeks</option>' +
+                    '<option value="6-8 weeks">6-8 weeks</option>' +
+                    '<option value="8-12 weeks">8-12 weeks</option>' +
+                    '<option value="12-16 weeks">12-16 weeks</option>' +
+                    '</select>' +
                     '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
                     '</div>' +
                     
@@ -1974,7 +2058,7 @@ class N88_RFQ_Auth {
                 }
                 
                 // 5. Production lead time: non-empty
-                var leadTime = form.querySelector('input[name="production_lead_time_text"]');
+                var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
                     isValid = false;
                 }
@@ -2064,7 +2148,7 @@ class N88_RFQ_Auth {
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
-                formData.append('production_lead_time_text', form.querySelector('input[name="production_lead_time_text"]').value);
+                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
                 
@@ -2188,7 +2272,7 @@ class N88_RFQ_Auth {
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
-                formData.append('production_lead_time_text', form.querySelector('input[name="production_lead_time_text"]').value);
+                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
                 
@@ -4299,6 +4383,10 @@ class N88_RFQ_Auth {
             }
         }
 
+        // Get Smart Alternatives data from meta
+        $smart_alternatives_enabled = isset( $meta['smart_alternatives'] ) && $meta['smart_alternatives'] === true;
+        $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
+
         // Build response (read-only, no writes)
         $response = array(
             'item_id' => intval( $item['id'] ),
@@ -4318,10 +4406,155 @@ class N88_RFQ_Auth {
             'reference_images' => $reference_images, // Keep for backward compatibility
             'inspiration_images' => $inspiration_images, // Standardized key
             'media_links' => $media_links,
+            'smart_alternatives_enabled' => $smart_alternatives_enabled,
+            'smart_alternatives_note' => $smart_alternatives_note,
             'bid_status' => $bid_status, // Commit 2.3.5 - bid status to prevent duplicate submissions
         );
 
         wp_send_json_success( $response );
+    }
+
+    /**
+     * AJAX handler to get item RFQ and bid state for designer modal
+     * Returns: has_rfq (boolean), has_bids (boolean), bids (array if has_bids)
+     */
+    public function ajax_get_item_rfq_state() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_designer && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        global $wpdb;
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $items_table = $wpdb->prefix . 'n88_items';
+
+        // Check if item exists and user owns it (unless system operator)
+        if ( ! $is_system_operator ) {
+            $item_owner = $wpdb->get_var( $wpdb->prepare(
+                "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+            
+            if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
+            }
+        }
+
+        // Get item meta for Smart Alternatives (item-level setting, same for all bids)
+        $item_meta = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        
+        $smart_alternatives_enabled = false;
+        $smart_alternatives_note = '';
+        if ( ! empty( $item_meta ) ) {
+            $meta = json_decode( $item_meta, true );
+            if ( is_array( $meta ) ) {
+                $smart_alternatives_enabled = isset( $meta['smart_alternatives'] ) && $meta['smart_alternatives'] === true;
+                $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
+            }
+        }
+
+        // Check if RFQ exists (has any routes for this item)
+        $has_rfq = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$rfq_routes_table} 
+            WHERE item_id = %d 
+            AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+            $item_id
+        ) ) > 0;
+
+        // Check if bids exist (submitted bids only)
+        $has_bids = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$item_bids_table} 
+            WHERE item_id = %d 
+            AND status = 'submitted'",
+            $item_id
+        ) ) > 0;
+
+        $bids = array();
+        if ( $has_bids ) {
+            // Get all submitted bids with media links
+            $bids_data = $wpdb->get_results( $wpdb->prepare(
+                "SELECT 
+                    b.bid_id,
+                    b.unit_price,
+                    b.production_lead_time_text,
+                    b.prototype_timeline_option,
+                    b.prototype_cost,
+                    b.created_at
+                FROM {$item_bids_table} b
+                WHERE b.item_id = %d 
+                AND b.status = 'submitted'
+                ORDER BY b.created_at ASC",
+                $item_id
+            ), ARRAY_A );
+
+            foreach ( $bids_data as $bid ) {
+                // Get media links for this bid with provider information
+                $media_links = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT url, provider 
+                    FROM {$bid_media_links_table}
+                    WHERE bid_id = %d
+                    ORDER BY sort_order ASC, id ASC",
+                    $bid['bid_id']
+                ), ARRAY_A );
+
+                // Organize video links by provider
+                $video_links_by_provider = array(
+                    'youtube' => array(),
+                    'vimeo' => array(),
+                    'loom' => array(),
+                );
+                
+                foreach ( $media_links as $link ) {
+                    $provider = isset( $link['provider'] ) ? strtolower( $link['provider'] ) : 'youtube';
+                    $url = esc_url_raw( $link['url'] );
+                    
+                    if ( in_array( $provider, array( 'youtube', 'vimeo', 'loom' ), true ) ) {
+                        $video_links_by_provider[ $provider ][] = $url;
+                    }
+                }
+
+                $bids[] = array(
+                    'bid_id' => intval( $bid['bid_id'] ),
+                    'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
+                    'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
+                    'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
+                    'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
+                    'video_links' => array_map( function( $link ) {
+                        return esc_url_raw( $link['url'] );
+                    }, $media_links ),
+                    'video_links_by_provider' => $video_links_by_provider,
+                    'smart_alternatives_enabled' => $smart_alternatives_enabled,
+                    'smart_alternatives_note' => $smart_alternatives_note,
+                    'created_at' => $bid['created_at'],
+                );
+            }
+        }
+
+        wp_send_json_success( array(
+            'has_rfq' => $has_rfq,
+            'has_bids' => $has_bids,
+            'bids' => $bids,
+        ) );
     }
 
     /**
@@ -4922,8 +5155,10 @@ class N88_RFQ_Auth {
                 $errors[ "item_{$index}_dimensions" ] = 'All dimensions (width, depth, height) must be greater than 0.';
             }
 
-            if ( ! in_array( $dimension_unit, array( 'in', 'cm' ), true ) ) {
-                $errors[ "item_{$index}_dimension_unit" ] = 'Dimension unit must be "in" or "cm".';
+            // Allow all dimension units (in, cm, mm, m) - validation removed as requested
+            // Default to 'in' if empty or invalid
+            if ( empty( $dimension_unit ) || ! in_array( $dimension_unit, array( 'in', 'cm', 'mm', 'm' ), true ) ) {
+                $dimension_unit = 'in'; // Default fallback
             }
 
             // Validate delivery country

@@ -3000,6 +3000,89 @@ class N88_RFQ_Admin {
         $current_user = wp_get_current_user();
         $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
 
+        // Hide admin bar for this page - Forcefully hide with multiple methods
+        add_action( 'admin_head', function() {
+            echo '<style>
+                #wpadminbar { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; overflow: hidden !important; position: absolute !important; top: -9999px !important; left: -9999px !important; width: 0 !important; }
+                html { margin-top: 0 !important; padding-top: 0 !important; }
+                body.admin-bar { margin-top: 0 !important; padding-top: 0 !important; }
+                body.admin-bar #wpadminbar { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; overflow: hidden !important; position: absolute !important; top: -9999px !important; left: -9999px !important; width: 0 !important; }
+                *[id*="wpadminbar"] { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; }
+            </style>';
+        }, 999 );
+        
+        // Also add JavaScript to forcefully remove admin bar - Run immediately and continuously
+        add_action( 'admin_footer', function() {
+            echo '<script>
+                (function() {
+                    try {
+                        function forceHideAdminBar() {
+                            try {
+                                // Remove admin bar element completely if it exists
+                                var adminBar = document.getElementById("wpadminbar");
+                                if (adminBar && adminBar.parentNode) {
+                                    adminBar.remove();
+                                }
+                                // Remove admin-bar class from body
+                                if (document.body && document.body.classList && document.body.classList.contains("admin-bar")) {
+                                    document.body.classList.remove("admin-bar");
+                                }
+                                // Force margin/padding to 0
+                                if (document.documentElement) {
+                                    document.documentElement.style.marginTop = "0";
+                                    document.documentElement.style.paddingTop = "0";
+                                }
+                                if (document.body) {
+                                    document.body.style.marginTop = "0";
+                                    document.body.style.paddingTop = "0";
+                                }
+                            } catch (e) {
+                                // Silently fail to prevent breaking the page
+                            }
+                        }
+                        // Run immediately
+                        forceHideAdminBar();
+                        // Run on DOM ready
+                        if (document.readyState === "loading") {
+                            document.addEventListener("DOMContentLoaded", forceHideAdminBar);
+                        } else {
+                            forceHideAdminBar();
+                        }
+                        // Run a few times to catch late-loading elements (reduced frequency)
+                        setTimeout(forceHideAdminBar, 100);
+                        setTimeout(forceHideAdminBar, 500);
+                        setTimeout(forceHideAdminBar, 1000);
+                        // Watch only for admin bar specifically (more targeted)
+                        if (typeof MutationObserver !== "undefined") {
+                            var observer = new MutationObserver(function(mutations) {
+                                try {
+                                    var adminBar = document.getElementById("wpadminbar");
+                                    if (adminBar && adminBar.parentNode) {
+                                        adminBar.remove();
+                                        if (document.body && document.body.classList) {
+                                            document.body.classList.remove("admin-bar");
+                                        }
+                                    }
+                                } catch (e) {
+                                    // Silently fail
+                                }
+                            });
+                            // Only observe body for admin bar, not the entire subtree
+                            if (document.body) {
+                                observer.observe(document.body, { 
+                                    childList: true, 
+                                    subtree: false,
+                                    attributes: false
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // Silently fail to prevent breaking the page
+                    }
+                })();
+            </script>';
+        }, 999 );
+
         // If designer and no board_id in URL, redirect to their board
         if ( $is_designer && ! isset( $_GET['board_id'] ) ) {
             $designer_board = $this->get_designer_board( $user_id );
@@ -3231,6 +3314,12 @@ class N88_RFQ_Admin {
                         $item_sourcing_type = isset( $item_meta['sourcing_type'] ) ? sanitize_text_field( $item_meta['sourcing_type'] ) : null;
                         $item_timeline_type = isset( $item_meta['timeline_type'] ) ? sanitize_text_field( $item_meta['timeline_type'] ) : null;
                         $item_inspiration = isset( $item_meta['inspiration'] ) && is_array( $item_meta['inspiration'] ) ? $item_meta['inspiration'] : array();
+                        // Extract quantity and notes from meta_json
+                        $item_quantity = isset( $item_meta['quantity'] ) ? intval( $item_meta['quantity'] ) : null;
+                        $item_smart_alternatives_note = isset( $item_meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $item_meta['smart_alternatives_note'] ) : '';
+                        $item_delivery_country = isset( $item_meta['delivery_country'] ) ? sanitize_text_field( $item_meta['delivery_country'] ) : '';
+                        $item_delivery_postal = isset( $item_meta['delivery_postal'] ) ? sanitize_text_field( $item_meta['delivery_postal'] ) : '';
+                        $item_smart_alternatives = isset( $item_meta['smart_alternatives'] ) ? (bool) $item_meta['smart_alternatives'] : null;
                         
                         $items[] = array(
                             'id' => $item_id_string,
@@ -3252,6 +3341,14 @@ class N88_RFQ_Admin {
                             'sourcing_type' => $item_sourcing_type,
                             'timeline_type' => $item_timeline_type,
                             'inspiration' => $item_inspiration,
+                            // Add quantity and notes from meta_json
+                            'quantity' => $item_quantity,
+                            'smart_alternatives_note' => $item_smart_alternatives_note,
+                            'delivery_country' => $item_delivery_country,
+                            'delivery_postal' => $item_delivery_postal,
+                            'smart_alternatives' => $item_smart_alternatives,
+                            // Also add meta object for backward compatibility
+                            'meta' => $item_meta,
                         );
                     } else {
                         // New item - no layout data yet, use defaults from item meta_json
@@ -3291,6 +3388,12 @@ class N88_RFQ_Admin {
                         $item_sourcing_type = isset( $item_meta['sourcing_type'] ) ? sanitize_text_field( $item_meta['sourcing_type'] ) : null;
                         $item_timeline_type = isset( $item_meta['timeline_type'] ) ? sanitize_text_field( $item_meta['timeline_type'] ) : null;
                         $item_inspiration = isset( $item_meta['inspiration'] ) && is_array( $item_meta['inspiration'] ) ? $item_meta['inspiration'] : array();
+                        // Extract quantity and notes from meta_json
+                        $item_quantity = isset( $item_meta['quantity'] ) ? intval( $item_meta['quantity'] ) : null;
+                        $item_smart_alternatives_note = isset( $item_meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $item_meta['smart_alternatives_note'] ) : '';
+                        $item_delivery_country = isset( $item_meta['delivery_country'] ) ? sanitize_text_field( $item_meta['delivery_country'] ) : '';
+                        $item_delivery_postal = isset( $item_meta['delivery_postal'] ) ? sanitize_text_field( $item_meta['delivery_postal'] ) : '';
+                        $item_smart_alternatives = isset( $item_meta['smart_alternatives'] ) ? (bool) $item_meta['smart_alternatives'] : null;
                         
                         // Calculate position for new items - arrange in grid within canvas bounds
                         // Canvas is typically 1200px wide, arrange items in rows
@@ -3338,9 +3441,18 @@ class N88_RFQ_Admin {
                             'sourcing_type' => $item_sourcing_type,
                             'timeline_type' => $item_timeline_type,
                             'inspiration' => $item_inspiration,
+                            // Add quantity and notes from meta_json
+                            'quantity' => $item_quantity,
+                            'smart_alternatives_note' => $item_smart_alternatives_note,
+                            'delivery_country' => $item_delivery_country,
+                            'delivery_postal' => $item_delivery_postal,
+                            'smart_alternatives' => $item_smart_alternatives,
+                            // Also add meta object for backward compatibility
+                            'meta' => $item_meta,
                         );
                         
                         error_log('Item ' . $item_id . ' - New item positioned at (' . $item_x . ', ' . $item_y . ') with size: ' . $default_size);
+                        error_log('Item ' . $item_id . ' - Loaded quantity: ' . ( $item_quantity !== null ? $item_quantity : 'null' ) . ', notes: ' . substr( $item_smart_alternatives_note, 0, 50 ) );
                     }
                 }
                 
@@ -3423,6 +3535,14 @@ class N88_RFQ_Admin {
         // Localize script for AJAX URL and nonce
         wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
             'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+            'nonce_get_item_rfq_state' => wp_create_nonce( 'n88_get_item_rfq_state' ),
+            'nonce_submit_rfq' => wp_create_nonce( 'n88_submit_rfq' ),
+        ) );
+        
+        // Localize script for board data (AJAX URL and nonce for item modal)
+        wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce' => wp_create_nonce( 'n88_get_item_rfq_state' ),
         ) );
         ?>
         <div class="wrap">
@@ -3431,10 +3551,38 @@ class N88_RFQ_Admin {
                 <div style="font-size: 16px; font-weight: 500; color: #333;">
                     NorthEightyEight / Workspace
                 </div>
-                <div style="font-size: 14px; color: #666; cursor: pointer;">
-                    Profile ▼
+                <div style="position: relative;">
+                    <div id="n88-profile-dropdown-trigger" style="font-size: 14px; color: #666; cursor: pointer; padding: 6px 12px; border-radius: 4px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f0f0f0';" onmouseout="this.style.backgroundColor='transparent';">
+                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                    </div>
+                    <div id="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); min-width: 150px; z-index: 1000;">
+                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="display: block; padding: 10px 16px; color: #dc3545; text-decoration: none; font-size: 14px;" onmouseover="this.style.backgroundColor='#f8f8f8';" onmouseout="this.style.backgroundColor='transparent';">
+                            Logout
+                        </a>
+                    </div>
                 </div>
             </div>
+            
+            <script>
+            (function() {
+                var trigger = document.getElementById('n88-profile-dropdown-trigger');
+                var dropdown = document.getElementById('n88-profile-dropdown');
+                
+                if (trigger && dropdown) {
+                    trigger.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+                    });
+                    
+                    // Close dropdown when clicking outside
+                    document.addEventListener('click', function(e) {
+                        if (!trigger.contains(e.target) && !dropdown.contains(e.target)) {
+                            dropdown.style.display = 'none';
+                        }
+                    });
+                }
+            })();
+            </script>
             
             <!-- Tabs -->
             <div style="margin-bottom: 20px;">
@@ -5266,6 +5414,218 @@ class N88_RFQ_Admin {
                     return sourcingType === 'furniture' ? 'furniture_6_step' : 'sourcing_4_step';
                 };
                 
+                // Bid Item Component for inline version
+                var BidItemInline = function(bidProps) {
+                    var bid = bidProps.bid;
+                    var idx = bidProps.idx;
+                    var totalBids = bidProps.totalBids;
+                    var darkBorder = bidProps.darkBorder;
+                    var greenAccent = bidProps.greenAccent;
+                    var darkText = bidProps.darkText || '#d3d3d3';
+                    
+                    var supplierLabel = String.fromCharCode(65 + idx);
+                    var _expandedProviderState = React.useState(null);
+                    var expandedProvider = _expandedProviderState[0];
+                    var setExpandedProvider = _expandedProviderState[1];
+                    
+                    var videoLinksByProvider = bid.video_links_by_provider || {
+                        youtube: [],
+                        vimeo: [],
+                        loom: [],
+                    };
+                    
+                    var totalVideos = (videoLinksByProvider.youtube ? videoLinksByProvider.youtube.length : 0) + 
+                                     (videoLinksByProvider.vimeo ? videoLinksByProvider.vimeo.length : 0) + 
+                                     (videoLinksByProvider.loom ? videoLinksByProvider.loom.length : 0);
+                    
+                    return React.createElement('div', {
+                        style: {
+                            marginBottom: idx < totalBids - 1 ? '16px' : '0',
+                            paddingBottom: idx < totalBids - 1 ? '16px' : '0',
+                            borderBottom: idx < totalBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                        }
+                    },
+                        React.createElement('div', {
+                            style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px' }
+                        }, 'Supplier ' + supplierLabel),
+                        
+                        // Video Links by Provider
+                        totalVideos > 0 ? React.createElement('div', {
+                            style: { marginBottom: '12px' }
+                        },
+                            React.createElement('div', {
+                                style: { fontSize: '12px', fontWeight: '600', marginBottom: '8px' }
+                            }, 'Video Links (' + totalVideos + ')'),
+                            React.createElement('div', {
+                                style: { display: 'flex', flexDirection: 'column', gap: '4px' }
+                            },
+                                // YouTube Tab
+                                videoLinksByProvider.youtube && videoLinksByProvider.youtube.length > 0 ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        onClick: function() {
+                                            setExpandedProvider(expandedProvider === 'youtube' ? null : 'youtube');
+                                        },
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '6px 8px',
+                                            backgroundColor: '#1a1a1a',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            marginBottom: expandedProvider === 'youtube' ? '4px' : '0',
+                                        }
+                                    },
+                                        React.createElement('span', null, 'YouTube (' + videoLinksByProvider.youtube.length + ')'),
+                                        React.createElement('span', null, expandedProvider === 'youtube' ? '▼' : '▶')
+                                    ),
+                                    expandedProvider === 'youtube' ? React.createElement('div', {
+                                        style: { padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid ' + darkBorder, borderRadius: '4px' }
+                                    },
+                                        videoLinksByProvider.youtube.map(function(link, linkIdx) {
+                                            return React.createElement('div', {
+                                                key: linkIdx,
+                                                style: { marginBottom: '4px' }
+                                            },
+                                                React.createElement('a', {
+                                                    href: link,
+                                                    target: '_blank',
+                                                    rel: 'noopener noreferrer',
+                                                    style: { fontSize: '11px', color: greenAccent, textDecoration: 'none' }
+                                                }, link)
+                                            );
+                                        })
+                                    ) : null
+                                ) : null,
+                                
+                                // Vimeo Tab
+                                videoLinksByProvider.vimeo && videoLinksByProvider.vimeo.length > 0 ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        onClick: function() {
+                                            setExpandedProvider(expandedProvider === 'vimeo' ? null : 'vimeo');
+                                        },
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '6px 8px',
+                                            backgroundColor: '#1a1a1a',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            marginBottom: expandedProvider === 'vimeo' ? '4px' : '0',
+                                        }
+                                    },
+                                        React.createElement('span', null, 'Vimeo (' + videoLinksByProvider.vimeo.length + ')'),
+                                        React.createElement('span', null, expandedProvider === 'vimeo' ? '▼' : '▶')
+                                    ),
+                                    expandedProvider === 'vimeo' ? React.createElement('div', {
+                                        style: { padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid ' + darkBorder, borderRadius: '4px' }
+                                    },
+                                        videoLinksByProvider.vimeo.map(function(link, linkIdx) {
+                                            return React.createElement('div', {
+                                                key: linkIdx,
+                                                style: { marginBottom: '4px' }
+                                            },
+                                                React.createElement('a', {
+                                                    href: link,
+                                                    target: '_blank',
+                                                    rel: 'noopener noreferrer',
+                                                    style: { fontSize: '11px', color: greenAccent, textDecoration: 'none' }
+                                                }, link)
+                                            );
+                                        })
+                                    ) : null
+                                ) : null,
+                                
+                                // Loom Tab
+                                videoLinksByProvider.loom && videoLinksByProvider.loom.length > 0 ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        onClick: function() {
+                                            setExpandedProvider(expandedProvider === 'loom' ? null : 'loom');
+                                        },
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '6px 8px',
+                                            backgroundColor: '#1a1a1a',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            marginBottom: expandedProvider === 'loom' ? '4px' : '0',
+                                        }
+                                    },
+                                        React.createElement('span', null, 'Loom (' + videoLinksByProvider.loom.length + ')'),
+                                        React.createElement('span', null, expandedProvider === 'loom' ? '▼' : '▶')
+                                    ),
+                                    expandedProvider === 'loom' ? React.createElement('div', {
+                                        style: { padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid ' + darkBorder, borderRadius: '4px' }
+                                    },
+                                        videoLinksByProvider.loom.map(function(link, linkIdx) {
+                                            return React.createElement('div', {
+                                                key: linkIdx,
+                                                style: { marginBottom: '4px' }
+                                            },
+                                                React.createElement('a', {
+                                                    href: link,
+                                                    target: '_blank',
+                                                    rel: 'noopener noreferrer',
+                                                    style: { fontSize: '11px', color: greenAccent, textDecoration: 'none' }
+                                                }, link)
+                                            );
+                                        })
+                                    ) : null
+                                ) : null
+                            )
+                        ) : null,
+                        
+                        bid.prototype_timeline ? React.createElement('div', {
+                            style: { marginBottom: '8px', fontSize: '12px' }
+                        }, 'Prototype Timeline: ', React.createElement('span', {
+                            style: { color: greenAccent }
+                        }, bid.prototype_timeline)) : null,
+                        bid.prototype_cost !== null ? React.createElement('div', {
+                            style: { marginBottom: '8px', fontSize: '12px' }
+                        }, 'Prototype Cost: ', React.createElement('span', {
+                            style: { color: greenAccent }
+                        }, '$' + bid.prototype_cost)) : null,
+                        bid.production_lead_time ? React.createElement('div', {
+                            style: { marginBottom: '8px', fontSize: '12px' }
+                        }, 'Production Lead Time: ', React.createElement('span', {
+                            style: { color: greenAccent }
+                        }, bid.production_lead_time)) : null,
+                        bid.unit_price !== null ? React.createElement('div', {
+                            style: { marginBottom: '8px', fontSize: '12px' }
+                        }, 'Unit Price: ', React.createElement('span', {
+                            style: { color: greenAccent }
+                        }, '$' + bid.unit_price)) : null,
+                        
+                        // Smart Alternatives per bid (read-only)
+                        React.createElement('div', {
+                            style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder }
+                        },
+                            React.createElement('div', {
+                                style: { fontSize: '12px', fontWeight: '600', marginBottom: '6px' }
+                            }, 'Smart Alternatives:'),
+                            React.createElement('div', {
+                                style: { fontSize: '11px', color: darkText, marginBottom: '4px' }
+                            }, 'Status: ', bid.smart_alternatives_enabled ? React.createElement('span', {
+                                style: { color: greenAccent }
+                            }, 'Enabled') : React.createElement('span', {
+                                style: { color: '#999' }
+                            }, 'Disabled')),
+                            bid.smart_alternatives_note && bid.smart_alternatives_note.trim() ? React.createElement('div', {
+                                style: { fontSize: '11px', color: darkText, marginTop: '4px', padding: '6px', backgroundColor: '#0a0a0a', borderRadius: '4px', whiteSpace: 'pre-wrap' }
+                            }, bid.smart_alternatives_note) : null
+                        )
+                    );
+                };
+                
                 var ItemDetailModalInline = function(props) {
                     var item = props.item;
                     var isOpen = props.isOpen;
@@ -5273,12 +5633,29 @@ class N88_RFQ_Admin {
                     var onSave = props.onSave;
                     var boardId = props.boardId;
                     
-                    // Get current user name
-                    var currentUserName = (window.N88StudioOS && window.N88StudioOS.currentUser && window.N88StudioOS.currentUser.display_name) || 'User';
+                    // Get item ID - extract numeric ID from "item-87" format or use direct ID
+                    var getItemId = function() {
+                        var id = item.id || item.item_id || '';
+                        if (typeof id === 'string' && id.indexOf('item-') === 0) {
+                            return parseInt(id.replace('item-', ''), 10);
+                        } else if (typeof id === 'string') {
+                            return parseInt(id, 10);
+                        } else if (typeof id === 'number') {
+                            return id;
+                        }
+                        return null;
+                    };
+                    var itemId = getItemId();
                     
-                    // Get item ID and status
-                    var itemId = item.id || item.item_id || '';
-                    var itemStatus = item.status || 'Draft';
+                    // Item state (RFQ and bids)
+                    var _itemStateState = React.useState({
+                        has_rfq: false,
+                        has_bids: false,
+                        bids: [],
+                        loading: true,
+                    });
+                    var itemState = _itemStateState[0];
+                    var setItemState = _itemStateState[1];
                     
                     // Form state
                     var _categoryState = React.useState(item.item_type || item.category || '');
@@ -5289,7 +5666,10 @@ class N88_RFQ_Admin {
                     var description = _descriptionState[0];
                     var setDescription = _descriptionState[1];
                     
-                    var _quantityState = React.useState(item.quantity ? String(item.quantity) : '');
+                    var _quantityState = React.useState(
+                        item.quantity ? String(item.quantity) : 
+                        (item.meta && item.meta.quantity ? String(item.meta.quantity) : '')
+                    );
                     var quantity = _quantityState[0];
                     var setQuantity = _quantityState[1];
                     
@@ -5308,6 +5688,65 @@ class N88_RFQ_Admin {
                     var _unitState = React.useState(item.dims && item.dims.unit ? item.dims.unit : 'in');
                     var unit = _unitState[0];
                     var setUnit = _unitState[1];
+                    
+                    // Delivery state
+                    var _deliveryCountryState = React.useState(item.delivery_country || (item.meta && item.meta.delivery_country) || '');
+                    var deliveryCountry = _deliveryCountryState[0];
+                    var setDeliveryCountry = _deliveryCountryState[1];
+                    
+                    var _deliveryPostalState = React.useState(item.delivery_postal || (item.meta && item.meta.delivery_postal) || '');
+                    var deliveryPostal = _deliveryPostalState[0];
+                    var setDeliveryPostal = _deliveryPostalState[1];
+                    
+                    // Smart Alternatives state
+                    var _smartAlternativesEnabledState = React.useState(
+                        item.smart_alternatives !== undefined ? item.smart_alternatives : 
+                        ((item.meta && item.meta.smart_alternatives !== undefined) ? item.meta.smart_alternatives : true)
+                    );
+                    var smartAlternativesEnabled = _smartAlternativesEnabledState[0];
+                    var setSmartAlternativesEnabled = _smartAlternativesEnabledState[1];
+                    
+                    var _smartAlternativesNoteState = React.useState(
+                        item.smart_alternatives_note || (item.meta && item.meta.smart_alternatives_note) || ''
+                    );
+                    var smartAlternativesNote = _smartAlternativesNoteState[0];
+                    var setSmartAlternativesNote = _smartAlternativesNoteState[1];
+                    
+                    // RFQ form expansion state
+                    var _showRfqFormState = React.useState(false);
+                    var showRfqForm = _showRfqFormState[0];
+                    var setShowRfqForm = _showRfqFormState[1];
+                    
+                    // Invite Makers state
+                    var _invitedSuppliersState = React.useState([]);
+                    var invitedSuppliers = _invitedSuppliersState[0];
+                    var setInvitedSuppliers = _invitedSuppliersState[1];
+                    
+                    var _inviteSupplierInputState = React.useState('');
+                    var inviteSupplierInput = _inviteSupplierInputState[0];
+                    var setInviteSupplierInput = _inviteSupplierInputState[1];
+                    
+                    var _allowSystemInvitesState = React.useState(false);
+                    var allowSystemInvites = _allowSystemInvitesState[0];
+                    var setAllowSystemInvites = _allowSystemInvitesState[1];
+                    
+                    var _isSubmittingRfqState = React.useState(false);
+                    var isSubmittingRfq = _isSubmittingRfqState[0];
+                    var setIsSubmittingRfq = _isSubmittingRfqState[1];
+                    
+                    var _rfqErrorState = React.useState('');
+                    var rfqError = _rfqErrorState[0];
+                    var setRfqError = _rfqErrorState[1];
+                    
+                    // BIDS section expansion state
+                    var _bidsExpandedState = React.useState(false);
+                    var bidsExpanded = _bidsExpandedState[0];
+                    var setBidsExpanded = _bidsExpandedState[1];
+                    
+                    // Image lightbox state
+                    var _lightboxImageState = React.useState(null);
+                    var lightboxImage = _lightboxImageState[0];
+                    var setLightboxImage = _lightboxImageState[1];
                     
                     // Helper function to validate inspiration items
                     var validateInspirationItem = function(insp) {
@@ -5335,16 +5774,88 @@ class N88_RFQ_Admin {
                     var isUploadingInspiration = _isUploadingInspirationState[0];
                     var setIsUploadingInspiration = _isUploadingInspirationState[1];
                     
+                    // Fetch item RFQ/bid state when modal opens
+                    var fetchItemState = function() {
+                        if (!itemId || isNaN(itemId) || itemId <= 0) {
+                            console.error('Invalid item ID for fetchItemState:', itemId);
+                            setItemState(function(prev) {
+                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                            });
+                            return;
+                        }
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || 
+                                     (window.n88 && window.n88.ajaxUrl) || 
+                                     (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                        // Try multiple nonce sources - prioritize nonce_get_item_rfq_state
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) {
+                            nonce = window.n88BoardNonce.nonce_get_item_rfq_state;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        } else if (window.n88 && window.n88.nonce) {
+                            nonce = window.n88.nonce;
+                        } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else {
+                            nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        }
+                        
+                        if (!nonce) {
+                            console.error('Nonce not found for fetchItemState');
+                            setItemState(function(prev) {
+                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                            });
+                            return;
+                        }
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_get_item_rfq_state');
+                        formData.append('item_id', String(itemId));
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData,
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                setItemState({
+                                    has_rfq: data.data.has_rfq || false,
+                                    has_bids: data.data.has_bids || false,
+                                    bids: data.data.bids || [],
+                                    loading: false,
+                                });
+                            } else {
+                                console.error('Failed to fetch item state:', data.message);
+                                setItemState(function(prev) {
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                                });
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('Error fetching item state:', error);
+                            setItemState(function(prev) {
+                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                            });
+                        });
+                    };
+                    
+                    // Fetch item state when modal opens
+                    React.useEffect(function() {
+                        if (isOpen && itemId && itemId > 0) {
+                            fetchItemState();
+                        }
+                    }, [isOpen, itemId]);
+                    
                     // Update inspiration when item changes (if modal is reopened with different item)
                     React.useEffect(function() {
                         var validInspiration = (item.inspiration || []).filter(validateInspirationItem);
                         setInspiration(validInspiration);
                     }, [item.id]);
-                    
-                    // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
-                    var _priceState = React.useState(false);
-                    var priceRequested = _priceState[0];
-                    var setPriceRequested = _priceState[1];
                     
                     // Computed values (read-only) - initialize from saved item data
                     var _computedState = React.useState({
@@ -5415,11 +5926,328 @@ class N88_RFQ_Admin {
                         }
                     }, [width, depth, height, unit, category, description]);
                     
+                    // Determine current state
+                    var currentState = (function() {
+                        if (itemState.loading) return 'loading';
+                        if (itemState.has_bids) return 'C'; // State C: Bids received
+                        if (itemState.has_rfq) return 'B'; // State B: RFQ sent, no bids
+                        return 'A'; // State A: Before RFQ
+                    })();
+                    
+                    // Check if fields should be editable
+                    var isEditable = currentState === 'A';
+                    
+                    // Format dimensions for display
+                    var formatDimensions = function() {
+                        if (!width || !depth || !height) return null;
+                        var w = parseFloat(width);
+                        var d = parseFloat(depth);
+                        var h = parseFloat(height);
+                        if (isNaN(w) || isNaN(d) || isNaN(h)) return null;
+                        var unitStr = unit === 'in' ? '"' : unit;
+                        return w + unitStr + 'W × ' + d + unitStr + 'D × ' + h + unitStr + 'H';
+                    };
+                    
+                    // Format delivery for display
+                    var formatDelivery = function() {
+                        if (!deliveryCountry) return null;
+                        var parts = [deliveryCountry];
+                        if (deliveryPostal) parts.push(deliveryPostal);
+                        return parts.join(' ');
+                    };
+                    
+                    // Shipping validation message state
+                    var _shippingMessageState = React.useState('');
+                    var shippingMessage = _shippingMessageState[0];
+                    var setShippingMessage = _shippingMessageState[1];
+                    
+                    // Update shipping message when delivery country changes
+                    React.useEffect(function() {
+                        if (!deliveryCountry) {
+                            setShippingMessage('');
+                            return;
+                        }
+                        
+                        var country = deliveryCountry.toUpperCase();
+                        if (country === 'US' || country === 'CA') {
+                            if (!deliveryPostal) {
+                                setShippingMessage('ZIP/postal code is required for US and Canada.');
+                            } else {
+                                setShippingMessage('');
+                            }
+                        } else if (country) {
+                            setShippingMessage('We are not able to calculate an instant shipping estimate for this delivery location yet, but our team can get back to you with a shipping range within 24 hours.');
+                        } else {
+                            setShippingMessage('');
+                        }
+                    }, [deliveryCountry, deliveryPostal]);
+                    
+                    // System invites message state
+                    var _systemInvitesMessageState = React.useState('');
+                    var systemInvitesMessage = _systemInvitesMessageState[0];
+                    var setSystemInvitesMessage = _systemInvitesMessageState[1];
+                    
+                    // Update system invites message
+                    var updateSystemInvitesMessage = function() {
+                        if (allowSystemInvites) {
+                            if (invitedSuppliers.length > 0) {
+                                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                            } else {
+                                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                            }
+                        } else {
+                            setSystemInvitesMessage('');
+                        }
+                    };
+                    
+                    React.useEffect(function() {
+                        updateSystemInvitesMessage();
+                    }, [allowSystemInvites, invitedSuppliers.length]);
+                    
+                    // Add invited supplier chip
+                    var addInvitedSupplierChip = function() {
+                        var value = inviteSupplierInput.trim();
+                        if (!value) return;
+                        
+                        if (invitedSuppliers.length >= 5) {
+                            setRfqError('Maximum 5 invited makers allowed.');
+                            return;
+                        }
+                        
+                        if (invitedSuppliers.indexOf(value) !== -1) {
+                            setRfqError('This supplier is already added.');
+                            return;
+                        }
+                        
+                        setInvitedSuppliers(invitedSuppliers.concat([value]));
+                        setInviteSupplierInput('');
+                        setRfqError('');
+                        
+                        // Update system invites message if checkbox is checked
+                        if (allowSystemInvites) {
+                            setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                        }
+                    };
+                    
+                    // Remove invited supplier chip
+                    var removeInvitedSupplierChip = function(value) {
+                        var newSuppliers = invitedSuppliers.filter(function(s) { return s !== value; });
+                        setInvitedSuppliers(newSuppliers);
+                        
+                        // Update system invites message if checkbox is checked
+                        if (allowSystemInvites) {
+                            if (newSuppliers.length > 0) {
+                                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                            } else {
+                                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                            }
+                        }
+                    };
+                    
+                    // Handle RFQ submission
+                    var handleSubmitRfq = function(e) {
+                        if (e) e.preventDefault();
+                        
+                        // Validate
+                        if (invitedSuppliers.length === 0 && !allowSystemInvites) {
+                            setRfqError('Invite at least one maker or allow the system to invite makers.');
+                            return;
+                        }
+                        
+                        // Validate required fields
+                        if (!quantity || !deliveryCountry) {
+                            setRfqError('Please fill in all required fields (Quantity, Delivery Country).');
+                            return;
+                        }
+                        
+                        // Validate item ID
+                        if (!itemId || isNaN(itemId) || itemId <= 0) {
+                            setRfqError('Invalid item ID. Please refresh the page and try again.');
+                            setIsSubmittingRfq(false);
+                            return;
+                        }
+                        
+                        setIsSubmittingRfq(true);
+                        setRfqError('');
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || 
+                                     (window.n88 && window.n88.ajaxUrl) || 
+                                     (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_submit_rfq) {
+                            nonce = window.n88BoardNonce.nonce_submit_rfq;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        } else if (window.n88 && window.n88.nonce) {
+                            nonce = window.n88.nonce;
+                        } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else {
+                            nonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_rfq' ) ); ?>';
+                        }
+                        
+                        if (!nonce) {
+                            console.error('Nonce not found. Available:', {
+                                n88BoardNonce: window.n88BoardNonce,
+                                n88BoardData: window.n88BoardData,
+                                n88: window.n88
+                            });
+                            setRfqError('Security token missing. Please refresh the page and try again.');
+                            setIsSubmittingRfq(false);
+                            return;
+                        }
+                        
+                        var items = [{
+                            item_id: itemId,
+                            quantity: parseInt(quantity),
+                            width: parseFloat(width),
+                            depth: parseFloat(depth),
+                            height: parseFloat(height),
+                            dimension_unit: unit,
+                            delivery_country: deliveryCountry.toUpperCase().trim(),
+                            delivery_postal: deliveryPostal.trim(),
+                        }];
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_submit_rfq');
+                        formData.append('items', JSON.stringify(items));
+                        formData.append('invited_suppliers', JSON.stringify(invitedSuppliers));
+                        formData.append('allow_system_invites', allowSystemInvites ? '1' : '0');
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                // Save item facts (quantity, dimensions, delivery, notes) to item meta_json
+                                try {
+                                    // Validate and filter inspiration images
+                                    var validInspiration = inspiration.filter(function(insp) {
+                                        if (!insp || typeof insp !== 'object') return false;
+                                        var hasId = insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0;
+                                        var url = insp.url ? String(insp.url).trim() : '';
+                                        var hasValidUrl = url && 
+                                            url.length > 0 &&
+                                            (url.startsWith('http://') || url.startsWith('https://')) && 
+                                            !url.startsWith('data:');
+                                        return hasId || hasValidUrl;
+                                    }).map(function(insp) {
+                                        var url = insp.url ? String(insp.url).trim() : '';
+                                        var hasValidUrl = url && (url.startsWith('http://') || url.startsWith('https://'));
+                                        
+                                        return {
+                                            type: insp.type || 'image',
+                                            id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
+                                            url: hasValidUrl ? url : '',
+                                            title: insp.title || insp.filename || 'Reference image',
+                                        };
+                                    });
+                                    
+                                    var dimsCm = computedValues.dimsCm;
+                                    
+                                    // Process quantity - ensure it's always included if it has a value
+                                    var qtyValue = null;
+                                    if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                                        var parsedQty = parseInt(quantity);
+                                        if (!isNaN(parsedQty) && parsedQty >= 0) {
+                                            qtyValue = parsedQty;
+                                        }
+                                    }
+                                    
+                                    // Process notes - always include, even if empty
+                                    var notesValue = smartAlternativesNote || '';
+                                    
+                                    var payload = {
+                                        category: category,
+                                        description: description,
+                                        quantity: qtyValue,
+                                        dims: {
+                                            w: width ? parseFloat(width) : null,
+                                            d: depth ? parseFloat(depth) : null,
+                                            h: height ? parseFloat(height) : null,
+                                            unit: unit,
+                                        },
+                                        dims_cm: dimsCm,
+                                        cbm: computedValues.cbm,
+                                        sourcing_type: computedValues.sourcingType,
+                                        timeline_type: computedValues.timelineType,
+                                        inspiration: validInspiration,
+                                        smart_alternatives: smartAlternativesEnabled,
+                                        smart_alternatives_note: notesValue,
+                                        delivery_country: deliveryCountry,
+                                        delivery_postal: deliveryPostal,
+                                    };
+                                    
+                                    // Log payload for debugging
+                                    console.log('ItemDetailModal (admin.php) - Saving item facts after RFQ:', {
+                                        itemId: item.id,
+                                        quantity: qtyValue,
+                                        quantityRaw: quantity,
+                                        smart_alternatives_note: notesValue,
+                                        payload: payload
+                                    });
+                                    
+                                    // Call onSave callback to save item facts
+                                    if (onSave) {
+                                        var itemIdNum = item.id;
+                                        if (typeof itemIdNum === 'string' && itemIdNum.indexOf('item-') === 0) {
+                                            itemIdNum = parseInt(itemIdNum.replace('item-', ''), 10);
+                                        } else if (typeof itemIdNum === 'string') {
+                                            itemIdNum = parseInt(itemIdNum, 10);
+                                        }
+                                        if (!isNaN(itemIdNum) && itemIdNum > 0) {
+                                            onSave(itemIdNum, payload).catch(function(saveError) {
+                                                console.error('Error saving item facts after RFQ submission:', saveError);
+                                                // Don't block RFQ submission if save fails, just log it
+                                            });
+                                        }
+                                    }
+                                } catch (saveError) {
+                                    console.error('Error saving item facts after RFQ submission:', saveError);
+                                    // Don't block RFQ submission if save fails, just log it
+                                }
+                                
+                                alert(data.data.message || 'RFQ submitted successfully!');
+                                setShowRfqForm(false);
+                                // Refresh item state to update to State B
+                                fetchItemState();
+                            } else {
+                                if (data.data && data.data.errors) {
+                                    var errorMessages = [];
+                                    for (var key in data.data.errors) {
+                                        errorMessages.push(data.data.errors[key]);
+                                    }
+                                    setRfqError(errorMessages.join(' '));
+                                } else {
+                                    setRfqError(data.data && data.data.message ? data.data.message : 'An error occurred. Please try again.');
+                                }
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('RFQ submission error:', error);
+                            setRfqError('Network error. Please try again.');
+                        })
+                        .finally(function() {
+                            setIsSubmittingRfq(false);
+                        });
+                    };
+                    
                     // Handle save
                     var handleSave = function() {
                         // Prevent save if uploads are in progress
                         if (typeof isUploadingInspiration !== 'undefined' && isUploadingInspiration) {
                             alert('Please wait for image uploads to complete before saving.');
+                            return;
+                        }
+                        
+                        // Allow saving in State B (RFQ sent) but not in State C (bids received)
+                        if (currentState === 'C') {
+                            alert('This item is locked. Bids have been received.');
                             return;
                         }
                         
@@ -5471,10 +6299,22 @@ class N88_RFQ_Admin {
                             
                             // Prepare payload
                             var dimsCm = computedValues.dimsCm;
+                            // Process quantity - ensure it's always included if it has a value
+                            var qtyValue = null;
+                            if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                                var parsedQty = parseInt(quantity);
+                                if (!isNaN(parsedQty) && parsedQty >= 0) {
+                                    qtyValue = parsedQty;
+                                }
+                            }
+                            
+                            // Process notes - always include, even if empty
+                            var notesValue = smartAlternativesNote || '';
+                            
                             var payload = {
                                 category: category,
                                 description: description,
-                                quantity: quantity ? parseInt(quantity) : null,
+                                quantity: qtyValue,
                                 dims: {
                                     w: width ? parseFloat(width) : null,
                                     d: depth ? parseFloat(depth) : null,
@@ -5485,32 +6325,44 @@ class N88_RFQ_Admin {
                                 cbm: computedValues.cbm,
                                 sourcing_type: computedValues.sourcingType,
                                 timeline_type: computedValues.timelineType,
-                                inspiration: validInspiration, // Use validated inspiration array
+                                inspiration: validInspiration,
+                                smart_alternatives: smartAlternativesEnabled,
+                                smart_alternatives_note: notesValue,
+                                delivery_country: deliveryCountry,
+                                delivery_postal: deliveryPostal,
                             };
+                            
+                            // Log payload for debugging
+                            console.log('ItemDetailModal (admin.php) - Saving item facts:', {
+                                itemId: item.id,
+                                quantity: qtyValue,
+                                quantityRaw: quantity,
+                                smart_alternatives_note: notesValue,
+                                payload: payload
+                            });
                             
                             // Call onSave callback (handles AJAX and event logging)
                             if (onSave) {
                                 // Extract numeric ID from item.id (handles both "item-5" and "5" formats)
-                                var itemId = item.id;
-                                if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) {
-                                    itemId = parseInt(itemId.replace('item-', ''), 10);
-                                } else if (typeof itemId === 'string') {
-                                    itemId = parseInt(itemId, 10);
+                                var itemIdNum = item.id;
+                                if (typeof itemIdNum === 'string' && itemIdNum.indexOf('item-') === 0) {
+                                    itemIdNum = parseInt(itemIdNum.replace('item-', ''), 10);
+                                } else if (typeof itemIdNum === 'string') {
+                                    itemIdNum = parseInt(itemIdNum, 10);
                                 }
-                                if (isNaN(itemId)) {
+                                if (isNaN(itemIdNum)) {
                                     throw new Error('Invalid item ID');
                                 }
-                                onSave(itemId, payload).then(function() {
-                                    onClose();
+                                onSave(itemIdNum, payload).then(function() {
+                                    // Don't close modal - stay open as per requirement
+                                    setIsSaving(false);
                                 }).catch(function(error) {
                                     console.error('Error saving item facts:', error);
                                     alert('Failed to save item facts. Please try again.');
-                                }).finally(function() {
                                     setIsSaving(false);
                                 });
                             } else {
                                 setIsSaving(false);
-                                onClose();
                             }
                         } catch (error) {
                             console.error('Error saving item facts:', error);
@@ -5594,7 +6446,7 @@ class N88_RFQ_Admin {
                                             title: data.data.title
                                         });
                                         resolve({
-                                            type: 'image',
+                                    type: 'image',
                                             url: data.data.url.trim(),
                                             id: Number(data.data.id),
                                             title: data.data.title || data.data.filename || file.name,
@@ -5653,9 +6505,9 @@ class N88_RFQ_Admin {
                             
                             // Reset uploading state
                             setIsUploadingInspiration(false);
-                            
-                            // Reset input
-                            e.target.value = '';
+                        
+                        // Reset input
+                        e.target.value = '';
                         }).catch(function(error) {
                             console.error('Error during upload process:', error);
                             alert('Error uploading images: ' + error.message);
@@ -5666,7 +6518,14 @@ class N88_RFQ_Admin {
                     
                     if (!isOpen) return null;
                     
+                    // Dark theme colors (matching wireframes)
+                    var darkBg = '#000000';
+                    var darkText = '#d3d3d3';
+                    var greenAccent = '#00ff00';
+                    var darkBorder = '#333333';
+                    
                     return React.createElement(React.Fragment, null,
+                        // Backdrop
                         React.createElement('div', {
                             onClick: onClose,
                             style: {
@@ -5675,700 +6534,1252 @@ class N88_RFQ_Admin {
                                 left: 0,
                                 right: 0,
                                 bottom: 0,
-                                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                                zIndex: 10000,
+                                // backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                zIndex: 999999,
                             }
                         }),
+                        // Modal
                         React.createElement('div', {
                             onClick: function(e) { e.stopPropagation(); },
                             style: {
                                 position: 'fixed',
                                 top: 0,
                                 right: 0,
-                                width: '480px',
+                                width: '600px',
                                 maxWidth: '90vw',
                                 height: '100vh',
-                                backgroundColor: '#fff',
-                                boxShadow: '-2px 0 10px rgba(0,0,0,0.2)',
-                                zIndex: 10001,
+                                backgroundColor: darkBg,
+                                color: darkText,
+                                fontFamily: 'monospace',
+                                zIndex: 1000000,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 overflow: 'hidden',
+                                borderLeft: '1px solid ' + darkBorder,
                             }
                         },
-                            // Header
-                            React.createElement('div', {
-                                style: {
-                                    padding: '20px',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                }
-                            },
-                                React.createElement('h2', {
-                                    style: { margin: 0, fontSize: '20px', fontWeight: '600' }
-                                }, 'Item Detail (' + currentUserName + ')'),
-                                React.createElement('button', {
-                                    onClick: onClose,
-                                    style: {
-                                        background: 'none',
-                                        border: 'none',
-                                        fontSize: '24px',
-                                        cursor: 'pointer',
-                                        padding: '0',
-                                        width: '30px',
-                                        height: '30px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }
-                                }, '×')
-                            ),
                             // Scrollable Content
                             React.createElement('div', {
                                 style: {
                                     flex: 1,
                                     overflowY: 'auto',
-                                    padding: 0,
-                                }
-                            },
-                                // Item ID and Status
-                                React.createElement('div', {
-                                    style: {
                                     padding: '20px',
-                                        borderBottom: '1px solid #e0e0e0',
-                                        backgroundColor: '#f9f9f9',
                                 }
                             },
-                                    React.createElement('div', { style: { marginBottom: '8px', fontSize: '16px', fontWeight: '600' } }, 'Item #' + itemId),
-                                    React.createElement('div', { style: { fontSize: '14px', color: '#666' } }, 'Status: ' + itemStatus)
-                                ),
-                                // Content Sections
+                                // Header with Title and Close Button
                                 React.createElement('div', {
                                     style: {
-                                        padding: '20px',
+                                        marginBottom: '24px',
                                     }
                                 },
-                                // Main Item Image - before SECTION: Item Facts
-                                (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
+                                    // Header Row: ITEM DETAILS (left) and Close Button (right)
+                                    React.createElement('div', {
+                                        style: {
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                            marginBottom: '12px',
+                                }
+                            },
+                                        React.createElement('div', {
+                                            style: {
+                                                fontSize: '16px',
+                                                fontWeight: '600',
+                                                color: darkText,
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, ''),
+                                React.createElement('button', {
+                                    onClick: onClose,
                                     style: {
-                                        marginBottom: '20px',
-                                        textAlign: 'center',
-                                        padding: '8px',
-                                        backgroundColor: '#f9f9f9',
+                                        background: 'none',
+                                        border: 'none',
+                                                color: darkText,
+                                        fontSize: '24px',
+                                        cursor: 'pointer',
+                                        padding: '0',
+                                                width: '32px',
+                                                height: '32px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                                fontFamily: 'monospace',
+                                    }
+                                }, '×')
+                            ),
+                            // Main Image on Top - before heading (State A and B)
+                            (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
+                                style: { marginBottom: '24px' }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        border: '1px solid ' + darkBorder,
                                         borderRadius: '4px',
-                                        border: '1px solid #e0e0e0'
+                                        padding: '12px',
+                                        backgroundColor: '#111111',
+                                        minHeight: '200px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                    },
+                                    onClick: function() {
+                                        setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
                                     }
                                 },
                                     React.createElement('img', {
                                         src: item.imageUrl || item.image_url || item.primary_image_url,
-                                        alt: 'Item main image',
+                                        alt: 'Primary',
                                         style: {
                                             maxWidth: '100%',
-                                            maxHeight: '180px',
-                                            width: 'auto',
-                                            height: 'auto',
-                                            borderRadius: '4px',
+                                            maxHeight: '400px',
                                             objectFit: 'contain',
-                                            border: '1px solid #ddd'
-                                        },
-                                        onError: function(e) {
-                                            e.target.style.display = 'none';
+                                            borderRadius: '4px',
                                         }
                                     })
-                                ) : null,
-                                // SECTION: Item Facts
-                                React.createElement('div', { style: { marginBottom: '32px' } },
-                                    React.createElement('h3', {
-                                        style: {
-                                            fontSize: '16px',
-                                            fontWeight: '600',
-                                            marginBottom: '16px',
-                                            textTransform: 'uppercase',
-                                            color: '#333',
-                                            borderBottom: '2px solid #e0e0e0',
-                                            paddingBottom: '8px'
+                                )
+                            ) : null,
+                            // Reference Images - before title (State B only)
+                            currentState === 'B' && inspiration && inspiration.length > 0 ? React.createElement('div', {
+                                style: { marginBottom: '24px' }
+                            },
+                                React.createElement('div', {
+                                    style: { marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }
+                                }, 'Reference Images'),
+                                React.createElement('div', {
+                                    style: {
+                                        display: 'flex',
+                                        gap: '8px',
+                                        flexWrap: 'wrap',
+                                    }
+                                },
+                                    inspiration.map(function(insp, idx) {
+                                        return React.createElement('div', {
+                                            key: idx,
+                                            style: {
+                                                width: '80px',
+                                                height: '80px',
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                                backgroundColor: '#111111',
+                                                position: 'relative',
+                                                overflow: 'hidden',
+                                                cursor: 'pointer',
+                                            },
+                                            onClick: function() {
+                                                if (insp.url) {
+                                                    setLightboxImage(insp.url);
+                                                }
+                                            }
+                                        },
+                                            insp.url ? React.createElement('img', {
+                                                src: insp.url,
+                                                alt: insp.title || 'Reference',
+                                                style: {
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                    borderRadius: '4px',
+                                                }
+                                            }) : React.createElement('div', {
+                                                style: { fontSize: '10px', color: '#666' }
+                                            }, '[ img ]')
+                                        );
+                                    })
+                                )
+                            ) : null,
+                            // Item Details Heading
+                            React.createElement('div', {
+                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }
+                            }, 'Item Details'),
+                            // Item Title
+                            React.createElement('div', {
+                                        style: { fontSize: '16px', fontWeight: '600', marginBottom: '12px' }
+                                    }, item.title || item.description || 'Untitled Item'),
+                                    // Item Details - Show when RFQ is sent
+                                    itemState.has_rfq ? React.createElement('div', {
+                                style: {
+                                            padding: '12px',
+                                            backgroundColor: darkBg,
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            fontFamily: 'monospace',
+                                }
+                            },
+                                React.createElement('div', {
+                                            style: { marginBottom: '6px' }
+                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Category:'), ' ', React.createElement('span', { style: { color: greenAccent } }, category || 'N/A')),
+                                        React.createElement('div', {
+                                            style: { marginBottom: '6px' }
+                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Sourcing Type:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (computedValues && computedValues.sourcingType) || item.sourcing_type || 'N/A')),
+                                        (function() {
+                                            var timelineType = null;
+                                            if (category) {
+                                                var categoryLower = category.toLowerCase();
+                                                var sixStepCategories = ['indoor furniture', 'sofas & seating (indoor)', 'chairs & armchairs (indoor)', 'dining tables (indoor)', 'cabinetry / millwork (custom)', 'casegoods (beds, nightstands, desks, consoles)', 'outdoor furniture', 'outdoor seating', 'outdoor dining sets', 'outdoor loungers & daybeds', 'pool furniture'];
+                                                var fourStepCategories = ['lighting'];
+                                                if (sixStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
+                                                    timelineType = '6-Step Timeline';
+                                                } else if (fourStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
+                                                    timelineType = '4-Step Timeline';
+                                                } else if (categoryLower.indexOf('furniture') !== -1 || categoryLower.indexOf('sofa') !== -1 || categoryLower.indexOf('chair') !== -1 || categoryLower.indexOf('table') !== -1 || categoryLower.indexOf('bed') !== -1 || categoryLower.indexOf('cabinet') !== -1) {
+                                                    timelineType = '6-Step Timeline';
+                                                } else {
+                                                    timelineType = '4-Step Timeline';
+                                                }
+                                            }
+                                            return timelineType ? React.createElement('div', {
+                                                style: { marginBottom: '6px' }
+                                            }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Timeline Type:'), ' ', React.createElement('span', { style: { color: greenAccent } }, timelineType)) : null;
+                                        })(),
+                                        React.createElement('div', {
+                                            style: { marginBottom: '6px' }
+                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Qty:'), ' ', React.createElement('span', { style: { color: greenAccent } }, quantity || 'N/A')),
+                                        formatDimensions() ? React.createElement('div', {
+                                            style: { marginBottom: '6px' }
+                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Dimensions:'), ' ', React.createElement('span', { style: { color: greenAccent } }, formatDimensions())) : null,
+                                        React.createElement('div', {
+                                            style: { marginBottom: '0' }
+                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Delivery:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (deliveryCountry || 'N/A') + (deliveryPostal ? ' | ' + deliveryPostal : '')))
+                                    ) : null
+                                ),
+                                // System Intelligence (editable when State A, hidden when State B) - Removed "SECTION:" text
+                                (isEditable && currentState !== 'B') ? React.createElement('div', {
+                                    style: { marginBottom: '24px' }
+                                },
+                                React.createElement('div', {
+                                    style: {
+                                            border: '1px solid ' + darkBorder,
+                                        borderRadius: '4px',
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
                                         }
-                                    }, 'SECTION: Item Facts'),
-                                    // Category
-                                    React.createElement('div', { style: { marginBottom: '20px' } },
+                                    },
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
                                     React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
                                         }, 'Category'),
                                         React.createElement('select', {
                                             value: category,
                                             onChange: function(e) { setCategory(e.target.value); },
                                             style: {
                                                 width: '100%',
-                                                padding: '10px',
-                                                border: '1px solid #ddd',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
                                                 borderRadius: '4px',
-                                                fontSize: '14px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
                                             }
                                         },
-                                            React.createElement('option', { value: '' }, 'Select Category'),
-                                            React.createElement('option', { value: 'furniture' }, 'Furniture'),
-                                            React.createElement('option', { value: 'lighting' }, 'Lighting'),
-                                            React.createElement('option', { value: 'accessory' }, 'Accessory'),
-                                            React.createElement('option', { value: 'art' }, 'Art'),
-                                            React.createElement('option', { value: 'other' }, 'Other')
-                                        )
+                                                React.createElement('option', { value: '' }, '-- Select Category --'),
+                                                React.createElement('optgroup', { label: 'Indoor Furniture (6-Step Timeline)' },
+                                                    React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
+                                                    React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
+                                                    React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
+                                                    React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
+                                                    React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
+                                                    React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)')
+                                                ),
+                                                React.createElement('optgroup', { label: 'Outdoor Furniture (6-Step Timeline)' },
+                                                    React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
+                                                    React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
+                                                    React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
+                                                    React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
+                                                    React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture')
+                                                ),
+                                                React.createElement('optgroup', { label: 'Sourcing (4-Step Timeline)' },
+                                                    React.createElement('option', { value: 'Lighting' }, 'Lighting')
+                                                ),
+                                                React.createElement('optgroup', { label: 'Other' },
+                                                    React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
+                                                    React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample')
+                                                )
+                                            )
                                     ),
-                                    // Description
-                                    React.createElement('div', { style: { marginBottom: '20px' } },
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
                                         React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
                                         }, 'Description'),
                                         React.createElement('textarea', {
                                             value: description,
                                             onChange: function(e) { setDescription(e.target.value); },
-                                            placeholder: 'Lobby seating for reception area',
-                                            rows: 4,
+                                                placeholder: 'Item description',
+                                                rows: 3,
                                             style: {
                                                 width: '100%',
-                                                padding: '10px',
-                                                border: '1px solid #ddd',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
                                                 borderRadius: '4px',
-                                                fontSize: '14px',
-                                                fontFamily: 'inherit',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
                                                 resize: 'vertical',
                                             }
                                         })
-                                    ),
-                                    // Quantity
-                                    React.createElement('div', { style: { marginBottom: '20px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Quantity'),
-                                        React.createElement('input', {
-                                            type: 'number',
-                                            value: quantity,
-                                            onChange: function(e) { setQuantity(e.target.value); },
-                                            placeholder: 'Enter quantity',
-                                            min: '1',
-                                            style: {
-                                                width: '100%',
-                                                padding: '10px',
-                                                border: '1px solid #ddd',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                            }
-                                        })
-                                    ),
-                                    // Dimensions
-                                    React.createElement('div', { style: { marginBottom: '20px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Dimensions'),
+                                        )
+                                    )
+                                ) : currentState === 'C' ? (
+                                    // State C: Show description with heading
+                                    description ? React.createElement('div', {
+                                        style: { marginBottom: '24px' }
+                                    },
                                         React.createElement('div', {
-                                            style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '10px', alignItems: 'end' }
+                                            style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                        }, 'Description'),
+                                        React.createElement('div', {
+                                            style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                        }, description)
+                                    ) : null
+                                ) : (
+                                    // State B: Show category and description with dot
+                                    React.createElement('div', {
+                                        style: { marginBottom: '24px' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { marginBottom: '8px', fontSize: '12px', color: darkText }
+                                        }, (category || 'Uncategorized') + (category && description ? ' • ' : '') + (description || 'No description'))
+                                    )
+                                ),
+                                // Removed SECTION: Item Facts - all fields moved to Request Quote box
+                                // IMAGES Section - Removed in State C (images already shown at top)
+                                // BIDS Section
+                                        React.createElement('div', {
+                                    style: { marginBottom: '24px' },
+                                    onClick: function(e) { e.stopPropagation(); }
+                                },
+                                    React.createElement('div', {
+                                        onClick: function(e) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (currentState === 'C') {
+                                                setBidsExpanded(!bidsExpanded);
+                                            }
                                         },
-                                            React.createElement('div', null,
-                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: '#999' } }, 'W'),
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            cursor: (currentState === 'C' || bidsExpanded) ? 'pointer' : 'default',
+                                            marginBottom: bidsExpanded ? '12px' : '0',
+                                        }
+                                    },
+                                        React.createElement('div', {
+                                            style: { fontSize: '14px', fontWeight: '600' }
+                                        }, 'BIDS'),
+                                        currentState === 'C' ? React.createElement('span', {
+                                            style: { fontSize: '12px', color: darkText },
+                                            onClick: function(e) {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setBidsExpanded(!bidsExpanded);
+                                            }
+                                        }, bidsExpanded ? '▼' : '▶') : null
+                                    ),
+                                    !bidsExpanded ? React.createElement('div', {
+                                        style: { fontSize: '12px', color: darkText, marginTop: '8px' }
+                                    },
+                                        currentState === 'A' ? 'No bids yet' :
+                                        currentState === 'B' ? 'Awaiting supplier bids' :
+                                        currentState === 'C' ? ((itemState.bids && itemState.bids.length > 0) ? (itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : 'No bids yet') : ''
+                                    ) : null,
+                                    // Expanded BIDS comparison (State C)
+                                    bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
+                                                    style: {
+                                            marginTop: '16px',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
+                                        }
+                                    },
+                                        itemState.bids.map(function(bid, idx) {
+                                            return React.createElement(BidItemInline, {
+                                                key: bid.bid_id,
+                                                bid: bid,
+                                                idx: idx,
+                                                totalBids: itemState.bids.length,
+                                                darkBorder: darkBorder,
+                                                greenAccent: greenAccent,
+                                                darkText: darkText
+                                            });
+                                        })
+                                    ) : null
+                                ),
+                                // Request Quote Button / RFQ Form (State A only)
+                                currentState === 'A' ? React.createElement('div', {
+                                    style: { marginBottom: '24px' }
+                                },
+                                    !showRfqForm ? React.createElement('button', {
+                                        onClick: function() { setShowRfqForm(true); },
+                                        style: {
+                                            width: '100%',
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            color: darkText,
+                                            fontSize: '14px',
+                                            fontFamily: 'monospace',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                        }
+                                    }, 'Request Quote') : React.createElement('div', {
+                                            style: {
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                            padding: '16px',
+                                            backgroundColor: '#111111',
+                                        }
+                                        },
+                                    React.createElement('div', {
+                                                style: {
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                marginBottom: '16px',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600' }
+                                            }, 'Request Quote'),
+                                        React.createElement('button', {
+                                                onClick: function() { setShowRfqForm(false); },
+                                        style: {
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: darkText,
+                                                    fontSize: '20px',
+                                                    cursor: 'pointer',
+                                                    padding: '0',
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }
+                                            }, '×')
+                                        ),
+                                        // RFQ Form Fields
+                                        // Dimensions
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('label', {
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                            }, 'Dimensions'),
+                                            React.createElement('div', {
+                                                style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
+                                            },
                                                 React.createElement('input', {
                                                     type: 'number',
                                                     value: width,
                                                     onChange: function(e) { setWidth(e.target.value); },
-                                                    placeholder: 'Width',
+                                                    placeholder: 'W',
+                                                    step: '0.01',
                                                     style: {
-                                                        width: '100%',
-                                                        padding: '10px',
-                                                        border: '1px solid #ddd',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
                                                         borderRadius: '4px',
-                                                        fontSize: '14px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
                                                     }
-                                                })
-                                            ),
-                                            React.createElement('div', null,
-                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: '#999' } }, 'D'),
+                                                }),
                                                 React.createElement('input', {
                                                     type: 'number',
                                                     value: depth,
                                                     onChange: function(e) { setDepth(e.target.value); },
-                                                    placeholder: 'Depth',
+                                                    placeholder: 'D',
+                                                    step: '0.01',
                                                     style: {
-                                                        width: '100%',
-                                                        padding: '10px',
-                                                        border: '1px solid #ddd',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
                                                         borderRadius: '4px',
-                                                        fontSize: '14px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
                                                     }
-                                                })
-                                            ),
-                                            React.createElement('div', null,
-                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: '#999' } }, 'H'),
+                                                }),
                                                 React.createElement('input', {
                                                     type: 'number',
                                                     value: height,
                                                     onChange: function(e) { setHeight(e.target.value); },
-                                                    placeholder: 'Height',
+                                                    placeholder: 'H',
+                                                    step: '0.01',
                                                     style: {
-                                                        width: '100%',
-                                                        padding: '10px',
-                                                        border: '1px solid #ddd',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
                                                         borderRadius: '4px',
-                                                        fontSize: '14px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
                                                     }
-                                                })
-                                            ),
-                                            React.createElement('div', null,
-                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: '#999' } }, 'Unit'),
+                                                }),
                                                 React.createElement('select', {
                                                     value: unit,
                                                     onChange: function(e) { setUnit(e.target.value); },
                                                     style: {
-                                                        width: '100%',
-                                                        padding: '10px',
-                                                        border: '1px solid #ddd',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
                                                         borderRadius: '4px',
-                                                        fontSize: '14px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
                                                     }
                                                 },
-                                                    React.createElement('option', { value: 'mm' }, 'mm'),
+                                                    React.createElement('option', { value: 'in' }, 'in'),
                                                     React.createElement('option', { value: 'cm' }, 'cm'),
-                                                    React.createElement('option', { value: 'm' }, 'm'),
-                                                    React.createElement('option', { value: 'in' }, 'in')
+                                                    React.createElement('option', { value: 'mm' }, 'mm'),
+                                                    React.createElement('option', { value: 'm' }, 'm')
                                                 )
+                                            ),
+                                            computedValues && computedValues.cbm ? React.createElement('div', {
+                                                style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
+                                            }, 'CBM: ' + (typeof computedValues.cbm.toFixed === 'function' ? computedValues.cbm.toFixed(3) : computedValues.cbm)) : null
+                                        ),
+                                        // Quantity
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('label', {
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                            }, 'Quantity'),
+                                            React.createElement('input', {
+                                                type: 'number',
+                                                value: quantity,
+                                                onChange: function(e) { setQuantity(e.target.value); },
+                                                min: '1',
+                                            style: {
+                                                    width: '100%',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                }
+                                            })
+                                        ),
+                                        // Delivery Country
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('label', {
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                            }, 'Delivery Country'),
+                                            React.createElement('select', {
+                                                value: deliveryCountry,
+                                                onChange: function(e) { setDeliveryCountry(e.target.value); },
+                                                style: {
+                                                    width: '100%',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                }
+                                            },
+                                                React.createElement('option', { value: '' }, 'Select Country'),
+                                                React.createElement('option', { value: 'US' }, 'US'),
+                                                React.createElement('option', { value: 'CA' }, 'CA'),
+                                                React.createElement('option', { value: 'CN' }, 'CN'),
+                                                React.createElement('option', { value: 'VN' }, 'VN'),
+                                                React.createElement('option', { value: 'EU' }, 'EU')
+                                            )
+                                        ),
+                                        // ZIP/Postal Code
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('label', {
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                            }, 'ZIP/Postal Code'),
+                                            React.createElement('input', {
+                                                type: 'text',
+                                                value: deliveryPostal,
+                                                onChange: function(e) { setDeliveryPostal(e.target.value); },
+                                                placeholder: 'Required for US/CA',
+                                                style: {
+                                                    width: '100%',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                }
+                                            }),
+                                            shippingMessage ? React.createElement('div', {
+                                                style: {
+                                                    marginTop: '8px',
+                                                    fontSize: '11px',
+                                                    color: ((deliveryCountry && (deliveryCountry.toUpperCase() === 'US' || deliveryCountry.toUpperCase() === 'CA')) && !deliveryPostal) ? '#ff0000' : '#999',
+                                                }
+                                            }, shippingMessage) : null
+                                        ),
+                                        // SMART ALTERNATIVES Section
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px', fontSize: '12px', fontWeight: '600' }
+                                            }, 'SMART ALTERNATIVES (Optional)'),
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px', fontSize: '12px' }
+                                            }, 'Are you open to comparable options?'),
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px' }
+                                            },
+                                                React.createElement('label', {
+                                                    style: {
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        cursor: 'pointer',
+                                                        marginBottom: '8px',
+                                                    }
+                                                },
+                                                    React.createElement('input', {
+                                                        type: 'radio',
+                                                        name: 'smart_alternatives',
+                                                        checked: smartAlternativesEnabled,
+                                                        onChange: function() { setSmartAlternativesEnabled(true); },
+                                                        style: {
+                                                            width: '16px',
+                                                            height: '16px',
+                                                            cursor: 'pointer',
+                                                        }
+                                                    }),
+                                                    React.createElement('span', {
+                                                        style: { fontSize: '12px' }
+                                                    }, 'Yes — show me comparable options')
+                                                ),
+                                                React.createElement('label', {
+                                                    style: {
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        cursor: 'pointer',
+                                                    }
+                                                },
+                                                    React.createElement('input', {
+                                                        type: 'radio',
+                                                        name: 'smart_alternatives',
+                                                        checked: !smartAlternativesEnabled,
+                                                        onChange: function() { setSmartAlternativesEnabled(false); },
+                                                        style: {
+                                                            width: '16px',
+                                                            height: '16px',
+                                                            cursor: 'pointer',
+                                                        }
+                                                    }),
+                                                    React.createElement('span', {
+                                                        style: { fontSize: '12px' }
+                                                    }, 'No — proceed as specified')
+                                                )
+                                            ),
+                                            React.createElement('div', {
+                                                style: {
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '8px',
+                                                    marginBottom: '12px',
+                                                    fontSize: '11px',
+                                                    color: '#999',
+                                                }
+                                            },
+                                                React.createElement('span', { style: { fontSize: '14px' } }, 'i'),
+                                                React.createElement('span', null, 'Suppliers may suggest equivalent materials or construction methods. No contact info is shared.')
+                                            ),
+                                            React.createElement('div', {
+                                                style: { marginBottom: '8px', fontSize: '12px' }
+                                            }, 'Notes for suppliers (optional)'),
+                                            React.createElement('textarea', {
+                                                value: smartAlternativesNote,
+                                                onChange: function(e) {
+                                                    var val = e.target.value;
+                                                    if (val.length <= 240) {
+                                                        setSmartAlternativesNote(val);
+                                                    }
+                                                },
+                                                placeholder: '[ Open to outdoor durability options ]',
+                                                maxLength: 240,
+                                                style: {
+                                                    width: '100%',
+                                                    minHeight: '60px',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                    resize: 'vertical',
+                                                }
+                                            }),
+                                            React.createElement('div', {
+                                                style: { fontSize: '10px', color: '#666', marginTop: '4px' }
+                                            }, '(' + smartAlternativesNote.length + ' chars • filtered)')
+                                        ),
+                                        // Inspiration / References (optional)
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { marginBottom: '8px', fontSize: '12px', color: '#999' }
+                                            }, 'Inspiration / References (optional)'),
+                                            React.createElement('div', {
+                                                style: {
+                                                    display: 'flex',
+                                                    gap: '8px',
+                                                    marginBottom: '8px',
+                                                    flexWrap: 'wrap',
+                                                }
+                                            },
+                                                inspiration.map(function(insp, idx) {
+                                                    return React.createElement('div', {
+                                                        key: idx,
+                                                        style: {
+                                                            width: '80px',
+                                                            height: '80px',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            backgroundColor: '#111111',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            cursor: 'pointer',
+                                                            position: 'relative',
+                                                        },
+                                                        onClick: function() {
+                                                            if (insp.url) setLightboxImage(insp.url);
+                                                        }
+                                                    },
+                                                        insp.url ? React.createElement('img', {
+                                                            src: insp.url,
+                                                            alt: insp.title || 'Reference',
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'cover',
+                                                                borderRadius: '4px',
+                                                            }
+                                                        }) : React.createElement('div', {
+                                                            style: { fontSize: '10px', color: '#666' }
+                                                        }, '[ img ]'),
+                                                        React.createElement('button', {
+                                                            onClick: function(e) {
+                                                                e.stopPropagation();
+                                                                setInspiration(inspiration.filter(function(_, i) { return i !== idx; }));
+                                                            },
+                                                            style: {
+                                                                position: 'absolute',
+                                                                top: '4px',
+                                                                right: '4px',
+                                                                background: '#ff0000',
+                                                                color: '#fff',
+                                                                border: 'none',
+                                                                borderRadius: '50%',
+                                                                width: '20px',
+                                                                height: '20px',
+                                                                cursor: 'pointer',
+                                                                fontSize: '12px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                padding: 0,
+                                                            }
+                                                        }, '×')
+                                                    );
+                                                }),
+                                                React.createElement('button', {
+                                                    onClick: function() {
+                                                        var input = document.getElementById('inspiration-file-input');
+                                                        if (input) input.click();
+                                                    },
+                                                    disabled: isUploadingInspiration,
+                                                    style: {
+                                                        width: '80px',
+                                                        height: '80px',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111111',
+                                                        color: darkText,
+                                                        cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                    }
+                                                }, isUploadingInspiration ? '...' : '[+ Add]')
+                                            ),
+                                            React.createElement('input', {
+                                                type: 'file',
+                                                id: 'inspiration-file-input',
+                                                accept: 'image/*',
+                                                multiple: true,
+                                                onChange: handleInspirationFileChange,
+                                                style: { display: 'none' },
+                                                disabled: isUploadingInspiration
+                                            }),
+                                            React.createElement('div', {
+                                                style: { fontSize: '10px', color: '#666', marginTop: '4px' }
+                                            }, '(visible to suppliers • no downloads)')
+                                        ),
+                                        // Invite Makers
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', fontWeight: '600', marginBottom: '8px' }
+                                            }, 'Invite Makers'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '11px', color: '#999', marginBottom: '8px' }
+                                            }, 'Enter existing maker username(s) or email address(es). Press Enter or click Add. (1-5 invites)'),
+                                            React.createElement('div', {
+                                                style: { display: 'flex', gap: '8px', marginBottom: '8px' }
+                                            },
+                                                React.createElement('input', {
+                                                    type: 'text',
+                                                    value: inviteSupplierInput,
+                                                    onChange: function(e) { setInviteSupplierInput(e.target.value); },
+                                                    onKeyPress: function(e) {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            addInvitedSupplierChip();
+                                                        }
+                                                    },
+                                                    placeholder: 'Username or email',
+                                            style: {
+                                                flex: 1,
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                            }
+                                                }),
+                                        React.createElement('button', {
+                                            type: 'button',
+                                                    onClick: addInvitedSupplierChip,
+                                                    style: {
+                                                        padding: '8px 16px',
+                                                        backgroundColor: '#111111',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                cursor: 'pointer',
+                                                        whiteSpace: 'nowrap',
+                                                    }
+                                                }, 'Add')
+                                            ),
+                                            React.createElement('div', {
+                                                style: {
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: '8px',
+                                                    marginBottom: '8px',
+                                                    minHeight: '32px',
+                                                }
+                                            },
+                                                invitedSuppliers.map(function(supplier, idx) {
+                                                    return React.createElement('div', {
+                                                        key: idx,
+                                                        style: {
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            padding: '6px 12px',
+                                                            backgroundColor: '#111111',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '16px',
+                                                            fontSize: '12px',
+                                                            color: greenAccent,
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    },
+                                                        React.createElement('span', null, supplier),
+                                                        React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: function() { removeInvitedSupplierChip(supplier); },
+                                                            style: {
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: darkText,
+                                                                cursor: 'pointer',
+                                                                fontSize: '16px',
+                                                                lineHeight: 1,
+                                                                padding: 0,
+                                                                marginLeft: '4px',
+                                                                fontWeight: 'bold',
+                                            }
+                                                        }, '×')
+                                                    );
+                                                })
+                                            ),
+                                            rfqError && invitedSuppliers.length === 0 ? React.createElement('div', {
+                                                style: { fontSize: '11px', color: '#ff0000', marginTop: '4px' }
+                                            }, rfqError) : null
+                                        ),
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                                React.createElement('label', {
+                                        style: {
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                cursor: 'pointer',
+                                                    }
+                                                },
+                                                    React.createElement('input', {
+                                                        type: 'checkbox',
+                                                        checked: allowSystemInvites,
+                                                        onChange: function(e) {
+                                                            setAllowSystemInvites(e.target.checked);
+                                                            // Update message immediately
+                                                            setTimeout(function() {
+                                                                if (e.target.checked) {
+                                                                    if (invitedSuppliers.length > 0) {
+                                                                        setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                                    } else {
+                                                                        setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                                            }
+                                                        } else {
+                                                                    setSystemInvitesMessage('');
+                                                                }
+                                                            }, 0);
+                                                        },
+                                                        style: {
+                                                            width: '18px',
+                                                            height: '18px',
+                                                            cursor: 'pointer',
+                                                        }
+                                                    }),
+                                                    React.createElement('span', {
+                                                        style: { fontSize: '12px', fontFamily: 'monospace' }
+                                                    }, 'Let WireFrame (OS) source makers for this request')
+                                                ),
+                                    React.createElement('div', {
+                                                    style: { marginTop: '8px', fontSize: '11px', color: '#999', paddingLeft: '26px' }
+                                                }, 'If enabled, Wireframe (OS) will find qualified makers based on your item and keywords.'),
+                                                systemInvitesMessage ? React.createElement('div', {
+                                                    style: { marginTop: '8px', fontSize: '11px', color: '#999', paddingLeft: '26px' }
+                                                }, systemInvitesMessage) : null
+                                            ),
+                                        rfqError ? React.createElement('div', {
+                                        style: {
+                                                marginBottom: '12px',
+                                                padding: '8px',
+                                                backgroundColor: '#330000',
+                                                border: '1px solid #ff0000',
+                                                borderRadius: '4px',
+                                                fontSize: '11px',
+                                                color: '#ff0000',
+                                        }
+                                        }, rfqError) : null,
+                                        React.createElement('button', {
+                                            onClick: handleSubmitRfq,
+                                            disabled: isSubmittingRfq,
+                                        style: {
+                                                width: '100%',
+                                            padding: '12px',
+                                                backgroundColor: greenAccent,
+                                                border: 'none',
+                                            borderRadius: '4px',
+                                                color: darkBg,
+                                            fontSize: '14px',
+                                                fontFamily: 'monospace',
+                                                cursor: isSubmittingRfq ? 'not-allowed' : 'pointer',
+                                                fontWeight: '600',
+                                                opacity: isSubmittingRfq ? 0.6 : 1,
+                                        }
+                                        }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
+                                    )
+                                ) : null,
+                                // State B: Description and editable fields (images shown at top)
+                                currentState === 'B' ? React.createElement(React.Fragment, null,
+                                    description ? React.createElement('div', {
+                                        style: { marginBottom: '24px' }
+                                    },
+                                        React.createElement('div', {
+                                            style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                        }, 'Description'),
+                                        React.createElement('div', {
+                                            style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                        }, description)
+                                    ) : null,
+                                    // Quantity, Dimensions, and Notes for suppliers - Editable in State B
+                                    React.createElement('div', {
+                                        style: { marginBottom: '24px' }
+                                    },
+                                    React.createElement('div', {
+                                        style: {
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                            padding: '12px',
+                                                backgroundColor: '#111111',
+                                            }
+                                        },
+                                            // Quantity
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px' }
+                                            },
+                                                React.createElement('label', {
+                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                }, 'Quantity'),
+                                                React.createElement('input', {
+                                                    type: 'number',
+                                                    value: quantity,
+                                                    onChange: function(e) { setQuantity(e.target.value); },
+                                                    min: '1',
+                                                    placeholder: '1',
+                                                    style: {
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
+                                            borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                    }
+                                                })
+                                            ),
+                                            // Dimensions
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px' }
+                                            },
+                                                React.createElement('label', {
+                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                }, 'Dimensions' + (computedValues && computedValues.cbm ? ' (CBM: ' + computedValues.cbm.toFixed(3) + ')' : '')),
+                                                React.createElement('div', {
+                                                    style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
+                                                },
+                                                    React.createElement('input', {
+                                                        type: 'number',
+                                                        value: width,
+                                                        onChange: function(e) { setWidth(e.target.value); },
+                                                        placeholder: 'W',
+                                                        step: '0.01',
+                                                        style: {
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    }),
+                                                    React.createElement('input', {
+                                                        type: 'number',
+                                                        value: depth,
+                                                        onChange: function(e) { setDepth(e.target.value); },
+                                                        placeholder: 'D',
+                                                        step: '0.01',
+                                                        style: {
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    }),
+                                                    React.createElement('input', {
+                                                        type: 'number',
+                                                        value: height,
+                                                        onChange: function(e) { setHeight(e.target.value); },
+                                                        placeholder: 'H',
+                                                        step: '0.01',
+                                                        style: {
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    }),
+                                                    React.createElement('select', {
+                                                        value: unit,
+                                                        onChange: function(e) { setUnit(e.target.value); },
+                                                        style: {
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    },
+                                                        React.createElement('option', { value: 'in' }, 'in'),
+                                                        React.createElement('option', { value: 'cm' }, 'cm'),
+                                                        React.createElement('option', { value: 'mm' }, 'mm'),
+                                                        React.createElement('option', { value: 'm' }, 'm')
+                                                    )
+                                                ),
+                                                computedValues && computedValues.cbm ? React.createElement('div', {
+                                                    style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
+                                                }, 'CBM: ' + computedValues.cbm.toFixed(3)) : null
+                                            ),
+                                            // Notes for suppliers
+                                            React.createElement('div', {
+                                                style: { marginBottom: '0' }
+                                            },
+                                                React.createElement('label', {
+                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                }, 'Notes for suppliers (optional)'),
+                                                React.createElement('textarea', {
+                                                    value: smartAlternativesNote,
+                                                    onChange: function(e) {
+                                                        var val = e.target.value;
+                                                        if (val.length <= 240) {
+                                                            setSmartAlternativesNote(val);
+                                                        }
+                                                    },
+                                                    placeholder: '[ Add notes for suppliers ]',
+                                                    maxLength: 240,
+                                                    style: {
+                                                        width: '100%',
+                                                        minHeight: '60px',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        resize: 'vertical',
+                                                    }
+                                                }),
+                                                React.createElement('div', {
+                                                    style: { fontSize: '10px', color: '#666', marginTop: '4px' }
+                                                }, '(' + smartAlternativesNote.length + ' chars • filtered)')
                                             )
                                         )
                                     )
-                                ),
-                                // SECTION: System Intelligence
-                                React.createElement('div', { style: { marginBottom: '32px' } },
-                                    React.createElement('h3', {
-                                        style: {
-                                            fontSize: '16px',
-                                            fontWeight: '600',
-                                            marginBottom: '16px',
-                                            textTransform: 'uppercase',
-                                            color: '#333',
-                                            borderBottom: '2px solid #e0e0e0',
-                                            paddingBottom: '8px'
-                                        }
-                                    }, 'SECTION: System Intelligence'),
-                                    // Normalized (cm)
-                                    React.createElement('div', { style: { marginBottom: '16px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Normalized (cm)'),
-                                        computedValues.dimsCm ? React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                border: '1px solid #e0e0e0',
-                                                fontFamily: 'monospace'
-                                            }
-                                        }, 'W ' + computedValues.dimsCm.w_cm.toFixed(1) + ' D ' + computedValues.dimsCm.d_cm.toFixed(1) + ' H ' + computedValues.dimsCm.h_cm.toFixed(1)) : React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                color: '#999',
-                                                border: '1px solid #e0e0e0',
-                                                fontFamily: 'monospace'
-                                            }
-                                        }, 'W — D — H —')
-                                    ),
-                                    // CBM
-                                    React.createElement('div', { style: { marginBottom: '16px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'CBM'),
-                                        computedValues.cbm !== null ? React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                border: '1px solid #e0e0e0'
-                                            }
-                                        }, 'CBM: ' + String(computedValues.cbm)) : React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                color: '#999',
-                                                border: '1px solid #e0e0e0'
-                                            }
-                                        }, 'CBM: —')
-                                    ),
-                                    // Sourcing Type
-                                    React.createElement('div', { style: { marginBottom: '16px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Sourcing Type'),
-                                        React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                border: '1px solid #e0e0e0'
-                                            }
-                                        }, computedValues.sourcingType || 'furniture')
-                                    ),
-                                    // Timeline Type
-                                    React.createElement('div', { style: { marginBottom: '16px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Timeline Type'),
-                                        React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                border: '1px solid #e0e0e0'
-                                            }
-                                        }, computedValues.timelineType || 'furniture_6_step')
-                                    ),
-                                    // Reason
-                                    React.createElement('div', { style: { marginBottom: '16px' } },
-                                        React.createElement('label', {
-                                            style: { display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#666' }
-                                        }, 'Reason'),
-                                        React.createElement('div', {
-                                            style: {
-                                                padding: '12px',
-                                                backgroundColor: '#f5f5f5',
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                border: '1px solid #e0e0e0'
-                                            }
-                                        }, 'default')
-                                    )
-                                ),
-                                // SECTION: Inspiration / Reference
-                                React.createElement('div', { style: { marginBottom: '32px' } },
-                                    React.createElement('h3', {
-                                        style: {
-                                            fontSize: '16px',
-                                            fontWeight: '600',
-                                            marginBottom: '16px',
-                                            textTransform: 'uppercase',
-                                            color: '#333',
-                                            borderBottom: '2px solid #e0e0e0',
-                                            paddingBottom: '8px'
-                                        }
-                                    }, 'SECTION: Inspiration / Reference'),
-                                    inspiration.length > 0 ? React.createElement('div', {
-                                        style: {
-                                            width: '100%',
-                                            minHeight: inspiration.length === 1 ? '100px' : '80px',
-                                            backgroundColor: '#f0f0f0',
-                                            border: '1px solid #e0e0e0',
-                                            borderRadius: '4px',
-                                            padding: '10px',
-                                            display: 'flex',
-                                            flexWrap: 'wrap',
-                                            gap: '10px',
-                                            alignItems: 'stretch',
-                                            marginBottom: '12px'
-                                        }
-                                    },
-                                        inspiration.map(function(insp, idx) {
-                                            var imageCount = inspiration.length;
-                                            var containerStyle = {};
-                                            
-                                            if (imageCount === 1) {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: '100%',
-                                                    height: '100px',
-                                                    flex: '0 0 100%'
-                                                };
-                                            } else if (imageCount === 2) {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: 'calc(50% - 5px)',
-                                                    height: '80px',
-                                                    flex: '0 0 calc(50% - 5px)'
-                                                };
-                                            } else {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: 'calc(33.333% - 7px)',
-                                                    height: '80px',
-                                                    flex: '0 0 calc(33.333% - 7px)'
-                                                };
-                                            }
-                                            
-                                            return React.createElement('div', {
-                                                key: idx,
-                                                style: containerStyle
-                                            },
-                                                insp.url ? React.createElement('img', {
-                                                    src: insp.url,
-                                                    alt: insp.title || 'Reference',
-                                                    style: {
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        objectFit: 'contain',
-                                                        border: '1px solid #ddd',
-                                                        borderRadius: '4px',
-                                                        backgroundColor: '#fff'
-                                                    }
-                                                }) : null,
-                                                React.createElement('button', {
-                                                    onClick: function() {
-                                                        var newInspiration = inspiration.slice();
-                                                        newInspiration.splice(idx, 1);
-                                                        setInspiration(newInspiration);
-                                                    },
-                                                    style: {
-                                                        position: 'absolute',
-                                                        top: '5px',
-                                                        right: '5px',
-                                                        background: '#d32f2f',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '50%',
-                                                        width: '24px',
-                                                        height: '24px',
-                                                        cursor: 'pointer',
-                                                        fontSize: '16px',
-                                                        lineHeight: '24px',
-                                                        padding: 0,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                    }
-                                                }, '×')
-                                            );
-                                        })
-                                    ) : React.createElement('div', {
-                                        style: {
-                                            width: '100%',
-                                            height: '200px',
-                                            backgroundColor: '#f0f0f0',
-                                            border: '2px dashed #ccc',
-                                            borderRadius: '4px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: '#999',
-                                            fontSize: '14px',
-                                            marginBottom: '12px'
-                                        }
-                                    },
-                                        React.createElement('div', {
-                                            style: {
-                                                textAlign: 'center',
-                                                color: '#999'
-                                            }
-                                        },
-                                            React.createElement('div', {
-                                                style: {
-                                                    fontSize: '48px',
-                                                    marginBottom: '10px',
-                                                    opacity: 0.3
-                                                }
-                                            }, '📷'),
-                                            React.createElement('div', null, 'No reference images')
-                                        )
-                                    ),
-                                    React.createElement('input', {
-                                        type: 'file',
-                                        id: 'inspiration-file-input-' + (item.id ? String(item.id).replace(/[^a-zA-Z0-9]/g, '-') : 'default'),
-                                        accept: 'image/*',
-                                        multiple: true,
-                                        onChange: handleInspirationFileChange,
-                                        disabled: isUploadingInspiration,
-                                        style: { display: 'none' }
-                                    }),
-                                    React.createElement('button', {
-                                        type: 'button',
-                                        onClick: function() {
-                                            if (isUploadingInspiration) return;
-                                            var inputId = 'inspiration-file-input-' + (item.id ? String(item.id).replace(/[^a-zA-Z0-9]/g, '-') : 'default');
-                                            var input = document.getElementById(inputId);
-                                            if (input) {
-                                                input.click();
-                                            } else {
-                                                console.error('File input not found:', inputId);
-                                            }
-                                        },
-                                        disabled: isUploadingInspiration,
-                                        style: {
-                                            padding: '8px 16px',
-                                            backgroundColor: isUploadingInspiration ? '#ccc' : '#f0f0f0',
-                                            border: '1px solid #ddd',
-                                            borderRadius: '4px',
-                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
-                                            fontSize: '13px',
-                                            opacity: isUploadingInspiration ? 0.6 : 1,
-                                        }
-                                    }, isUploadingInspiration ? '⏳ Uploading...' : '+ Add Reference Image')
-                                ),
-                                // SECTION: Actions
-                                React.createElement('div', { style: { marginBottom: '32px' } },
-                                    React.createElement('h3', {
-                                        style: {
-                                            fontSize: '16px',
-                                            fontWeight: '600',
-                                            marginBottom: '16px',
-                                            textTransform: 'uppercase',
-                                            color: '#333',
-                                            borderBottom: '2px solid #e0e0e0',
-                                            paddingBottom: '8px'
-                                        }
-                                    }, 'SECTION: Actions'),
-                                    React.createElement('div', {
-                                        style: { display: 'flex', flexDirection: 'row', gap: '10px' }
-                                    },
-                                        React.createElement('button', {
-                                            type: 'button',
-                                            onClick: function() {
-                                                if (!priceRequested) {
-                                                    setPriceRequested(true);
-                                                }
-                                            },
-                                            disabled: priceRequested,
-                                            style: {
-                                                flex: 1,
-                                                padding: '12px 20px',
-                                                fontWeight: '500',
-                                                cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                                backgroundColor: priceRequested ? '#e0e0e0' : '#0073aa',
-                                                color: priceRequested ? '#999' : '#fff',
-                                                border: '1px solid ' + (priceRequested ? '#ccc' : '#0073aa'),
-                                                borderRadius: '4px',
-                                                fontSize: '14px',
-                                                textAlign: 'center',
-                                                transition: 'all 0.2s',
-                                                boxShadow: priceRequested ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
-                                            }
-                                        }, priceRequested ? 'Price Requested' : 'Request Price'),
-                                        React.createElement('button', {
-                                            type: 'button',
-                                            onClick: function() {
-                                                // Commit 2.3.4: Open RFQ submission modal
-                                                var itemIdToSubmit = itemId || item.id || item.item_id;
-                                                console.log('Request Quote clicked for item:', itemIdToSubmit);
-                                                
-                                                // Retry mechanism: wait for function to be available
-                                                var retryCount = 0;
-                                                var maxRetries = 10;
-                                                var retryInterval = 100; // 100ms
-                                                
-                                                function tryOpenModal() {
-                                                    if (window.openRfqSubmissionModal && typeof window.openRfqSubmissionModal === 'function') {
-                                                        window.openRfqSubmissionModal([itemIdToSubmit]);
-                                                    } else if (retryCount < maxRetries) {
-                                                        retryCount++;
-                                                        setTimeout(tryOpenModal, retryInterval);
-                                                    } else {
-                                                        console.error('openRfqSubmissionModal function not found after retries. Current window.openRfqSubmissionModal:', typeof window.openRfqSubmissionModal);
-                                                        // Try to initialize the modal manually as fallback
-                                                        if (typeof window._openRfqSubmissionModalFull === 'function') {
-                                                            console.log('Using fallback _openRfqSubmissionModalFull function');
-                                                            var modal = document.getElementById('n88-rfq-submission-modal');
-                                                            var modalContent = document.getElementById('n88-rfq-submission-modal-content');
-                                                            if (modal && modalContent) {
-                                                                window._openRfqSubmissionModalFull([itemIdToSubmit], modal, modalContent);
-                                                            } else {
-                                                                alert('RFQ submission modal is not available. Please refresh the page and try again.');
-                                                            }
-                                                        } else {
-                                                            alert('RFQ submission is only available on the board page. Please navigate to your workspace board.');
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                tryOpenModal();
-                                            },
-                                            style: {
-                                                flex: 1,
-                                                padding: '12px 20px',
-                                                fontWeight: '500',
-                                                backgroundColor: '#0073aa',
-                                                color: '#fff',
-                                                border: '1px solid #0073aa',
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                fontSize: '14px',
-                                                textAlign: 'center',
-                                                transition: 'all 0.2s',
-                                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                                            },
-                                            onMouseEnter: function(e) {
-                                                e.target.style.backgroundColor = '#005a87';
-                                            },
-                                            onMouseLeave: function(e) {
-                                                e.target.style.backgroundColor = '#0073aa';
-                                            }
-                                        }, 'Request Quote')
-                                    )
-                                ),
-                                // SECTION: Thread
-                                React.createElement('div', { style: { marginBottom: '32px' } },
-                                    React.createElement('h3', {
-                                        style: {
-                                            fontSize: '16px',
-                                            fontWeight: '600',
-                                            marginBottom: '16px',
-                                            textTransform: 'uppercase',
-                                            color: '#333',
-                                            borderBottom: '2px solid #e0e0e0',
-                                            paddingBottom: '8px'
-                                        }
-                                    }, 'SECTION: Thread'),
-                                    React.createElement('div', {
-                                        style: {
-                                            padding: '12px',
-                                            backgroundColor: '#f5f5f5',
-                                            borderRadius: '4px',
-                                            fontSize: '14px',
-                                            color: '#666',
-                                            border: '1px solid #e0e0e0'
-                                        }
-                                    }, '— Comments/admin replies / approvals')
-                                )
-                                )
+                                ) : null
                             ),
-                            // Footer Actions
-                            React.createElement('div', {
+                            // Footer - Save button (State A and B)
+                            (currentState === 'A' || currentState === 'B') ? React.createElement('div', {
                                 style: {
-                                    padding: '20px',
-                                    borderTop: '1px solid #e0e0e0',
+                                    padding: '16px 20px',
+                                    borderTop: '1px solid ' + darkBorder,
                                     display: 'flex',
-                                    gap: '10px',
+                                    gap: '12px',
                                     justifyContent: 'flex-end',
                                 }
                             },
-                                React.createElement('button', {
-                                    onClick: onClose,
-                                    style: {
-                                        padding: '10px 20px',
-                                        backgroundColor: '#f0f0f0',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                    }
-                                }, 'Close'),
                                 React.createElement('button', {
                                     onClick: handleSave,
                                     disabled: isSaving || isUploadingInspiration,
                                     style: {
                                         padding: '10px 20px',
-                                        backgroundColor: '#0073aa',
-                                        color: '#fff',
+                                        backgroundColor: greenAccent,
                                         border: 'none',
                                         borderRadius: '4px',
-                                        cursor: (isSaving || isUploadingInspiration) ? 'not-allowed' : 'pointer',
+                                        color: darkBg,
                                         fontSize: '14px',
+                                        fontFamily: 'monospace',
+                                        cursor: (isSaving || isUploadingInspiration) ? 'not-allowed' : 'pointer',
+                                        fontWeight: '600',
                                         opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
                                     }
-                                }, isUploadingInspiration ? 'Uploading images...' : (isSaving ? 'Saving...' : 'Save Item Facts'))
-                            )
-                        )
+                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save'))
+                            ) : null
+                        ),
+                        // Image Lightbox
+                        lightboxImage ? React.createElement('div', {
+                            onClick: function(e) {
+                                // Only close if clicking the backdrop, not the image
+                                if (e.target === e.currentTarget) {
+                                    setLightboxImage(null);
+                                }
+                            },
+                            style: {
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                                zIndex: 1000001,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '20px',
+                            }
+                        },
+                            React.createElement('img', {
+                                src: lightboxImage,
+                                alt: 'Enlarged',
+                                onClick: function(e) { e.stopPropagation(); },
+                                style: {
+                                    maxWidth: '90%',
+                                    maxHeight: '90%',
+                                    objectFit: 'contain',
+                                    pointerEvents: 'auto',
+                                }
+                            }),
+                            React.createElement('button', {
+                                onClick: function(e) {
+                                    e.stopPropagation();
+                                    setLightboxImage(null);
+                                },
+                                onMouseOver: function(e) {
+                                    e.currentTarget.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+                                    e.currentTarget.style.transform = 'scale(1.1)';
+                                },
+                                onMouseOut: function(e) {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                },
+                                style: {
+                                    position: 'absolute',
+                                    top: '20px',
+                                    right: '20px',
+                                    background: 'rgba(0, 0, 0, 0.7)',
+                                    border: '2px solid #fff',
+                                    borderRadius: '50%',
+                                    color: '#fff',
+                                    fontSize: '28px',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    padding: '0',
+                                    width: '44px',
+                                    height: '44px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    lineHeight: '1',
+                                    transition: 'all 0.2s',
+                                    zIndex: 1000002,
+                                }
+                            }, '×')
+                        ) : null
                     );
                 };
 

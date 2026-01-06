@@ -1,10 +1,12 @@
 /**
  * ItemDetailModal Component
  * 
- * Commit 1.3.8: Item Detail Modal (Phase 1.2 Verification View)
+ * Designer Item Modal with Three States:
+ * - State A: Before RFQ (editable)
+ * - State B: RFQ Sent, Awaiting Bids (read-only)
+ * - State C: Bids Received (comparison view)
  * 
- * Right-side drawer modal for viewing and editing item facts.
- * This is the source of truth for item metadata.
+ * Design: Dark theme, green accents, monospace font (matching wireframes)
  */
 
 import React from 'react';
@@ -38,7 +40,7 @@ const calculateCBM = (wCm, dCm, hCm) => {
     const wM = wCm / 100;
     const dM = dCm / 100;
     const hM = hCm / 100;
-    return Math.round((wM * dM * hM) * 1000) / 1000; // Round to 3 decimals
+    return Math.round((wM * dM * hM) * 1000) / 1000;
 };
 
 /**
@@ -51,7 +53,6 @@ const inferSourcingType = (category, description) => {
     const catLower = (category || '').toLowerCase();
     const descLower = (description || '').toLowerCase();
     
-    // Check category match
     if (furnitureCategories.some(f => catLower.includes(f))) {
         return 'furniture';
     }
@@ -59,7 +60,6 @@ const inferSourcingType = (category, description) => {
         return 'global_sourcing';
     }
     
-    // Keyword scan in description
     const furnitureKeywords = ['furniture', 'upholstery', 'cushion', 'fabric', 'wood', 'metal frame'];
     const sourcingKeywords = ['electronic', 'component', 'hardware', 'fixture', 'bulb', 'led'];
     
@@ -70,7 +70,6 @@ const inferSourcingType = (category, description) => {
         return 'global_sourcing';
     }
     
-    // Default to furniture
     return 'furniture';
 };
 
@@ -82,21 +81,329 @@ const assignTimelineType = (sourcingType) => {
 };
 
 /**
- * ItemDetailModal - Right-side drawer for item facts
+ * Get timeline type display text from category
+ */
+const getTimelineTypeFromCategory = (category) => {
+    if (!category) return null;
+    
+    const categoryLower = category.toLowerCase();
+    
+    // 6-Step Timeline categories
+    const sixStepCategories = [
+        'indoor furniture',
+        'sofas & seating (indoor)',
+        'chairs & armchairs (indoor)',
+        'dining tables (indoor)',
+        'cabinetry / millwork (custom)',
+        'casegoods (beds, nightstands, desks, consoles)',
+        'outdoor furniture',
+        'outdoor seating',
+        'outdoor dining sets',
+        'outdoor loungers & daybeds',
+        'pool furniture',
+    ];
+    
+    // 4-Step Timeline categories
+    const fourStepCategories = [
+        'lighting',
+    ];
+    
+    // Check if category matches 6-step
+    if (sixStepCategories.some(cat => categoryLower.includes(cat.toLowerCase()))) {
+        return '6-Step Timeline';
+    }
+    
+    // Check if category matches 4-step
+    if (fourStepCategories.some(cat => categoryLower.includes(cat.toLowerCase()))) {
+        return '4-Step Timeline';
+    }
+    
+    // Default to 6-step for furniture-related categories
+    if (categoryLower.includes('furniture') || categoryLower.includes('sofa') || 
+        categoryLower.includes('chair') || categoryLower.includes('table') ||
+        categoryLower.includes('bed') || categoryLower.includes('cabinet')) {
+        return '6-Step Timeline';
+    }
+    
+    // Default to 4-step for sourcing categories
+    return '4-Step Timeline';
+};
+
+/**
+ * Bid Comparison Component - Shows bid details with video links organized by provider
+ */
+const BidComparisonList = ({ bids, darkBorder, greenAccent }) => {
+    return (
+        <div style={{
+            marginTop: '16px',
+            border: `1px solid ${darkBorder}`,
+            borderRadius: '4px',
+            padding: '12px',
+            backgroundColor: '#111111',
+        }}>
+            {bids.map((bid, idx) => (
+                <BidItem 
+                    key={bid.bid_id}
+                    bid={bid}
+                    idx={idx}
+                    totalBids={bids.length}
+                    darkBorder={darkBorder}
+                    greenAccent={greenAccent}
+                />
+            ))}
+        </div>
+    );
+};
+
+/**
+ * Individual Bid Item Component
+ */
+const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
+    const supplierLabel = String.fromCharCode(65 + idx); // A, B, C, etc.
+    const [expandedProvider, setExpandedProvider] = React.useState(null);
+    
+    // Get video links by provider
+    const videoLinksByProvider = bid.video_links_by_provider || {
+        youtube: [],
+        vimeo: [],
+        loom: [],
+    };
+    
+    // Count total videos
+    const totalVideos = (videoLinksByProvider.youtube?.length || 0) + 
+                       (videoLinksByProvider.vimeo?.length || 0) + 
+                       (videoLinksByProvider.loom?.length || 0);
+    
+    return (
+        <div
+            style={{
+                marginBottom: idx < totalBids - 1 ? '16px' : '0',
+                paddingBottom: idx < totalBids - 1 ? '16px' : '0',
+                borderBottom: idx < totalBids - 1 ? `1px solid ${darkBorder}` : 'none',
+            }}
+        >
+            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px' }}>
+                Supplier {supplierLabel}
+            </div>
+            
+            {/* Video Links by Provider */}
+            {totalVideos > 0 && (
+                <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
+                        Video Links ({totalVideos})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* YouTube Tab */}
+                        {videoLinksByProvider.youtube && videoLinksByProvider.youtube.length > 0 && (
+                            <div>
+                                <div
+                                    onClick={() => setExpandedProvider(expandedProvider === 'youtube' ? null : 'youtube')}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '6px 8px',
+                                        backgroundColor: '#1a1a1a',
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        marginBottom: expandedProvider === 'youtube' ? '4px' : '0',
+                                    }}
+                                >
+                                    <span>YouTube ({videoLinksByProvider.youtube.length})</span>
+                                    <span>{expandedProvider === 'youtube' ? '▼' : '▶'}</span>
+                                </div>
+                                {expandedProvider === 'youtube' && (
+                                    <div style={{ padding: '8px', backgroundColor: '#0a0a0a', border: `1px solid ${darkBorder}`, borderRadius: '4px' }}>
+                                        {videoLinksByProvider.youtube.map((link, linkIdx) => (
+                                            <div key={linkIdx} style={{ marginBottom: '4px' }}>
+                                                <a
+                                                    href={link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ fontSize: '11px', color: greenAccent, textDecoration: 'none' }}
+                                                >
+                                                    {link}
+                                                </a>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {/* Vimeo Tab */}
+                        {videoLinksByProvider.vimeo && videoLinksByProvider.vimeo.length > 0 && (
+                            <div>
+                                <div
+                                    onClick={() => setExpandedProvider(expandedProvider === 'vimeo' ? null : 'vimeo')}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '6px 8px',
+                                        backgroundColor: '#1a1a1a',
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        marginBottom: expandedProvider === 'vimeo' ? '4px' : '0',
+                                    }}
+                                >
+                                    <span>Vimeo ({videoLinksByProvider.vimeo.length})</span>
+                                    <span>{expandedProvider === 'vimeo' ? '▼' : '▶'}</span>
+                                </div>
+                                {expandedProvider === 'vimeo' && (
+                                    <div style={{ padding: '8px', backgroundColor: '#0a0a0a', border: `1px solid ${darkBorder}`, borderRadius: '4px' }}>
+                                        {videoLinksByProvider.vimeo.map((link, linkIdx) => (
+                                            <div key={linkIdx} style={{ marginBottom: '4px' }}>
+                                                <a
+                                                    href={link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ fontSize: '11px', color: greenAccent, textDecoration: 'none' }}
+                                                >
+                                                    {link}
+                                                </a>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {/* Loom Tab */}
+                        {videoLinksByProvider.loom && videoLinksByProvider.loom.length > 0 && (
+                            <div>
+                                <div
+                                    onClick={() => setExpandedProvider(expandedProvider === 'loom' ? null : 'loom')}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '6px 8px',
+                                        backgroundColor: '#1a1a1a',
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        marginBottom: expandedProvider === 'loom' ? '4px' : '0',
+                                    }}
+                                >
+                                    <span>Loom ({videoLinksByProvider.loom.length})</span>
+                                    <span>{expandedProvider === 'loom' ? '▼' : '▶'}</span>
+                                </div>
+                                {expandedProvider === 'loom' && (
+                                    <div style={{ padding: '8px', backgroundColor: '#0a0a0a', border: `1px solid ${darkBorder}`, borderRadius: '4px' }}>
+                                        {videoLinksByProvider.loom.map((link, linkIdx) => (
+                                            <div key={linkIdx} style={{ marginBottom: '4px' }}>
+                                                <a
+                                                    href={link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ fontSize: '11px', color: greenAccent, textDecoration: 'none' }}
+                                                >
+                                                    {link}
+                                                </a>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+            
+            {bid.prototype_timeline && (
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                    Prototype Timeline: <span style={{ color: greenAccent }}>{bid.prototype_timeline}</span>
+                </div>
+            )}
+            
+            {bid.prototype_cost !== null && (
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                    Prototype Cost: <span style={{ color: greenAccent }}>${bid.prototype_cost}</span>
+                </div>
+            )}
+            
+            {bid.production_lead_time && (
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                    Production Lead Time: <span style={{ color: greenAccent }}>{bid.production_lead_time}</span>
+                </div>
+            )}
+            
+            {bid.unit_price !== null && (
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                    Unit Price: <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                </div>
+            )}
+            
+            {/* Smart Alternatives per bid (read-only) */}
+            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>
+                    Smart Alternatives:
+                </div>
+                <div style={{ fontSize: '11px', color: darkText, marginBottom: '4px' }}>
+                    Status: {bid.smart_alternatives_enabled ? (
+                        <span style={{ color: greenAccent }}>Enabled</span>
+                    ) : (
+                        <span style={{ color: '#999' }}>Disabled</span>
+                    )}
+                </div>
+                {bid.smart_alternatives_note && bid.smart_alternatives_note.trim() && (
+                    <div style={{ fontSize: '11px', color: darkText, marginTop: '4px', padding: '6px', backgroundColor: '#0a0a0a', borderRadius: '4px', whiteSpace: 'pre-wrap' }}>
+                        {bid.smart_alternatives_note}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+/**
+ * ItemDetailModal - Designer Item Modal with Three States
  */
 const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false, onPriceRequest }) => {
     const updateLayout = useBoardStore((state) => state.updateLayout);
     
-    // Form state - convert numbers to strings for input fields
+    // Item state (RFQ and bids)
+    const [itemState, setItemState] = React.useState({
+        has_rfq: false,
+        has_bids: false,
+        bids: [],
+        loading: true,
+    });
+    
+    // Form state
     const [category, setCategory] = React.useState(item.category || item.item_type || '');
     const [description, setDescription] = React.useState(item.description || '');
-    const [quantity, setQuantity] = React.useState(item.quantity ? String(item.quantity) : '');
+    const [quantity, setQuantity] = React.useState(
+        item.quantity ? String(item.quantity) : 
+        (item.meta?.quantity ? String(item.meta.quantity) : '')
+    );
     const [width, setWidth] = React.useState(item.dims?.w ? String(item.dims.w) : '');
     const [depth, setDepth] = React.useState(item.dims?.d ? String(item.dims.d) : '');
     const [height, setHeight] = React.useState(item.dims?.h ? String(item.dims.h) : '');
     const [unit, setUnit] = React.useState(item.dims?.unit || 'in');
+    const [deliveryCountry, setDeliveryCountry] = React.useState(
+        item.delivery_country || item.meta?.delivery_country || ''
+    );
+    const [deliveryPostal, setDeliveryPostal] = React.useState(
+        item.delivery_postal || item.meta?.delivery_postal || ''
+    );
     
-    // Helper function to validate inspiration items
+    // Smart Alternatives state - load from item meta
+    const [smartAlternativesEnabled, setSmartAlternativesEnabled] = React.useState(
+        item.smart_alternatives !== undefined ? item.smart_alternatives : 
+        (item.meta?.smart_alternatives !== undefined ? item.meta.smart_alternatives : true)
+    );
+    const [smartAlternativesNote, setSmartAlternativesNote] = React.useState(
+        item.smart_alternatives_note || item.meta?.smart_alternatives_note || ''
+    );
+    
+    // Inspiration images
     const validateInspirationItem = (insp) => {
         if (!insp || typeof insp !== 'object') return false;
         const hasId = insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0;
@@ -108,42 +415,165 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         return hasId || hasValidUrl;
     };
     
-    // Filter initial inspiration to only include valid items
     const initialInspiration = (item.inspiration || []).filter(validateInspirationItem);
     const [inspiration, setInspiration] = React.useState(initialInspiration);
     const [isSaving, setIsSaving] = React.useState(false);
     const [isUploadingInspiration, setIsUploadingInspiration] = React.useState(false);
     
-    // Update inspiration when item changes (if modal is reopened with different item)
+    // RFQ form expansion state
+    const [showRfqForm, setShowRfqForm] = React.useState(false);
+    
+    // Invite Makers state
+    const [invitedSuppliers, setInvitedSuppliers] = React.useState([]);
+    const [inviteSupplierInput, setInviteSupplierInput] = React.useState('');
+    const [allowSystemInvites, setAllowSystemInvites] = React.useState(false);
+    const [isSubmittingRfq, setIsSubmittingRfq] = React.useState(false);
+    const [rfqError, setRfqError] = React.useState('');
+    
+    // BIDS section expansion state
+    const [bidsExpanded, setBidsExpanded] = React.useState(false);
+    
+    // Image lightbox state
+    const [lightboxImage, setLightboxImage] = React.useState(null);
+    
+    // Get item ID - extract numeric ID from "item-87" format or use direct ID
+    const getItemId = () => {
+        const id = item.id || item.item_id || '';
+        if (typeof id === 'string' && id.indexOf('item-') === 0) {
+            return parseInt(id.replace('item-', ''), 10);
+        } else if (typeof id === 'string') {
+            return parseInt(id, 10);
+        } else if (typeof id === 'number') {
+            return id;
+        }
+        return null;
+    };
+    const itemId = getItemId();
+    
+    // Fetch item RFQ/bid state when modal opens
+    React.useEffect(() => {
+        if (isOpen && itemId && itemId > 0) {
+            fetchItemState();
+        }
+    }, [isOpen, itemId]);
+    
+    // Fetch item state from server
+    const fetchItemState = async () => {
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+        // Try multiple nonce sources
+        let nonce = '';
+        if (window.n88BoardData && window.n88BoardData.nonce) {
+            nonce = window.n88BoardData.nonce;
+        } else if (window.n88 && window.n88.nonce) {
+            nonce = window.n88.nonce;
+        } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+            nonce = window.n88BoardNonce.nonce;
+        }
+        
+        if (!nonce) {
+            console.error('Nonce not found. Available:', {
+                n88BoardData: window.n88BoardData,
+                n88: window.n88,
+                n88BoardNonce: window.n88BoardNonce
+            });
+            return;
+        }
+        
+        try {
+            const formData = new FormData();
+            formData.append('action', 'n88_get_item_rfq_state');
+            formData.append('item_id', String(itemId));
+            formData.append('_ajax_nonce', nonce);
+            
+            const response = await fetch(ajaxUrl, {
+                method: 'POST',
+                body: formData,
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                setItemState({
+                    has_rfq: data.data.has_rfq || false,
+                    has_bids: data.data.has_bids || false,
+                    bids: data.data.bids || [],
+                    loading: false,
+                });
+            } else {
+                console.error('Failed to fetch item state:', data.message);
+                setItemState(prev => ({ ...prev, loading: false }));
+            }
+        } catch (error) {
+            console.error('Error fetching item state:', error);
+            setItemState(prev => ({ ...prev, loading: false }));
+        }
+    };
+    
+    // Update inspiration when item changes
     React.useEffect(() => {
         const validInspiration = (item.inspiration || []).filter(validateInspirationItem);
         setInspiration(validInspiration);
     }, [item.id, item.inspiration]);
     
-    // Prevent body scroll when modal is open (fix double scrollbar issue)
+    // Update form fields when item data changes (especially after reload)
+    React.useEffect(() => {
+        // Parse meta_json if it's a string
+        let parsedMeta = item.meta;
+        if (!parsedMeta && item.meta_json && typeof item.meta_json === 'string') {
+            try {
+                parsedMeta = JSON.parse(item.meta_json);
+            } catch (e) {
+                console.error('Failed to parse meta_json:', e);
+                parsedMeta = {};
+            }
+        }
+        
+        // Update quantity if available in item or meta
+        const qtyValue = item.quantity || (parsedMeta && parsedMeta.quantity);
+        if (qtyValue !== undefined && qtyValue !== null) {
+            setQuantity(String(qtyValue));
+            console.log('ItemDetailModal - Updated quantity from item:', qtyValue);
+        }
+        
+        // Update smart_alternatives_note if available
+        const noteValue = item.smart_alternatives_note || (parsedMeta && parsedMeta.smart_alternatives_note);
+        if (noteValue !== undefined) {
+            setSmartAlternativesNote(noteValue || '');
+            console.log('ItemDetailModal - Updated smart_alternatives_note from item:', noteValue);
+        }
+        
+        // Update dimensions if available in meta
+        if (parsedMeta && parsedMeta.dims) {
+            if (parsedMeta.dims.w !== undefined) setWidth(String(parsedMeta.dims.w));
+            if (parsedMeta.dims.d !== undefined) setDepth(String(parsedMeta.dims.d));
+            if (parsedMeta.dims.h !== undefined) setHeight(String(parsedMeta.dims.h));
+            if (parsedMeta.dims.unit) setUnit(parsedMeta.dims.unit);
+        }
+        
+        // Update delivery info if available in meta
+        if (parsedMeta) {
+            if (parsedMeta.delivery_country !== undefined) {
+                setDeliveryCountry(parsedMeta.delivery_country || '');
+            }
+            if (parsedMeta.delivery_postal !== undefined) {
+                setDeliveryPostal(parsedMeta.delivery_postal || '');
+            }
+        }
+    }, [item.id, item.quantity, item.meta_json, item.meta, item.smart_alternatives_note]);
+    
+    // Prevent body scroll when modal is open
     React.useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = '';
         }
-        // Cleanup: restore scroll when component unmounts
         return () => {
             document.body.style.overflow = '';
         };
     }, [isOpen]);
     
-    // Get item ID and status
-    const itemId = item.id || item.item_id || '';
-    const itemStatus = item.status || 'Draft';
-    
-    // Get current user name (from WordPress or item owner)
-    const currentUserName = window.N88StudioOS?.currentUser?.display_name || 
-                           window.N88StudioOS?.currentUser?.name || 
-                           item.owner_name || 
-                           'User';
-    
-    // Computed values (read-only) - initialize from saved item data
+    // Computed values
     const [computedValues, setComputedValues] = React.useState({
         dimsCm: item.dims_cm || null,
         cbm: item.cbm || null,
@@ -153,7 +583,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     
     // Recompute when dimensions change
     React.useEffect(() => {
-        // If all dimensions are entered, compute CBM
         if (width && depth && height) {
             const wCm = normalizeToCm(width, unit);
             const dCm = normalizeToCm(depth, unit);
@@ -171,7 +600,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     timelineType,
                 });
             } else {
-                // Dimensions entered but normalization failed
                 const sourcingType = inferSourcingType(category, description);
                 const timelineType = assignTimelineType(sourcingType);
                 setComputedValues({
@@ -182,8 +610,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 });
             }
         } else {
-            // Not all dimensions entered - preserve saved computed values if they exist
-            // This ensures saved CBM is displayed even if user hasn't entered dimensions yet
             const sourcingType = inferSourcingType(category, description);
             const timelineType = assignTimelineType(sourcingType);
             setComputedValues(prev => ({
@@ -195,40 +621,43 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     }, [width, depth, height, unit, category, description]);
     
+    // Determine current state
+    const currentState = React.useMemo(() => {
+        if (itemState.loading) return 'loading';
+        if (itemState.has_bids) return 'C'; // State C: Bids received
+        if (itemState.has_rfq) return 'B'; // State B: RFQ sent, no bids
+        return 'A'; // State A: Before RFQ
+    }, [itemState]);
+    
+    // Check if fields should be editable
+    const isEditable = currentState === 'A';
+    
     // Handle save
     const handleSave = async () => {
-        // Prevent save if uploads are in progress
         if (isUploadingInspiration) {
             alert('Please wait for image uploads to complete before saving.');
+            return;
+        }
+        
+        // Allow saving in State B (RFQ sent) but not in State C (bids received)
+        if (currentState === 'C') {
+            alert('This item is locked. Bids have been received.');
             return;
         }
         
         setIsSaving(true);
         
         try {
-            // Validate and filter inspiration images - only keep ones with valid attachment IDs or URLs
             const validInspiration = inspiration.filter(insp => {
-                if (!insp || typeof insp !== 'object') {
-                    console.warn('Filtering out invalid inspiration image (not an object):', insp);
-                    return false;
-                }
-                
-                // Must have either an attachment ID or a valid URL (not base64 data URL)
+                if (!insp || typeof insp !== 'object') return false;
                 const hasId = insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0;
                 const url = insp.url ? String(insp.url).trim() : '';
                 const hasValidUrl = url && 
                     url.length > 0 &&
                     (url.startsWith('http://') || url.startsWith('https://')) && 
                     !url.startsWith('data:');
-                
-                if (!hasId && !hasValidUrl) {
-                    console.warn('Filtering out invalid inspiration image (no valid ID or URL):', insp);
-                    return false;
-                }
-                
-                return true;
+                return hasId || hasValidUrl;
             }).map(insp => {
-                // Normalize inspiration item structure - only include valid data
                 const url = insp.url ? String(insp.url).trim() : '';
                 const hasValidUrl = url && (url.startsWith('http://') || url.startsWith('https://'));
                 
@@ -240,21 +669,30 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 };
             });
             
-            console.log('Saving inspiration images:', validInspiration.length, 'valid images out of', inspiration.length, 'total');
-            
-            // Double-check: if we filtered out images, warn user
             if (inspiration.length > 0 && validInspiration.length === 0) {
                 alert('Warning: All inspiration images were invalid and will not be saved. Please re-upload them.');
                 setIsSaving(false);
                 return;
             }
             
-            // Prepare payload
             const dimsCm = computedValues.dimsCm;
+            
+            // Process quantity - ensure it's always included if it has a value
+            let qtyValue = null;
+            if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                const parsedQty = parseInt(quantity);
+                if (!isNaN(parsedQty) && parsedQty >= 0) {
+                    qtyValue = parsedQty;
+                }
+            }
+            
+            // Process notes - always include, even if empty
+            const notesValue = smartAlternativesNote || '';
+            
             const payload = {
                 category,
                 description,
-                quantity: quantity ? parseInt(quantity) : null,
+                quantity: qtyValue,
                 dims: {
                     w: width ? parseFloat(width) : null,
                     d: depth ? parseFloat(depth) : null,
@@ -265,28 +703,38 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 cbm: computedValues.cbm,
                 sourcing_type: computedValues.sourcingType,
                 timeline_type: computedValues.timelineType,
-                inspiration: validInspiration, // Use validated inspiration array
+                inspiration: validInspiration,
+                smart_alternatives: smartAlternativesEnabled,
+                smart_alternatives_note: notesValue,
+                delivery_country: deliveryCountry,
+                delivery_postal: deliveryPostal,
             };
             
-            // Update item in store
+            // Log payload for debugging
+            console.log('ItemDetailModal - Saving item facts (handleSave):', {
+                itemId: item.id,
+                quantity: qtyValue,
+                quantityRaw: quantity,
+                smart_alternatives_note: notesValue,
+                payload: payload
+            });
+            
             updateLayout(item.id, payload);
             
-            // Call onSave callback (handles AJAX and event logging)
             if (onSave) {
                 await onSave(item.id, payload);
             }
             
-            // Close modal
-            onClose();
+            // Don't close modal - stay open as per requirement
+            setIsSaving(false);
         } catch (error) {
             console.error('Error saving item facts:', error);
             alert('Failed to save item facts. Please try again.');
-        } finally {
             setIsSaving(false);
         }
     };
     
-    // Handle inspiration image upload via file input - upload to WordPress media library
+    // Handle inspiration image upload
     const handleInspirationFileChange = async (e) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
@@ -298,34 +746,31 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             return;
         }
         
-        // Get AJAX URL and nonce
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-        const nonce = window.n88BoardData?.nonce || window.n88?.nonce || '';
+        // Try multiple nonce sources
+        let nonce = '';
+        if (window.n88BoardData && window.n88BoardData.nonce) {
+            nonce = window.n88BoardData.nonce;
+        } else if (window.n88 && window.n88.nonce) {
+            nonce = window.n88.nonce;
+        } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+            nonce = window.n88BoardNonce.nonce;
+        }
         
         if (!nonce) {
-            console.error('Nonce not found. Available:', {
-                n88BoardData: window.n88BoardData,
-                n88: window.n88
-            });
             alert('Security token missing. Please refresh the page and try again.');
             e.target.value = '';
             return;
         }
         
-        // Set uploading state
         setIsUploadingInspiration(true);
         
-        console.log('Uploading inspiration images:', imageFiles.length, 'files');
-        
         try {
-            // Upload each file to WordPress media library
             const uploadPromises = imageFiles.map(async (file) => {
                 const formData = new FormData();
                 formData.append('action', 'n88_upload_inspiration_image');
                 formData.append('inspiration_image', file);
                 formData.append('nonce', nonce);
-                
-                console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
                 
                 try {
                     const response = await fetch(ajaxUrl, {
@@ -338,9 +783,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     }
                     
                     const data = await response.json();
-                    console.log('Upload response:', data);
                     
-                    // Strict validation: must have success, data, id (numeric > 0), and url (non-empty string)
                     if (data.success && 
                         data.data && 
                         data.data.id && 
@@ -350,11 +793,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                         typeof data.data.url === 'string' && 
                         data.data.url.trim().length > 0 &&
                         (data.data.url.startsWith('http://') || data.data.url.startsWith('https://'))) {
-                        console.log('Image uploaded successfully:', {
-                            id: data.data.id,
-                            url: data.data.url,
-                            title: data.data.title
-                        });
                         return {
                             type: 'image',
                             url: data.data.url.trim(),
@@ -362,16 +800,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             title: data.data.title || data.data.filename || file.name,
                         };
                     } else {
-                        const errorMsg = data.data?.message || 'Upload failed - missing or invalid data';
-                        console.error('Failed to upload image:', errorMsg, {
-                            success: data.success,
-                            hasData: !!data.data,
-                            hasId: !!(data.data && data.data.id),
-                            idValue: data.data?.id,
-                            hasUrl: !!(data.data && data.data.url),
-                            urlValue: data.data?.url ? (data.data.url.substring(0, 50) + '...') : 'missing',
-                            fullResponse: data
-                        });
+                        const errorMsg = data.data?.message || 'Upload failed';
                         alert('Failed to upload ' + file.name + ': ' + errorMsg);
                         return null;
                     }
@@ -382,10 +811,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 }
             });
             
-            // Wait for all uploads to complete
             const uploadedImages = await Promise.all(uploadPromises);
             
-            // Filter out failed uploads - only add images with valid IDs and URLs
             const validImages = uploadedImages.filter(img => {
                 if (!img || typeof img !== 'object') return false;
                 const hasId = img.id && Number.isInteger(Number(img.id)) && Number(img.id) > 0;
@@ -394,35 +821,296 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     url.length > 0 &&
                     (url.startsWith('http://') || url.startsWith('https://')) && 
                     !url.startsWith('data:');
-                const isValid = hasId && hasUrl;
-                if (!isValid) {
-                    console.warn('Filtering out invalid uploaded image:', img);
-                }
-                return isValid;
+                return hasId && hasUrl;
             });
             
             if (validImages.length > 0) {
-                console.log('Adding', validImages.length, 'images to inspiration array');
                 setInspiration([...inspiration, ...validImages]);
-            } else {
-                console.warn('No images were successfully uploaded');
-                if (uploadedImages.length > 0) {
+            } else if (uploadedImages.length > 0) {
                     alert('No images were successfully uploaded. Please try again.');
-                } else if (imageFiles.length > 0) {
-                    alert('Failed to upload images. Please check your connection and try again.');
-                }
             }
         } catch (error) {
             console.error('Error during upload process:', error);
             alert('Error uploading images: ' + error.message);
         } finally {
             setIsUploadingInspiration(false);
-            // Reset input
             e.target.value = '';
         }
     };
     
+    // Format dimensions for display
+    const formatDimensions = () => {
+        if (!width || !depth || !height) return null;
+        const w = parseFloat(width);
+        const d = parseFloat(depth);
+        const h = parseFloat(height);
+        if (isNaN(w) || isNaN(d) || isNaN(h)) return null;
+        return `${w}${unit === 'in' ? '"' : unit}W × ${d}${unit === 'in' ? '"' : unit}D × ${h}${unit === 'in' ? '"' : unit}H`;
+    };
+    
+    // Format delivery for display
+    const formatDelivery = () => {
+        if (!deliveryCountry) return null;
+        const parts = [deliveryCountry];
+        if (deliveryPostal) parts.push(deliveryPostal);
+        return parts.join(' ');
+    };
+    
+    // Shipping validation message state
+    const [shippingMessage, setShippingMessage] = React.useState('');
+    
+    // Update shipping message when delivery country changes
+    React.useEffect(() => {
+        if (!deliveryCountry) {
+            setShippingMessage('');
+            return;
+        }
+        
+        const country = deliveryCountry.toUpperCase();
+        if (country === 'US' || country === 'CA') {
+            if (!deliveryPostal) {
+                setShippingMessage('ZIP/postal code is required for US and Canada.');
+            } else {
+                setShippingMessage('');
+            }
+        } else if (country) {
+            setShippingMessage('We are not able to calculate an instant shipping estimate for this delivery location yet, but our team can get back to you with a shipping range within 24 hours.');
+        } else {
+            setShippingMessage('');
+        }
+    }, [deliveryCountry, deliveryPostal]);
+    
+    // Update system invites message
+    const updateSystemInvitesMessage = React.useCallback(() => {
+        if (allowSystemInvites) {
+            if (invitedSuppliers.length > 0) {
+                return 'We\'ll invite 2 additional makers in 24 hours.';
+            } else {
+                return 'We sent your request to 2 suppliers that match your category and keywords.';
+            }
+        }
+        return '';
+    }, [allowSystemInvites, invitedSuppliers.length]);
+    
+    const [systemInvitesMessage, setSystemInvitesMessage] = React.useState('');
+    
+    React.useEffect(() => {
+        setSystemInvitesMessage(updateSystemInvitesMessage());
+    }, [updateSystemInvitesMessage]);
+    
+    // Add invited supplier chip
+    const addInvitedSupplierChip = () => {
+        const value = inviteSupplierInput.trim();
+        if (!value) return;
+        
+        if (invitedSuppliers.length >= 5) {
+            setRfqError('Maximum 5 invited makers allowed.');
+            return;
+        }
+        
+        if (invitedSuppliers.includes(value)) {
+            setRfqError('This supplier is already added.');
+            return;
+        }
+        
+        setInvitedSuppliers([...invitedSuppliers, value]);
+        setInviteSupplierInput('');
+        setRfqError('');
+        
+        // Update system invites message if checkbox is checked
+        if (allowSystemInvites) {
+            setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+        }
+    };
+    
+    // Remove invited supplier chip
+    const removeInvitedSupplierChip = (value) => {
+        const newSuppliers = invitedSuppliers.filter(s => s !== value);
+        setInvitedSuppliers(newSuppliers);
+        
+        // Update system invites message if checkbox is checked
+        if (allowSystemInvites) {
+            if (newSuppliers.length > 0) {
+                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+            } else {
+                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+            }
+        }
+    };
+    
+    // Handle RFQ submission
+    const handleSubmitRfq = async (e) => {
+        e.preventDefault();
+        
+        // Validate
+        if (invitedSuppliers.length === 0 && !allowSystemInvites) {
+            setRfqError('Invite at least one maker or allow the system to invite makers.');
+            return;
+        }
+        
+        // Validate required fields
+        if (!quantity || !deliveryCountry) {
+            setRfqError('Please fill in all required fields (Quantity, Delivery Country).');
+            return;
+        }
+        
+        setIsSubmittingRfq(true);
+        setRfqError('');
+        
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+        let nonce = '';
+        if (window.n88BoardData && window.n88BoardData.nonce) {
+            nonce = window.n88BoardData.nonce;
+        } else if (window.n88 && window.n88.nonce) {
+            nonce = window.n88.nonce;
+        } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+            nonce = window.n88BoardNonce.nonce;
+        }
+        
+        if (!nonce) {
+            setRfqError('Security token missing. Please refresh the page and try again.');
+            setIsSubmittingRfq(false);
+            return;
+        }
+        
+        // Validate item ID
+        if (!itemId || isNaN(itemId) || itemId <= 0) {
+            setRfqError('Invalid item ID. Please refresh the page and try again.');
+            setIsSubmittingRfq(false);
+            return;
+        }
+        
+        try {
+            const items = [{
+                item_id: itemId,
+                quantity: parseInt(quantity),
+                width: parseFloat(width),
+                depth: parseFloat(depth),
+                height: parseFloat(height),
+                dimension_unit: unit,
+                delivery_country: deliveryCountry.toUpperCase().trim(),
+                delivery_postal: deliveryPostal.trim(),
+            }];
+            
+            const formData = new FormData();
+            formData.append('action', 'n88_submit_rfq');
+            formData.append('items', JSON.stringify(items));
+            formData.append('invited_suppliers', JSON.stringify(invitedSuppliers));
+            formData.append('allow_system_invites', allowSystemInvites ? '1' : '0');
+            formData.append('_ajax_nonce', nonce);
+            
+            const response = await fetch(ajaxUrl, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Save item facts (quantity, dimensions, delivery, notes) to item meta_json
+                try {
+                    const validInspiration = inspiration.filter(insp => {
+                        if (!insp || typeof insp !== 'object') return false;
+                        const hasId = insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0;
+                        const url = insp.url ? String(insp.url).trim() : '';
+                        const hasValidUrl = url && 
+                            url.length > 0 &&
+                            (url.startsWith('http://') || url.startsWith('https://')) && 
+                            !url.startsWith('data:');
+                        return hasId || hasValidUrl;
+                    }).map(insp => {
+                        const url = insp.url ? String(insp.url).trim() : '';
+                        const hasValidUrl = url && (url.startsWith('http://') || url.startsWith('https://'));
+                        
+                        return {
+                            type: insp.type || 'image',
+                            id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
+                            url: hasValidUrl ? url : '',
+                            title: insp.title || insp.filename || 'Reference image',
+                        };
+                    });
+                    
+                    const dimsCm = computedValues.dimsCm;
+                    
+                    // Process quantity - ensure it's always included if it has a value
+                    let qtyValue = null;
+                    if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                        const parsedQty = parseInt(quantity);
+                        if (!isNaN(parsedQty) && parsedQty >= 0) {
+                            qtyValue = parsedQty;
+                        }
+                    }
+                    
+                    // Process notes - always include, even if empty
+                    const notesValue = smartAlternativesNote || '';
+                    
+                    const payload = {
+                        category,
+                        description,
+                        quantity: qtyValue,
+                        dims: {
+                            w: width ? parseFloat(width) : null,
+                            d: depth ? parseFloat(depth) : null,
+                            h: height ? parseFloat(height) : null,
+                            unit,
+                        },
+                        dims_cm: dimsCm,
+                        cbm: computedValues.cbm,
+                        sourcing_type: computedValues.sourcingType,
+                        timeline_type: computedValues.timelineType,
+                        inspiration: validInspiration,
+                        smart_alternatives: smartAlternativesEnabled,
+                        smart_alternatives_note: notesValue,
+                        delivery_country: deliveryCountry,
+                        delivery_postal: deliveryPostal,
+                    };
+                    
+                    // Log payload for debugging
+                    console.log('ItemDetailModal - Saving item facts after RFQ submission:', {
+                        itemId: item.id,
+                        quantity: qtyValue,
+                        quantityRaw: quantity,
+                        smart_alternatives_note: notesValue,
+                        payload: payload
+                    });
+                    
+                    updateLayout(item.id, payload);
+                    
+                    if (onSave) {
+                        await onSave(item.id, payload);
+                    }
+                } catch (saveError) {
+                    console.error('Error saving item facts after RFQ submission:', saveError);
+                    // Don't block RFQ submission if save fails, just log it
+                }
+                
+                alert(data.data.message || 'RFQ submitted successfully!');
+                setShowRfqForm(false);
+                // Refresh item state to update to State B
+                await fetchItemState();
+            } else {
+                if (data.data && data.data.errors) {
+                    const errorMessages = Object.values(data.data.errors).join(' ');
+                    setRfqError(errorMessages);
+                } else {
+                    setRfqError(data.data && data.data.message ? data.data.message : 'An error occurred. Please try again.');
+                }
+            }
+        } catch (error) {
+            console.error('RFQ submission error:', error);
+            setRfqError('Network error. Please try again.');
+        } finally {
+            setIsSubmittingRfq(false);
+        }
+    };
+    
     if (!isOpen) return null;
+    
+    // Dark theme colors (matching wireframes)
+    const darkBg = '#000000';
+    const darkText = '#d3d3d3';
+    const greenAccent = '#00ff00';
+    const darkBorder = '#333333';
     
     return (
         <AnimatePresence>
@@ -440,12 +1128,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             left: 0,
                             right: 0,
                             bottom: 0,
-                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                            zIndex: 10000,
+                            // backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            // zIndex: 999999,
                         }}
                     />
                     
-                    {/* Drawer */}
+                    {/* Modal */}
                     <motion.div
                         initial={{ x: '100%' }}
                         animate={{ x: 0 }}
@@ -455,118 +1143,217 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             position: 'fixed',
                             top: 0,
                             right: 0,
-                            width: '480px',
+                            width: '600px',
                             maxWidth: '90vw',
                             height: '100vh',
-                            backgroundColor: '#fff',
-                            boxShadow: '-2px 0 10px rgba(0,0,0,0.2)',
-                            zIndex: 10001,
+                            backgroundColor: darkBg,
+                            color: darkText,
+                            fontFamily: 'monospace',
+                            zIndex: 1000000,
                             display: 'flex',
                             flexDirection: 'column',
                             overflow: 'hidden',
+                            borderLeft: `1px solid ${darkBorder}`,
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Header */}
+                        {/* Scrollable Content */}
                         <div style={{
-                            padding: '12px 16px',
-                            borderBottom: '1px solid #e0e0e0',
+                            flex: 1,
+                            overflowY: 'auto',
+                            padding: '20px',
+                        }}>
+                            {/* Header with Title and Close Button */}
+                            <div style={{
+                                marginBottom: '24px',
+                            }}>
+                                {/* Header Row: ITEM DETAILS (left) and Close Button (right) */}
+                                <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
+                                    marginBottom: '12px',
                         }}>
-                            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
-                                Item Detail ({currentUserName})
-                            </h2>
+                                    <div style={{ 
+                                        fontSize: '16px', 
+                                        fontWeight: '600',
+                                        color: darkText,
+                                        fontFamily: 'monospace',
+                                    }}>
+                                       
+                                    </div>
                             <button
                                 onClick={onClose}
                                 style={{
                                     background: 'none',
                                     border: 'none',
-                                    fontSize: '20px',
+                                            color: darkText,
+                                            fontSize: '24px',
                                     cursor: 'pointer',
                                     padding: '0',
-                                    width: '24px',
-                                    height: '24px',
+                                            width: '32px',
+                                            height: '32px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
+                                            fontFamily: 'monospace',
                                 }}
                             >
                                 ×
                             </button>
                         </div>
                         
-                        {/* Scrollable Content */}
+                                {/* Main Image on Top - before heading (State A and B) */}
+                                {(item.imageUrl || item.image_url || item.primary_image_url) && (
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <div style={{ 
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px', 
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
+                                            minHeight: '200px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                        onClick={() => {
+                                            setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
+                                        }}
+                                        >
+                                            <img 
+                                                src={item.imageUrl || item.image_url || item.primary_image_url} 
+                                                alt="Primary" 
+                                                style={{ 
+                                                    maxWidth: '100%',
+                                                    maxHeight: '400px',
+                                                    objectFit: 'contain',
+                                                    borderRadius: '4px',
+                                                }} 
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Reference Images - before title (State B only) */}
+                                {currentState === 'B' && inspiration && inspiration.length > 0 && (
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <div style={{ marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }}>
+                                            Reference Images
+                                        </div>
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: '8px',
+                                            flexWrap: 'wrap',
+                                        }}>
+                                            {inspiration.map((insp, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    style={{
+                                                        width: '80px',
+                                                        height: '80px',
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111111',
+                                                        position: 'relative',
+                                                        overflow: 'hidden',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                    onClick={() => {
+                                                        if (insp.url) {
+                                                            setLightboxImage(insp.url);
+                                                        }
+                                                    }}
+                                                >
+                                                    {insp.url ? (
+                                                        <img 
+                                                            src={insp.url} 
+                                                            alt={insp.title || 'Reference'} 
+                                                            style={{ 
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'cover',
+                                                                borderRadius: '4px',
+                                                            }} 
+                                                        />
+                                                    ) : (
+                                                        <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Item Details Heading */}
+                                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }}>
+                                    Item Details
+                                </div>
+                                
+                                {/* Item Title */}
+                                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>
+                                    {item.title || item.description || 'Untitled Item'}
+                                </div>
+                                
+                                {/* Item Details - Show when RFQ is sent */}
+                                {itemState.has_rfq && (
                         <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: 0,
-                        }}>
-                            {/* Item ID and Status */}
-                            <div style={{
-                                padding: '12px 16px',
-                                borderBottom: '1px solid #e0e0e0',
-                                backgroundColor: '#f9f9f9',
+                                        padding: '12px',
+                                        backgroundColor: darkBg,
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '4px',
+                                        fontSize: '12px',
+                                        fontFamily: 'monospace',
                             }}>
-                                <div style={{ marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
-                                    Item #{itemId}
+                                        <div style={{ marginBottom: '6px' }}>
+                                            <span style={{ color: darkText, opacity: 0.7 }}>Category:</span>{' '}
+                                            <span style={{ color: greenAccent }}>{category || 'N/A'}</span>
                                 </div>
-                                <div style={{ fontSize: '12px', color: '#666' }}>
-                                    Status: {itemStatus}
+                                        <div style={{ marginBottom: '6px' }}>
+                                            <span style={{ color: darkText, opacity: 0.7 }}>Sourcing Type:</span>{' '}
+                                            <span style={{ color: greenAccent }}>
+                                                {computedValues.sourcingType || item.sourcing_type || 'N/A'}
+                                            </span>
                                 </div>
+                                        {getTimelineTypeFromCategory(category) && (
+                                            <div style={{ marginBottom: '6px' }}>
+                                                <span style={{ color: darkText, opacity: 0.7 }}>Timeline Type:</span>{' '}
+                                                <span style={{ color: greenAccent }}>
+                                                    {getTimelineTypeFromCategory(category)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div style={{ marginBottom: '6px' }}>
+                                            <span style={{ color: darkText, opacity: 0.7 }}>Qty:</span>{' '}
+                                            <span style={{ color: greenAccent }}>{quantity || 'N/A'}</span>
+                                        </div>
+                                        {formatDimensions() && (
+                                            <div style={{ marginBottom: '6px' }}>
+                                                <span style={{ color: darkText, opacity: 0.7 }}>Dimensions:</span>{' '}
+                                                <span style={{ color: greenAccent }}>{formatDimensions()}</span>
+                                            </div>
+                                        )}
+                                        <div style={{ marginBottom: '0' }}>
+                                            <span style={{ color: darkText, opacity: 0.7 }}>Delivery:</span>{' '}
+                                            <span style={{ color: greenAccent }}>
+                                                {deliveryCountry || 'N/A'}{deliveryPostal ? ` | ${deliveryPostal}` : ''}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             
-                            {/* Content Sections */}
+                            {/* System Intelligence (editable when State A only) - Removed "SECTION:" text */}
+                            {isEditable && currentState === 'A' ? (
+                                <div style={{ marginBottom: '24px' }}>
                             <div style={{
-                                padding: '12px 16px',
-                            }}>
-                            {/* Main Item Image */}
-                            {(item.imageUrl || item.image_url || item.primary_image_url) && (
-                                <div style={{ 
-                                    marginBottom: '16px', 
-                                    textAlign: 'center',
-                                    padding: '8px',
-                                    backgroundColor: '#f9f9f9',
+                                        border: `1px solid ${darkBorder}`,
                                     borderRadius: '4px',
-                                    border: '1px solid #e0e0e0'
-                                }}>
-                                    <img 
-                                        src={item.imageUrl || item.image_url || item.primary_image_url} 
-                                        alt="Item main image"
-                                        style={{
-                                            maxWidth: '100%',
-                                            maxHeight: '200px',
-                                            width: 'auto',
-                                            height: 'auto',
-                                            borderRadius: '4px',
-                                            objectFit: 'contain',
-                                            border: '1px solid #ddd'
-                                        }}
-                                        onError={(e) => {
-                                            e.target.style.display = 'none';
-                                        }}
-                                    />
-                                </div>
-                            )}
-                            
-                            {/* SECTION: Item Facts (Editable) */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ 
-                                    fontSize: '12px', 
-                                    fontWeight: '600', 
-                                    marginBottom: '10px', 
-                                    textTransform: 'uppercase', 
-                                    color: '#333',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '6px'
-                                }}>
-                                    SECTION: Item Facts
-                                </h3>
-                                
-                                {/* Category */}
+                                        padding: '12px',
+                                        backgroundColor: '#111111',
+                                    }}>
                                 <div style={{ marginBottom: '12px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
+                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
                                         Category
                                     </label>
                                     <select
@@ -574,558 +1361,1023 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         onChange={(e) => setCategory(e.target.value)}
                                         style={{
                                             width: '100%',
-                                            padding: '6px 8px',
-                                            border: '1px solid #ddd',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: `1px solid ${darkBorder}`,
                                             borderRadius: '4px',
+                                                    color: darkText,
                                             fontSize: '12px',
+                                                    fontFamily: 'monospace',
                                         }}
                                     >
-                                        <option value="">Select Category</option>
-                                        <option value="furniture">Furniture</option>
-                                        <option value="lighting">Lighting</option>
-                                        <option value="accessory">Accessory</option>
-                                        <option value="art">Art</option>
-                                        <option value="other">Other</option>
+                                                <option value="">-- Select Category --</option>
+                                                <optgroup label="Indoor Furniture (6-Step Timeline)">
+                                                    <option value="Indoor Furniture">Indoor Furniture</option>
+                                                    <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                                    <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                                    <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                                    <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                                    <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                                </optgroup>
+                                                <optgroup label="Outdoor Furniture (6-Step Timeline)">
+                                                    <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                                    <option value="Outdoor Seating">Outdoor Seating</option>
+                                                    <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                                    <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                                    <option value="Pool Furniture">Pool Furniture</option>
+                                                </optgroup>
+                                                <optgroup label="Sourcing (4-Step Timeline)">
+                                                    <option value="Lighting">Lighting</option>
+                                                </optgroup>
+                                                <optgroup label="Other">
+                                                    <option value="Material Sample Kit">Material Sample Kit</option>
+                                                    <option value="Fabric Sample">Fabric Sample</option>
+                                                </optgroup>
                                     </select>
                                 </div>
-                                
-                                {/* Description */}
                                 <div style={{ marginBottom: '12px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
+                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
                                         Description
                                     </label>
                                     <textarea
                                         value={description}
                                         onChange={(e) => setDescription(e.target.value)}
-                                        placeholder="Enter item description"
-                                        rows={2}
+                                                placeholder="Item description"
+                                                rows={3}
                                         style={{
                                             width: '100%',
-                                            padding: '6px 8px',
-                                            border: '1px solid #ddd',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: `1px solid ${darkBorder}`,
                                             borderRadius: '4px',
+                                                    color: darkText,
                                             fontSize: '12px',
-                                            fontFamily: 'inherit',
+                                                    fontFamily: 'monospace',
                                             resize: 'vertical',
                                         }}
                                     />
                                 </div>
-                                
-                                {/* Quantity */}
-                                <div style={{ marginBottom: '12px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Quantity
-                                    </label>
-                                    <input
-                                        type="number"
-                                        value={quantity}
-                                        onChange={(e) => setQuantity(e.target.value)}
-                                        placeholder="Enter quantity"
-                                        min="1"
-                                        style={{
-                                            width: '100%',
-                                            padding: '6px 8px',
-                                            border: '1px solid #ddd',
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
-                                        }}
-                                    />
-                                </div>
-                                
-                                {/* Dimensions */}
-                                <div style={{ marginBottom: '12px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Dimensions
-                                    </label>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '6px', alignItems: 'end' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '10px', marginBottom: '2px', color: '#999' }}>W</label>
-                                            <input
-                                                type="number"
-                                                value={width}
-                                                onChange={(e) => setWidth(e.target.value)}
-                                                placeholder="Width"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '6px 8px',
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '10px', marginBottom: '2px', color: '#999' }}>D</label>
-                                            <input
-                                                type="number"
-                                                value={depth}
-                                                onChange={(e) => setDepth(e.target.value)}
-                                                placeholder="Depth"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '6px 8px',
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '10px', marginBottom: '2px', color: '#999' }}>H</label>
-                                            <input
-                                                type="number"
-                                                value={height}
-                                                onChange={(e) => setHeight(e.target.value)}
-                                                placeholder="Height"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '6px 8px',
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '10px', marginBottom: '2px', color: '#999' }}>Unit</label>
-                                            <select
-                                                value={unit}
-                                                onChange={(e) => setUnit(e.target.value)}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '6px 8px',
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                }}
-                                            >
-                                                <option value="mm">mm</option>
-                                                <option value="cm">cm</option>
-                                                <option value="m">m</option>
-                                                <option value="in">in</option>
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            ) : currentState === 'C' ? (
+                                // State C: Show description with heading
+                                description && (
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                            Description
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
+                                            {description}
+                                        </div>
+                                    </div>
+                                )
+                            ) : (
+                                // State B: Show category and description with dot
+                                <div style={{ marginBottom: '24px' }}>
+                                    <div style={{ marginBottom: '8px', fontSize: '12px', color: darkText }}>
+                                        {category || 'Uncategorized'} {category && description ? '•' : ''} {description || 'No description'}
+                                    </div>
+                                </div>
+                            )}
                             
-                            {/* SECTION: System Intelligence (Read-Only) */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ 
-                                    fontSize: '12px', 
-                                    fontWeight: '600', 
-                                    marginBottom: '10px', 
-                                    textTransform: 'uppercase', 
-                                    color: '#333',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '6px'
-                                }}>
-                                    SECTION: System Intelligence
-                                </h3>
+                            {/* Removed SECTION: Item Facts - all fields moved to Request Quote box */}
                                 
-                                {/* Normalized (cm) */}
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Normalized (cm)
-                                    </label>
-                                    {computedValues.dimsCm ? (
-                                        <div style={{ 
-                                            padding: '6px 8px', 
-                                            backgroundColor: '#f5f5f5', 
-                                            borderRadius: '4px', 
-                                            fontSize: '12px',
-                                            border: '1px solid #e0e0e0',
-                                            fontFamily: 'monospace'
-                                        }}>
-                                            W {computedValues.dimsCm.w_cm.toFixed(1)} D {computedValues.dimsCm.d_cm.toFixed(1)} H {computedValues.dimsCm.h_cm.toFixed(1)}
-                                        </div>
-                                    ) : (
-                                        <div style={{ 
-                                            padding: '6px 8px', 
-                                            backgroundColor: '#f5f5f5', 
-                                            borderRadius: '4px', 
-                                            fontSize: '12px',
-                                            color: '#999',
-                                            border: '1px solid #e0e0e0',
-                                            fontFamily: 'monospace'
-                                        }}>
-                                            W — D — H —
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                {/* CBM */}
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        CBM
-                                    </label>
-                                    {computedValues.cbm !== null ? (
-                                        <div style={{ 
-                                            padding: '6px 8px', 
-                                            backgroundColor: '#f5f5f5', 
-                                            borderRadius: '4px', 
-                                            fontSize: '12px',
-                                            border: '1px solid #e0e0e0'
-                                        }}>
-                                            CBM: {computedValues.cbm}
-                                        </div>
-                                    ) : (
-                                        <div style={{ 
-                                            padding: '6px 8px', 
-                                            backgroundColor: '#f5f5f5', 
-                                            borderRadius: '4px', 
-                                            fontSize: '12px',
-                                            color: '#999',
-                                            border: '1px solid #e0e0e0'
-                                        }}>
-                                            CBM: —
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                {/* Sourcing Type */}
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Sourcing Type
-                                    </label>
-                                    <div style={{ 
-                                        padding: '6px 8px', 
-                                        backgroundColor: '#f5f5f5', 
-                                        borderRadius: '4px', 
-                                        fontSize: '12px',
-                                        border: '1px solid #e0e0e0'
-                                    }}>
-                                        {computedValues.sourcingType || 'furniture'}
-                                    </div>
-                                </div>
-                                
-                                {/* Timeline Type */}
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Timeline Type
-                                    </label>
-                                    <div style={{ 
-                                        padding: '6px 8px', 
-                                        backgroundColor: '#f5f5f5', 
-                                        borderRadius: '4px', 
-                                        fontSize: '12px',
-                                        border: '1px solid #e0e0e0'
-                                    }}>
-                                        {computedValues.timelineType || 'furniture_6_step'}
-                                    </div>
-                                </div>
-                                
-                                {/* Reason */}
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px', color: '#666' }}>
-                                        Reason
-                                </label>
-                                    <div style={{ 
-                                        padding: '6px 8px', 
-                                        backgroundColor: '#f5f5f5', 
-                                        borderRadius: '4px', 
-                                        fontSize: '12px',
-                                        border: '1px solid #e0e0e0'
-                                    }}>
-                                        default
-                                    </div>
-                                </div>
-                            </div>
+                            {/* IMAGES Section - Removed in State C (images already shown at top) */}
                             
-                            {/* SECTION: Inspiration / Reference (Phase 1.2) */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ 
-                                    fontSize: '12px', 
-                                    fontWeight: '600', 
-                                    marginBottom: '10px', 
-                                    textTransform: 'uppercase', 
-                                    color: '#333',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '6px'
-                                }}>
-                                    SECTION: Inspiration / Reference
-                                </h3>
-                                
-                                {inspiration.length > 0 ? (
-                                    <div style={{ 
-                                        width: '100%',
-                                        minHeight: inspiration.length === 1 ? '100px' : '80px',
-                                        backgroundColor: '#f0f0f0',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '4px',
-                                        padding: '6px',
+                            {/* BIDS Section */}
+                            <div 
+                                style={{ marginBottom: '24px' }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div
+                                    style={{
                                         display: 'flex',
-                                        flexWrap: 'wrap',
-                                        gap: '6px',
-                                        alignItems: 'stretch'
-                                    }}>
-                                        {inspiration.map((insp, idx) => {
-                                            const imageCount = inspiration.length;
-                                            let containerStyle = {};
-                                            
-                                            if (imageCount === 1) {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: '100%',
-                                                    height: '100px',
-                                                    flex: '0 0 100%'
-                                                };
-                                            } else if (imageCount === 2) {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: 'calc(50% - 3px)',
-                                                    height: '80px',
-                                                    flex: '0 0 calc(50% - 3px)'
-                                                };
-                                            } else {
-                                                containerStyle = {
-                                                    position: 'relative',
-                                                    width: 'calc(33.333% - 4px)',
-                                                    height: '80px',
-                                                    flex: '0 0 calc(33.333% - 4px)'
-                                                };
-                                            }
-                                            
-                                            return (
-                                                <div key={idx} style={containerStyle}>
-                                                    {insp.url && (
-                                                        <img 
-                                                            src={insp.url} 
-                                                            alt={insp.title || 'Reference'} 
-                                                            style={{ 
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'contain',
-                                                                border: '1px solid #ddd',
-                                                                borderRadius: '4px',
-                                                                backgroundColor: '#fff'
-                                                            }} 
-                                                        />
-                                                    )}
-                                                    <button
-                                                        onClick={() => setInspiration(inspiration.filter((_, i) => i !== idx))}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: '5px',
-                                                            right: '5px',
-                                                            background: '#d32f2f',
-                                                            color: '#fff',
-                                                            border: 'none',
-                                                            borderRadius: '50%',
-                                                            width: '24px',
-                                                            height: '24px',
-                                                            cursor: 'pointer',
-                                                            fontSize: '16px',
-                                                            lineHeight: '24px',
-                                                            padding: 0,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div style={{ 
-                                        width: '100%',
-                                        height: '100px',
-                                        backgroundColor: '#f0f0f0',
-                                        border: '2px dashed #ccc',
-                                        borderRadius: '4px',
-                                        display: 'flex',
+                                        justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: '#999',
-                                        fontSize: '12px'
-                                    }}>
-                                        <div style={{ textAlign: 'center', color: '#999' }}>
-                                            <div style={{ fontSize: '32px', marginBottom: '6px', opacity: 0.3 }}>📷</div>
-                                            <div>No reference images</div>
-                                        </div>
+                                        cursor: (currentState === 'C' || bidsExpanded) ? 'pointer' : 'default',
+                                        marginBottom: bidsExpanded ? '12px' : '0',
+                                    }}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (currentState === 'C') {
+                                            setBidsExpanded(!bidsExpanded);
+                                        }
+                                    }}
+                                >
+                                    <div style={{ fontSize: '14px', fontWeight: '600' }}>
+                                        BIDS
+                                    </div>
+                                    {currentState === 'C' && (
+                                        <span 
+                                            style={{ fontSize: '12px', color: darkText, cursor: 'pointer' }}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setBidsExpanded(!bidsExpanded);
+                                            }}
+                                        >
+                                            {bidsExpanded ? '▼' : '▶'}
+                                        </span>
+                                    )}
+                            </div>
+                            
+                                {!bidsExpanded && (
+                                    <div style={{ fontSize: '12px', color: darkText, marginTop: '8px' }}>
+                                        {currentState === 'A' && 'No bids yet'}
+                                        {currentState === 'B' && 'Awaiting supplier bids'}
+                                        {currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? `${itemState.bids.length} bid${itemState.bids.length !== 1 ? 's' : ''} received` : 'No bids yet'}
                                     </div>
                                 )}
                                 
-                                <input
-                                    type="file"
-                                    id="inspiration-file-input"
-                                    accept="image/*"
-                                    multiple
-                                    onChange={handleInspirationFileChange}
-                                    style={{ display: 'none' }}
-                                    disabled={isUploadingInspiration}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (isUploadingInspiration) return;
-                                        const input = document.getElementById('inspiration-file-input');
-                                        if (input) input.click();
-                                    }}
-                                    disabled={isUploadingInspiration}
+                                {/* Expanded BIDS comparison (State C) */}
+                                {bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 && (
+                                    <BidComparisonList 
+                                        bids={itemState.bids}
+                                        darkBorder={darkBorder}
+                                        greenAccent={greenAccent}
+                                    />
+                                )}
+                            </div>
+                            
+                            {/* Request Quote Button / RFQ Form */}
+                            {currentState === 'A' && (
+                                <div style={{ marginBottom: '24px' }}>
+                                    {!showRfqForm ? (
+                                        <button
+                                            onClick={() => setShowRfqForm(true)}
                                     style={{
-                                        marginTop: '8px',
-                                        padding: '6px 12px',
-                                        backgroundColor: isUploadingInspiration ? '#ccc' : '#f0f0f0',
-                                        border: '1px solid #ddd',
+                                                width: '100%',
+                                                padding: '12px',
+                                                backgroundColor: '#111111',
+                                                border: `1px solid ${darkBorder}`,
                                         borderRadius: '4px',
-                                        cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
-                                        fontSize: '11px',
-                                        opacity: isUploadingInspiration ? 0.6 : 1,
-                                    }}
-                                >
-                                    {isUploadingInspiration ? '⏳ Uploading...' : '+ Add Reference Image'}
-                                </button>
-                            </div>
-                            
-                            {/* SECTION: Actions */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ 
-                                    fontSize: '12px', 
-                                    fontWeight: '600', 
-                                    marginBottom: '10px', 
-                                    textTransform: 'uppercase', 
-                                    color: '#333',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '6px'
-                                }}>
-                                    SECTION: Actions
-                                </h3>
-                                <div style={{ display: 'flex', flexDirection: 'row', gap: '8px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (onPriceRequest && !priceRequested) {
-                                                onPriceRequest();
-                                            }
-                                        }}
-                                        disabled={priceRequested}
-                                        style={{
-                                            flex: 1,
-                                            padding: '8px 12px',
-                                            fontWeight: '500',
-                                            cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                            backgroundColor: priceRequested ? '#e0e0e0' : '#0073aa',
-                                            color: priceRequested ? '#999' : '#fff',
-                                            border: `1px solid ${priceRequested ? '#ccc' : '#0073aa'}`,
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
-                                            textAlign: 'center',
-                                            transition: 'all 0.2s',
-                                            boxShadow: priceRequested ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
-                                        }}
-                                    >
-                                        {priceRequested ? 'Price Requested' : 'Request Price'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            // Commit 2.3.4: Open RFQ submission modal
-                                            var itemIdToSubmit = itemId || item.id || item.item_id;
-                                            console.log('Request Quote clicked for item:', itemIdToSubmit);
-                                            if (window.openRfqSubmissionModal) {
-                                                window.openRfqSubmissionModal([itemIdToSubmit]);
-                                            } else {
-                                                console.error('openRfqSubmissionModal function not found. Make sure you are on the board page.');
-                                                alert('RFQ submission is only available on the board page. Please navigate to your workspace board.');
-                                            }
-                                        }}
-                                        style={{
-                                            flex: 1,
-                                            padding: '8px 12px',
-                                            fontWeight: '500',
-                                            backgroundColor: '#0073aa',
-                                            color: '#fff',
-                                            border: '1px solid #0073aa',
-                                            borderRadius: '4px',
+                                                color: darkText,
+                                                fontSize: '14px',
+                                                fontFamily: 'monospace',
                                             cursor: 'pointer',
-                                            fontSize: '12px',
-                                            textAlign: 'center',
-                                            transition: 'all 0.2s',
-                                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.target.style.backgroundColor = '#005a87';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.target.style.backgroundColor = '#0073aa';
-                                        }}
-                                    >
+                                    fontWeight: '600', 
+                                            }}
+                                        >
+                                            Request Quote
+                                        </button>
+                                    ) : (
+                                        <div style={{
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                            padding: '16px',
+                                            backgroundColor: '#111111',
+                                        }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                marginBottom: '16px',
+                                            }}>
+                                                <div style={{ fontSize: '14px', fontWeight: '600' }}>
                                         Request Quote
+                                                </div>
+                                    <button
+                                                    onClick={() => setShowRfqForm(false)}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: darkText,
+                                                        fontSize: '20px',
+                                                        cursor: 'pointer',
+                                                        padding: '0',
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                >
+                                                    ×
                                 </button>
-                                </div>
                             </div>
                             
-                            {/* SECTION: Thread */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ 
+                                            {/* RFQ Form Fields */}
+                                            {/* Dimensions */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Dimensions
+                                                </label>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
+                                                    <input
+                                                        type="number"
+                                                        value={width}
+                                                        onChange={(e) => setWidth(e.target.value)}
+                                                        placeholder="W"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        value={depth}
+                                                        onChange={(e) => setDepth(e.target.value)}
+                                                        placeholder="D"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        value={height}
+                                                        onChange={(e) => setHeight(e.target.value)}
+                                                        placeholder="H"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <select
+                                                        value={unit}
+                                                        onChange={(e) => setUnit(e.target.value)}
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    >
+                                                        <option value="in">in</option>
+                                                        <option value="cm">cm</option>
+                                                        <option value="mm">mm</option>
+                                                        <option value="m">m</option>
+                                                    </select>
+                                                </div>
+                                                {computedValues.cbm && (
+                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent }}>
+                                                        CBM: {computedValues.cbm.toFixed(3)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Quantity */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Quantity
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={quantity}
+                                                    onChange={(e) => setQuantity(e.target.value)}
+                                                    min="1"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
                                     fontSize: '12px', 
-                                    fontWeight: '600', 
-                                    marginBottom: '10px', 
-                                    textTransform: 'uppercase', 
-                                    color: '#333',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '6px'
-                                }}>
-                                    SECTION: Thread
-                                </h3>
-                                <div style={{ 
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                            </div>
+                            
+                                            {/* Delivery Country */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Delivery Country
+                                                </label>
+                                                <select
+                                                    value={deliveryCountry}
+                                                    onChange={(e) => setDeliveryCountry(e.target.value)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                    fontSize: '12px', 
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                >
+                                                    <option value="">Select Country</option>
+                                                    <option value="US">US</option>
+                                                    <option value="CA">CA</option>
+                                                    <option value="CN">CN</option>
+                                                    <option value="VN">VN</option>
+                                                    <option value="EU">EU</option>
+                                                </select>
+                                            </div>
+                                            
+                                            {/* ZIP/Postal Code */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    ZIP/Postal Code
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={deliveryPostal}
+                                                    onChange={(e) => setDeliveryPostal(e.target.value)}
+                                                    placeholder="Required for US/CA"
+                                                    style={{
+                                                        width: '100%',
                                     padding: '8px',
-                                    backgroundColor: '#f5f5f5',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
                                     borderRadius: '4px',
+                                                        color: darkText,
                                     fontSize: '12px',
-                                    color: '#666',
-                                    border: '1px solid #e0e0e0'
-                                }}>
-                                    — Comments/admin replies / approvals
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                                                {shippingMessage && (
+                                                    <div style={{ 
+                                                        marginTop: '8px',
+                                                        fontSize: '11px',
+                                                        color: (deliveryCountry?.toUpperCase() === 'US' || deliveryCountry?.toUpperCase() === 'CA') && !deliveryPostal ? '#ff0000' : '#999',
+                                                    }}>
+                                                        {shippingMessage}
                                 </div>
+                                                )}
                             </div>
+                                            
+                                            {/* SMART ALTERNATIVES Section */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <div style={{ marginBottom: '12px', fontSize: '12px', fontWeight: '600' }}>
+                                                    SMART ALTERNATIVES (Optional)
                             </div>
+                                                
+                                                <div style={{ marginBottom: '12px', fontSize: '12px' }}>
+                                                    Are you open to comparable options?
                                                     </div>
                         
-                        {/* Footer Actions */}
+                                                <div style={{ marginBottom: '12px' }}>
+                                                    <label style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        cursor: 'pointer',
+                                                        marginBottom: '8px',
+                                                    }}>
+                                                        <input
+                                                            type="radio"
+                                                            name="smart_alternatives"
+                                                            checked={smartAlternativesEnabled}
+                                                            onChange={() => setSmartAlternativesEnabled(true)}
+                                                            style={{
+                                                                width: '16px',
+                                                                height: '16px',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        />
+                                                        <span style={{ fontSize: '12px' }}>Yes — show me comparable options</span>
+                                                    </label>
+                                                    
+                                                    <label style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        cursor: 'pointer',
+                                                    }}>
+                                                        <input
+                                                            type="radio"
+                                                            name="smart_alternatives"
+                                                            checked={!smartAlternativesEnabled}
+                                                            onChange={() => setSmartAlternativesEnabled(false)}
+                                                            style={{
+                                                                width: '16px',
+                                                                height: '16px',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        />
+                                                        <span style={{ fontSize: '12px' }}>No — proceed as specified</span>
+                                                    </label>
+                                                </div>
+                                                
                         <div style={{
-                            padding: '12px 16px',
-                            borderTop: '1px solid #e0e0e0',
                             display: 'flex',
+                                                    alignItems: 'flex-start',
                             gap: '8px',
+                                                    marginBottom: '12px',
+                                                    fontSize: '11px',
+                                                    color: '#999',
+                                                }}>
+                                                    <span style={{ fontSize: '14px' }}>i</span>
+                                                    <span>Suppliers may suggest equivalent materials or construction methods. No contact info is shared.</span>
+                                                </div>
+                                                
+                                                {/* Notes for suppliers */}
+                                                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                                                    Notes for suppliers (optional)
+                                                </div>
+                                                
+                                                <textarea
+                                                    value={smartAlternativesNote}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val.length <= 240) {
+                                                            setSmartAlternativesNote(val);
+                                            }
+                                        }}
+                                                    placeholder="[ Open to outdoor durability options ]"
+                                                    maxLength={240}
+                                        style={{
+                                                        width: '100%',
+                                                        minHeight: '60px',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                                        color: darkText,
+                                            fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        resize: 'vertical',
+                                                    }}
+                                                />
+                                                
+                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                                    ({smartAlternativesNote.length} chars • filtered)
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Inspiration / References (optional) */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#999' }}>
+                                                    Inspiration / References (optional)
+                                                </div>
+                                                <div style={{ 
+                                                    display: 'flex',
+                                                    gap: '8px',
+                                                    marginBottom: '8px',
+                                                    flexWrap: 'wrap',
+                                                }}>
+                                                    {inspiration.map((insp, idx) => (
+                                                        <div
+                                                            key={idx}
+                                                            style={{
+                                                                width: '80px',
+                                                                height: '80px',
+                                                                border: `1px solid ${darkBorder}`,
+                                                                borderRadius: '4px',
+                                                                backgroundColor: '#111111',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                cursor: 'pointer',
+                                                                position: 'relative',
+                                                            }}
+                                                            onClick={() => {
+                                                                if (insp.url) setLightboxImage(insp.url);
+                                                            }}
+                                                        >
+                                                            {insp.url ? (
+                                                                <img 
+                                                                    src={insp.url} 
+                                                                    alt={insp.title || 'Reference'} 
+                                                                    style={{ 
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        objectFit: 'cover',
+                                                                        borderRadius: '4px',
+                                                                    }} 
+                                                                />
+                                                            ) : (
+                                                                <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
+                                                            )}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setInspiration(inspiration.filter((_, i) => i !== idx));
+                                                                }}
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    top: '4px',
+                                                                    right: '4px',
+                                                                    background: '#ff0000',
+                                                                    color: '#fff',
+                                                                    border: 'none',
+                                                                    borderRadius: '50%',
+                                                                    width: '20px',
+                                                                    height: '20px',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '12px',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    padding: 0,
+                                                                }}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    
+                                                    <button
+                                                        onClick={() => {
+                                                            const input = document.getElementById('inspiration-file-input');
+                                                            if (input) input.click();
+                                                        }}
+                                                        disabled={isUploadingInspiration}
+                                                        style={{
+                                                            width: '80px',
+                                                            height: '80px',
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            backgroundColor: '#111111',
+                                                            color: darkText,
+                                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    >
+                                                        {isUploadingInspiration ? '...' : '[+ Add]'}
+                                                    </button>
+                                                </div>
+                                                <input
+                                                    type="file"
+                                                    id="inspiration-file-input"
+                                                    accept="image/*"
+                                                    multiple
+                                                    onChange={handleInspirationFileChange}
+                                                    style={{ display: 'none' }}
+                                                    disabled={isUploadingInspiration}
+                                                />
+                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                                    (visible to suppliers • no downloads)
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Invite Makers */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
+                                                    Invite Makers
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#999', marginBottom: '8px' }}>
+                                                    Enter existing maker username(s) or email address(es). Press Enter or click Add. (1-5 invites)
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                                    <input
+                                                        type="text"
+                                                        value={inviteSupplierInput}
+                                                        onChange={(e) => setInviteSupplierInput(e.target.value)}
+                                                        onKeyPress={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                addInvitedSupplierChip();
+                                                            }
+                                                        }}
+                                                        placeholder="Username or email"
+                                        style={{
+                                            flex: 1,
+                                    padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                                            color: darkText,
+                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                        }}
+                                                    />
+                            <button
+                                        type="button"
+                                                        onClick={addInvitedSupplierChip}
+                                style={{
+                                                            padding: '8px 16px',
+                                                            backgroundColor: '#111111',
+                                                            border: `1px solid ${darkBorder}`,
+                                    borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                    cursor: 'pointer',
+                                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                                        Add
+                                    </button>
+                                                </div>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: '8px',
+                                                    marginBottom: '8px',
+                                                    minHeight: '32px',
+                                                }}>
+                                                    {invitedSuppliers.map((supplier, idx) => (
+                                                        <div
+                                                            key={idx}
+                                                            style={{
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px',
+                                                                padding: '6px 12px',
+                                                                backgroundColor: '#111111',
+                                                                border: `1px solid ${darkBorder}`,
+                                                                borderRadius: '16px',
+                                    fontSize: '12px',
+                                                                color: greenAccent,
+                                                                fontFamily: 'monospace',
+                                                            }}
+                                                        >
+                                                            <span>{supplier}</span>
+                                    <button
+                                        type="button"
+                                                                onClick={() => removeInvitedSupplierChip(supplier)}
+                                                                style={{
+                                                                    background: 'none',
+                                                                    border: 'none',
+                                                                    color: darkText,
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '16px',
+                                                                    lineHeight: 1,
+                                                                    padding: 0,
+                                                                    marginLeft: '4px',
+                                                                    fontWeight: 'bold',
+                                                                }}
+                                                            >
+                                                                ×
+                                </button>
+                                </div>
+                                                    ))}
+                            </div>
+                                                {rfqError && invitedSuppliers.length === 0 && (
+                                                    <div style={{ fontSize: '11px', color: '#ff0000', marginTop: '4px' }}>
+                                                        {rfqError}
+                            </div>
+                                                )}
+                            </div>
+                            
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{
+                            display: 'flex',
+                                                    alignItems: 'center',
+                            gap: '8px',
+                                                    cursor: 'pointer',
+                                                }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={allowSystemInvites}
+                                                        onChange={(e) => {
+                                                            setAllowSystemInvites(e.target.checked);
+                                                            // Update message immediately
+                                                            setTimeout(() => {
+                                                                if (e.target.checked) {
+                                                                    if (invitedSuppliers.length > 0) {
+                                                                        setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                            } else {
+                                                                        setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                            }
+                                                                } else {
+                                                                    setSystemInvitesMessage('');
+                                                                }
+                                                            }, 0);
+                                        }}
+                                        style={{
+                                                            width: '18px',
+                                                            height: '18px',
+                                            cursor: 'pointer',
+                                                        }}
+                                                    />
+                                                    <span style={{ fontSize: '12px', fontFamily: 'monospace' }}>
+                                                        Let WireFrame (OS) source makers for this request
+                                                    </span>
+                                                </label>
+                                                <div style={{ marginTop: '8px', fontSize: '11px', color: '#999', paddingLeft: '26px' }}>
+                                                    If enabled, Wireframe (OS) will find qualified makers based on your item and keywords.
+                                                </div>
+                                                {systemInvitesMessage && (
+                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#999', paddingLeft: '26px' }}>
+                                                        {systemInvitesMessage}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {rfqError && (
+                                <div style={{ 
+                                                    marginBottom: '12px',
+                                    padding: '8px',
+                                                    backgroundColor: '#330000',
+                                                    border: `1px solid #ff0000`,
+                                    borderRadius: '4px',
+                                                    fontSize: '11px',
+                                                    color: '#ff0000',
+                                }}>
+                                                    {rfqError}
+                                </div>
+                                            )}
+                                            
+                            <button
+                                                onClick={handleSubmitRfq}
+                                                disabled={isSubmittingRfq}
+                                style={{
+                                                    width: '100%',
+                                                    padding: '12px',
+                                                    backgroundColor: greenAccent,
+                                                    border: 'none',
+                                    borderRadius: '4px',
+                                                    color: darkBg,
+                                                    fontSize: '14px',
+                                                    fontFamily: 'monospace',
+                                                    cursor: isSubmittingRfq ? 'not-allowed' : 'pointer',
+                                                    fontWeight: '600',
+                                                    opacity: isSubmittingRfq ? 0.6 : 1,
+                                        }}
+                                    >
+                                                {isSubmittingRfq ? 'Submitting...' : 'Submit RFQ'}
+                                </button>
+                                </div>
+                                    )}
+                            </div>
+                            )}
+                            
+                            {/* State B: Description and editable fields (images shown at top) */}
+                            {currentState === 'B' && (
+                                <>
+                                    {description && (
+                                        <div style={{ marginBottom: '24px' }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Description
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
+                                                {description}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Quantity, Dimensions, and Notes for suppliers - Editable in State B */}
+                                    <div style={{ marginBottom: '24px' }}>
+                                <div style={{ 
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
+                                        }}>
+                                            {/* Quantity */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Quantity
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={quantity}
+                                                    onChange={(e) => setQuantity(e.target.value)}
+                                                    min="1"
+                                                    placeholder="1"
+                                                    style={{
+                                                        width: '100%',
+                                    padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                    borderRadius: '4px',
+                                                        color: darkText,
+                                    fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                                </div>
+                                            
+                                            {/* Dimensions */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Dimensions {computedValues.cbm && `(CBM: ${computedValues.cbm.toFixed(3)})`}
+                                                </label>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
+                                                    <input
+                                                        type="number"
+                                                        value={width}
+                                                        onChange={(e) => setWidth(e.target.value)}
+                                                        placeholder="W"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        value={depth}
+                                                        onChange={(e) => setDepth(e.target.value)}
+                                                        placeholder="D"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        value={height}
+                                                        onChange={(e) => setHeight(e.target.value)}
+                                                        placeholder="H"
+                                                        step="0.01"
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    />
+                                                    <select
+                                                        value={unit}
+                                                        onChange={(e) => setUnit(e.target.value)}
+                                                        style={{
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }}
+                                                    >
+                                                        <option value="in">in</option>
+                                                        <option value="cm">cm</option>
+                                                        <option value="mm">mm</option>
+                                                        <option value="m">m</option>
+                                                    </select>
+                                                </div>
+                                                {computedValues.cbm && (
+                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent }}>
+                                                        CBM: {computedValues.cbm.toFixed(3)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Notes for suppliers */}
+                                            <div style={{ marginBottom: '0' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                    Notes for suppliers (optional)
+                                                </label>
+                                                <textarea
+                                                    value={smartAlternativesNote}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val.length <= 240) {
+                                                            setSmartAlternativesNote(val);
+                                                        }
+                                                    }}
+                                                    placeholder="[ Add notes for suppliers ]"
+                                                    maxLength={240}
+                                                    style={{
+                                                        width: '100%',
+                                                        minHeight: '60px',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        resize: 'vertical',
+                                                    }}
+                                                />
+                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                                    ({smartAlternativesNote.length} chars • filtered)
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                                                    </div>
+                        
+                        {/* Footer - Save button (State A and B) */}
+                        {(currentState === 'A' || currentState === 'B') && (
+                        <div style={{
+                                padding: '16px 20px',
+                                borderTop: `1px solid ${darkBorder}`,
+                            display: 'flex',
+                                gap: '12px',
                             justifyContent: 'flex-end',
                         }}>
-                            <button
-                                onClick={onClose}
-                                style={{
-                                    padding: '6px 12px',
-                                    backgroundColor: '#f0f0f0',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                }}
-                            >
-                                Close
-                            </button>
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving || isUploadingInspiration}
                                 style={{
-                                    padding: '6px 12px',
-                                    backgroundColor: '#0073aa',
-                                    color: '#fff',
+                                        padding: '10px 20px',
+                                        backgroundColor: greenAccent,
                                     border: 'none',
                                     borderRadius: '4px',
+                                        color: darkBg,
+                                        fontSize: '14px',
+                                        fontFamily: 'monospace',
                                     cursor: (isSaving || isUploadingInspiration) ? 'not-allowed' : 'pointer',
-                                    fontSize: '12px',
+                                        fontWeight: '600',
                                     opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
                                 }}
                             >
-                                {isUploadingInspiration ? 'Uploading images...' : (isSaving ? 'Saving...' : 'Save Item Facts')}
+                                    {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save')}
                             </button>
                         </div>
+                        )}
                     </motion.div>
+                    
+                    {/* Image Lightbox */}
+                    {lightboxImage && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                                zIndex: 1000001,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '20px',
+                            }}
+                            onClick={(e) => {
+                                // Only close if clicking the backdrop, not the image
+                                if (e.target === e.currentTarget) {
+                                    setLightboxImage(null);
+                                }
+                            }}
+                        >
+                            <img
+                                src={lightboxImage}
+                                alt="Enlarged"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    maxWidth: '90%',
+                                    maxHeight: '90%',
+                                    objectFit: 'contain',
+                                    pointerEvents: 'auto',
+                                }}
+                            />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxImage(null);
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    top: '20px',
+                                    right: '20px',
+                                    background: 'rgba(0, 0, 0, 0.7)',
+                                    border: '2px solid #fff',
+                                    borderRadius: '50%',
+                                    color: '#fff',
+                                    fontSize: '28px',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    padding: '0',
+                                    width: '44px',
+                                    height: '44px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    lineHeight: '1',
+                                    transition: 'all 0.2s',
+                                    zIndex: 1000002,
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+                                    e.currentTarget.style.transform = 'scale(1.1)';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    )}
                 </>
             )}
         </AnimatePresence>
@@ -1133,4 +2385,3 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
 };
 
 export default ItemDetailModal;
-
