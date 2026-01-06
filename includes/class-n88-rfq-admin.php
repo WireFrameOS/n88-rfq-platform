@@ -2482,6 +2482,47 @@ class N88_RFQ_Admin {
                                 </td>
                             </tr>
                             <tr>
+                                <th><label>Quantity</label></th>
+                                <td>
+                                    <input type="number" id="item-quantity" name="quantity" min="1" value="1" style="width: 100px;" />
+                                    <p class="description">Quantity for this item</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label>Dimensions</label></th>
+                                <td>
+                                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                        <div>
+                                            <label for="item-width" style="display: block; font-size: 11px; margin-bottom: 4px;">Width</label>
+                                            <input type="number" id="item-width" name="width" step="0.01" style="width: 80px;" placeholder="W" />
+                                        </div>
+                                        <div>
+                                            <label for="item-depth" style="display: block; font-size: 11px; margin-bottom: 4px;">Depth</label>
+                                            <input type="number" id="item-depth" name="depth" step="0.01" style="width: 80px;" placeholder="D" />
+                                        </div>
+                                        <div>
+                                            <label for="item-height" style="display: block; font-size: 11px; margin-bottom: 4px;">Height</label>
+                                            <input type="number" id="item-height" name="height" step="0.01" style="width: 80px;" placeholder="H" />
+                                        </div>
+                                        <div>
+                                            <label for="item-dimension-unit" style="display: block; font-size: 11px; margin-bottom: 4px;">Unit</label>
+                                            <select id="item-dimension-unit" name="dimension_unit" style="width: 60px;">
+                                                <option value="in" selected>in</option>
+                                                <option value="cm">cm</option>
+                                                <option value="mm">mm</option>
+                                                <option value="m">m</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <p class="description">Optional: Enter dimensions (W × D × H)</p>
+                                    <!-- Commit 2.3.5.1: CBM calculation display -->
+                                    <div id="item-cbm-display" style="margin-top: 8px; font-size: 12px; color: #666; display: none;">
+                                        <div id="item-cbm-value" style="margin-bottom: 4px;"></div>
+                                        <div id="item-total-cbm-value" style="font-weight: 600; color: #00a32a;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
                                 <th><label for="item-image-url">Image</label></th>
                                 <td>
                                     <input type="hidden" id="item-image-id" name="image_id" />
@@ -2727,6 +2768,99 @@ class N88_RFQ_Admin {
                     $('#item-image-remove-btn').hide();
                 });
                 
+                // Commit 2.3.5.1: CBM calculation for Add Item form
+                function updateCBMDisplay() {
+                    var width = parseFloat($('#item-width').val()) || 0;
+                    var depth = parseFloat($('#item-depth').val()) || 0;
+                    var height = parseFloat($('#item-height').val()) || 0;
+                    var unit = $('#item-dimension-unit').val() || 'in';
+                    var quantity = parseInt($('#item-quantity').val()) || 0;
+                    
+                    var $cbmDisplay = $('#item-cbm-display');
+                    var $cbmValue = $('#item-cbm-value');
+                    var $totalCbmValue = $('#item-total-cbm-value');
+                    
+                    // Convert to cm
+                    /**
+                     * Normalize dimensions to cm
+                     */
+                    function convertToCm(num, unit) {
+                        if (!num || num <= 0) return null;
+                        switch(unit) {
+                            case 'cm': return num;
+                            case 'mm': return num / 10;
+                            case 'm': return num * 100;
+                            case 'in': return num * 2.54;
+                            default: return num;
+                        }
+                    }
+                    
+                    /**
+                     * Calculate CBM (Cubic Meters) - per unit
+                     * Formula: (W_cm × D_cm × H_cm) / 1,000,000
+                     * This is equivalent to:
+                     * - Inches: (W × D × H) / 61023.7441
+                     * - Centimeters: (W × D × H) / 1,000,000
+                     * - Millimeters: (W × D × H) / 1,000,000,000
+                     * - Meters: W × D × H
+                     */
+                    function calculateCBM(wCm, dCm, hCm) {
+                        if (!wCm || !dCm || !hCm) return null;
+                        // Convert cm to meters, then calculate volume
+                        var wM = wCm / 100;
+                        var dM = dCm / 100;
+                        var hM = hCm / 100;
+                        // Calculate CBM and round to 3 decimal places
+                        return Math.round((wM * dM * hM) * 1000) / 1000;
+                    }
+                    
+                    /**
+                     * Calculate Total CBM (item_cbm × quantity)
+                     * Formula: total_cbm = item_cbm × quantity
+                     * Returns value rounded to 3 decimal places
+                     */
+                    function calculateTotalCBM(itemCbm, qty) {
+                        if (!itemCbm || itemCbm === null || itemCbm === undefined) return null;
+                        if (!qty || qty <= 0) return null;
+                        // Calculate total CBM and round to 3 decimal places
+                        return Math.round((itemCbm * qty) * 1000) / 1000;
+                    }
+                    
+                    if (width > 0 && depth > 0 && height > 0) {
+                        var wCm = convertToCm(width, unit);
+                        var dCm = convertToCm(depth, unit);
+                        var hCm = convertToCm(height, unit);
+                        
+                        if (wCm && dCm && hCm) {
+                            var itemCbm = calculateCBM(wCm, dCm, hCm);
+                            if (itemCbm !== null) {
+                                $cbmValue.text('CBM: ' + itemCbm.toFixed(3));
+                                
+                                var totalCbm = calculateTotalCBM(itemCbm, quantity);
+                                if (totalCbm !== null) {
+                                    $totalCbmValue.text('Total CBM: ' + totalCbm.toFixed(3));
+                                } else {
+                                    $totalCbmValue.text('Total CBM: —');
+                                }
+                                
+                                $cbmDisplay.show();
+                                return;
+                            }
+                        }
+                    }
+                    
+                    // Hide if no valid dimensions
+                    $cbmDisplay.hide();
+                }
+                
+                // Update CBM when dimensions or quantity change
+                $('#item-width, #item-depth, #item-height, #item-dimension-unit, #item-quantity').on('input change', function() {
+                    updateCBMDisplay();
+                });
+                
+                // Initial calculation
+                updateCBMDisplay();
+                
                 // Show preview if URL is manually entered
                 $('#item-image-url').on('blur', function() {
                     var url = $(this).val();
@@ -2779,6 +2913,24 @@ class N88_RFQ_Admin {
                     formData.append('status', 'active'); // Always active
                     formData.append('size', $('#item-size').val());
                     formData.append('board_id', boardId);
+                    
+                    // Commit 2.3.5.1: Add dimensions and quantity
+                    var quantity = $('#item-quantity').val();
+                    if (quantity) {
+                        formData.append('quantity', quantity);
+                    }
+                    var width = $('#item-width').val();
+                    var depth = $('#item-depth').val();
+                    var height = $('#item-height').val();
+                    var dimensionUnit = $('#item-dimension-unit').val() || 'in';
+                    if (width || depth || height) {
+                        formData.append('dims', JSON.stringify({
+                            w: width ? parseFloat(width) : null,
+                            d: depth ? parseFloat(depth) : null,
+                            h: height ? parseFloat(height) : null,
+                            unit: dimensionUnit
+                        }));
+                    }
                     
                     // Handle image: prefer file upload, fallback to URL
                     var imageFile = $('#item-image-file')[0].files[0];
@@ -5352,6 +5504,9 @@ class N88_RFQ_Admin {
 
                 // Commit 1.3.8: Item Detail Modal Component (full inline version)
                 // Helper functions for computation
+                /**
+                 * Normalize dimensions to cm
+                 */
                 var normalizeToCm = function(value, unit) {
                     if (!value || isNaN(value)) return null;
                     var num = parseFloat(value);
@@ -5364,12 +5519,37 @@ class N88_RFQ_Admin {
                     }
                 };
                 
+                /**
+                 * Calculate CBM (Cubic Meters) - per unit
+                 * Formula: (W_cm × D_cm × H_cm) / 1,000,000
+                 * This is equivalent to:
+                 * - Inches: (W × D × H) / 61023.7441
+                 * - Centimeters: (W × D × H) / 1,000,000
+                 * - Millimeters: (W × D × H) / 1,000,000,000
+                 * - Meters: W × D × H
+                 */
                 var calculateCBM = function(wCm, dCm, hCm) {
                     if (!wCm || !dCm || !hCm) return null;
+                    // Convert cm to meters, then calculate volume
                     var wM = wCm / 100;
                     var dM = dCm / 100;
                     var hM = hCm / 100;
-                    return Math.round((wM * dM * hM) * 1000) / 1000; // Round to 3 decimals
+                    // Calculate CBM and round to 3 decimal places
+                    return Math.round((wM * dM * hM) * 1000) / 1000;
+                };
+                
+                /**
+                 * Calculate Total CBM (item_cbm × quantity)
+                 * Formula: total_cbm = item_cbm × quantity
+                 * Returns value rounded to 3 decimal places
+                 */
+                var calculateTotalCBM = function(itemCbm, quantity) {
+                    if (!itemCbm || itemCbm === null || itemCbm === undefined) return null;
+                    if (!quantity || quantity === null || quantity === undefined || quantity === '' || quantity === 0) return null;
+                    var qty = parseInt(quantity);
+                    if (isNaN(qty) || qty <= 0) return null;
+                    // Calculate total CBM and round to 3 decimal places
+                    return Math.round((itemCbm * qty) * 1000) / 1000;
                 };
                 
                 var inferSourcingType = function(category, description) {
@@ -5769,6 +5949,11 @@ class N88_RFQ_Admin {
                     var _isSavingState = React.useState(false);
                     var isSaving = _isSavingState[0];
                     var setIsSaving = _isSavingState[1];
+                    
+                    // Commit 2.3.5.1: Warning banner state for post-RFQ dims/qty changes
+                    var _showWarningBannerState = React.useState(false);
+                    var showWarningBanner = _showWarningBannerState[0];
+                    var setShowWarningBanner = _showWarningBannerState[1];
                     
                     var _isUploadingInspirationState = React.useState(false);
                     var isUploadingInspiration = _isUploadingInspirationState[0];
@@ -6245,11 +6430,8 @@ class N88_RFQ_Admin {
                             return;
                         }
                         
-                        // Allow saving in State B (RFQ sent) but not in State C (bids received)
-                        if (currentState === 'C') {
-                            alert('This item is locked. Bids have been received.');
-                            return;
-                        }
+                        // Dimensions and quantity are always editable (State B and C)
+                        // No blocking - allow saving in all states
                         
                         setIsSaving(true);
                         
@@ -6353,7 +6535,15 @@ class N88_RFQ_Admin {
                                 if (isNaN(itemIdNum)) {
                                     throw new Error('Invalid item ID');
                                 }
-                                onSave(itemIdNum, payload).then(function() {
+                                onSave(itemIdNum, payload).then(function(response) {
+                                    // Commit 2.3.5.1: Show warning banner only if: RFQ exists AND bids exist AND dims/qty changed
+                                    if (response && response.has_warning && itemState.has_rfq && itemState.has_bids) {
+                                        setShowWarningBanner(true);
+                                        // Auto-hide after 10 seconds
+                                        setTimeout(function() {
+                                            setShowWarningBanner(false);
+                                        }, 10000);
+                                    }
                                     // Don't close modal - stay open as per requirement
                                     setIsSaving(false);
                                 }).catch(function(error) {
@@ -6611,13 +6801,13 @@ class N88_RFQ_Admin {
                             (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
                                 style: { marginBottom: '24px' }
                             },
-                                React.createElement('div', {
-                                    style: {
+                            React.createElement('div', {
+                                style: {
                                         border: '1px solid ' + darkBorder,
                                         borderRadius: '4px',
                                         padding: '12px',
                                         backgroundColor: '#111111',
-                                        minHeight: '200px',
+                                        minHeight: '150px',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
@@ -6630,12 +6820,12 @@ class N88_RFQ_Admin {
                                     React.createElement('img', {
                                         src: item.imageUrl || item.image_url || item.primary_image_url,
                                         alt: 'Primary',
-                                        style: {
+                                    style: {
                                             maxWidth: '100%',
-                                            maxHeight: '400px',
+                                            maxHeight: '250px',
                                             objectFit: 'contain',
                                             borderRadius: '4px',
-                                        }
+                                }
                                     })
                                 )
                             ) : null,
@@ -6656,11 +6846,11 @@ class N88_RFQ_Admin {
                                     inspiration.map(function(insp, idx) {
                                         return React.createElement('div', {
                                             key: idx,
-                                            style: {
+                                    style: {
                                                 width: '80px',
                                                 height: '80px',
                                                 border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
+                                        borderRadius: '4px',
                                                 backgroundColor: '#111111',
                                                 position: 'relative',
                                                 overflow: 'hidden',
@@ -6670,24 +6860,36 @@ class N88_RFQ_Admin {
                                                 if (insp.url) {
                                                     setLightboxImage(insp.url);
                                                 }
-                                            }
-                                        },
+                                    }
+                                },
                                             insp.url ? React.createElement('img', {
                                                 src: insp.url,
                                                 alt: insp.title || 'Reference',
-                                                style: {
+                                        style: {
                                                     width: '100%',
                                                     height: '100%',
                                                     objectFit: 'cover',
-                                                    borderRadius: '4px',
-                                                }
+                                            borderRadius: '4px',
+                                        }
                                             }) : React.createElement('div', {
                                                 style: { fontSize: '10px', color: '#666' }
                                             }, '[ img ]')
                                         );
                                     })
                                 )
-                            ) : null,
+                                ) : null,
+                            // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
+                            showWarningBanner ? React.createElement('div', {
+                                        style: {
+                                            marginBottom: '16px',
+                                    padding: '12px',
+                                    backgroundColor: '#330000',
+                                    border: '1px solid #ff0000',
+                                    borderRadius: '4px',
+                                    fontSize: '12px',
+                                    color: '#ff0000',
+                                }
+                            }, '⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.') : null,
                             // Item Details Heading
                             React.createElement('div', {
                                 style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }
@@ -6739,6 +6941,12 @@ class N88_RFQ_Admin {
                                         formatDimensions() ? React.createElement('div', {
                                             style: { marginBottom: '6px' }
                                         }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Dimensions:'), ' ', React.createElement('span', { style: { color: greenAccent } }, formatDimensions())) : null,
+                                        (function() {
+                                            var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                            return React.createElement('div', {
+                                                style: { marginBottom: '6px' }
+                                            }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Total CBM:'), ' ', React.createElement('span', { style: { color: greenAccent } }, totalCbm !== null ? totalCbm.toFixed(3) : '—'));
+                                        })(),
                                         React.createElement('div', {
                                             style: { marginBottom: '0' }
                                         }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Delivery:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (deliveryCountry || 'N/A') + (deliveryPostal ? ' | ' + deliveryPostal : '')))
@@ -6919,18 +7127,18 @@ class N88_RFQ_Admin {
                                 },
                                     !showRfqForm ? React.createElement('button', {
                                         onClick: function() { setShowRfqForm(true); },
-                                        style: {
-                                            width: '100%',
+                                            style: {
+                                                width: '100%',
                                             padding: '12px',
                                             backgroundColor: '#111111',
                                             border: '1px solid ' + darkBorder,
-                                            borderRadius: '4px',
+                                                borderRadius: '4px',
                                             color: darkText,
-                                            fontSize: '14px',
+                                                fontSize: '14px',
                                             fontFamily: 'monospace',
                                             cursor: 'pointer',
                                             fontWeight: '600',
-                                        }
+                                            }
                                     }, 'Request Quote') : React.createElement('div', {
                                             style: {
                                             border: '1px solid ' + darkBorder,
@@ -6968,16 +7176,16 @@ class N88_RFQ_Admin {
                                             }, '×')
                                         ),
                                         // RFQ Form Fields
-                                        // Dimensions
+                                    // Dimensions
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
                                         },
-                                            React.createElement('label', {
+                                        React.createElement('label', {
                                                 style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                            }, 'Dimensions'),
-                                            React.createElement('div', {
+                                        }, 'Dimensions'),
+                                        React.createElement('div', {
                                                 style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
-                                            },
+                                        },
                                                 React.createElement('input', {
                                                     type: 'number',
                                                     value: width,
@@ -7043,17 +7251,25 @@ class N88_RFQ_Admin {
                                                     React.createElement('option', { value: 'cm' }, 'cm'),
                                                     React.createElement('option', { value: 'mm' }, 'mm'),
                                                     React.createElement('option', { value: 'm' }, 'm')
-                                                )
-                                            ),
+                                    )
+                                ),
                                             computedValues && computedValues.cbm ? React.createElement('div', {
                                                 style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
-                                            }, 'CBM: ' + (typeof computedValues.cbm.toFixed === 'function' ? computedValues.cbm.toFixed(3) : computedValues.cbm)) : null
+                                            }, 'CBM: ' + (typeof computedValues.cbm.toFixed === 'function' ? computedValues.cbm.toFixed(3) : computedValues.cbm)) : null,
+                                            (function() {
+                                                var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                                return totalCbm !== null ? React.createElement('div', {
+                                                    style: { marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
+                                                }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
+                                                    style: { marginTop: '4px', fontSize: '11px', color: '#666' }
+                                                }, 'Total CBM: —'));
+                                            })()
                                         ),
                                         // Quantity
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
                                         },
-                                            React.createElement('label', {
+                                        React.createElement('label', {
                                                 style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
                                             }, 'Quantity'),
                                             React.createElement('input', {
@@ -7070,8 +7286,16 @@ class N88_RFQ_Admin {
                                                     color: darkText,
                                                     fontSize: '12px',
                                                     fontFamily: 'monospace',
-                                                }
-                                            })
+                                            }
+                                            }),
+                                            (function() {
+                                                var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                                return totalCbm !== null ? React.createElement('div', {
+                                                    style: { marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
+                                                }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
+                                                    style: { marginTop: '8px', fontSize: '11px', color: '#666' }
+                                                }, 'Total CBM: — (enter dimensions and quantity)'));
+                                            })()
                                         ),
                                         // Delivery Country
                                         React.createElement('div', {
@@ -7083,12 +7307,12 @@ class N88_RFQ_Admin {
                                             React.createElement('select', {
                                                 value: deliveryCountry,
                                                 onChange: function(e) { setDeliveryCountry(e.target.value); },
-                                                style: {
+                                            style: {
                                                     width: '100%',
                                                     padding: '8px',
                                                     backgroundColor: darkBg,
                                                     border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
+                                                borderRadius: '4px',
                                                     color: darkText,
                                                     fontSize: '12px',
                                                     fontFamily: 'monospace',
@@ -7101,12 +7325,12 @@ class N88_RFQ_Admin {
                                                 React.createElement('option', { value: 'VN' }, 'VN'),
                                                 React.createElement('option', { value: 'EU' }, 'EU')
                                             )
-                                        ),
+                                    ),
                                         // ZIP/Postal Code
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
                                         },
-                                            React.createElement('label', {
+                                        React.createElement('label', {
                                                 style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
                                             }, 'ZIP/Postal Code'),
                                             React.createElement('input', {
@@ -7114,19 +7338,19 @@ class N88_RFQ_Admin {
                                                 value: deliveryPostal,
                                                 onChange: function(e) { setDeliveryPostal(e.target.value); },
                                                 placeholder: 'Required for US/CA',
-                                                style: {
+                                            style: {
                                                     width: '100%',
                                                     padding: '8px',
                                                     backgroundColor: darkBg,
                                                     border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
+                                                borderRadius: '4px',
                                                     color: darkText,
                                                     fontSize: '12px',
                                                     fontFamily: 'monospace',
-                                                }
+                                            }
                                             }),
                                             shippingMessage ? React.createElement('div', {
-                                                style: {
+                                            style: {
                                                     marginTop: '8px',
                                                     fontSize: '11px',
                                                     color: ((deliveryCountry && (deliveryCountry.toUpperCase() === 'US' || deliveryCountry.toUpperCase() === 'CA')) && !deliveryPostal) ? '#ff0000' : '#999',
@@ -7147,7 +7371,7 @@ class N88_RFQ_Admin {
                                                 style: { marginBottom: '12px' }
                                             },
                                                 React.createElement('label', {
-                                                    style: {
+                                            style: {
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         gap: '8px',
@@ -7160,23 +7384,23 @@ class N88_RFQ_Admin {
                                                         name: 'smart_alternatives',
                                                         checked: smartAlternativesEnabled,
                                                         onChange: function() { setSmartAlternativesEnabled(true); },
-                                                        style: {
+                                            style: {
                                                             width: '16px',
                                                             height: '16px',
                                                             cursor: 'pointer',
-                                                        }
+                                            }
                                                     }),
                                                     React.createElement('span', {
                                                         style: { fontSize: '12px' }
                                                     }, 'Yes — show me comparable options')
                                                 ),
-                                                React.createElement('label', {
-                                                    style: {
+                                        React.createElement('label', {
+                                            style: {
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         gap: '8px',
                                                         cursor: 'pointer',
-                                                    }
+                                            }
                                                 },
                                                     React.createElement('input', {
                                                         type: 'radio',
@@ -7195,7 +7419,7 @@ class N88_RFQ_Admin {
                                                 )
                                             ),
                                             React.createElement('div', {
-                                                style: {
+                                        style: {
                                                     display: 'flex',
                                                     alignItems: 'flex-start',
                                                     gap: '8px',
@@ -7220,13 +7444,13 @@ class N88_RFQ_Admin {
                                                 },
                                                 placeholder: '[ Open to outdoor durability options ]',
                                                 maxLength: 240,
-                                                style: {
-                                                    width: '100%',
+                                        style: {
+                                            width: '100%',
                                                     minHeight: '60px',
                                                     padding: '8px',
                                                     backgroundColor: darkBg,
                                                     border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
+                                            borderRadius: '4px',
                                                     color: darkText,
                                                     fontSize: '12px',
                                                     fontFamily: 'monospace',
@@ -7237,27 +7461,30 @@ class N88_RFQ_Admin {
                                                 style: { fontSize: '10px', color: '#666', marginTop: '4px' }
                                             }, '(' + smartAlternativesNote.length + ' chars • filtered)')
                                         ),
-                                        // Inspiration / References (optional)
+                                        // Inspiration / References / Sketch Drawings
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
                                         },
                                             React.createElement('div', {
-                                                style: { marginBottom: '8px', fontSize: '12px', color: '#999' }
-                                            }, 'Inspiration / References (optional)'),
+                                                style: { marginBottom: '4px', fontSize: '12px', fontWeight: '600' }
+                                            }, 'Inspiration / References / Sketch Drawings'),
+                                            React.createElement('div', {
+                                                style: { marginBottom: '8px', fontSize: '11px', color: '#999' }
+                                            }, 'Visible to suppliers while bidding.'),
                                             React.createElement('div', {
                                                 style: {
-                                                    display: 'flex',
+                                            display: 'flex',
                                                     gap: '8px',
                                                     marginBottom: '8px',
-                                                    flexWrap: 'wrap',
-                                                }
-                                            },
-                                                inspiration.map(function(insp, idx) {
+                                            flexWrap: 'wrap',
+                                        }
+                                    },
+                                        inspiration.map(function(insp, idx) {
                                                     return React.createElement('div', {
                                                         key: idx,
                                                         style: {
                                                             width: '80px',
-                                                            height: '80px',
+                                                    height: '80px',
                                                             border: '1px solid ' + darkBorder,
                                                             borderRadius: '4px',
                                                             backgroundColor: '#111111',
@@ -7265,48 +7492,48 @@ class N88_RFQ_Admin {
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
                                                             cursor: 'pointer',
-                                                            position: 'relative',
+                                                    position: 'relative',
                                                         },
                                                         onClick: function() {
                                                             if (insp.url) setLightboxImage(insp.url);
-                                                        }
-                                                    },
-                                                        insp.url ? React.createElement('img', {
-                                                            src: insp.url,
-                                                            alt: insp.title || 'Reference',
-                                                            style: {
-                                                                width: '100%',
-                                                                height: '100%',
+                                            }
+                                            },
+                                                insp.url ? React.createElement('img', {
+                                                    src: insp.url,
+                                                    alt: insp.title || 'Reference',
+                                                    style: {
+                                                        width: '100%',
+                                                        height: '100%',
                                                                 objectFit: 'cover',
-                                                                borderRadius: '4px',
-                                                            }
+                                                        borderRadius: '4px',
+                                                    }
                                                         }) : React.createElement('div', {
                                                             style: { fontSize: '10px', color: '#666' }
                                                         }, '[ img ]'),
-                                                        React.createElement('button', {
+                                                React.createElement('button', {
                                                             onClick: function(e) {
                                                                 e.stopPropagation();
                                                                 setInspiration(inspiration.filter(function(_, i) { return i !== idx; }));
-                                                            },
-                                                            style: {
-                                                                position: 'absolute',
+                                                    },
+                                                    style: {
+                                                        position: 'absolute',
                                                                 top: '4px',
                                                                 right: '4px',
                                                                 background: '#ff0000',
-                                                                color: '#fff',
-                                                                border: 'none',
-                                                                borderRadius: '50%',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        borderRadius: '50%',
                                                                 width: '20px',
                                                                 height: '20px',
-                                                                cursor: 'pointer',
+                                                        cursor: 'pointer',
                                                                 fontSize: '12px',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
                                                                 padding: 0,
-                                                            }
-                                                        }, '×')
-                                                    );
+                                                    }
+                                                }, '×')
+                                            );
                                                 }),
                                                 React.createElement('button', {
                                                     onClick: function() {
@@ -7314,25 +7541,25 @@ class N88_RFQ_Admin {
                                                         if (input) input.click();
                                                     },
                                                     disabled: isUploadingInspiration,
-                                                    style: {
+                                        style: {
                                                         width: '80px',
                                                         height: '80px',
                                                         border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
+                                            borderRadius: '4px',
                                                         backgroundColor: '#111111',
                                                         color: darkText,
                                                         cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
-                                                    }
+                                                }
                                                 }, isUploadingInspiration ? '...' : '[+ Add]')
-                                            ),
-                                            React.createElement('input', {
-                                                type: 'file',
+                                    ),
+                                    React.createElement('input', {
+                                        type: 'file',
                                                 id: 'inspiration-file-input',
-                                                accept: 'image/*',
-                                                multiple: true,
-                                                onChange: handleInspirationFileChange,
+                                        accept: 'image/*',
+                                        multiple: true,
+                                        onChange: handleInspirationFileChange,
                                                 style: { display: 'none' },
                                                 disabled: isUploadingInspiration
                                             }),
@@ -7378,27 +7605,27 @@ class N88_RFQ_Admin {
                                         React.createElement('button', {
                                             type: 'button',
                                                     onClick: addInvitedSupplierChip,
-                                                    style: {
-                                                        padding: '8px 16px',
+                                        style: {
+                                            padding: '8px 16px',
                                                         backgroundColor: '#111111',
                                                         border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
+                                            borderRadius: '4px',
                                                         color: darkText,
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                 cursor: 'pointer',
                                                         whiteSpace: 'nowrap',
-                                                    }
+                                        }
                                                 }, 'Add')
-                                            ),
+                                ),
                                             React.createElement('div', {
-                                                style: {
+                                        style: {
                                                     display: 'flex',
                                                     flexWrap: 'wrap',
                                                     gap: '8px',
                                                     marginBottom: '8px',
                                                     minHeight: '32px',
-                                                }
+                                        }
                                             },
                                                 invitedSuppliers.map(function(supplier, idx) {
                                                     return React.createElement('div', {
@@ -7415,10 +7642,10 @@ class N88_RFQ_Admin {
                                                             color: greenAccent,
                                                             fontFamily: 'monospace',
                                                         }
-                                                    },
+                                    },
                                                         React.createElement('span', null, supplier),
-                                                        React.createElement('button', {
-                                                            type: 'button',
+                                        React.createElement('button', {
+                                            type: 'button',
                                                             onClick: function() { removeInvitedSupplierChip(supplier); },
                                                             style: {
                                                                 background: 'none',
@@ -7443,12 +7670,12 @@ class N88_RFQ_Admin {
                                             style: { marginBottom: '12px' }
                                         },
                                                 React.createElement('label', {
-                                        style: {
+                                            style: {
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         gap: '8px',
                                                 cursor: 'pointer',
-                                                    }
+                                            }
                                                 },
                                                     React.createElement('input', {
                                                         type: 'checkbox',
@@ -7494,29 +7721,53 @@ class N88_RFQ_Admin {
                                                 borderRadius: '4px',
                                                 fontSize: '11px',
                                                 color: '#ff0000',
-                                        }
+                                                    }
                                         }, rfqError) : null,
                                         React.createElement('button', {
                                             onClick: handleSubmitRfq,
                                             disabled: isSubmittingRfq,
-                                        style: {
+                                            style: {
                                                 width: '100%',
                                             padding: '12px',
                                                 backgroundColor: greenAccent,
                                                 border: 'none',
-                                            borderRadius: '4px',
+                                                borderRadius: '4px',
                                                 color: darkBg,
-                                            fontSize: '14px',
+                                                fontSize: '14px',
                                                 fontFamily: 'monospace',
                                                 cursor: isSubmittingRfq ? 'not-allowed' : 'pointer',
                                                 fontWeight: '600',
                                                 opacity: isSubmittingRfq ? 0.6 : 1,
-                                        }
+                                            }
                                         }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
                                     )
                                 ) : null,
-                                // State B: Description and editable fields (images shown at top)
-                                currentState === 'B' ? React.createElement(React.Fragment, null,
+                                // State B and C: Description and editable fields (images shown at top)
+                                (currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
+                                    // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
+                                    (showWarningBanner && itemState.has_rfq && itemState.has_bids) ? React.createElement('div', {
+                                        style: {
+                                            marginBottom: '16px',
+                                            padding: '12px',
+                                            backgroundColor: '#330000',
+                                            border: '1px solid #ff0000',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            color: '#ff0000',
+                                        }
+                                    }, '⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.') : null,
+                                    // Redirected warning - Show if item is redirected and bids are available
+                                    (currentState === 'C' && item.redirected && itemState.bids && itemState.bids.length > 0) ? React.createElement('div', {
+                                        style: {
+                                            marginBottom: '16px',
+                                            padding: '12px',
+                                            backgroundColor: '#331100',
+                                            border: '1px solid #ff8800',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            color: '#ff8800',
+                                        }
+                                    }, '⚠️ This item has been redirected. Existing bids may reflect previous routing.') : null,
                                     description ? React.createElement('div', {
                                         style: { marginBottom: '24px' }
                                     },
@@ -7562,7 +7813,15 @@ class N88_RFQ_Admin {
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                     }
-                                                })
+                                                }),
+                                                (function() {
+                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                                    return totalCbm !== null ? React.createElement('div', {
+                                                        style: { marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
+                                                    }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
+                                                        style: { marginTop: '8px', fontSize: '11px', color: '#666' }
+                                                    }, 'Total CBM: — (enter dimensions and quantity)'));
+                                                })()
                                             ),
                                             // Dimensions
                                             React.createElement('div', {
@@ -7570,7 +7829,10 @@ class N88_RFQ_Admin {
                                             },
                                                 React.createElement('label', {
                                                     style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                }, 'Dimensions' + (computedValues && computedValues.cbm ? ' (CBM: ' + computedValues.cbm.toFixed(3) + ')' : '')),
+                                                }, 'Dimensions' + (computedValues && computedValues.cbm ? ' (CBM: ' + computedValues.cbm.toFixed(3) + ')' : '') + (function() {
+                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                                    return totalCbm !== null ? ' (Total CBM: ' + totalCbm.toFixed(3) + ')' : '';
+                                                })()),
                                                 React.createElement('div', {
                                                     style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
                                                 },
@@ -7643,10 +7905,18 @@ class N88_RFQ_Admin {
                                                 ),
                                                 computedValues && computedValues.cbm ? React.createElement('div', {
                                                     style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
-                                                }, 'CBM: ' + computedValues.cbm.toFixed(3)) : null
+                                                }, 'CBM: ' + computedValues.cbm.toFixed(3)) : null,
+                                                (function() {
+                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
+                                                    return totalCbm !== null ? React.createElement('div', {
+                                                        style: { marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
+                                                    }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
+                                                        style: { marginTop: '4px', fontSize: '11px', color: '#666' }
+                                                    }, 'Total CBM: —'));
+                                                })()
                                             ),
                                             // Notes for suppliers
-                                            React.createElement('div', {
+                            React.createElement('div', {
                                                 style: { marginBottom: '0' }
                                             },
                                                 React.createElement('label', {
@@ -7662,7 +7932,7 @@ class N88_RFQ_Admin {
                                                     },
                                                     placeholder: '[ Add notes for suppliers ]',
                                                     maxLength: 240,
-                                                    style: {
+                                style: {
                                                         width: '100%',
                                                         minHeight: '60px',
                                                         padding: '8px',
@@ -7683,8 +7953,8 @@ class N88_RFQ_Admin {
                                     )
                                 ) : null
                             ),
-                            // Footer - Save button (State A and B)
-                            (currentState === 'A' || currentState === 'B') ? React.createElement('div', {
+                            // Footer - Save button (State A, B, and C - dims/qty always editable)
+                            (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement('div', {
                                 style: {
                                     padding: '16px 20px',
                                     borderTop: '1px solid ' + darkBorder,
@@ -7821,7 +8091,8 @@ class N88_RFQ_Admin {
                                 if (!data.success) {
                                     throw new Error(data.data && data.data.message ? data.data.message : 'Failed to save item facts');
                                 }
-                                return data;
+                                // Commit 2.3.5.1: Return data.data to access has_warning flag
+                                return data.data || data;
                             });
                         } else {
                             // Demo mode - just log

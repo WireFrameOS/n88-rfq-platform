@@ -1267,6 +1267,16 @@ class N88_RFQ_Auth {
             </div>
         </div>
         
+        <!-- Supplier Image Lightbox (Commit 2.3.5.1) -->
+        <div id="n88-supplier-image-lightbox" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.9); z-index: 10004; overflow: hidden; cursor: pointer;" onclick="closeSupplierImageLightbox(event);">
+            <div style="position: absolute; top: 20px; right: 20px; z-index: 10005;">
+                <button onclick="closeSupplierImageLightbox(event); event.stopPropagation();" style="background: rgba(255, 255, 255, 0.9); border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; color: #333; display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" onmouseover="this.style.background='rgba(255, 255, 255, 1)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.9)';" title="Close">×</button>
+            </div>
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; max-height: 90vh; display: flex; align-items: center; justify-content: center;" onclick="event.stopPropagation();">
+                <img id="n88-supplier-lightbox-image" src="" style="max-width: 90vw; max-height: 90vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" alt="Enlarged image" />
+            </div>
+        </div>
+        
         <script>
         (function() {
             // Filter persistence via URL query parameters
@@ -1323,6 +1333,14 @@ class N88_RFQ_Auth {
             });
             
             function openBidModal(itemId) {
+                // Ensure lightbox functions are available before creating modal HTML
+                if (typeof window.openSupplierImageLightbox !== 'function') {
+                    window.openSupplierImageLightbox = openSupplierImageLightbox;
+                }
+                if (typeof window.closeSupplierImageLightbox !== 'function') {
+                    window.closeSupplierImageLightbox = closeSupplierImageLightbox;
+                }
+                
                 var modal = document.getElementById('n88-supplier-bid-modal');
                 var modalContent = document.getElementById('n88-supplier-bid-modal-content');
                 
@@ -1441,10 +1459,13 @@ class N88_RFQ_Auth {
                         '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #fff;">' +
                         '<div style="padding: 20px;">' +
                         
-                        // Item Image - reduced size
-                        (item.image_url || item.primary_image_url ? '<div style="margin-bottom: 16px; text-align: center;">' +
-                            '<img src="' + (item.primary_image_url || item.image_url) + '" style="max-width: 100%; max-height: 180px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain;" />' +
-                            '</div>' : '') +
+                        // Item Image - reduced size (Commit 2.3.5.1: Make clickable to open in lightbox)
+                        (item.image_url || item.primary_image_url ? (function() {
+                            var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
+                            return '<div style="margin-bottom: 16px; text-align: center;">' +
+                                '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 180px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity=\'0.8\'; this.style.borderColor=\'#0073aa\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#e0e0e0\';" title="Click to enlarge" />' +
+                                '</div>';
+                        })() : '') +
                         
                         // Item Title
                         '<div style="margin-bottom: 16px;">' +
@@ -1685,7 +1706,7 @@ class N88_RFQ_Auth {
                                     'style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 2px solid #ddd; cursor: pointer; transition: all 0.2s; background-color: #000;" ' +
                                     'onmouseover="this.style.borderColor=\'#0073aa\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,115,170,0.3)\';" ' +
                                     'onmouseout="this.style.borderColor=\'#ddd\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
-                                    'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\');if(url&&url.trim()){try{window.open(url,\'_blank\',\'noopener,noreferrer\');}catch(err){console.error(\'Error opening image:\',err);}}else{console.error(\'No URL found for image\');}})(this);" ' +
+                                    'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
                                     '</div>';
@@ -1701,7 +1722,11 @@ class N88_RFQ_Auth {
                         if (primaryImageUrl) {
                             centerColumnHTML += '<img src="' + primaryImageUrl.replace(/"/g, '&quot;') + '" ' +
                                 'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23f0f0f0\' width=\'400\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EItem Image%3C/text%3E%3C/svg%3E\';" ' +
-                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" ' +
+                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 4px; border: 1px solid #e0e0e0; object-fit: contain; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer; transition: opacity 0.2s;" ' +
+                                'onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + primaryImageUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}return false;" ' +
+                                'onmouseover="this.style.opacity=\'0.9\';" ' +
+                                'onmouseout="this.style.opacity=\'1\';" ' +
+                                'title="Click to enlarge" ' +
                                 'alt="Item main image" />';
                         } else {
                             centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #f0f0f0; border-radius: 4px; border: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999;">No main image available</div>';
@@ -1721,7 +1746,7 @@ class N88_RFQ_Auth {
                                     'style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 2px solid #ddd; cursor: pointer; transition: all 0.2s; background-color: #000;" ' +
                                     'onmouseover="this.style.borderColor=\'#0073aa\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,115,170,0.3)\';" ' +
                                     'onmouseout="this.style.borderColor=\'#ddd\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
-                                    'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\');if(url&&url.trim()){try{window.open(url,\'_blank\',\'noopener,noreferrer\');}catch(err){console.error(\'Error opening image:\',err);}}else{console.error(\'No URL found for image\');}})(this);" ' +
+                                    'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
                                     '</div>';
@@ -1770,11 +1795,11 @@ class N88_RFQ_Auth {
                         '</div>' +
                         
                     
-                    // 1. Video links (min 1, max 3)
+                    // 1. Video links (optional, 0-3) - Commit 2.3.5.1: Remove mandatory requirement
                     '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Video Links <span style="color: #d32f2f;">*</span></label>' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Video Links (Optional)</label>' +
                     '<div style="font-size: 11px; color: #888; margin-bottom: 4px; font-style: italic;">Add video of similar item so creator can see your capability</div>' +
-                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Paste up to 3 links (YouTube, Vimeo, or Loom). At least 1 is required.</div>' +
+                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Paste up to 3 links (YouTube, Vimeo, or Loom). Optional.</div>' +
                     '<div id="n88-video-links-container">' +
                     '<div style="margin-bottom: 8px; display: flex; gap: 8px;">' +
                     '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
@@ -1783,6 +1808,16 @@ class N88_RFQ_Auth {
                     '</div>' +
                     '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 8px 16px; background-color: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 13px;">+ Add Another Link</button>' +
                     '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
+                    '</div>' +
+                    
+                    // 1.5. Bid Photos (Required, min 1, max 5) - Commit 2.3.5.1
+                    '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">Bid Photos <span style="color: #d32f2f;">*</span></label>' +
+                    '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
+                    '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 10px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-bottom: 12px;">+ Add Photos</button>' +
+                    '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                    '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 12px; color: #d32f2f; display: none;"></div>' +
                     '</div>' +
                     
                     // 2. Prototype video commitment (must be YES)
@@ -1891,6 +1926,211 @@ class N88_RFQ_Auth {
                 }
             }
             
+            // Commit 2.3.5.1: Supplier image lightbox functions
+            function openSupplierImageLightbox(imageUrl) {
+                var lightbox = document.getElementById('n88-supplier-image-lightbox');
+                var lightboxImage = document.getElementById('n88-supplier-lightbox-image');
+                if (lightbox && lightboxImage) {
+                    lightboxImage.src = imageUrl;
+                    lightbox.style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                }
+            }
+            
+            function closeSupplierImageLightbox(event) {
+                if (event) {
+                    event.stopPropagation();
+                }
+                var lightbox = document.getElementById('n88-supplier-image-lightbox');
+                if (lightbox) {
+                    lightbox.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            }
+            
+            // Commit 2.3.5.1: Handle bid photos upload
+            function handleBidPhotosChange(input) {
+                var files = input.files;
+                if (!files || files.length === 0) {
+                    return;
+                }
+                
+                // Validate file count (max 5)
+                if (files.length > 5) {
+                    alert('Maximum 5 photos allowed. Please select up to 5 photos.');
+                    input.value = '';
+                    return;
+                }
+                
+                // Validate file types
+                var imageFiles = Array.from(files).filter(function(file) {
+                    return file.type.startsWith('image/');
+                });
+                
+                if (imageFiles.length !== files.length) {
+                    alert('Please select image files only.');
+                    input.value = '';
+                    return;
+                }
+                
+                var previewContainer = document.getElementById('n88-bid-photos-preview');
+                var errorDiv = document.getElementById('n88-bid-photos-error');
+                
+                if (!previewContainer) {
+                    console.error('Bid photos preview container not found');
+                    return;
+                }
+                
+                // Clear previous previews
+                previewContainer.innerHTML = '';
+                
+                // Get nonce for AJAX
+                var nonce = '<?php echo wp_create_nonce( 'n88_upload_inspiration_image' ); ?>';
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+                
+                // Upload each file
+                var uploadPromises = imageFiles.map(function(file, index) {
+                    return new Promise(function(resolve, reject) {
+                        var formData = new FormData();
+                        formData.append('action', 'n88_upload_inspiration_image');
+                        formData.append('inspiration_image', file);
+                        formData.append('nonce', nonce);
+                        
+                        // Show loading placeholder
+                        var placeholderId = 'n88-bid-photo-placeholder-' + index;
+                        var placeholder = document.createElement('div');
+                        placeholder.id = placeholderId;
+                        placeholder.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px dashed #ddd; border-radius: 4px; display: flex; align-items: center; justify-content: center; background-color: #f9f9f9;';
+                        placeholder.innerHTML = '<div style="font-size: 11px; color: #999;">Uploading...</div>';
+                        previewContainer.appendChild(placeholder);
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            if (!response.ok) {
+                                throw new Error('HTTP error! status: ' + response.status);
+                            }
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            // Remove placeholder
+                            var placeholderEl = document.getElementById(placeholderId);
+                            if (placeholderEl) {
+                                placeholderEl.remove();
+                            }
+                            
+                            if (data.success && data.data && data.data.id && data.data.url) {
+                                // Create thumbnail
+                                var thumbDiv = document.createElement('div');
+                                thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #ddd; border-radius: 4px; overflow: hidden;';
+                                thumbDiv.innerHTML = '<img src="' + data.data.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
+                                    '<button type="button" onclick="removeBidPhoto(this, ' + data.data.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                
+                                // Add hidden input INSIDE THE FORM (not in preview container)
+                                var form = document.getElementById('n88-bid-form');
+                                if (form) {
+                                    var hiddenInput = document.createElement('input');
+                                    hiddenInput.type = 'hidden';
+                                    hiddenInput.name = 'bid_photo_ids[]';
+                                    hiddenInput.value = data.data.id;
+                                    hiddenInput.setAttribute('data-photo-id', data.data.id);
+                                    hiddenInput.setAttribute('data-thumb-div', 'photo-' + data.data.id); // Link to thumbDiv
+                                    form.appendChild(hiddenInput);
+                                    console.log('✓ Added hidden input to form - Photo ID:', data.data.id, 'Total inputs:', form.querySelectorAll('input[name="bid_photo_ids[]"]').length);
+                                } else {
+                                    console.error('✗ Form #n88-bid-form not found when adding photo!');
+                                }
+                                
+                                // Store reference in thumbDiv for easy removal
+                                thumbDiv.setAttribute('data-photo-id', data.data.id);
+                                previewContainer.appendChild(thumbDiv);
+                                
+                                resolve({ id: data.data.id, url: data.data.url });
+                            } else {
+                                var errorMsg = data.data && data.data.message ? data.data.message : 'Upload failed';
+                                throw new Error(errorMsg);
+                            }
+                        })
+                        .catch(function(error) {
+                            // Remove placeholder
+                            var placeholderEl = document.getElementById(placeholderId);
+                            if (placeholderEl) {
+                                placeholderEl.remove();
+                            }
+                            
+                            console.error('Error uploading photo:', error);
+                            if (errorDiv) {
+                                errorDiv.textContent = 'Failed to upload ' + file.name + ': ' + error.message;
+                                errorDiv.style.display = 'block';
+                            }
+                            reject(error);
+                        });
+                    });
+                });
+                
+                // Clear error on success
+                Promise.all(uploadPromises).then(function(results) {
+                    if (errorDiv) {
+                        errorDiv.style.display = 'none';
+                    }
+                    
+                    // Verify inputs were added before validating
+                    var form = document.getElementById('n88-bid-form');
+                    if (form) {
+                        var inputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                        console.log('After upload - Total photo inputs in form:', inputs.length);
+                        if (inputs.length > 0) {
+                            inputs.forEach(function(input, idx) {
+                                console.log('  Input ' + idx + ':', input.value);
+                            });
+                        }
+                    }
+                    
+                    // Force validation after a delay to ensure DOM is fully updated
+                    setTimeout(function() {
+                        if (typeof validateBidForm === 'function') {
+                            var validationResult = validateBidForm();
+                            console.log('Validation result after upload:', validationResult);
+                        }
+                    }, 300);
+                }).catch(function() {
+                    // Errors already handled above
+                });
+            }
+            
+            // Remove bid photo
+            function removeBidPhoto(button, photoId) {
+                if (!confirm('Remove this photo?')) {
+                    return;
+                }
+                
+                var thumbDiv = button.parentElement;
+                thumbDiv.remove();
+                
+                // Remove the hidden input from form
+                var form = document.getElementById('n88-bid-form');
+                if (form) {
+                    var hiddenInput = form.querySelector('input[data-photo-id="' + photoId + '"]');
+                    if (hiddenInput) {
+                        hiddenInput.remove();
+                    }
+                }
+                
+                // Clear file input if no photos left
+                var previewContainer = document.getElementById('n88-bid-photos-preview');
+                var remainingPhotos = previewContainer.querySelectorAll('div[style*="position: relative"]').length;
+                if (remainingPhotos === 0) {
+                    var input = document.getElementById('n88-bid-photos-input');
+                    if (input) {
+                        input.value = '';
+                    }
+                }
+                
+                validateBidForm();
+            }
+            
             // Add video link input
             function addVideoLink() {
                 var container = document.getElementById('n88-video-links-container');
@@ -1993,6 +2233,9 @@ class N88_RFQ_Auth {
                 return true;
             }
             
+            // Commit 2.3.5.1: Handle bid photos change - UPLOAD TO WORDPRESS MEDIA
+            // This function is already defined above, but keeping this comment for reference
+            
             // Validate entire bid form (client-side)
             function validateBidForm() {
                 var form = document.getElementById('n88-bid-form');
@@ -2001,7 +2244,7 @@ class N88_RFQ_Auth {
                 var isValid = true;
                 var submitBtn = document.getElementById('n88-validate-bid-btn');
                 
-                // 1. Video links: min 1, max 3, all valid
+                // 1. Video links: optional, max 3, all valid (Commit 2.3.5.1: Remove mandatory requirement)
                 var videoLinks = form.querySelectorAll('.n88-video-link-input');
                 var validVideoLinks = 0;
                 var allowedDomains = [
@@ -2030,8 +2273,73 @@ class N88_RFQ_Auth {
                     }
                 });
                 
-                if (validVideoLinks < 1) {
+                // Video links are optional now, but if provided, max 3
+                if (validVideoLinks > 3) {
                     isValid = false;
+                }
+                
+                // 1.5. Bid Photos: required, min 1, max 5 (Commit 2.3.5.1) - check uploaded photo IDs
+                // Check in form first, then fallback to preview container, then check thumbnails
+                var photoIdInputs = [];
+                if (form) {
+                    var formInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                    photoIdInputs = Array.from(formInputs);
+                }
+                
+                // Also check preview container as fallback
+                var previewContainer = document.getElementById('n88-bid-photos-preview');
+                if (previewContainer) {
+                    var previewInputs = previewContainer.querySelectorAll('input[name="bid_photo_ids[]"]');
+                    Array.from(previewInputs).forEach(function(input) {
+                        // Only add if not already in array
+                        var alreadyExists = photoIdInputs.some(function(existing) {
+                            return existing === input || existing.value === input.value;
+                        });
+                        if (!alreadyExists) {
+                            photoIdInputs.push(input);
+                        }
+                    });
+                }
+                
+                // Also count thumbnails as a last resort (if inputs somehow not found)
+                var bidPhotosCount = 0;
+                if (photoIdInputs.length > 0) {
+                    photoIdInputs.forEach(function(input) {
+                        var photoId = parseInt(input.value);
+                        if (!isNaN(photoId) && photoId > 0) {
+                            bidPhotosCount++;
+                        }
+                    });
+                } else {
+                    // Fallback: count thumbnails in preview container
+                    if (previewContainer) {
+                        var thumbnails = previewContainer.querySelectorAll('div[data-photo-id]');
+                        bidPhotosCount = thumbnails.length;
+                    }
+                }
+                
+                var photosError = document.getElementById('n88-bid-photos-error');
+                console.log('Photo validation - Inputs found:', photoIdInputs.length, 'Photos counted:', bidPhotosCount, 'Form:', !!form, 'Preview container:', !!previewContainer);
+                
+                if (bidPhotosCount < 1) {
+                    isValid = false;
+                    if (photosError) {
+                        photosError.textContent = 'At least 1 photo is required.';
+                        photosError.style.display = 'block';
+                    }
+                    console.log('✗ Photo validation FAILED - Need at least 1 photo');
+                } else if (bidPhotosCount > 5) {
+                    isValid = false;
+                    if (photosError) {
+                        photosError.textContent = 'Maximum 5 photos allowed.';
+                        photosError.style.display = 'block';
+                    }
+                    console.log('✗ Photo validation FAILED - Maximum 5 photos allowed');
+                } else {
+                    if (photosError) {
+                        photosError.style.display = 'none';
+                    }
+                    console.log('✓ Photo validation PASSED -', bidPhotosCount, 'photo(s)');
                 }
                 
                 // 2. Prototype video must be YES
@@ -2143,6 +2451,17 @@ class N88_RFQ_Auth {
                     }
                 });
                 formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Commit 2.3.5.1: Bid photos (required) - use uploaded photo IDs
+                var bidPhotoIds = [];
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotoIds.push(photoId);
+                    }
+                });
+                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 // Other fields
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
@@ -2267,6 +2586,17 @@ class N88_RFQ_Auth {
                     }
                 });
                 formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Commit 2.3.5.1: Bid photos (required) - use uploaded photo IDs
+                var bidPhotoIds = [];
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotoIds.push(photoId);
+                    }
+                });
+                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 // Other fields
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
@@ -2421,6 +2751,10 @@ class N88_RFQ_Auth {
             window.validateBidForm = validateBidForm;
             window.withdrawBid = withdrawBid;
             window.validateAndSubmitBid = validateAndSubmitBid;
+            window.openSupplierImageLightbox = openSupplierImageLightbox;
+            window.closeSupplierImageLightbox = closeSupplierImageLightbox;
+            window.handleBidPhotosChange = handleBidPhotosChange;
+            window.removeBidPhoto = removeBidPhoto;
         })();
         </script>
         <?php
@@ -4619,39 +4953,86 @@ class N88_RFQ_Auth {
         // Filter out empty links
         $video_links = array_filter( array_map( 'trim', $video_links ) );
         
-        if ( count( $video_links ) < 1 ) {
-            $errors['video_links'] = 'At least 1 video link is required.';
-        } elseif ( count( $video_links ) > 3 ) {
+        // Commit 2.3.5.1: Video links are optional now, but if provided, max 3
+        if ( count( $video_links ) > 3 ) {
             $errors['video_links'] = 'Maximum 3 video links allowed.';
         } else {
-            // Validate each link against allowlist
-            $allowed_domains = array(
-                'youtube.com', 'www.youtube.com', 'youtu.be',
-                'vimeo.com', 'www.vimeo.com',
-                'loom.com', 'www.loom.com'
-            );
-            
-            foreach ( $video_links as $link ) {
-                $parsed_url = wp_parse_url( $link );
-                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
-                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
-                    break;
-                }
+            // Validate each link against allowlist (only if provided)
+            if ( count( $video_links ) > 0 ) {
+                $allowed_domains = array(
+                    'youtube.com', 'www.youtube.com', 'youtu.be',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                );
                 
-                $hostname = strtolower( $parsed_url['host'] );
-                $hostname = preg_replace( '/^www\./', '', $hostname );
-                
-                $is_allowed = false;
-                foreach ( $allowed_domains as $domain ) {
-                    $domain_clean = preg_replace( '/^www\./', '', $domain );
-                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
-                        $is_allowed = true;
+                foreach ( $video_links as $link ) {
+                    $parsed_url = wp_parse_url( $link );
+                    if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                        $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                        break;
+                    }
+                    
+                    $hostname = strtolower( $parsed_url['host'] );
+                    $hostname = preg_replace( '/^www\./', '', $hostname );
+                    
+                    $is_allowed = false;
+                    foreach ( $allowed_domains as $domain ) {
+                        $domain_clean = preg_replace( '/^www\./', '', $domain );
+                        if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                            $is_allowed = true;
+                            break;
+                        }
+                    }
+                    
+                    if ( ! $is_allowed ) {
+                        $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
                         break;
                     }
                 }
+            }
+        }
+        
+        // 1.5. Bid Photos validation (required, min 1, max 5) - Commit 2.3.5.1
+        // Check for bid_photo_ids (already uploaded to WordPress media library)
+        $bid_photo_ids_raw = isset( $_POST['bid_photo_ids'] ) ? $_POST['bid_photo_ids'] : null;
+        
+        // Handle both JSON string and array formats
+        $bid_photo_ids = array();
+        if ( $bid_photo_ids_raw !== null ) {
+            if ( is_string( $bid_photo_ids_raw ) ) {
+                $decoded = json_decode( wp_unslash( $bid_photo_ids_raw ), true );
+                if ( is_array( $decoded ) ) {
+                    $bid_photo_ids = $decoded;
+                }
+            } elseif ( is_array( $bid_photo_ids_raw ) ) {
+                $bid_photo_ids = $bid_photo_ids_raw;
+            }
+        }
+        
+        // Filter out invalid IDs
+        $bid_photo_ids = array_filter( array_map( 'intval', $bid_photo_ids ), function( $id ) {
+            return $id > 0;
+        } );
+        
+        $bid_photos_count = count( $bid_photo_ids );
+        
+        if ( $bid_photos_count < 1 ) {
+            $errors['bid_photos'] = 'At least 1 photo is required.';
+        } elseif ( $bid_photos_count > 5 ) {
+            $errors['bid_photos'] = 'Maximum 5 photos allowed.';
+        } else {
+            // Validate that all photo IDs exist in WordPress media library
+            foreach ( $bid_photo_ids as $photo_id ) {
+                $attachment = get_post( $photo_id );
+                if ( ! $attachment || $attachment->post_type !== 'attachment' ) {
+                    $errors['bid_photos'] = 'Invalid photo ID: ' . $photo_id;
+                    break;
+                }
                 
-                if ( ! $is_allowed ) {
-                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                // Verify it's an image
+                $mime_type = get_post_mime_type( $photo_id );
+                if ( ! $mime_type || strpos( $mime_type, 'image/' ) !== 0 ) {
+                    $errors['bid_photos'] = 'Photo ID ' . $photo_id . ' is not a valid image.';
                     break;
                 }
             }
@@ -4776,39 +5157,86 @@ class N88_RFQ_Auth {
         // Filter out empty links
         $video_links = array_filter( array_map( 'trim', $video_links ) );
         
-        if ( count( $video_links ) < 1 ) {
-            $errors['video_links'] = 'At least 1 video link is required.';
-        } elseif ( count( $video_links ) > 3 ) {
+        // Commit 2.3.5.1: Video links are optional now, but if provided, max 3
+        if ( count( $video_links ) > 3 ) {
             $errors['video_links'] = 'Maximum 3 video links allowed.';
         } else {
-            // Validate each link against allowlist
-            $allowed_domains = array(
-                'youtube.com', 'www.youtube.com', 'youtu.be',
-                'vimeo.com', 'www.vimeo.com',
-                'loom.com', 'www.loom.com'
-            );
-            
-            foreach ( $video_links as $link ) {
-                $parsed_url = wp_parse_url( $link );
-                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
-                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
-                    break;
-                }
+            // Validate each link against allowlist (only if provided)
+            if ( count( $video_links ) > 0 ) {
+                $allowed_domains = array(
+                    'youtube.com', 'www.youtube.com', 'youtu.be',
+                    'vimeo.com', 'www.vimeo.com',
+                    'loom.com', 'www.loom.com'
+                );
                 
-                $hostname = strtolower( $parsed_url['host'] );
-                $hostname = preg_replace( '/^www\./', '', $hostname );
-                
-                $is_allowed = false;
-                foreach ( $allowed_domains as $domain ) {
-                    $domain_clean = preg_replace( '/^www\./', '', $domain );
-                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
-                        $is_allowed = true;
+                foreach ( $video_links as $link ) {
+                    $parsed_url = wp_parse_url( $link );
+                    if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                        $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                        break;
+                    }
+                    
+                    $hostname = strtolower( $parsed_url['host'] );
+                    $hostname = preg_replace( '/^www\./', '', $hostname );
+                    
+                    $is_allowed = false;
+                    foreach ( $allowed_domains as $domain ) {
+                        $domain_clean = preg_replace( '/^www\./', '', $domain );
+                        if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                            $is_allowed = true;
+                            break;
+                        }
+                    }
+                    
+                    if ( ! $is_allowed ) {
+                        $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
                         break;
                     }
                 }
+            }
+        }
+        
+        // 1.5. Bid Photos validation (required, min 1, max 5) - Commit 2.3.5.1
+        // Check for bid_photo_ids (already uploaded to WordPress media library)
+        $bid_photo_ids_raw = isset( $_POST['bid_photo_ids'] ) ? $_POST['bid_photo_ids'] : null;
+        
+        // Handle both JSON string and array formats
+        $bid_photo_ids = array();
+        if ( $bid_photo_ids_raw !== null ) {
+            if ( is_string( $bid_photo_ids_raw ) ) {
+                $decoded = json_decode( wp_unslash( $bid_photo_ids_raw ), true );
+                if ( is_array( $decoded ) ) {
+                    $bid_photo_ids = $decoded;
+                }
+            } elseif ( is_array( $bid_photo_ids_raw ) ) {
+                $bid_photo_ids = $bid_photo_ids_raw;
+            }
+        }
+        
+        // Filter out invalid IDs
+        $bid_photo_ids = array_filter( array_map( 'intval', $bid_photo_ids ), function( $id ) {
+            return $id > 0;
+        } );
+        
+        $bid_photos_count = count( $bid_photo_ids );
+        
+        if ( $bid_photos_count < 1 ) {
+            $errors['bid_photos'] = 'At least 1 photo is required.';
+        } elseif ( $bid_photos_count > 5 ) {
+            $errors['bid_photos'] = 'Maximum 5 photos allowed.';
+        } else {
+            // Validate that all photo IDs exist in WordPress media library
+            foreach ( $bid_photo_ids as $photo_id ) {
+                $attachment = get_post( $photo_id );
+                if ( ! $attachment || $attachment->post_type !== 'attachment' ) {
+                    $errors['bid_photos'] = 'Invalid photo ID: ' . $photo_id;
+                    break;
+                }
                 
-                if ( ! $is_allowed ) {
-                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                // Verify it's an image
+                $mime_type = get_post_mime_type( $photo_id );
+                if ( ! $mime_type || strpos( $mime_type, 'image/' ) !== 0 ) {
+                    $errors['bid_photos'] = 'Photo ID ' . $photo_id . ' is not a valid image.';
                     break;
                 }
             }
@@ -4928,7 +5356,7 @@ class N88_RFQ_Auth {
                 array( '%d' )
             );
 
-            // Insert new media links
+            // Insert new media links (optional, 0-3)
             $sort_order = 0;
             foreach ( $video_links as $link ) {
                 // Determine provider from URL (matching validation logic)
@@ -4958,6 +5386,75 @@ class N88_RFQ_Auth {
                     array( '%d', '%s', '%s', '%d' )
                 );
                 $sort_order++;
+            }
+            
+            // Commit 2.3.5.1: Handle bid photos upload and save to n88_bid_media_files
+            $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+            
+            // Delete old bid photos
+            $wpdb->delete(
+                $bid_media_files_table,
+                array( 'bid_id' => $bid_id ),
+                array( '%d' )
+            );
+            
+            // Upload and save new bid photos
+            require_once( ABSPATH . 'wp-admin/includes/file.php' );
+            require_once( ABSPATH . 'wp-admin/includes/media.php' );
+            require_once( ABSPATH . 'wp-admin/includes/image.php' );
+            
+            $files_to_upload = array();
+            if ( ! empty( $_FILES['bid_photos'] ) ) {
+                if ( is_array( $_FILES['bid_photos']['name'] ) ) {
+                    foreach ( $_FILES['bid_photos']['name'] as $index => $name ) {
+                        if ( ! empty( $name ) ) {
+                            $files_to_upload[] = array(
+                                'name' => $name,
+                                'type' => $_FILES['bid_photos']['type'][ $index ],
+                                'tmp_name' => $_FILES['bid_photos']['tmp_name'][ $index ],
+                                'error' => $_FILES['bid_photos']['error'][ $index ],
+                                'size' => $_FILES['bid_photos']['size'][ $index ],
+                            );
+                        }
+                    }
+                } else {
+                    if ( ! empty( $_FILES['bid_photos']['name'] ) ) {
+                        $files_to_upload[] = $_FILES['bid_photos'];
+                    }
+                }
+            }
+            
+            $photo_sort_order = 0;
+            foreach ( $files_to_upload as $file ) {
+                if ( $file['error'] === UPLOAD_ERR_OK ) {
+                    $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+                    if ( ! isset( $upload['error'] ) ) {
+                        $attachment = array(
+                            'post_mime_type' => $upload['type'],
+                            'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                            'post_content'   => '',
+                            'post_status'    => 'inherit'
+                        );
+                        $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                        $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                        wp_update_attachment_metadata( $attach_id, $attach_data );
+                        
+                        $file_url = $upload['url'];
+                        
+                        // Save to n88_bid_media_files table
+                        $wpdb->insert(
+                            $bid_media_files_table,
+                            array(
+                                'bid_id' => $bid_id,
+                                'file_url' => $file_url,
+                                'sort_order' => $photo_sort_order,
+                            ),
+                            array( '%d', '%s', '%d' )
+                        );
+                        
+                        $photo_sort_order++;
+                    }
+                }
             }
 
             // Update route status to bid_submitted

@@ -33,14 +33,39 @@ const normalizeToCm = (value, unit) => {
 };
 
 /**
- * Calculate CBM (Cubic Meters)
+ * Calculate CBM (Cubic Meters) - per unit
+ */
+/**
+ * Calculate CBM (Cubic Meters) - per unit
+ * Formula: (W_cm × D_cm × H_cm) / 1,000,000
+ * This is equivalent to:
+ * - Inches: (W × D × H) / 61023.7441
+ * - Centimeters: (W × D × H) / 1,000,000
+ * - Millimeters: (W × D × H) / 1,000,000,000
+ * - Meters: W × D × H
  */
 const calculateCBM = (wCm, dCm, hCm) => {
     if (!wCm || !dCm || !hCm) return null;
+    // Convert cm to meters, then calculate volume
     const wM = wCm / 100;
     const dM = dCm / 100;
     const hM = hCm / 100;
+    // Calculate CBM and round to 3 decimal places
     return Math.round((wM * dM * hM) * 1000) / 1000;
+};
+
+/**
+ * Calculate Total CBM (item_cbm × quantity)
+ * Formula: total_cbm = item_cbm × quantity
+ * Returns value rounded to 3 decimal places
+ */
+const calculateTotalCBM = (itemCbm, quantity) => {
+    if (!itemCbm || itemCbm === null || itemCbm === undefined) return null;
+    if (!quantity || quantity === null || quantity === undefined || quantity === '' || quantity === 0) return null;
+    const qty = parseInt(quantity);
+    if (isNaN(qty) || qty <= 0) return null;
+    // Calculate total CBM and round to 3 decimal places
+    return Math.round((itemCbm * qty) * 1000) / 1000;
 };
 
 /**
@@ -630,7 +655,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     }, [itemState]);
     
     // Check if fields should be editable
+    // Dimensions and quantity must remain editable at all times after RFQ submission (State B and C)
     const isEditable = currentState === 'A';
+    const isDimsQtyEditable = true; // Always editable, even after RFQ and bids
+    
+    // Warning banner state for post-RFQ dims/qty changes
+    // Show only if: RFQ exists AND bids exist AND dims/qty changed
+    const [showWarningBanner, setShowWarningBanner] = React.useState(false);
     
     // Handle save
     const handleSave = async () => {
@@ -639,11 +670,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             return;
         }
         
-        // Allow saving in State B (RFQ sent) but not in State C (bids received)
-        if (currentState === 'C') {
-            alert('This item is locked. Bids have been received.');
-            return;
-        }
+        // Dimensions and quantity are always editable (State B and C)
+        // No blocking - allow saving in all states
         
         setIsSaving(true);
         
@@ -722,7 +750,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             updateLayout(item.id, payload);
             
             if (onSave) {
-                await onSave(item.id, payload);
+                const response = await onSave(item.id, payload);
+                // Commit 2.3.5.1: Show warning banner only if: RFQ exists AND bids exist AND dims/qty changed
+                if (response && response.has_warning && itemState.has_rfq && itemState.has_bids) {
+                    setShowWarningBanner(true);
+                    // Auto-hide after 10 seconds
+                    setTimeout(() => setShowWarningBanner(false), 10000);
+                }
             }
             
             // Don't close modal - stay open as per requirement
@@ -1206,12 +1240,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 {/* Main Image on Top - before heading (State A and B) */}
                                 {(item.imageUrl || item.image_url || item.primary_image_url) && (
                                     <div style={{ marginBottom: '24px' }}>
-                                        <div style={{ 
+                        <div style={{
                                             border: `1px solid ${darkBorder}`,
                                             borderRadius: '4px', 
                                             padding: '12px',
                                             backgroundColor: '#111111',
-                                            minHeight: '200px',
+                                            minHeight: '150px',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
@@ -1226,26 +1260,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 alt="Primary" 
                                                 style={{ 
                                                     maxWidth: '100%',
-                                                    maxHeight: '400px',
+                                                    maxHeight: '250px',
                                                     objectFit: 'contain',
                                                     borderRadius: '4px',
                                                 }} 
                                             />
-                                        </div>
-                                    </div>
+                                </div>
+                                </div>
                                 )}
-                                
+                            
                                 {/* Reference Images - before title (State B only) */}
                                 {currentState === 'B' && inspiration && inspiration.length > 0 && (
                                     <div style={{ marginBottom: '24px' }}>
                                         <div style={{ marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }}>
                                             Reference Images
                                         </div>
-                                        <div style={{
+                            <div style={{
                                             display: 'flex',
                                             gap: '8px',
                                             flexWrap: 'wrap',
-                                        }}>
+                            }}>
                                             {inspiration.map((insp, idx) => (
                                                 <div
                                                     key={idx}
@@ -1253,7 +1287,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         width: '80px',
                                                         height: '80px',
                                                         border: `1px solid ${darkBorder}`,
-                                                        borderRadius: '4px',
+                                    borderRadius: '4px',
                                                         backgroundColor: '#111111',
                                                         position: 'relative',
                                                         overflow: 'hidden',
@@ -1266,14 +1300,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                     }}
                                                 >
                                                     {insp.url ? (
-                                                        <img 
+                                    <img 
                                                             src={insp.url} 
                                                             alt={insp.title || 'Reference'} 
-                                                            style={{ 
+                                        style={{
                                                                 width: '100%',
                                                                 height: '100%',
                                                                 objectFit: 'cover',
-                                                                borderRadius: '4px',
+                                            borderRadius: '4px',
                                                             }} 
                                                         />
                                                     ) : (
@@ -1282,9 +1316,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 </div>
                                             ))}
                                         </div>
-                                    </div>
-                                )}
-                                
+                                </div>
+                            )}
+                            
                                 {/* Item Details Heading */}
                                 <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }}>
                                     Item Details
@@ -1302,7 +1336,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         backgroundColor: darkBg,
                                         border: `1px solid ${darkBorder}`,
                                         borderRadius: '4px',
-                                        fontSize: '12px',
+                                    fontSize: '12px', 
                                         fontFamily: 'monospace',
                             }}>
                                         <div style={{ marginBottom: '6px' }}>
@@ -1333,6 +1367,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 <span style={{ color: greenAccent }}>{formatDimensions()}</span>
                                             </div>
                                         )}
+                                        {(() => {
+                                            const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                            return (
+                                                <div style={{ marginBottom: '6px' }}>
+                                                    <span style={{ color: darkText, opacity: 0.7 }}>Total CBM:</span>{' '}
+                                                    <span style={{ color: greenAccent }}>
+                                                        {totalCbm !== null ? totalCbm.toFixed(3) : '—'}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })()}
                                         <div style={{ marginBottom: '0' }}>
                                             <span style={{ color: darkText, opacity: 0.7 }}>Delivery:</span>{' '}
                                             <span style={{ color: greenAccent }}>
@@ -1342,7 +1387,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     </div>
                                 )}
                             </div>
-                            
+                                
                             {/* System Intelligence (editable when State A only) - Removed "SECTION:" text */}
                             {isEditable && currentState === 'A' ? (
                                 <div style={{ marginBottom: '24px' }}>
@@ -1506,12 +1551,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     {!showRfqForm ? (
                                         <button
                                             onClick={() => setShowRfqForm(true)}
-                                    style={{
-                                                width: '100%',
+                                        style={{
+                                            width: '100%',
                                                 padding: '12px',
                                                 backgroundColor: '#111111',
                                                 border: `1px solid ${darkBorder}`,
-                                        borderRadius: '4px',
+                                            borderRadius: '4px',
                                                 color: darkText,
                                                 fontSize: '14px',
                                                 fontFamily: 'monospace',
@@ -1555,94 +1600,108 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 >
                                                     ×
                                 </button>
-                            </div>
-                            
+                                </div>
+                                
                                             {/* RFQ Form Fields */}
-                                            {/* Dimensions */}
-                                            <div style={{ marginBottom: '12px' }}>
+                                {/* Dimensions */}
+                                <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Dimensions
-                                                </label>
+                                        Dimensions
+                                    </label>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
-                                                    <input
-                                                        type="number"
-                                                        value={width}
-                                                        onChange={(e) => setWidth(e.target.value)}
+                                            <input
+                                                type="number"
+                                                value={width}
+                                                onChange={(e) => setWidth(e.target.value)}
                                                         placeholder="W"
                                                         step="0.01"
-                                                        style={{
+                                                style={{
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
                                                             border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
+                                                    borderRadius: '4px',
                                                             color: darkText,
-                                                            fontSize: '12px',
+                                                    fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <input
-                                                        type="number"
-                                                        value={depth}
-                                                        onChange={(e) => setDepth(e.target.value)}
+                                                }}
+                                            />
+                                            <input
+                                                type="number"
+                                                value={depth}
+                                                onChange={(e) => setDepth(e.target.value)}
                                                         placeholder="D"
                                                         step="0.01"
-                                                        style={{
+                                                style={{
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
                                                             border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
+                                                    borderRadius: '4px',
                                                             color: darkText,
-                                                            fontSize: '12px',
+                                                    fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <input
-                                                        type="number"
-                                                        value={height}
-                                                        onChange={(e) => setHeight(e.target.value)}
+                                                }}
+                                            />
+                                            <input
+                                                type="number"
+                                                value={height}
+                                                onChange={(e) => setHeight(e.target.value)}
                                                         placeholder="H"
                                                         step="0.01"
-                                                        style={{
+                                                style={{
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
                                                             border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
+                                                    borderRadius: '4px',
                                                             color: darkText,
-                                                            fontSize: '12px',
+                                                    fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <select
-                                                        value={unit}
-                                                        onChange={(e) => setUnit(e.target.value)}
-                                                        style={{
+                                                }}
+                                            />
+                                            <select
+                                                value={unit}
+                                                onChange={(e) => setUnit(e.target.value)}
+                                                style={{
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
                                                             border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
+                                                    borderRadius: '4px',
                                                             color: darkText,
-                                                            fontSize: '12px',
+                                                    fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                                        }}
-                                                    >
+                                                }}
+                                            >
                                                         <option value="in">in</option>
-                                                        <option value="cm">cm</option>
+                                                <option value="cm">cm</option>
                                                         <option value="mm">mm</option>
-                                                        <option value="m">m</option>
-                                                    </select>
-                                                </div>
+                                                <option value="m">m</option>
+                                            </select>
+                                        </div>
                                                 {computedValues.cbm && (
                                                     <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent }}>
                                                         CBM: {computedValues.cbm.toFixed(3)}
-                                                    </div>
+                                    </div>
                                                 )}
-                                            </div>
-                                            
+                                                {(() => {
+                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                                    return totalCbm !== null ? (
+                                                        <div style={{ marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
+                                                            Total CBM: {totalCbm.toFixed(3)}
+                                </div>
+                                                    ) : (
+                                                        (computedValues.cbm || quantity) ? null : (
+                                                            <div style={{ marginTop: '4px', fontSize: '11px', color: '#666' }}>
+                                                                Total CBM: —
+                                                            </div>
+                                                        )
+                                                    );
+                                                })()}
+                            </div>
+                            
                                             {/* Quantity */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
                                                     Quantity
-                                                </label>
+                                    </label>
                                                 <input
                                                     type="number"
                                                     value={quantity}
@@ -1653,19 +1712,33 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         padding: '8px',
                                                         backgroundColor: darkBg,
                                                         border: `1px solid ${darkBorder}`,
-                                                        borderRadius: '4px',
+                                            borderRadius: '4px', 
                                                         color: darkText,
-                                    fontSize: '12px', 
+                                            fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                     }}
                                                 />
-                            </div>
-                            
+                                                {(() => {
+                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                                    return totalCbm !== null ? (
+                                                        <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
+                                                            Total CBM: {totalCbm.toFixed(3)}
+                                        </div>
+                                    ) : (
+                                                        (computedValues.cbm && quantity) ? null : (
+                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
+                                                                Total CBM: — (enter dimensions and quantity)
+                                        </div>
+                                                        )
+                                                    );
+                                                })()}
+                                </div>
+                                
                                             {/* Delivery Country */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
                                                     Delivery Country
-                                                </label>
+                                    </label>
                                                 <select
                                                     value={deliveryCountry}
                                                     onChange={(e) => setDeliveryCountry(e.target.value)}
@@ -1674,9 +1747,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         padding: '8px',
                                                         backgroundColor: darkBg,
                                                         border: `1px solid ${darkBorder}`,
-                                                        borderRadius: '4px',
+                                            borderRadius: '4px', 
                                                         color: darkText,
-                                    fontSize: '12px', 
+                                            fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                     }}
                                                 >
@@ -1687,7 +1760,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                     <option value="VN">VN</option>
                                                     <option value="EU">EU</option>
                                                 </select>
-                                            </div>
+                                        </div>
                                             
                                             {/* ZIP/Postal Code */}
                                             <div style={{ marginBottom: '12px' }}>
@@ -1704,9 +1777,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     padding: '8px',
                                                         backgroundColor: darkBg,
                                                         border: `1px solid ${darkBorder}`,
-                                    borderRadius: '4px',
+                                            borderRadius: '4px', 
                                                         color: darkText,
-                                    fontSize: '12px',
+                                            fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                     }}
                                                 />
@@ -1715,22 +1788,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         marginTop: '8px',
                                                         fontSize: '11px',
                                                         color: (deliveryCountry?.toUpperCase() === 'US' || deliveryCountry?.toUpperCase() === 'CA') && !deliveryPostal ? '#ff0000' : '#999',
-                                                    }}>
+                                        }}>
                                                         {shippingMessage}
+                                        </div>
+                                    )}
                                 </div>
-                                                )}
-                            </div>
-                                            
+                                
                                             {/* SMART ALTERNATIVES Section */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <div style={{ marginBottom: '12px', fontSize: '12px', fontWeight: '600' }}>
                                                     SMART ALTERNATIVES (Optional)
-                            </div>
+                                    </div>
                                                 
                                                 <div style={{ marginBottom: '12px', fontSize: '12px' }}>
                                                     Are you open to comparable options?
-                                                    </div>
-                        
+                                </div>
+                                
                                                 <div style={{ marginBottom: '12px' }}>
                                                     <label style={{
                                                         display: 'flex',
@@ -1751,7 +1824,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             }}
                                                         />
                                                         <span style={{ fontSize: '12px' }}>Yes — show me comparable options</span>
-                                                    </label>
+                                    </label>
                                                     
                                                     <label style={{
                                                         display: 'flex',
@@ -1772,25 +1845,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         />
                                                         <span style={{ fontSize: '12px' }}>No — proceed as specified</span>
                                                     </label>
-                                                </div>
-                                                
-                        <div style={{
+                                </div>
+                                
+                                    <div style={{ 
                             display: 'flex',
                                                     alignItems: 'flex-start',
                             gap: '8px',
                                                     marginBottom: '12px',
                                                     fontSize: '11px',
                                                     color: '#999',
-                                                }}>
+                                    }}>
                                                     <span style={{ fontSize: '14px' }}>i</span>
                                                     <span>Suppliers may suggest equivalent materials or construction methods. No contact info is shared.</span>
-                                                </div>
+                                    </div>
                                                 
                                                 {/* Notes for suppliers */}
                                                 <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                                                     Notes for suppliers (optional)
-                                                </div>
-                                                
+                            </div>
+                            
                                                 <textarea
                                                     value={smartAlternativesNote}
                                                     onChange={(e) => {
@@ -1809,7 +1882,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         border: `1px solid ${darkBorder}`,
                                             borderRadius: '4px',
                                                         color: darkText,
-                                            fontSize: '12px',
+                                    fontSize: '12px', 
                                                         fontFamily: 'monospace',
                                                         resize: 'vertical',
                                                     }}
@@ -1820,23 +1893,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 </div>
                                             </div>
                                             
-                                            {/* Inspiration / References (optional) */}
+                                            {/* Inspiration / References / Sketch Drawings */}
                                             <div style={{ marginBottom: '12px' }}>
-                                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#999' }}>
-                                                    Inspiration / References (optional)
+                                                <div style={{ marginBottom: '4px', fontSize: '12px', fontWeight: '600' }}>
+                                                    Inspiration / References / Sketch Drawings
                                                 </div>
-                                                <div style={{ 
-                                                    display: 'flex',
+                                                <div style={{ marginBottom: '8px', fontSize: '11px', color: '#999' }}>
+                                                    Visible to suppliers while bidding.
+                                                </div>
+                                    <div style={{ 
+                                        display: 'flex',
                                                     gap: '8px',
                                                     marginBottom: '8px',
-                                                    flexWrap: 'wrap',
-                                                }}>
+                                        flexWrap: 'wrap',
+                                    }}>
                                                     {inspiration.map((insp, idx) => (
                                                         <div
                                                             key={idx}
                                                             style={{
                                                                 width: '80px',
-                                                                height: '80px',
+                                                    height: '80px',
                                                                 border: `1px solid ${darkBorder}`,
                                                                 borderRadius: '4px',
                                                                 backgroundColor: '#111111',
@@ -1844,74 +1920,74 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 cursor: 'pointer',
-                                                                position: 'relative',
+                                                    position: 'relative',
                                                             }}
                                                             onClick={() => {
                                                                 if (insp.url) setLightboxImage(insp.url);
                                                             }}
                                                         >
                                                             {insp.url ? (
-                                                                <img 
-                                                                    src={insp.url} 
-                                                                    alt={insp.title || 'Reference'} 
-                                                                    style={{ 
-                                                                        width: '100%',
-                                                                        height: '100%',
+                                                        <img 
+                                                            src={insp.url} 
+                                                            alt={insp.title || 'Reference'} 
+                                                            style={{ 
+                                                                width: '100%',
+                                                                height: '100%',
                                                                         objectFit: 'cover',
-                                                                        borderRadius: '4px',
-                                                                    }} 
-                                                                />
+                                                                borderRadius: '4px',
+                                                            }} 
+                                                        />
                                                             ) : (
                                                                 <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
-                                                            )}
-                                                            <button
+                                                    )}
+                                                    <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setInspiration(inspiration.filter((_, i) => i !== idx));
                                                                 }}
-                                                                style={{
-                                                                    position: 'absolute',
+                                                        style={{
+                                                            position: 'absolute',
                                                                     top: '4px',
                                                                     right: '4px',
                                                                     background: '#ff0000',
-                                                                    color: '#fff',
-                                                                    border: 'none',
-                                                                    borderRadius: '50%',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '50%',
                                                                     width: '20px',
                                                                     height: '20px',
-                                                                    cursor: 'pointer',
+                                                            cursor: 'pointer',
                                                                     fontSize: '12px',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
                                                                     padding: 0,
-                                                                }}
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        </div>
+                                                        }}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
                                                     ))}
                                                     
-                                                    <button
-                                                        onClick={() => {
-                                                            const input = document.getElementById('inspiration-file-input');
-                                                            if (input) input.click();
-                                                        }}
-                                                        disabled={isUploadingInspiration}
-                                                        style={{
+                                <button
+                                    onClick={() => {
+                                        const input = document.getElementById('inspiration-file-input');
+                                        if (input) input.click();
+                                    }}
+                                    disabled={isUploadingInspiration}
+                                    style={{
                                                             width: '80px',
                                                             height: '80px',
                                                             border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
+                                        borderRadius: '4px',
                                                             backgroundColor: '#111111',
                                                             color: darkText,
-                                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                        cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
                                                             fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                                        }}
-                                                    >
+                                    }}
+                                >
                                                         {isUploadingInspiration ? '...' : '[+ Add]'}
-                                                    </button>
+                                </button>
                                                 </div>
                                                 <input
                                                     type="file"
@@ -1925,8 +2001,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
                                                     (visible to suppliers • no downloads)
                                                 </div>
-                                            </div>
-                                            
+                            </div>
+                            
                                             {/* Invite Makers */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
@@ -1944,8 +2020,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             if (e.key === 'Enter') {
                                                                 e.preventDefault();
                                                                 addInvitedSupplierChip();
-                                                            }
-                                                        }}
+                                            }
+                                        }}
                                                         placeholder="Username or email"
                                         style={{
                                             flex: 1,
@@ -2110,23 +2186,53 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             </div>
                             )}
                             
-                            {/* State B: Description and editable fields (images shown at top) */}
-                            {currentState === 'B' && (
+                            {/* State B and C: Description and editable fields (images shown at top) */}
+                            {(currentState === 'B' || currentState === 'C') && (
                                 <>
+                                    {/* Warning Banner - Show if dims/qty changed after RFQ with bids */}
+                                    {showWarningBanner && itemState.has_rfq && itemState.has_bids && (
+                                <div style={{ 
+                                            marginBottom: '16px',
+                                            padding: '12px',
+                                            backgroundColor: '#330000',
+                                            border: '1px solid #ff0000',
+                                    borderRadius: '4px',
+                                    fontSize: '12px',
+                                            color: '#ff0000',
+                                }}>
+                                            ⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.
+                                </div>
+                                    )}
+                                    
+                                    {/* Redirected warning - Show if item is redirected and bids are available */}
+                                    {currentState === 'C' && item.redirected && itemState.bids && itemState.bids.length > 0 && (
+                                        <div style={{ 
+                                            marginBottom: '16px',
+                                            padding: '12px',
+                                            backgroundColor: '#331100',
+                                            border: '1px solid #ff8800',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            color: '#ff8800',
+                                        }}>
+                                            ⚠️ This item has been redirected. Existing bids may reflect previous routing.
+                                        </div>
+                                    )}
+                                    
                                     {description && (
                                         <div style={{ marginBottom: '24px' }}>
                                             <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
                                                 Description
-                                            </div>
+                            </div>
                                             <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
                                                 {description}
-                                            </div>
-                                        </div>
+                            </div>
+                                                    </div>
                                     )}
-                                    
+                        
                                     {/* Quantity, Dimensions, and Notes for suppliers - Editable in State B */}
                                     <div style={{ marginBottom: '24px' }}>
-                                <div style={{ 
+                        <div style={{
                                             border: `1px solid ${darkBorder}`,
                                             borderRadius: '4px',
                                             padding: '12px',
@@ -2143,7 +2249,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                     onChange={(e) => setQuantity(e.target.value)}
                                                     min="1"
                                                     placeholder="1"
-                                                    style={{
+                                style={{
                                                         width: '100%',
                                     padding: '8px',
                                                         backgroundColor: darkBg,
@@ -2154,12 +2260,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         fontFamily: 'monospace',
                                                     }}
                                                 />
+                                                {(() => {
+                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                                    return totalCbm !== null ? (
+                                                        <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
+                                                            Total CBM: {totalCbm.toFixed(3)}
+                                                        </div>
+                                                    ) : (
+                                                        (computedValues.cbm && quantity) ? null : (
+                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
+                                                                Total CBM: — (enter dimensions and quantity)
+                                                            </div>
+                                                        )
+                                                    );
+                                                })()}
                                 </div>
                                             
                                             {/* Dimensions */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Dimensions {computedValues.cbm && `(CBM: ${computedValues.cbm.toFixed(3)})`}
+                                                    Dimensions {computedValues.cbm && `(CBM: ${computedValues.cbm.toFixed(3)})`} {(() => {
+                                                        const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                                        return totalCbm !== null ? `(Total CBM: ${totalCbm.toFixed(3)})` : '';
+                                                    })()}
                                                 </label>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
                                                     <input
@@ -2234,6 +2357,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         CBM: {computedValues.cbm.toFixed(3)}
                                                     </div>
                                                 )}
+                                                {(() => {
+                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
+                                                    return totalCbm !== null ? (
+                                                        <div style={{ marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
+                                                            Total CBM: {totalCbm.toFixed(3)}
+                                                        </div>
+                                                    ) : (
+                                                        (computedValues.cbm || quantity) ? null : (
+                                                            <div style={{ marginTop: '4px', fontSize: '11px', color: '#666' }}>
+                                                                Total CBM: —
+                                                            </div>
+                                                        )
+                                                    );
+                                                })()}
                                             </div>
                                             
                                             {/* Notes for suppliers */}
@@ -2274,8 +2411,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             )}
                                                     </div>
                         
-                        {/* Footer - Save button (State A and B) */}
-                        {(currentState === 'A' || currentState === 'B') && (
+                        {/* Footer - Save button (State A, B, and C - dims/qty always editable) */}
+                        {(currentState === 'A' || currentState === 'B' || currentState === 'C') && (
                         <div style={{
                                 padding: '16px 20px',
                                 borderTop: `1px solid ${darkBorder}`,
@@ -2299,7 +2436,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
                                 }}
                             >
-                                    {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save')}
+                                    {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save for later')}
                             </button>
                         </div>
                         )}

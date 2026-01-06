@@ -44,6 +44,8 @@ class N88_Events {
         'materials_in_mind_linked_to_item',
         // Commit 1.3.8: Item facts saved
         'item_facts_saved',
+        // Commit 2.3.5.1: Item facts updated after RFQ
+        'item_facts_updated_after_rfq',
     );
 
     /**

@@ -2095,6 +2095,7 @@ class N88_RFQ_Installer {
 
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
         $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files'; // Commit 2.3.5.1: Bid photos table
         $items_table = $wpdb->prefix . 'n88_items';
         $users_table = $wpdb->prefix . 'users';
 
@@ -2132,9 +2133,22 @@ class N88_RFQ_Installer {
             KEY idx_sort_order (sort_order)
         ) {$charset_collate};";
 
+        // 3. n88_bid_media_files - Bid photos (Commit 2.3.5.1)
+        $sql_bid_media_files = "CREATE TABLE {$bid_media_files_table} (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            bid_id INT UNSIGNED NOT NULL,
+            file_url VARCHAR(500) NOT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_sort_order (sort_order)
+        ) {$charset_collate};";
+
         // Create tables using dbDelta
         dbDelta( $sql_item_bids );
         dbDelta( $sql_bid_media_links );
+        dbDelta( $sql_bid_media_files );
 
         // Add foreign keys separately (dbDelta doesn't handle FKs well)
         $item_bids_table_safe = esc_sql( $item_bids_table );
@@ -2183,6 +2197,21 @@ class N88_RFQ_Installer {
         // Add foreign key: bid_id -> n88_item_bids.bid_id (media links table)
         if ( ! $fk_media_bid ) {
             self::safe_add_foreign_key( $bid_media_links_table, 'fk_media_bid', 'bid_id', $item_bids_table, 'bid_id', 'CASCADE' );
+        }
+        
+        // Commit 2.3.5.1: Add foreign key for bid_media_files table
+        $bid_media_files_table_safe = esc_sql( $bid_media_files_table );
+        $fk_media_files_bid = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_media_files_bid'",
+            DB_NAME,
+            $bid_media_files_table
+        ) );
+        
+        if ( ! $fk_media_files_bid ) {
+            self::safe_add_foreign_key( $bid_media_files_table, 'fk_media_files_bid', 'bid_id', $item_bids_table, 'bid_id', 'CASCADE' );
         }
     }
 

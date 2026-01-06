@@ -189,6 +189,21 @@ class N88_Items {
             }
         }
         
+        // Commit 2.3.5.1: Handle dimensions and quantity from Add Item form
+        $quantity = isset( $_POST['quantity'] ) ? intval( $_POST['quantity'] ) : null;
+        $dims = null;
+        if ( isset( $_POST['dims'] ) ) {
+            $dims_data = json_decode( wp_unslash( $_POST['dims'] ), true );
+            if ( is_array( $dims_data ) && ( isset( $dims_data['w'] ) || isset( $dims_data['d'] ) || isset( $dims_data['h'] ) ) ) {
+                $dims = array(
+                    'w' => isset( $dims_data['w'] ) ? floatval( $dims_data['w'] ) : null,
+                    'd' => isset( $dims_data['d'] ) ? floatval( $dims_data['d'] ) : null,
+                    'h' => isset( $dims_data['h'] ) ? floatval( $dims_data['h'] ) : null,
+                    'unit' => isset( $dims_data['unit'] ) ? sanitize_text_field( $dims_data['unit'] ) : 'in',
+                );
+            }
+        }
+        
         // Prepare meta_json with default size (only if column exists)
         $meta_json = array(
             'default_size' => $default_size,
@@ -196,6 +211,57 @@ class N88_Items {
         if ( ! empty( $image_url ) && ! $primary_image_id ) {
             // Store image URL in meta if we couldn't find attachment ID
             $meta_json['image_url'] = $image_url;
+        }
+        
+        // Add quantity and dimensions to meta_json if provided
+        if ( $quantity !== null && $quantity > 0 ) {
+            $meta_json['quantity'] = $quantity;
+        }
+        if ( $dims !== null ) {
+            $meta_json['dims'] = $dims;
+            
+            // Calculate dims_cm and CBM if all dimensions provided
+            if ( $dims['w'] && $dims['d'] && $dims['h'] ) {
+                $unit = $dims['unit'];
+                $w_cm = null;
+                $d_cm = null;
+                $h_cm = null;
+                
+                // Convert to cm
+                switch ( $unit ) {
+                    case 'mm':
+                        $w_cm = $dims['w'] / 10;
+                        $d_cm = $dims['d'] / 10;
+                        $h_cm = $dims['h'] / 10;
+                        break;
+                    case 'cm':
+                        $w_cm = $dims['w'];
+                        $d_cm = $dims['d'];
+                        $h_cm = $dims['h'];
+                        break;
+                    case 'm':
+                        $w_cm = $dims['w'] * 100;
+                        $d_cm = $dims['d'] * 100;
+                        $h_cm = $dims['h'] * 100;
+                        break;
+                    case 'in':
+                    default:
+                        $w_cm = $dims['w'] * 2.54;
+                        $d_cm = $dims['d'] * 2.54;
+                        $h_cm = $dims['h'] * 2.54;
+                        break;
+                }
+                
+                $meta_json['dims_cm'] = array(
+                    'w' => $w_cm,
+                    'd' => $d_cm,
+                    'h' => $h_cm,
+                );
+                
+                // Calculate CBM
+                $cbm = ( $w_cm * $d_cm * $h_cm ) / 1000000.0;
+                $meta_json['cbm'] = round( $cbm, 6 );
+            }
         }
         
         // Check if meta_json column exists
@@ -1221,6 +1287,44 @@ class N88_Items {
         // Log existing meta for debugging
         error_log( 'Item Facts Save - Existing meta_json for item ' . $item_id . ': ' . wp_json_encode( $meta ) );
         
+        // Commit 2.3.5.1: Check if RFQ exists and if bids exist (for post-RFQ editing detection)
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $has_rfq = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$rfq_routes_table} 
+            WHERE item_id = %d 
+            AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+            $item_id
+        ) ) > 0;
+        
+        $has_bids = false;
+        if ( $has_rfq ) {
+            $has_bids = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$item_bids_table} 
+                WHERE item_id = %d 
+                AND status = 'submitted'",
+                $item_id
+            ) ) > 0;
+        }
+        
+        // Track changes for event logging (only if RFQ exists)
+        $changed_fields = array();
+        $old_values = array();
+        $new_values = array();
+        
+        if ( $has_rfq ) {
+            // Store old values for dims and quantity
+            if ( isset( $meta['dims'] ) ) {
+                $old_values['dims'] = $meta['dims'];
+            }
+            if ( isset( $meta['quantity'] ) ) {
+                $old_values['quantity'] = $meta['quantity'];
+            }
+            if ( isset( $meta['cbm'] ) ) {
+                $old_values['cbm'] = $meta['cbm'];
+            }
+        }
+        
         // Store item facts in meta_json
         if ( isset( $payload['dims'] ) ) {
             $meta['dims'] = array(
@@ -1298,8 +1402,41 @@ class N88_Items {
         }
         
         // Smart Alternatives Note (Notes for suppliers) - ALWAYS save if key exists
+        // Commit 2.3.5.1: Add anti-circumvention filter (reject emails, URLs, phone patterns, contact phrases)
         if ( array_key_exists( 'smart_alternatives_note', $payload ) ) {
             $note_value = $payload['smart_alternatives_note'];
+            
+            // Anti-circumvention validation
+            $note_lower = strtolower( $note_value );
+            
+            // Check for email addresses
+            if ( preg_match( '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for URLs (http, https, www, .com, .net, etc.)
+            if ( preg_match( '/\b(https?:\/\/|www\.|[a-zA-Z0-9-]+\.[a-zA-Z]{2,})/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for phone patterns (7+ digits with common separators)
+            if ( preg_match( '/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|\b\d{7,}\b/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for contact phrases
+            $contact_phrases = array( 'call', 'text', 'whatsapp', 'contact me', 'reach out', 'get in touch', 'email me', 'phone me', 'call me', 'text me' );
+            foreach ( $contact_phrases as $phrase ) {
+                if ( strpos( $note_lower, $phrase ) !== false ) {
+                    wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                    return;
+                }
+            }
+            
+            // If validation passes, save the note
             $meta['smart_alternatives_note'] = sanitize_textarea_field( $note_value );
             error_log( 'Item Facts Save - Saving smart_alternatives_note for item ' . $item_id . ': ' . substr( $note_value, 0, 100 ) );
         } else {
@@ -1320,24 +1457,82 @@ class N88_Items {
             $qty_value = $payload['quantity'];
             error_log( 'Item Facts Save - Processing quantity for item ' . $item_id . '. Raw value: ' . var_export( $qty_value, true ) . ' (type: ' . gettype( $qty_value ) . ')' );
             
-            // Save if it's not null, not empty string, and is numeric (including 0)
-            // Handle both string and numeric values
+            // Save if key exists AND value is numeric AND >= 0
+            // Fix: Use is_numeric() instead of is_nan() for integers
             if ( $qty_value !== null && $qty_value !== '' ) {
-                $qty_int = intval( $qty_value );
-                error_log( 'Item Facts Save - Quantity converted to int: ' . $qty_int . ' (is_nan: ' . ( is_nan( $qty_int ) ? 'yes' : 'no' ) . ')' );
-                
-                // Only save if conversion was successful (not NaN) and value is >= 0
-                if ( ! is_nan( $qty_int ) && $qty_int >= 0 ) {
-                    $meta['quantity'] = $qty_int;
-                    error_log( 'Item Facts Save - SUCCESS: Saving quantity ' . $qty_int . ' for item ' . $item_id );
+                // Check if value is numeric (handles both string and numeric)
+                if ( is_numeric( $qty_value ) ) {
+                    $qty_int = (int) $qty_value; // Cast to int
+                    // Allow 0 and positive values
+                    if ( $qty_int >= 0 ) {
+                        $meta['quantity'] = $qty_int;
+                        error_log( 'Item Facts Save - SUCCESS: Saving quantity ' . $qty_int . ' for item ' . $item_id );
+                    } else {
+                        error_log( 'Item Facts Save - ERROR: Quantity must be >= 0 for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
+                    }
                 } else {
-                    error_log( 'Item Facts Save - ERROR: Quantity validation failed for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) . ', Int: ' . $qty_int );
+                    error_log( 'Item Facts Save - ERROR: Quantity is not numeric for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
                 }
             } else {
                 error_log( 'Item Facts Save - WARNING: Quantity is null or empty for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
             }
         } else {
             error_log( 'Item Facts Save - WARNING: quantity key NOT found in payload for item ' . $item_id );
+        }
+        
+        // Commit 2.3.5.1: Detect changes after RFQ (for event logging) - must be done before updating meta_json
+        if ( $has_rfq ) {
+            // Check if dims changed
+            if ( isset( $payload['dims'] ) ) {
+                $new_dims = array(
+                    'w' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
+                    'd' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
+                    'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
+                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
+                );
+                $old_dims = isset( $old_values['dims'] ) ? $old_values['dims'] : null;
+                $old_unit = isset( $old_dims['unit'] ) ? $old_dims['unit'] : null;
+                $new_unit = $new_dims['unit'];
+                
+                if ( wp_json_encode( $old_dims ) !== wp_json_encode( $new_dims ) ) {
+                    $changed_fields[] = 'dims';
+                    $new_values['dims'] = $new_dims;
+                    
+                    // Also track dimension_unit separately if unit changed
+                    if ( $old_unit !== $new_unit ) {
+                        if ( ! in_array( 'dimension_unit', $changed_fields, true ) ) {
+                            $changed_fields[] = 'dimension_unit';
+                        }
+                        $new_values['dimension_unit'] = $new_unit;
+                        if ( ! isset( $old_values['dimension_unit'] ) ) {
+                            $old_values['dimension_unit'] = $old_unit;
+                        }
+                    }
+                }
+            }
+            
+            // Check if quantity changed
+            if ( array_key_exists( 'quantity', $payload ) ) {
+                $qty_value = $payload['quantity'];
+                if ( $qty_value !== null && $qty_value !== '' && is_numeric( $qty_value ) ) {
+                    $new_qty = (int) $qty_value;
+                    $old_qty = isset( $old_values['quantity'] ) ? $old_values['quantity'] : null;
+                    if ( $old_qty !== $new_qty ) {
+                        $changed_fields[] = 'quantity';
+                        $new_values['quantity'] = $new_qty;
+                    }
+                }
+            }
+            
+            // Check if CBM changed (recalculated)
+            if ( isset( $payload['cbm'] ) ) {
+                $new_cbm = floatval( $payload['cbm'] );
+                $old_cbm = isset( $old_values['cbm'] ) ? $old_values['cbm'] : null;
+                if ( abs( ( $old_cbm ? $old_cbm : 0 ) - $new_cbm ) > 0.0001 ) {
+                    $changed_fields[] = 'cbm';
+                    $new_values['cbm'] = $new_cbm;
+                }
+            }
         }
         
         // Update meta_json
@@ -1379,21 +1574,61 @@ class N88_Items {
         error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
         error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
         
-        // Log event
-        n88_log_event(
-            'item_facts_saved',
-            'item',
-            array(
-                'object_id' => $item_id,
-                'item_id' => $item_id,
-                'board_id' => $board_id > 0 ? $board_id : null,
-                'payload_json' => $payload,
-            )
-        );
+        // Commit 2.3.5.1: Log event - use item_facts_updated_after_rfq if RFQ exists and dims/qty changed
+        if ( $has_rfq && ! empty( $changed_fields ) ) {
+            // Log item_facts_updated_after_rfq event with before/after values
+            $event_payload = array(
+                'changed_fields' => $changed_fields,
+                'before' => array(),
+                'after' => array(),
+                'has_bids' => $has_bids ? true : false,
+            );
+            
+            foreach ( $changed_fields as $field ) {
+                if ( isset( $old_values[ $field ] ) ) {
+                    $event_payload['before'][ $field ] = $old_values[ $field ];
+                }
+                if ( isset( $new_values[ $field ] ) ) {
+                    $event_payload['after'][ $field ] = $new_values[ $field ];
+                }
+            }
+            
+            n88_log_event(
+                'item_facts_updated_after_rfq',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                    'payload_json' => $event_payload,
+                )
+            );
+            
+            error_log( 'Item Facts Save - Logged item_facts_updated_after_rfq event for item ' . $item_id . ' with changes: ' . wp_json_encode( $event_payload ) );
+        } else {
+            // Normal save event (no RFQ or no changes)
+            n88_log_event(
+                'item_facts_saved',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                    'payload_json' => $payload,
+                )
+            );
+        }
+        
+        // Return warning flag if bids exist and dims/qty changed
+        $has_warning = false;
+        if ( $has_bids && ! empty( $changed_fields ) ) {
+            $has_warning = true;
+        }
         
         wp_send_json_success( array(
             'message' => 'Item facts saved successfully.',
             'item_id' => $item_id,
+            'has_warning' => $has_warning, // Flag for frontend to show warning banner
         ) );
     }
 

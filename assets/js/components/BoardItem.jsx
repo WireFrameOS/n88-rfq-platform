@@ -667,6 +667,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                             if (!data.success) {
                                 throw new Error(data.data?.message || 'Failed to save item facts');
                             }
+                            // Commit 2.3.5.1: Return data.data to access has_warning flag
+                            return data.data || data;
                         } catch (error) {
                             console.error('Error saving item facts:', error);
                             throw error;
