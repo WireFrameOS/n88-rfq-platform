@@ -419,6 +419,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         item.delivery_postal || item.meta?.delivery_postal || ''
     );
     
+    // Keywords state - load from item meta
+    const [keywords, setKeywords] = React.useState(
+        item.keywords || item.meta?.keywords || []
+    );
+    const [keywordInput, setKeywordInput] = React.useState('');
+    
     // Smart Alternatives state - load from item meta
     const [smartAlternativesEnabled, setSmartAlternativesEnabled] = React.useState(
         item.smart_alternatives !== undefined ? item.smart_alternatives : 
@@ -590,13 +596,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     React.useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
+            // Commit 2.3.5.3: Ensure Request Quote button is visible without scrolling
+            // Scroll to Request Quote section when modal opens in State A
+            if (currentState === 'A') {
+                setTimeout(() => {
+                    const requestQuoteSection = document.getElementById('request-quote-section');
+                    if (requestQuoteSection) {
+                        requestQuoteSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }, 100);
+            }
         } else {
             document.body.style.overflow = '';
         }
         return () => {
             document.body.style.overflow = '';
         };
-    }, [isOpen]);
+    }, [isOpen, currentState]);
     
     // Computed values
     const [computedValues, setComputedValues] = React.useState({
@@ -720,6 +736,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             const payload = {
                 category,
                 description,
+                keywords: keywords,
                 quantity: qtyValue,
                 dims: {
                     w: width ? parseFloat(width) : null,
@@ -759,8 +776,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 }
             }
             
-            // Don't close modal - stay open as per requirement
+            // Commit 2.3.5.3: Close modal after save
             setIsSaving(false);
+            if (onClose) {
+                onClose();
+            }
         } catch (error) {
             console.error('Error saving item facts:', error);
             alert('Failed to save item facts. Please try again.');
@@ -773,12 +793,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         const files = e.target.files;
         if (!files || files.length === 0) return;
         
-        const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-        if (imageFiles.length === 0) {
-            alert('Please select image files only.');
+        // Commit 2.3.5.3: Allow both images and PDFs for inspiration section
+        const validFiles = Array.from(files).filter(file => 
+            file.type.startsWith('image/') || file.type === 'application/pdf'
+        );
+        if (validFiles.length === 0) {
+            alert('Please select image or PDF files only.');
             e.target.value = '';
             return;
         }
+        
+        const imageFiles = validFiles.filter(file => file.type.startsWith('image/'));
+        const pdfFiles = validFiles.filter(file => file.type === 'application/pdf');
         
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
         // Try multiple nonce sources
@@ -800,7 +826,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         setIsUploadingInspiration(true);
         
         try {
-            const uploadPromises = imageFiles.map(async (file) => {
+            // Upload images
+            const imageUploadPromises = imageFiles.map(async (file) => {
                 const formData = new FormData();
                 formData.append('action', 'n88_upload_inspiration_image');
                 formData.append('inspiration_image', file);
@@ -845,12 +872,60 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 }
             });
             
-            const uploadedImages = await Promise.all(uploadPromises);
+            // Upload PDFs (Commit 2.3.5.3: PDF support for sketch drawings)
+            const pdfUploadPromises = pdfFiles.map(async (file) => {
+                const formData = new FormData();
+                formData.append('action', 'n88_upload_inspiration_image');
+                formData.append('inspiration_image', file);
+                formData.append('nonce', nonce);
+                
+                try {
+                    const response = await fetch(ajaxUrl, {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.success && 
+                        data.data && 
+                        data.data.id && 
+                        Number.isInteger(Number(data.data.id)) && 
+                        Number(data.data.id) > 0 &&
+                        data.data.url && 
+                        typeof data.data.url === 'string' && 
+                        data.data.url.trim().length > 0 &&
+                        (data.data.url.startsWith('http://') || data.data.url.startsWith('https://'))) {
+                        return {
+                            type: 'pdf',
+                            url: data.data.url.trim(),
+                            id: Number(data.data.id),
+                            title: data.data.title || data.data.filename || file.name,
+                        };
+                    } else {
+                        const errorMsg = data.data?.message || 'Upload failed';
+                        alert('Failed to upload ' + file.name + ': ' + errorMsg);
+                        return null;
+                    }
+                } catch (error) {
+                    console.error('Error uploading PDF:', error);
+                    alert('Error uploading ' + file.name + ': ' + error.message);
+                    return null;
+                }
+            });
             
-            const validImages = uploadedImages.filter(img => {
-                if (!img || typeof img !== 'object') return false;
-                const hasId = img.id && Number.isInteger(Number(img.id)) && Number(img.id) > 0;
-                const url = img.url ? String(img.url).trim() : '';
+            const uploadedImages = await Promise.all(imageUploadPromises);
+            const uploadedPdfs = await Promise.all(pdfUploadPromises);
+            const allUploaded = [...uploadedImages, ...uploadedPdfs];
+            
+            const validFiles = allUploaded.filter(file => {
+                if (!file || typeof file !== 'object') return false;
+                const hasId = file.id && Number.isInteger(Number(file.id)) && Number(file.id) > 0;
+                const url = file.url ? String(file.url).trim() : '';
                 const hasUrl = url && 
                     url.length > 0 &&
                     (url.startsWith('http://') || url.startsWith('https://')) && 
@@ -858,14 +933,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 return hasId && hasUrl;
             });
             
-            if (validImages.length > 0) {
-                setInspiration([...inspiration, ...validImages]);
-            } else if (uploadedImages.length > 0) {
-                    alert('No images were successfully uploaded. Please try again.');
+            if (validFiles.length > 0) {
+                setInspiration([...inspiration, ...validFiles]);
+            } else if (allUploaded.length > 0) {
+                    alert('No files were successfully uploaded. Please try again.');
             }
         } catch (error) {
             console.error('Error during upload process:', error);
-            alert('Error uploading images: ' + error.message);
+            alert('Error uploading files: ' + error.message);
         } finally {
             setIsUploadingInspiration(false);
             e.target.value = '';
@@ -970,6 +1045,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
             }
         }
+    };
+    
+    // Add keyword chip
+    const addKeywordChip = () => {
+        const value = keywordInput.trim();
+        if (!value) return;
+        
+        // Split by comma if multiple keywords entered
+        const newKeywords = value.split(',').map(k => k.trim()).filter(k => k.length > 0);
+        
+        // Add unique keywords only
+        const uniqueKeywords = [...new Set([...keywords, ...newKeywords])];
+        setKeywords(uniqueKeywords);
+        setKeywordInput('');
+    };
+    
+    // Remove keyword chip
+    const removeKeywordChip = (keyword) => {
+        setKeywords(keywords.filter(k => k !== keyword));
     };
     
     // Handle RFQ submission
@@ -1237,252 +1331,483 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             </button>
                         </div>
                         
-                                {/* Main Image on Top - before heading (State A and B) */}
-                                {(item.imageUrl || item.image_url || item.primary_image_url) && (
-                                    <div style={{ marginBottom: '24px' }}>
-                        <div style={{
-                                            border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px', 
-                                            padding: '12px',
-                                            backgroundColor: '#111111',
-                                            minHeight: '150px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                        }}
-                                        onClick={() => {
-                                            setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
-                                        }}
-                                        >
-                                            <img 
-                                                src={item.imageUrl || item.image_url || item.primary_image_url} 
-                                                alt="Primary" 
-                                                style={{ 
-                                                    maxWidth: '100%',
-                                                    maxHeight: '250px',
-                                                    objectFit: 'contain',
-                                                    borderRadius: '4px',
-                                                }} 
-                                            />
+                                {/* Commit 2.3.5.3: Field Order - 1. Item Title */}
+                                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '24px' }}>
+                                    {item.title || item.description || 'Untitled Item'}
                                 </div>
-                                </div>
-                                )}
-                            
-                                {/* Reference Images - before title (State B only) */}
-                                {currentState === 'B' && inspiration && inspiration.length > 0 && (
-                                    <div style={{ marginBottom: '24px' }}>
-                                        <div style={{ marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }}>
-                                            Reference Images
+                                
+                                {/* Commit 2.3.5.3: Field Order - 2. Images (Main + Inspiration/References) */}
+                                <div style={{ marginBottom: '24px' }}>
+                                    {/* Main Image */}
+                                    {(item.imageUrl || item.image_url || item.primary_image_url) && (
+                                        <div style={{ marginBottom: '16px' }}>
+                                            <div style={{
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px', 
+                                                padding: '12px',
+                                                backgroundColor: '#111111',
+                                                minHeight: '150px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={() => {
+                                                setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
+                                            }}
+                                            >
+                                                <img 
+                                                    src={item.imageUrl || item.image_url || item.primary_image_url} 
+                                                    alt="Primary" 
+                                                    style={{ 
+                                                        maxWidth: '100%',
+                                                        maxHeight: '250px',
+                                                        objectFit: 'contain',
+                                                        borderRadius: '4px',
+                                                    }} 
+                                                />
+                                            </div>
                                         </div>
-                            <div style={{
-                                            display: 'flex',
-                                            gap: '8px',
-                                            flexWrap: 'wrap',
-                            }}>
-                                            {inspiration.map((insp, idx) => (
-                                                <div
-                                                    key={idx}
+                                    )}
+                                    
+                                    {/* Inspiration / References / Sketch Drawings */}
+                                    {isEditable && currentState === 'A' && (
+                                        <div>
+                                            <div style={{ marginBottom: '4px', fontSize: '12px', fontWeight: '600' }}>
+                                                Inspiration / References / Sketch Drawings
+                                            </div>
+                                            <div style={{ marginBottom: '8px', fontSize: '11px', color: '#999' }}>
+                                                These images are helpful when you're ready to request a quote. They will be used as reference materials by suppliers to price accurately.
+                                            </div>
+                                            <div style={{ 
+                                                display: 'flex',
+                                                gap: '8px',
+                                                flexWrap: 'wrap',
+                                                marginBottom: '8px',
+                                            }}>
+                                                {inspiration.map((insp, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        style={{
+                                                            width: '80px',
+                                                            height: '80px',
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            backgroundColor: '#111111',
+                                                            position: 'relative',
+                                                            overflow: 'hidden',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                        onClick={() => {
+                                                            if (insp.url) {
+                                                                setLightboxImage(insp.url);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {insp.url ? (
+                                                            (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) ? (
+                                                                <div style={{
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    backgroundColor: '#222',
+                                                                    borderRadius: '4px',
+                                                                    flexDirection: 'column',
+                                                                    gap: '4px',
+                                                                }}>
+                                                                    <div style={{ fontSize: '24px' }}>📄</div>
+                                                                    <div style={{ fontSize: '8px', color: '#999' }}>PDF</div>
+                                                                </div>
+                                                            ) : (
+                                                                <img 
+                                                                    src={insp.url} 
+                                                                    alt={insp.title || 'Reference'} 
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        objectFit: 'cover',
+                                                                        borderRadius: '4px',
+                                                                    }} 
+                                                                />
+                                                            )
+                                                        ) : (
+                                                            <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
+                                                        )}
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setInspiration(inspiration.filter((_, i) => i !== idx));
+                                                            }}
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: '4px',
+                                                                right: '4px',
+                                                                background: '#ff0000',
+                                                                color: '#fff',
+                                                                border: 'none',
+                                                                borderRadius: '50%',
+                                                                width: '20px',
+                                                                height: '20px',
+                                                                cursor: 'pointer',
+                                                                fontSize: '12px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                padding: 0,
+                                                            }}
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                <button
+                                                    onClick={() => {
+                                                        const input = document.getElementById('inspiration-file-input-main');
+                                                        if (input) input.click();
+                                                    }}
+                                                    disabled={isUploadingInspiration}
                                                     style={{
                                                         width: '80px',
                                                         height: '80px',
                                                         border: `1px solid ${darkBorder}`,
-                                    borderRadius: '4px',
+                                                        borderRadius: '4px',
                                                         backgroundColor: '#111111',
-                                                        position: 'relative',
-                                                        overflow: 'hidden',
-                                                        cursor: 'pointer',
-                                                    }}
-                                                    onClick={() => {
-                                                        if (insp.url) {
-                                                            setLightboxImage(insp.url);
-                                                        }
+                                                        color: darkText,
+                                                        cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
                                                     }}
                                                 >
-                                                    {insp.url ? (
-                                    <img 
-                                                            src={insp.url} 
-                                                            alt={insp.title || 'Reference'} 
-                                        style={{
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'cover',
-                                            borderRadius: '4px',
-                                                            }} 
-                                                        />
-                                                    ) : (
-                                                        <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
-                                                    )}
+                                                    {isUploadingInspiration ? '...' : '[+ Add]'}
+                                                </button>
+                                            </div>
+                                            <input
+                                                type="file"
+                                                id="inspiration-file-input-main"
+                                                accept="image/*,.pdf,application/pdf"
+                                                multiple
+                                                onChange={handleInspirationFileChange}
+                                                style={{ display: 'none' }}
+                                                disabled={isUploadingInspiration}
+                                            />
+                                        </div>
+                                    )}
+                                    
+                                    {/* Reference Images (State B only - read-only) */}
+                                    {currentState === 'B' && inspiration && inspiration.length > 0 && (
+                                        <div>
+                                            <div style={{ marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }}>
+                                                Reference Images
+                                            </div>
+                                            <div style={{
+                                                display: 'flex',
+                                                gap: '8px',
+                                                flexWrap: 'wrap',
+                                            }}>
+                                                {inspiration.map((insp, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        style={{
+                                                            width: '80px',
+                                                            height: '80px',
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            backgroundColor: '#111111',
+                                                            position: 'relative',
+                                                            overflow: 'hidden',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                        onClick={() => {
+                                                            if (insp.url) {
+                                                                setLightboxImage(insp.url);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {insp.url ? (
+                                                            (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) ? (
+                                                                <div style={{
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    backgroundColor: '#222',
+                                                                    borderRadius: '4px',
+                                                                    flexDirection: 'column',
+                                                                    gap: '4px',
+                                                                }}>
+                                                                    <div style={{ fontSize: '24px' }}>📄</div>
+                                                                    <div style={{ fontSize: '8px', color: '#999' }}>PDF</div>
+                                                                </div>
+                                                            ) : (
+                                                                <img 
+                                                                    src={insp.url} 
+                                                                    alt={insp.title || 'Reference'} 
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        objectFit: 'cover',
+                                                                        borderRadius: '4px',
+                                                                    }} 
+                                                                />
+                                                            )
+                                                        ) : (
+                                                            <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                            </div>
+                                
+                            {/* Commit 2.3.5.3: Field Order - Editable fields (State A only) */}
+                            {isEditable && currentState === 'A' ? (
+                                <>
+                                    {/* 3. Description */}
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                            Description
+                                        </label>
+                                        <textarea
+                                            value={description}
+                                            onChange={(e) => setDescription(e.target.value)}
+                                            placeholder="Item description"
+                                            rows={3}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px',
+                                                backgroundColor: darkBg,
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px',
+                                                color: darkText,
+                                                fontSize: '12px',
+                                                fontFamily: 'monospace',
+                                                resize: 'vertical',
+                                            }}
+                                        />
+                                    </div>
+                                    
+                                    {/* 4. Category */}
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                            Category
+                                        </label>
+                                        <select
+                                            value={category}
+                                            onChange={(e) => setCategory(e.target.value)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px',
+                                                backgroundColor: darkBg,
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px',
+                                                color: darkText,
+                                                fontSize: '12px',
+                                                fontFamily: 'monospace',
+                                            }}
+                                        >
+                                            <option value="">-- Select Category --</option>
+                                            <optgroup label="Indoor Furniture (6-Step Timeline)">
+                                                <option value="Indoor Furniture">Indoor Furniture</option>
+                                                <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                                <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                                <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                                <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                            </optgroup>
+                                            <optgroup label="Outdoor Furniture (6-Step Timeline)">
+                                                <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                                <option value="Outdoor Seating">Outdoor Seating</option>
+                                                <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                                <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                                <option value="Pool Furniture">Pool Furniture</option>
+                                            </optgroup>
+                                            <optgroup label="Sourcing (4-Step Timeline)">
+                                                <option value="Lighting">Lighting</option>
+                                            </optgroup>
+                                            <optgroup label="Other">
+                                                <option value="Material Sample Kit">Material Sample Kit</option>
+                                                <option value="Fabric Sample">Fabric Sample</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                    
+                                    {/* 5. Keywords (NEW) */}
+                                    <div style={{ marginBottom: '24px' }}>
+                                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                            Keywords
+                                        </label>
+                                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                            <input
+                                                type="text"
+                                                value={keywordInput}
+                                                onChange={(e) => setKeywordInput(e.target.value)}
+                                                onKeyPress={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        addKeywordChip();
+                                                    }
+                                                }}
+                                                placeholder="Enter keywords (comma or Enter to add)"
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={addKeywordChip}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    backgroundColor: '#111111',
+                                                    border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
+                                        <div style={{
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            gap: '8px',
+                                            minHeight: '32px',
+                                        }}>
+                                            {keywords.map((keyword, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        padding: '6px 12px',
+                                                        backgroundColor: '#111111',
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '16px',
+                                                        fontSize: '12px',
+                                                        color: greenAccent,
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                >
+                                                    <span>{keyword}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeKeywordChip(keyword)}
+                                                        style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: darkText,
+                                                            cursor: 'pointer',
+                                                            fontSize: '16px',
+                                                            lineHeight: 1,
+                                                            padding: 0,
+                                                            marginLeft: '4px',
+                                                            fontWeight: 'bold',
+                                                        }}
+                                                    >
+                                                        ×
+                                                    </button>
                                                 </div>
                                             ))}
                                         </div>
-                                </div>
-                            )}
-                            
-                                {/* Item Details Heading */}
-                                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }}>
-                                    Item Details
-                                </div>
-                                
-                                {/* Item Title */}
-                                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>
-                                    {item.title || item.description || 'Untitled Item'}
-                                </div>
-                                
-                                {/* Item Details - Show when RFQ is sent */}
-                                {itemState.has_rfq && (
-                        <div style={{
-                                        padding: '12px',
-                                        backgroundColor: darkBg,
-                                        border: `1px solid ${darkBorder}`,
-                                        borderRadius: '4px',
-                                    fontSize: '12px', 
-                                        fontFamily: 'monospace',
-                            }}>
-                                        <div style={{ marginBottom: '6px' }}>
-                                            <span style={{ color: darkText, opacity: 0.7 }}>Category:</span>{' '}
-                                            <span style={{ color: greenAccent }}>{category || 'N/A'}</span>
-                                </div>
-                                        <div style={{ marginBottom: '6px' }}>
-                                            <span style={{ color: darkText, opacity: 0.7 }}>Sourcing Type:</span>{' '}
-                                            <span style={{ color: greenAccent }}>
-                                                {computedValues.sourcingType || item.sourcing_type || 'N/A'}
-                                            </span>
-                                </div>
-                                        {getTimelineTypeFromCategory(category) && (
-                                            <div style={{ marginBottom: '6px' }}>
-                                                <span style={{ color: darkText, opacity: 0.7 }}>Timeline Type:</span>{' '}
-                                                <span style={{ color: greenAccent }}>
-                                                    {getTimelineTypeFromCategory(category)}
-                                                </span>
-                                            </div>
-                                        )}
-                                        <div style={{ marginBottom: '6px' }}>
-                                            <span style={{ color: darkText, opacity: 0.7 }}>Qty:</span>{' '}
-                                            <span style={{ color: greenAccent }}>{quantity || 'N/A'}</span>
-                                        </div>
-                                        {formatDimensions() && (
-                                            <div style={{ marginBottom: '6px' }}>
-                                                <span style={{ color: darkText, opacity: 0.7 }}>Dimensions:</span>{' '}
-                                                <span style={{ color: greenAccent }}>{formatDimensions()}</span>
-                                            </div>
-                                        )}
-                                        {(() => {
-                                            const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                            return (
-                                                <div style={{ marginBottom: '6px' }}>
-                                                    <span style={{ color: darkText, opacity: 0.7 }}>Total CBM:</span>{' '}
-                                                    <span style={{ color: greenAccent }}>
-                                                        {totalCbm !== null ? totalCbm.toFixed(3) : '—'}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })()}
-                                        <div style={{ marginBottom: '0' }}>
-                                            <span style={{ color: darkText, opacity: 0.7 }}>Delivery:</span>{' '}
-                                            <span style={{ color: greenAccent }}>
-                                                {deliveryCountry || 'N/A'}{deliveryPostal ? ` | ${deliveryPostal}` : ''}
-                                            </span>
-                                        </div>
                                     </div>
-                                )}
-                            </div>
-                                
-                            {/* System Intelligence (editable when State A only) - Removed "SECTION:" text */}
-                            {isEditable && currentState === 'A' ? (
-                                <div style={{ marginBottom: '24px' }}>
-                            <div style={{
-                                        border: `1px solid ${darkBorder}`,
-                                    borderRadius: '4px',
-                                        padding: '12px',
-                                        backgroundColor: '#111111',
-                                    }}>
-                                <div style={{ marginBottom: '12px' }}>
-                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                        Category
-                                    </label>
-                                    <select
-                                        value={category}
-                                        onChange={(e) => setCategory(e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                                    color: darkText,
-                                            fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                        }}
-                                    >
-                                                <option value="">-- Select Category --</option>
-                                                <optgroup label="Indoor Furniture (6-Step Timeline)">
-                                                    <option value="Indoor Furniture">Indoor Furniture</option>
-                                                    <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                                    <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                                    <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                                    <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                                    <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                                </optgroup>
-                                                <optgroup label="Outdoor Furniture (6-Step Timeline)">
-                                                    <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                                    <option value="Outdoor Seating">Outdoor Seating</option>
-                                                    <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                                    <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                                    <option value="Pool Furniture">Pool Furniture</option>
-                                                </optgroup>
-                                                <optgroup label="Sourcing (4-Step Timeline)">
-                                                    <option value="Lighting">Lighting</option>
-                                                </optgroup>
-                                                <optgroup label="Other">
-                                                    <option value="Material Sample Kit">Material Sample Kit</option>
-                                                    <option value="Fabric Sample">Fabric Sample</option>
-                                                </optgroup>
-                                    </select>
-                                </div>
-                                <div style={{ marginBottom: '12px' }}>
-                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                        Description
-                                    </label>
-                                    <textarea
-                                        value={description}
-                                        onChange={(e) => setDescription(e.target.value)}
-                                                placeholder="Item description"
-                                                rows={3}
-                                        style={{
-                                            width: '100%',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                                    color: darkText,
-                                            fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                            resize: 'vertical',
-                                        }}
-                                    />
-                                </div>
-                                    </div>
-                                </div>
-                            ) : currentState === 'C' ? (
-                                // State C: Show description with heading
-                                description && (
+                                    
+                                    {/* 6. Smart Alternatives */}
                                     <div style={{ marginBottom: '24px' }}>
-                                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                            Description
+                                        <div style={{ marginBottom: '12px' }}>
+                                            <label style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '12px',
+                                                cursor: 'pointer',
+                                            }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={smartAlternativesEnabled}
+                                                    onChange={(e) => setSmartAlternativesEnabled(e.target.checked)}
+                                                    style={{
+                                                        width: '18px',
+                                                        height: '18px',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                />
+                                                <span style={{ fontSize: '12px', fontWeight: '600' }}>Smart Alternatives</span>
+                                            </label>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
-                                            {description}
+                                        <div style={{ 
+                                            marginTop: '8px',
+                                            marginLeft: '30px',
+                                            fontSize: '11px',
+                                            color: '#999',
+                                        }}>
+                                            <span>Suppliers may suggest equivalent materials or construction methods. No contact info is shared.</span>
                                         </div>
                                     </div>
-                                )
+                                </>
+                            ) : currentState === 'C' ? (
+                                // State C: Show description above category
+                                <>
+                                    {description && (
+                                        <div style={{ marginBottom: '24px' }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Description
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
+                                                {description}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {category && (
+                                        <div style={{ marginBottom: '24px' }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Category
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: darkText }}>
+                                                {category}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
-                                // State B: Show category and description with dot
-                                <div style={{ marginBottom: '24px' }}>
-                                    <div style={{ marginBottom: '8px', fontSize: '12px', color: darkText }}>
-                                        {category || 'Uncategorized'} {category && description ? '•' : ''} {description || 'No description'}
-                                    </div>
-                                </div>
+                                // State B: Show description above category
+                                <>
+                                    {description && (
+                                        <div style={{ marginBottom: '24px' }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Description
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
+                                                {description}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {category && (
+                                        <div style={{ marginBottom: '24px' }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Category
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: darkText }}>
+                                                {category}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                             
                             {/* Removed SECTION: Item Facts - all fields moved to Request Quote box */}
@@ -1527,11 +1852,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     )}
                             </div>
                             
-                                {!bidsExpanded && (
+                                {!bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 && (
                                     <div style={{ fontSize: '12px', color: darkText, marginTop: '8px' }}>
-                                        {currentState === 'A' && 'No bids yet'}
-                                        {currentState === 'B' && 'Awaiting supplier bids'}
-                                        {currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? `${itemState.bids.length} bid${itemState.bids.length !== 1 ? 's' : ''} received` : 'No bids yet'}
+                                        {`${itemState.bids.length} bid${itemState.bids.length !== 1 ? 's' : ''} received`}
                                     </div>
                                 )}
                                 
@@ -1546,8 +1869,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             </div>
                             
                             {/* Request Quote Button / RFQ Form */}
+                            {/* Commit 2.3.5.3: Ensure Request Quote is visible without scrolling */}
                             {currentState === 'A' && (
-                                <div style={{ marginBottom: '24px' }}>
+                                <div id="request-quote-section" style={{ marginBottom: '24px' }}>
                                     {!showRfqForm ? (
                                         <button
                                             onClick={() => setShowRfqForm(true)}
@@ -1676,25 +2000,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 <option value="m">m</option>
                                             </select>
                                         </div>
-                                                {computedValues.cbm && (
-                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent }}>
-                                                        CBM: {computedValues.cbm.toFixed(3)}
-                                    </div>
-                                                )}
-                                                {(() => {
-                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                                    return totalCbm !== null ? (
-                                                        <div style={{ marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
-                                                            Total CBM: {totalCbm.toFixed(3)}
-                                </div>
-                                                    ) : (
-                                                        (computedValues.cbm || quantity) ? null : (
-                                                            <div style={{ marginTop: '4px', fontSize: '11px', color: '#666' }}>
-                                                                Total CBM: —
-                                                            </div>
-                                                        )
-                                                    );
-                                                })()}
                             </div>
                             
                                             {/* Quantity */}
@@ -1718,20 +2023,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         fontFamily: 'monospace',
                                                     }}
                                                 />
-                                                {(() => {
-                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                                    return totalCbm !== null ? (
-                                                        <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
-                                                            Total CBM: {totalCbm.toFixed(3)}
-                                        </div>
-                                    ) : (
-                                                        (computedValues.cbm && quantity) ? null : (
-                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
-                                                                Total CBM: — (enter dimensions and quantity)
-                                        </div>
-                                                        )
-                                                    );
-                                                })()}
                                 </div>
                                 
                                             {/* Delivery Country */}
@@ -1793,216 +2084,130 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         </div>
                                     )}
                                 </div>
-                                
-                                            {/* SMART ALTERNATIVES Section */}
-                                            <div style={{ marginBottom: '12px' }}>
-                                                <div style={{ marginBottom: '12px', fontSize: '12px', fontWeight: '600' }}>
-                                                    SMART ALTERNATIVES (Optional)
-                                    </div>
-                                                
-                                                <div style={{ marginBottom: '12px', fontSize: '12px' }}>
-                                                    Are you open to comparable options?
-                                </div>
-                                
-                                                <div style={{ marginBottom: '12px' }}>
-                                                    <label style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        cursor: 'pointer',
-                                                        marginBottom: '8px',
-                                                    }}>
-                                                        <input
-                                                            type="radio"
-                                                            name="smart_alternatives"
-                                                            checked={smartAlternativesEnabled}
-                                                            onChange={() => setSmartAlternativesEnabled(true)}
-                                                            style={{
-                                                                width: '16px',
-                                                                height: '16px',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        />
-                                                        <span style={{ fontSize: '12px' }}>Yes — show me comparable options</span>
-                                    </label>
-                                                    
-                                                    <label style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        cursor: 'pointer',
-                                                    }}>
-                                                        <input
-                                                            type="radio"
-                                                            name="smart_alternatives"
-                                                            checked={!smartAlternativesEnabled}
-                                                            onChange={() => setSmartAlternativesEnabled(false)}
-                                                            style={{
-                                                                width: '16px',
-                                                                height: '16px',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        />
-                                                        <span style={{ fontSize: '12px' }}>No — proceed as specified</span>
-                                                    </label>
-                                </div>
-                                
-                                    <div style={{ 
-                            display: 'flex',
-                                                    alignItems: 'flex-start',
-                            gap: '8px',
-                                                    marginBottom: '12px',
-                                                    fontSize: '11px',
-                                                    color: '#999',
-                                    }}>
-                                                    <span style={{ fontSize: '14px' }}>i</span>
-                                                    <span>Suppliers may suggest equivalent materials or construction methods. No contact info is shared.</span>
-                                    </div>
-                                                
-                                                {/* Notes for suppliers */}
-                                                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
-                                                    Notes for suppliers (optional)
-                            </div>
-                            
-                                                <textarea
-                                                    value={smartAlternativesNote}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        if (val.length <= 240) {
-                                                            setSmartAlternativesNote(val);
-                                            }
-                                        }}
-                                                    placeholder="[ Open to outdoor durability options ]"
-                                                    maxLength={240}
-                                        style={{
-                                                        width: '100%',
-                                                        minHeight: '60px',
-                                                        padding: '8px',
-                                                        backgroundColor: darkBg,
-                                                        border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                                        color: darkText,
-                                    fontSize: '12px', 
-                                                        fontFamily: 'monospace',
-                                                        resize: 'vertical',
-                                                    }}
-                                                />
-                                                
-                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                                    ({smartAlternativesNote.length} chars • filtered)
-                                                </div>
-                                            </div>
                                             
-                                            {/* Inspiration / References / Sketch Drawings */}
+                                            {/* Inspiration / References / Sketch Drawings (inside RFQ form) */}
                                             <div style={{ marginBottom: '12px' }}>
-                                                <div style={{ marginBottom: '4px', fontSize: '12px', fontWeight: '600' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
                                                     Inspiration / References / Sketch Drawings
                                                 </div>
                                                 <div style={{ marginBottom: '8px', fontSize: '11px', color: '#999' }}>
-                                                    Visible to suppliers while bidding.
+                                                    These images are helpful when you're ready to request a quote. They will be used as reference materials by suppliers to price accurately.
                                                 </div>
-                                    <div style={{ 
-                                        display: 'flex',
+                                                <div style={{ 
+                                                    display: 'flex',
                                                     gap: '8px',
+                                                    flexWrap: 'wrap',
                                                     marginBottom: '8px',
-                                        flexWrap: 'wrap',
-                                    }}>
+                                                }}>
                                                     {inspiration.map((insp, idx) => (
                                                         <div
                                                             key={idx}
                                                             style={{
                                                                 width: '80px',
-                                                    height: '80px',
+                                                                height: '80px',
                                                                 border: `1px solid ${darkBorder}`,
                                                                 borderRadius: '4px',
                                                                 backgroundColor: '#111111',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
+                                                                position: 'relative',
+                                                                overflow: 'hidden',
                                                                 cursor: 'pointer',
-                                                    position: 'relative',
                                                             }}
                                                             onClick={() => {
-                                                                if (insp.url) setLightboxImage(insp.url);
+                                                                if (insp.url) {
+                                                                    setLightboxImage(insp.url);
+                                                                }
                                                             }}
                                                         >
                                                             {insp.url ? (
-                                                        <img 
-                                                            src={insp.url} 
-                                                            alt={insp.title || 'Reference'} 
-                                                            style={{ 
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                        objectFit: 'cover',
-                                                                borderRadius: '4px',
-                                                            }} 
-                                                        />
+                                                                (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) ? (
+                                                                    <div style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        backgroundColor: '#222',
+                                                                        borderRadius: '4px',
+                                                                        flexDirection: 'column',
+                                                                        gap: '4px',
+                                                                    }}>
+                                                                        <div style={{ fontSize: '24px' }}>📄</div>
+                                                                        <div style={{ fontSize: '8px', color: '#999' }}>PDF</div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <img 
+                                                                        src={insp.url} 
+                                                                        alt={insp.title || 'Reference'} 
+                                                                        style={{
+                                                                            width: '100%',
+                                                                            height: '100%',
+                                                                            objectFit: 'cover',
+                                                                            borderRadius: '4px',
+                                                                        }} 
+                                                                    />
+                                                                )
                                                             ) : (
                                                                 <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
-                                                    )}
-                                                    <button
+                                                            )}
+                                                            <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setInspiration(inspiration.filter((_, i) => i !== idx));
                                                                 }}
-                                                        style={{
-                                                            position: 'absolute',
+                                                                style={{
+                                                                    position: 'absolute',
                                                                     top: '4px',
                                                                     right: '4px',
                                                                     background: '#ff0000',
-                                                            color: '#fff',
-                                                            border: 'none',
-                                                            borderRadius: '50%',
+                                                                    color: '#fff',
+                                                                    border: 'none',
+                                                                    borderRadius: '50%',
                                                                     width: '20px',
                                                                     height: '20px',
-                                                            cursor: 'pointer',
+                                                                    cursor: 'pointer',
                                                                     fontSize: '12px',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
                                                                     padding: 0,
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </div>
+                                                                }}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
                                                     ))}
-                                                    
-                                <button
-                                    onClick={() => {
-                                        const input = document.getElementById('inspiration-file-input');
-                                        if (input) input.click();
-                                    }}
-                                    disabled={isUploadingInspiration}
-                                    style={{
+                                                    <button
+                                                        onClick={() => {
+                                                            const input = document.getElementById('inspiration-file-input-rfq');
+                                                            if (input) input.click();
+                                                        }}
+                                                        disabled={isUploadingInspiration}
+                                                        style={{
                                                             width: '80px',
                                                             height: '80px',
                                                             border: `1px solid ${darkBorder}`,
-                                        borderRadius: '4px',
+                                                            borderRadius: '4px',
                                                             backgroundColor: '#111111',
                                                             color: darkText,
-                                        cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
                                                             fontSize: '12px',
                                                             fontFamily: 'monospace',
-                                    }}
-                                >
+                                                        }}
+                                                    >
                                                         {isUploadingInspiration ? '...' : '[+ Add]'}
-                                </button>
+                                                    </button>
                                                 </div>
                                                 <input
                                                     type="file"
-                                                    id="inspiration-file-input"
-                                                    accept="image/*"
+                                                    id="inspiration-file-input-rfq"
+                                                    accept="image/*,.pdf,application/pdf"
                                                     multiple
                                                     onChange={handleInspirationFileChange}
                                                     style={{ display: 'none' }}
                                                     disabled={isUploadingInspiration}
                                                 />
-                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                                    (visible to suppliers • no downloads)
-                                                </div>
-                            </div>
-                            
+                                            </div>
+                                            
                                             {/* Invite Makers */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
@@ -2260,29 +2465,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         fontFamily: 'monospace',
                                                     }}
                                                 />
-                                                {(() => {
-                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                                    return totalCbm !== null ? (
-                                                        <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
-                                                            Total CBM: {totalCbm.toFixed(3)}
-                                                        </div>
-                                                    ) : (
-                                                        (computedValues.cbm && quantity) ? null : (
-                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
-                                                                Total CBM: — (enter dimensions and quantity)
-                                                            </div>
-                                                        )
-                                                    );
-                                                })()}
                                 </div>
                                             
                                             {/* Dimensions */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Dimensions {computedValues.cbm && `(CBM: ${computedValues.cbm.toFixed(3)})`} {(() => {
-                                                        const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                                        return totalCbm !== null ? `(Total CBM: ${totalCbm.toFixed(3)})` : '';
-                                                    })()}
+                                                    Dimensions
                                                 </label>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
                                                     <input
@@ -2352,25 +2540,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         <option value="m">m</option>
                                                     </select>
                                                 </div>
-                                                {computedValues.cbm && (
-                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: greenAccent }}>
-                                                        CBM: {computedValues.cbm.toFixed(3)}
-                                                    </div>
-                                                )}
-                                                {(() => {
-                                                    const totalCbm = calculateTotalCBM(computedValues.cbm, quantity);
-                                                    return totalCbm !== null ? (
-                                                        <div style={{ marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }}>
-                                                            Total CBM: {totalCbm.toFixed(3)}
-                                                        </div>
-                                                    ) : (
-                                                        (computedValues.cbm || quantity) ? null : (
-                                                            <div style={{ marginTop: '4px', fontSize: '11px', color: '#666' }}>
-                                                                Total CBM: —
-                                                            </div>
-                                                        )
-                                                    );
-                                                })()}
                                             </div>
                                             
                                             {/* Notes for suppliers */}

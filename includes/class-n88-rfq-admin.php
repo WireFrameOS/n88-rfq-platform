@@ -2470,14 +2470,32 @@ class N88_RFQ_Admin {
                                 <td><textarea id="item-description" name="description" rows="3" style="width: 100%;"></textarea></td>
                             </tr>
                             <tr>
-                                <th><label for="item-type">Item Type</label></th>
+                                <th><label for="item-type">Category</label></th>
                                 <td>
                                     <select id="item-type" name="item_type" style="width: 100%;">
-                                        <option value="furniture">Furniture</option>
-                                        <option value="lighting">Lighting</option>
-                                        <option value="accessory">Accessory</option>
-                                        <option value="art">Art</option>
-                                        <option value="other">Other</option>
+                                        <option value="">-- Select Category --</option>
+                                        <optgroup label="Indoor Furniture (6-Step Timeline)">
+                                            <option value="Indoor Furniture">Indoor Furniture</option>
+                                            <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                            <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                            <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                            <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                            <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                        </optgroup>
+                                        <optgroup label="Outdoor Furniture (6-Step Timeline)">
+                                            <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                            <option value="Outdoor Seating">Outdoor Seating</option>
+                                            <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                            <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                            <option value="Pool Furniture">Pool Furniture</option>
+                                        </optgroup>
+                                        <optgroup label="Sourcing (4-Step Timeline)">
+                                            <option value="Lighting">Lighting</option>
+                                        </optgroup>
+                                        <optgroup label="Other">
+                                            <option value="Material Sample Kit">Material Sample Kit</option>
+                                            <option value="Fabric Sample">Fabric Sample</option>
+                                        </optgroup>
                                     </select>
                                 </td>
                             </tr>
@@ -2515,11 +2533,6 @@ class N88_RFQ_Admin {
                                         </div>
                                     </div>
                                     <p class="description">Optional: Enter dimensions (W × D × H)</p>
-                                    <!-- Commit 2.3.5.1: CBM calculation display -->
-                                    <div id="item-cbm-display" style="margin-top: 8px; font-size: 12px; color: #666; display: none;">
-                                        <div id="item-cbm-value" style="margin-bottom: 4px;"></div>
-                                        <div id="item-total-cbm-value" style="font-weight: 600; color: #00a32a;"></div>
-                                    </div>
                                 </td>
                             </tr>
                             <tr>
@@ -2743,18 +2756,21 @@ class N88_RFQ_Admin {
                 var nonce = '<?php echo esc_js( $nonce ); ?>';
                 var ajaxurl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
                 
-                // Handle file input for item image
+                // Handle file input for item image - Commit 2.3.5.3: Fix image upload bug
                 $('#item-image-file').on('change', function(e) {
                     var file = e.target.files[0];
                     if (file && file.type.startsWith('image/')) {
+                        // Show preview
                         var reader = new FileReader();
                         reader.onload = function(event) {
-                            $('#item-image-url').val(event.target.result);
                             $('#item-image-preview-img').attr('src', event.target.result);
                             $('#item-image-preview').show();
                             $('#item-image-remove-btn').show();
                         };
                         reader.readAsDataURL(file);
+                        // Clear any existing image_id or image_url to ensure file is uploaded
+                        $('#item-image-id').val('');
+                        $('#item-image-url').val('');
                     }
                 });
                 
@@ -2776,90 +2792,9 @@ class N88_RFQ_Admin {
                     var unit = $('#item-dimension-unit').val() || 'in';
                     var quantity = parseInt($('#item-quantity').val()) || 0;
                     
-                    var $cbmDisplay = $('#item-cbm-display');
-                    var $cbmValue = $('#item-cbm-value');
-                    var $totalCbmValue = $('#item-total-cbm-value');
-                    
-                    // Convert to cm
-                    /**
-                     * Normalize dimensions to cm
-                     */
-                    function convertToCm(num, unit) {
-                        if (!num || num <= 0) return null;
-                        switch(unit) {
-                            case 'cm': return num;
-                            case 'mm': return num / 10;
-                            case 'm': return num * 100;
-                            case 'in': return num * 2.54;
-                            default: return num;
-                        }
-                    }
-                    
-                    /**
-                     * Calculate CBM (Cubic Meters) - per unit
-                     * Formula: (W_cm × D_cm × H_cm) / 1,000,000
-                     * This is equivalent to:
-                     * - Inches: (W × D × H) / 61023.7441
-                     * - Centimeters: (W × D × H) / 1,000,000
-                     * - Millimeters: (W × D × H) / 1,000,000,000
-                     * - Meters: W × D × H
-                     */
-                    function calculateCBM(wCm, dCm, hCm) {
-                        if (!wCm || !dCm || !hCm) return null;
-                        // Convert cm to meters, then calculate volume
-                        var wM = wCm / 100;
-                        var dM = dCm / 100;
-                        var hM = hCm / 100;
-                        // Calculate CBM and round to 3 decimal places
-                        return Math.round((wM * dM * hM) * 1000) / 1000;
-                    }
-                    
-                    /**
-                     * Calculate Total CBM (item_cbm × quantity)
-                     * Formula: total_cbm = item_cbm × quantity
-                     * Returns value rounded to 3 decimal places
-                     */
-                    function calculateTotalCBM(itemCbm, qty) {
-                        if (!itemCbm || itemCbm === null || itemCbm === undefined) return null;
-                        if (!qty || qty <= 0) return null;
-                        // Calculate total CBM and round to 3 decimal places
-                        return Math.round((itemCbm * qty) * 1000) / 1000;
-                    }
-                    
-                    if (width > 0 && depth > 0 && height > 0) {
-                        var wCm = convertToCm(width, unit);
-                        var dCm = convertToCm(depth, unit);
-                        var hCm = convertToCm(height, unit);
-                        
-                        if (wCm && dCm && hCm) {
-                            var itemCbm = calculateCBM(wCm, dCm, hCm);
-                            if (itemCbm !== null) {
-                                $cbmValue.text('CBM: ' + itemCbm.toFixed(3));
-                                
-                                var totalCbm = calculateTotalCBM(itemCbm, quantity);
-                                if (totalCbm !== null) {
-                                    $totalCbmValue.text('Total CBM: ' + totalCbm.toFixed(3));
-                                } else {
-                                    $totalCbmValue.text('Total CBM: —');
-                                }
-                                
-                                $cbmDisplay.show();
-                                return;
-                            }
-                        }
-                    }
-                    
-                    // Hide if no valid dimensions
-                    $cbmDisplay.hide();
+                    // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                    // CBM calculations still run but are not displayed to avoid distracting the designer
                 }
-                
-                // Update CBM when dimensions or quantity change
-                $('#item-width, #item-depth, #item-height, #item-dimension-unit, #item-quantity').on('input change', function() {
-                    updateCBMDisplay();
-                });
-                
-                // Initial calculation
-                updateCBMDisplay();
                 
                 // Show preview if URL is manually entered
                 $('#item-image-url').on('blur', function() {
@@ -2933,18 +2868,23 @@ class N88_RFQ_Admin {
                     }
                     
                     // Handle image: prefer file upload, fallback to URL
-                    var imageFile = $('#item-image-file')[0].files[0];
+                    // Commit 2.3.5.3: Fix image upload - always check file input first
+                    var imageFileInput = $('#item-image-file')[0];
+                    var imageFile = imageFileInput && imageFileInput.files && imageFileInput.files.length > 0 ? imageFileInput.files[0] : null;
                     var imageUrl = $('#item-image-url').val();
+                    var imageId = $('#item-image-id').val();
                     
                     if (imageFile) {
-                        // Upload file
+                        // Upload file directly (preferred method)
                         formData.append('image_file', imageFile);
+                    } else if (imageId && parseInt(imageId) > 0) {
+                        // Use existing attachment ID if available
+                        formData.append('image_id', imageId);
                     } else if (imageUrl && !imageUrl.startsWith('data:')) {
                         // Use URL if provided and not a data URL
                         formData.append('image_url', imageUrl);
-                        formData.append('image_id', $('#item-image-id').val());
                     } else if (imageUrl && imageUrl.startsWith('data:')) {
-                        // Convert data URL to blob and upload
+                        // Convert data URL to blob and upload (fallback)
                         var blob = dataURLtoBlob(imageUrl);
                         formData.append('image_file', blob, 'item-image.png');
                     }
@@ -6544,8 +6484,11 @@ class N88_RFQ_Admin {
                                             setShowWarningBanner(false);
                                         }, 10000);
                                     }
-                                    // Don't close modal - stay open as per requirement
+                                    // Commit 2.3.5.3: Close modal after save
                                     setIsSaving(false);
+                                    if (onClose) {
+                                        onClose();
+                                    }
                                 }).catch(function(error) {
                                     console.error('Error saving item facts:', error);
                                     alert('Failed to save item facts. Please try again.');
@@ -6561,24 +6504,33 @@ class N88_RFQ_Admin {
                         }
                     };
                     
-                    // Handle inspiration image upload via file input - upload to WordPress media library
+                    // Handle inspiration image/PDF upload via file input - upload to WordPress media library
+                    // Commit 2.3.5.3: Allow both images and PDFs for inspiration section
                     var handleInspirationFileChange = function(e) {
                         var files = e.target.files;
                         if (!files || files.length === 0) return;
                         
-                        var imageFiles = Array.from(files).filter(function(file) {
-                            return file.type.startsWith('image/');
+                        // Commit 2.3.5.3: Allow both images and PDFs
+                        var validFiles = Array.from(files).filter(function(file) {
+                            return file.type.startsWith('image/') || file.type === 'application/pdf';
                         });
                         
-                        if (imageFiles.length === 0) {
-                            alert('Please select image files only.');
+                        if (validFiles.length === 0) {
+                            alert('Please select image or PDF files only.');
                             e.target.value = '';
                             return;
                         }
                         
+                        var imageFiles = validFiles.filter(function(file) {
+                            return file.type.startsWith('image/');
+                        });
+                        var pdfFiles = validFiles.filter(function(file) {
+                            return file.type === 'application/pdf';
+                        });
+                        
                         // Get AJAX URL and nonce
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || 
-                                     (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                                     (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>');
                         var nonce = (window.n88BoardData && window.n88BoardData.nonce) || 
                                    '<?php echo esc_js( N88_RFQ_Helpers::create_ajax_nonce() ); ?>';
                         
@@ -6595,17 +6547,29 @@ class N88_RFQ_Admin {
                         // Set uploading state
                         setIsUploadingInspiration(true);
                         
-                        console.log('Uploading inspiration images:', imageFiles.length, 'files');
+                        console.log('Uploading inspiration files: ' + imageFiles.length + ' images, ' + pdfFiles.length + ' PDFs');
                         
-                        // Upload each file to WordPress media library
-                        var uploadPromises = imageFiles.map(function(file) {
+                        // Initialize upload promise arrays
+                        var imageUploadPromises = [];
+                        var pdfUploadPromises = [];
+                        
+                        // Handle case where there are no files to upload
+                        if (imageFiles.length === 0 && pdfFiles.length === 0) {
+                            setIsUploadingInspiration(false);
+                            e.target.value = '';
+                            return;
+                        }
+                        
+                        // Upload images to WordPress media library
+                        if (imageFiles.length > 0) {
+                            imageUploadPromises = imageFiles.map(function(file) {
                             return new Promise(function(resolve, reject) {
                                 var formData = new FormData();
                                 formData.append('action', 'n88_upload_inspiration_image');
                                 formData.append('inspiration_image', file);
                                 formData.append('nonce', nonce);
                                 
-                                console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+                                console.log('Uploading file: ' + file.name + ', Size: ' + file.size + ', Type: ' + file.type);
                                 
                                 fetch(ajaxUrl, {
                                     method: 'POST',
@@ -6636,7 +6600,7 @@ class N88_RFQ_Admin {
                                             title: data.data.title
                                         });
                                         resolve({
-                                    type: 'image',
+                                            type: 'image',
                                             url: data.data.url.trim(),
                                             id: Number(data.data.id),
                                             title: data.data.title || data.data.filename || file.name,
@@ -6662,42 +6626,111 @@ class N88_RFQ_Admin {
                                 });
                             });
                         });
+                        }
                         
-                        // Wait for all uploads to complete
-                        Promise.all(uploadPromises).then(function(uploadedImages) {
-                            // Filter out failed uploads - only add images with valid IDs and URLs
-                            var validImages = uploadedImages.filter(function(img) {
-                                if (!img || typeof img !== 'object') return false;
-                                var hasId = img.id && Number.isInteger(Number(img.id)) && Number(img.id) > 0;
-                                var url = img.url ? String(img.url).trim() : '';
+                        // Upload PDFs (Commit 2.3.5.3: PDF support for sketch drawings)
+                        if (pdfFiles.length > 0) {
+                            pdfUploadPromises = pdfFiles.map(function(file) {
+                            return new Promise(function(resolve, reject) {
+                                var formData = new FormData();
+                                formData.append('action', 'n88_upload_inspiration_image');
+                                formData.append('inspiration_image', file);
+                                formData.append('nonce', nonce);
+                                
+                                console.log('Uploading PDF: ' + file.name + ', Size: ' + file.size + ', Type: ' + file.type);
+                                
+                                fetch(ajaxUrl, {
+                                    method: 'POST',
+                                    body: formData,
+                                })
+                                .then(function(response) {
+                                    if (!response.ok) {
+                                        throw new Error('HTTP error! status: ' + response.status);
+                                    }
+                                    return response.json();
+                                })
+                                .then(function(data) {
+                                    console.log('PDF upload response:', data);
+                                    
+                                    if (data.success && 
+                                        data.data && 
+                                        data.data.id && 
+                                        Number.isInteger(Number(data.data.id)) && 
+                                        Number(data.data.id) > 0 &&
+                                        data.data.url && 
+                                        typeof data.data.url === 'string' && 
+                                        data.data.url.trim().length > 0 &&
+                                        (data.data.url.startsWith('http://') || data.data.url.startsWith('https://'))) {
+                                        console.log('PDF uploaded successfully:', {
+                                            id: data.data.id,
+                                            url: data.data.url,
+                                            title: data.data.title
+                                        });
+                                        resolve({
+                                            type: 'pdf',
+                                            url: data.data.url.trim(),
+                                            id: Number(data.data.id),
+                                            title: data.data.title || data.data.filename || file.name,
+                                        });
+                                    } else {
+                                        var errorMsg = (data.data && data.data.message) || 'Upload failed - missing or invalid data';
+                                        console.error('Failed to upload PDF:', errorMsg);
+                                        alert('Failed to upload ' + file.name + ': ' + errorMsg);
+                                        resolve(null);
+                                    }
+                                })
+                                .catch(function(error) {
+                                    console.error('Error uploading PDF:', error);
+                                    alert('Error uploading ' + file.name + ': ' + error.message);
+                                    resolve(null);
+                                });
+                            });
+                        });
+                        }
+                        
+                        // Wait for all uploads to complete (images + PDFs)
+                        var allUploadPromises = imageUploadPromises.concat(pdfUploadPromises);
+                        if (allUploadPromises.length === 0) {
+                            setIsUploadingInspiration(false);
+                            e.target.value = '';
+                            return;
+                        }
+                        Promise.all(allUploadPromises).then(function(allUploaded) {
+                            // Filter out failed uploads - only add files with valid IDs and URLs
+                            var validFiles = allUploaded.filter(function(file) {
+                                if (!file || typeof file !== 'object') return false;
+                                var hasId = file.id && Number.isInteger(Number(file.id)) && Number(file.id) > 0;
+                                var url = file.url ? String(file.url).trim() : '';
                                 var hasUrl = url && 
                                     url.length > 0 &&
                                     (url.startsWith('http://') || url.startsWith('https://')) && 
                                     !url.startsWith('data:');
                                 var isValid = hasId && hasUrl;
                                 if (!isValid) {
-                                    console.warn('Filtering out invalid uploaded image:', img);
+                                    console.warn('Filtering out invalid uploaded file:', file);
                                 }
                                 return isValid;
                             });
                             
-                            if (validImages.length > 0) {
-                                console.log('Adding', validImages.length, 'images to inspiration array');
-                                setInspiration(inspiration.concat(validImages));
+                            if (validFiles.length > 0) {
+                                console.log('Adding ' + validFiles.length + ' files to inspiration array');
+                                setInspiration(function(prev) {
+                                    return prev.concat(validFiles);
+                                });
                             } else {
-                                console.warn('No images were successfully uploaded');
-                                if (uploadedImages.length > 0) {
-                                    alert('No images were successfully uploaded. Please try again.');
-                                } else if (imageFiles.length > 0) {
-                                    alert('Failed to upload images. Please check your connection and try again.');
+                                console.warn('No files were successfully uploaded');
+                                if (allUploaded.length > 0) {
+                                    alert('No files were successfully uploaded. Please try again.');
+                                } else if (imageFiles.length > 0 || pdfFiles.length > 0) {
+                                    alert('Failed to upload files. Please check your connection and try again.');
                                 }
                             }
                             
                             // Reset uploading state
                             setIsUploadingInspiration(false);
-                        
-                        // Reset input
-                        e.target.value = '';
+                            
+                            // Reset input
+                            e.target.value = '';
                         }).catch(function(error) {
                             console.error('Error during upload process:', error);
                             alert('Error uploading images: ' + error.message);
@@ -6862,16 +6895,35 @@ class N88_RFQ_Admin {
                                                 }
                                     }
                                 },
-                                            insp.url ? React.createElement('img', {
-                                                src: insp.url,
-                                                alt: insp.title || 'Reference',
-                                        style: {
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    objectFit: 'cover',
-                                            borderRadius: '4px',
-                                        }
-                                            }) : React.createElement('div', {
+                                            insp.url ? (
+                                                (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
+                                                React.createElement('div', {
+                                                    style: {
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        backgroundColor: '#222',
+                                                        borderRadius: '4px',
+                                                        flexDirection: 'column',
+                                                        gap: '4px',
+                                                    }
+                                                }, 
+                                                    React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
+                                                    React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
+                                                ) :
+                                                React.createElement('img', {
+                                                    src: insp.url,
+                                                    alt: insp.title || 'Reference',
+                                                    style: {
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: 'cover',
+                                                        borderRadius: '4px',
+                                                    }
+                                                })
+                                            ) : React.createElement('div', {
                                                 style: { fontSize: '10px', color: '#666' }
                                             }, '[ img ]')
                                         );
@@ -6890,26 +6942,22 @@ class N88_RFQ_Admin {
                                     color: '#ff0000',
                                 }
                             }, '⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.') : null,
-                            // Item Details Heading
-                            React.createElement('div', {
-                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px', marginTop: '24px' }
-                            }, 'Item Details'),
                             // Item Title
                             React.createElement('div', {
                                         style: { fontSize: '16px', fontWeight: '600', marginBottom: '12px' }
                                     }, item.title || item.description || 'Untitled Item'),
-                                    // Item Details - Show when RFQ is sent
+                                    // Item Details - Show when RFQ is sent (State B/C only) - Commit 2.3.5.3: Moved to after editable fields
                                     itemState.has_rfq ? React.createElement('div', {
-                                style: {
+                                        style: {
                                             padding: '12px',
                                             backgroundColor: darkBg,
                                             border: '1px solid ' + darkBorder,
                                             borderRadius: '4px',
                                             fontSize: '12px',
                                             fontFamily: 'monospace',
-                                }
-                            },
-                                React.createElement('div', {
+                                        }
+                                    },
+                                        React.createElement('div', {
                                             style: { marginBottom: '6px' }
                                         }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Category:'), ' ', React.createElement('span', { style: { color: greenAccent } }, category || 'N/A')),
                                         React.createElement('div', {
@@ -6941,12 +6989,6 @@ class N88_RFQ_Admin {
                                         formatDimensions() ? React.createElement('div', {
                                             style: { marginBottom: '6px' }
                                         }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Dimensions:'), ' ', React.createElement('span', { style: { color: greenAccent } }, formatDimensions())) : null,
-                                        (function() {
-                                            var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                            return React.createElement('div', {
-                                                style: { marginBottom: '6px' }
-                                            }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Total CBM:'), ' ', React.createElement('span', { style: { color: greenAccent } }, totalCbm !== null ? totalCbm.toFixed(3) : '—'));
-                                        })(),
                                         React.createElement('div', {
                                             style: { marginBottom: '0' }
                                         }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Delivery:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (deliveryCountry || 'N/A') + (deliveryPostal ? ' | ' + deliveryPostal : '')))
@@ -6964,6 +7006,31 @@ class N88_RFQ_Admin {
                                             backgroundColor: '#111111',
                                         }
                                     },
+                                        // Commit 2.3.5.3: Field Order - Description above Category
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px' }
+                                        },
+                                        React.createElement('label', {
+                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                        }, 'Description'),
+                                        React.createElement('textarea', {
+                                            value: description,
+                                            onChange: function(e) { setDescription(e.target.value); },
+                                                placeholder: 'Item description',
+                                                rows: 3,
+                                            style: {
+                                                width: '100%',
+                                                    padding: '8px',
+                                                    backgroundColor: darkBg,
+                                                    border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                                    color: darkText,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                resize: 'vertical',
+                                            }
+                                        })
+                                        ),
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
                                         },
@@ -7008,52 +7075,55 @@ class N88_RFQ_Admin {
                                                     React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample')
                                                 )
                                             )
-                                    ),
-                                        React.createElement('div', {
-                                            style: { marginBottom: '12px' }
-                                        },
-                                        React.createElement('label', {
-                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                        }, 'Description'),
-                                        React.createElement('textarea', {
-                                            value: description,
-                                            onChange: function(e) { setDescription(e.target.value); },
-                                                placeholder: 'Item description',
-                                                rows: 3,
-                                            style: {
-                                                width: '100%',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
-                                                    color: darkText,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                                resize: 'vertical',
-                                            }
-                                        })
-                                        )
+                                    )
                                     )
                                 ) : currentState === 'C' ? (
-                                    // State C: Show description with heading
-                                    description ? React.createElement('div', {
-                                        style: { marginBottom: '24px' }
-                                    },
-                                        React.createElement('div', {
-                                            style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                        }, 'Description'),
-                                        React.createElement('div', {
-                                            style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
-                                        }, description)
-                                    ) : null
+                                    // State C: Show description above category (Commit 2.3.5.3)
+                                    React.createElement(React.Fragment, null,
+                                        description ? React.createElement('div', {
+                                            style: { marginBottom: '24px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                            }, 'Description'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                            }, description)
+                                        ) : null,
+                                        category ? React.createElement('div', {
+                                            style: { marginBottom: '24px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                            }, 'Category'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', color: darkText }
+                                            }, category)
+                                        ) : null
+                                    )
                                 ) : (
-                                    // State B: Show category and description with dot
-                                    React.createElement('div', {
-                                        style: { marginBottom: '24px' }
-                                    },
-                                        React.createElement('div', {
-                                            style: { marginBottom: '8px', fontSize: '12px', color: darkText }
-                                        }, (category || 'Uncategorized') + (category && description ? ' • ' : '') + (description || 'No description'))
+                                    // State B: Show description above category (Commit 2.3.5.3)
+                                    React.createElement(React.Fragment, null,
+                                        description ? React.createElement('div', {
+                                            style: { marginBottom: '24px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                            }, 'Description'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                            }, description)
+                                        ) : null,
+                                        category ? React.createElement('div', {
+                                            style: { marginBottom: '24px' }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                            }, 'Category'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', color: darkText }
+                                            }, category)
+                                        ) : null
                                     )
                                 ),
                                 // Removed SECTION: Item Facts - all fields moved to Request Quote box
@@ -7094,9 +7164,7 @@ class N88_RFQ_Admin {
                                     !bidsExpanded ? React.createElement('div', {
                                         style: { fontSize: '12px', color: darkText, marginTop: '8px' }
                                     },
-                                        currentState === 'A' ? 'No bids yet' :
-                                        currentState === 'B' ? 'Awaiting supplier bids' :
-                                        currentState === 'C' ? ((itemState.bids && itemState.bids.length > 0) ? (itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : 'No bids yet') : ''
+                                        currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? (itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : ''
                                     ) : null,
                                     // Expanded BIDS comparison (State C)
                                     bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
@@ -7253,17 +7321,8 @@ class N88_RFQ_Admin {
                                                     React.createElement('option', { value: 'm' }, 'm')
                                     )
                                 ),
-                                            computedValues && computedValues.cbm ? React.createElement('div', {
-                                                style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
-                                            }, 'CBM: ' + (typeof computedValues.cbm.toFixed === 'function' ? computedValues.cbm.toFixed(3) : computedValues.cbm)) : null,
-                                            (function() {
-                                                var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                                return totalCbm !== null ? React.createElement('div', {
-                                                    style: { marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
-                                                }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
-                                                    style: { marginTop: '4px', fontSize: '11px', color: '#666' }
-                                                }, 'Total CBM: —'));
-                                            })()
+                                            // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                                            null
                                         ),
                                         // Quantity
                                         React.createElement('div', {
@@ -7288,14 +7347,8 @@ class N88_RFQ_Admin {
                                                     fontFamily: 'monospace',
                                             }
                                             }),
-                                            (function() {
-                                                var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                                return totalCbm !== null ? React.createElement('div', {
-                                                    style: { marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
-                                                }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
-                                                    style: { marginTop: '8px', fontSize: '11px', color: '#666' }
-                                                }, 'Total CBM: — (enter dimensions and quantity)'));
-                                            })()
+                                            // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                                            null
                                         ),
                                         // Delivery Country
                                         React.createElement('div', {
@@ -7498,18 +7551,37 @@ class N88_RFQ_Admin {
                                                             if (insp.url) setLightboxImage(insp.url);
                                             }
                                             },
-                                                insp.url ? React.createElement('img', {
-                                                    src: insp.url,
-                                                    alt: insp.title || 'Reference',
-                                                    style: {
-                                                        width: '100%',
-                                                        height: '100%',
-                                                                objectFit: 'cover',
-                                                        borderRadius: '4px',
-                                                    }
-                                                        }) : React.createElement('div', {
-                                                            style: { fontSize: '10px', color: '#666' }
-                                                        }, '[ img ]'),
+                                                insp.url ? (
+                                                    (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            width: '100%',
+                                                            height: '100%',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            backgroundColor: '#222',
+                                                            borderRadius: '4px',
+                                                            flexDirection: 'column',
+                                                            gap: '4px',
+                                                        }
+                                                    }, 
+                                                        React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
+                                                        React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
+                                                    ) :
+                                                    React.createElement('img', {
+                                                        src: insp.url,
+                                                        alt: insp.title || 'Reference',
+                                                        style: {
+                                                            width: '100%',
+                                                            height: '100%',
+                                                            objectFit: 'cover',
+                                                            borderRadius: '4px',
+                                                        }
+                                                    })
+                                                ) : React.createElement('div', {
+                                                    style: { fontSize: '10px', color: '#666' }
+                                                }, '[ img ]'),
                                                 React.createElement('button', {
                                                             onClick: function(e) {
                                                                 e.stopPropagation();
@@ -7557,7 +7629,7 @@ class N88_RFQ_Admin {
                                     React.createElement('input', {
                                         type: 'file',
                                                 id: 'inspiration-file-input',
-                                        accept: 'image/*',
+                                        accept: 'image/*,.pdf,application/pdf',
                                         multiple: true,
                                         onChange: handleInspirationFileChange,
                                                 style: { display: 'none' },
@@ -7814,14 +7886,8 @@ class N88_RFQ_Admin {
                                                         fontFamily: 'monospace',
                                                     }
                                                 }),
-                                                (function() {
-                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                                    return totalCbm !== null ? React.createElement('div', {
-                                                        style: { marginTop: '8px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
-                                                    }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
-                                                        style: { marginTop: '8px', fontSize: '11px', color: '#666' }
-                                                    }, 'Total CBM: — (enter dimensions and quantity)'));
-                                                })()
+                                                // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                                                null
                                             ),
                                             // Dimensions
                                             React.createElement('div', {
@@ -7829,10 +7895,7 @@ class N88_RFQ_Admin {
                                             },
                                                 React.createElement('label', {
                                                     style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                }, 'Dimensions' + (computedValues && computedValues.cbm ? ' (CBM: ' + computedValues.cbm.toFixed(3) + ')' : '') + (function() {
-                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                                    return totalCbm !== null ? ' (Total CBM: ' + totalCbm.toFixed(3) + ')' : '';
-                                                })()),
+                                                }, 'Dimensions'),
                                                 React.createElement('div', {
                                                     style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
                                                 },
@@ -7903,17 +7966,8 @@ class N88_RFQ_Admin {
                                                         React.createElement('option', { value: 'm' }, 'm')
                                                     )
                                                 ),
-                                                computedValues && computedValues.cbm ? React.createElement('div', {
-                                                    style: { marginTop: '8px', fontSize: '11px', color: greenAccent }
-                                                }, 'CBM: ' + computedValues.cbm.toFixed(3)) : null,
-                                                (function() {
-                                                    var totalCbm = calculateTotalCBM(computedValues && computedValues.cbm ? computedValues.cbm : null, quantity);
-                                                    return totalCbm !== null ? React.createElement('div', {
-                                                        style: { marginTop: '4px', fontSize: '11px', color: greenAccent, fontWeight: '600' }
-                                                    }, 'Total CBM: ' + totalCbm.toFixed(3)) : ((computedValues && computedValues.cbm && quantity) ? null : React.createElement('div', {
-                                                        style: { marginTop: '4px', fontSize: '11px', color: '#666' }
-                                                    }, 'Total CBM: —'));
-                                                })()
+                                                // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                                                null
                                             ),
                                             // Notes for suppliers
                             React.createElement('div', {
@@ -7978,7 +8032,7 @@ class N88_RFQ_Admin {
                                         fontWeight: '600',
                                         opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
                                     }
-                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save'))
+                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save for later'))
                             ) : null
                         ),
                         // Image Lightbox

@@ -25,14 +25,31 @@ class N88_Items {
     /**
      * Allowed item types
      * 
+     * Commit 2.3.5.3: Updated to match new category dropdown values
      * @var array
      */
     private static $allowed_item_types = array(
+        // Legacy values (for backward compatibility)
         'furniture',
         'lighting',
         'accessory',
         'art',
         'other',
+        // Commit 2.3.5.3: New category values
+        'Indoor Furniture',
+        'Sofas & Seating (Indoor)',
+        'Chairs & Armchairs (Indoor)',
+        'Dining Tables (Indoor)',
+        'Cabinetry / Millwork (Custom)',
+        'Casegoods (Beds, Nightstands, Desks, Consoles)',
+        'Outdoor Furniture',
+        'Outdoor Seating',
+        'Outdoor Dining Sets',
+        'Outdoor Loungers & Daybeds',
+        'Pool Furniture',
+        'Lighting',
+        'Material Sample Kit',
+        'Fabric Sample',
     );
 
     /**
@@ -1666,13 +1683,15 @@ class N88_Items {
             return;
         }
         
-        // Verify it's an image
+        // Commit 2.3.5.3: Verify it's an image or PDF
         $file_type = wp_check_filetype( $_FILES['inspiration_image']['name'] );
-        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp' );
+        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf' );
         if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid file type. Only images are allowed (JPG, PNG, GIF, WEBP).' ) );
+            wp_send_json_error( array( 'message' => 'Invalid file type. Only images and PDFs are allowed (JPG, PNG, GIF, WEBP, PDF).' ) );
             return;
         }
+        
+        $is_pdf = ( strtolower( $file_type['ext'] ) === 'pdf' );
         
         require_once( ABSPATH . 'wp-admin/includes/file.php' );
         require_once( ABSPATH . 'wp-admin/includes/media.php' );
@@ -1688,14 +1707,20 @@ class N88_Items {
         }
         
         // Use wp_handle_upload first to process the file
+        // Commit 2.3.5.3: Allow PDFs in addition to images
+        $mimes = array(
+            'jpg|jpeg|jpe' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+        );
+        if ( $is_pdf ) {
+            $mimes['pdf'] = 'application/pdf';
+        }
+        
         $upload = wp_handle_upload( $_FILES['inspiration_image'], array( 
             'test_form' => false,
-            'mimes' => array(
-                'jpg|jpeg|jpe' => 'image/jpeg',
-                'gif' => 'image/gif',
-                'png' => 'image/png',
-                'webp' => 'image/webp',
-            ),
+            'mimes' => $mimes,
         ) );
         
         if ( isset( $upload['error'] ) ) {
@@ -1745,8 +1770,11 @@ class N88_Items {
         }
         
         // Generate attachment metadata (creates thumbnails, etc.)
-        $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
-        wp_update_attachment_metadata( $attachment_id, $attach_data );
+        // Commit 2.3.5.3: Only generate thumbnails for images, not PDFs
+        if ( ! $is_pdf ) {
+            $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
+            wp_update_attachment_metadata( $attachment_id, $attach_data );
+        }
         
         // Get attachment data
         $attachment_url = wp_get_attachment_url( $attachment_id );
