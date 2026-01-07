@@ -6118,7 +6118,7 @@ class N88_RFQ_Admin {
                             if (invitedSuppliers.length > 0) {
                                 setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
                             } else {
-                                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                setSystemInvitesMessage('We will send your request on your behalf.');
                             }
                         } else {
                             setSystemInvitesMessage('');
@@ -6164,7 +6164,7 @@ class N88_RFQ_Admin {
                             if (newSuppliers.length > 0) {
                                 setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
                             } else {
-                                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                setSystemInvitesMessage('We will send your request on your behalf.');
                             }
                         }
                     };
@@ -6795,7 +6795,7 @@ class N88_RFQ_Admin {
                                         marginBottom: '24px',
                                     }
                                 },
-                                    // Header Row: ITEM DETAILS (left) and Close Button (right)
+                                    // Header Row: Item Detail (left) and Close Button (right)
                                     React.createElement('div', {
                                         style: {
                                     display: 'flex',
@@ -6811,7 +6811,7 @@ class N88_RFQ_Admin {
                                                 color: darkText,
                                                 fontFamily: 'monospace',
                                             }
-                                        }, ''),
+                                        }, 'Item Detail'),
                                 React.createElement('button', {
                                     onClick: onClose,
                                     style: {
@@ -6891,7 +6891,12 @@ class N88_RFQ_Admin {
                                             },
                                             onClick: function() {
                                                 if (insp.url) {
-                                                    setLightboxImage(insp.url);
+                                                    // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
+                                                    if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
+                                                        window.open(insp.url, '_blank');
+                                                    } else {
+                                                        setLightboxImage(insp.url);
+                                                    }
                                                 }
                                     }
                                 },
@@ -7128,8 +7133,8 @@ class N88_RFQ_Admin {
                                 ),
                                 // Removed SECTION: Item Facts - all fields moved to Request Quote box
                                 // IMAGES Section - Removed in State C (images already shown at top)
-                                // BIDS Section
-                                        React.createElement('div', {
+                                // BIDS Section - Commit 2.3.5.4: Only show in State C (bids received) or State B when bids exist
+                                (currentState === 'C' || (currentState === 'B' && itemState.has_bids && itemState.bids && itemState.bids.length > 0)) ? React.createElement('div', {
                                     style: { marginBottom: '24px' },
                                     onClick: function(e) { e.stopPropagation(); }
                                 },
@@ -7188,7 +7193,7 @@ class N88_RFQ_Admin {
                                             });
                                         })
                                     ) : null
-                                ),
+                                ) : null,
                                 // Request Quote Button / RFQ Form (State A only)
                                 currentState === 'A' ? React.createElement('div', {
                                     style: { marginBottom: '24px' }
@@ -7548,7 +7553,14 @@ class N88_RFQ_Admin {
                                                     position: 'relative',
                                                         },
                                                         onClick: function() {
-                                                            if (insp.url) setLightboxImage(insp.url);
+                                                            if (insp.url) {
+                                                                // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
+                                                                if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
+                                                                    window.open(insp.url, '_blank');
+                                                                } else {
+                                                                    setLightboxImage(insp.url);
+                                                                }
+                                                            }
                                             }
                                             },
                                                 insp.url ? (
@@ -7760,7 +7772,7 @@ class N88_RFQ_Admin {
                                                                     if (invitedSuppliers.length > 0) {
                                                                         setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
                                                     } else {
-                                                                        setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                                                        setSystemInvitesMessage('We will send your request on your behalf.');
                                                             }
                                                         } else {
                                                                     setSystemInvitesMessage('');
@@ -7840,16 +7852,7 @@ class N88_RFQ_Admin {
                                             color: '#ff8800',
                                         }
                                     }, '⚠️ This item has been redirected. Existing bids may reflect previous routing.') : null,
-                                    description ? React.createElement('div', {
-                                        style: { marginBottom: '24px' }
-                                    },
-                                        React.createElement('div', {
-                                            style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                        }, 'Description'),
-                                        React.createElement('div', {
-                                            style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
-                                        }, description)
-                                    ) : null,
+                                    // Commit 2.3.5.4: Removed duplicate Description heading - already shown above in State B/C section
                                     // Quantity, Dimensions, and Notes for suppliers - Editable in State B
                                     React.createElement('div', {
                                         style: { marginBottom: '24px' }
@@ -9343,7 +9346,7 @@ class N88_RFQ_Admin {
                     if (inviteInput && inviteInput.value.trim()) {
                         messageDiv.textContent = 'We\'ll invite 2 additional makers in 24 hours.';
                     } else {
-                        messageDiv.textContent = 'We sent your request to 2 suppliers that match your category and keywords.';
+                        messageDiv.textContent = 'We will send your request on your behalf.';
                     }
                 } else {
                     messageDiv.style.display = 'none';

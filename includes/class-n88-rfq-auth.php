@@ -1375,7 +1375,7 @@ class N88_RFQ_Auth {
                     
                     var item = data.data;
                     
-                    // Format dimensions (support both w/d/h and width/depth/height formats)
+                    // Format dimensions (Commit 2.3.5.4: Format as W × D × H + unit)
                     var dimsText = '—';
                     if (item.dimensions) {
                         // Support both formats: {w, d, h, unit} and {width, depth, height, unit}
@@ -1384,8 +1384,15 @@ class N88_RFQ_Auth {
                         var h = item.dimensions.height || item.dimensions.h || '—';
                         var unit = item.dimensions.unit || '';
                         if (w !== '—' && d !== '—' && h !== '—') {
-                            dimsText = 'W: ' + w + ' ' + unit + ' × D: ' + d + ' ' + unit + ' × H: ' + h + ' ' + unit;
+                            var unitStr = unit === 'in' ? '"' : unit;
+                            dimsText = w + unitStr + 'W × ' + d + unitStr + 'D × ' + h + unitStr + 'H';
                         }
+                    }
+                    
+                    // Format keywords (Commit 2.3.5.4: Display keywords or "—")
+                    var keywordsText = '—';
+                    if (item.keywords && Array.isArray(item.keywords) && item.keywords.length > 0) {
+                        keywordsText = item.keywords.join(', ');
                     }
                     
                     // Format sourcing_type and timeline_type
@@ -1453,37 +1460,58 @@ class N88_RFQ_Auth {
                         mediaLinksHTML = '<div style="color: #999; font-size: 12px;">No media links available</div>';
                     }
                     
-                    // Build reference images HTML with dark theme styling
+                    // Build reference images and PDFs HTML (Commit 2.3.5.4: Handle PDFs)
                     var refImagesHTMLDark = '';
                     if (refImages && refImages.length > 0) {
                         refImagesHTMLDark = '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;">';
                         refImages.forEach(function(img, index) {
                             var imgUrl = '';
                             var fullUrl = '';
+                            var imgType = 'image';
+                            var filename = '';
                             
                             if (typeof img === 'string') {
                                 imgUrl = img;
                                 fullUrl = img;
+                                if (img.toLowerCase().endsWith('.pdf')) {
+                                    imgType = 'pdf';
+                                    filename = img.split('/').pop();
+                                }
                             } else if (typeof img === 'object') {
                                 imgUrl = img.url || img.thumbnail || img.thumb_url || '';
                                 fullUrl = img.full_url || img.url || img.thumbnail || img.thumb_url || '';
+                                imgType = img.type || (imgUrl.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image');
+                                filename = img.filename || img.title || (imgUrl ? imgUrl.split('/').pop() : '');
                             }
                             
                             if (imgUrl && imgUrl.trim() !== '' && (imgUrl.startsWith('http://') || imgUrl.startsWith('https://'))) {
                                 var imgId = 'n88-ref-img-view-dark-' + item.item_id + '-' + index;
                                 var escapedFullUrl = (fullUrl || imgUrl).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
-                                refImagesHTMLDark += '<div style="position: relative;">' +
-                                    '<img id="' + imgId + '" ' +
-                                    'src="' + imgUrl.replace(/"/g, '&quot;') + '" ' +
-                                    'data-full-url="' + (fullUrl || imgUrl).replace(/"/g, '&quot;') + '" ' +
-                                    'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3EImage%3C/text%3E%3C/svg%3E\';" ' +
-                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
-                                    'onclick="event.preventDefault();event.stopPropagation();(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(url);}else{console.error(\'openSupplierImageLightbox not available\');}}else{console.error(\'No URL found for image\');}})(this);return false;" ' +
-                                    'title="Click to enlarge" ' +
-                                    'alt="Reference image ' + (index + 1) + '" />' +
-                                    '</div>';
+                                
+                                // Commit 2.3.5.4: Handle PDFs differently - show as [PDF] filename.pdf link
+                                if (imgType === 'pdf' || imgUrl.toLowerCase().endsWith('.pdf')) {
+                                    refImagesHTMLDark += '<div style="padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #00ff00; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px; color: #00ff00;" ' +
+                                        'onclick="window.open(\'' + escapedFullUrl + '\', \'_blank\');" ' +
+                                        'onmouseover="this.style.backgroundColor=\'#222\';" ' +
+                                        'onmouseout="this.style.backgroundColor=\'#1a1a1a\';" ' +
+                                        'title="Click to open PDF">' +
+                                        '[PDF] ' + (filename || 'document.pdf') +
+                                        '</div>';
+                                } else {
+                                    // Regular image
+                                    refImagesHTMLDark += '<div style="position: relative;">' +
+                                        '<img id="' + imgId + '" ' +
+                                        'src="' + imgUrl.replace(/"/g, '&quot;') + '" ' +
+                                        'data-full-url="' + (fullUrl || imgUrl).replace(/"/g, '&quot;') + '" ' +
+                                        'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3EImage%3C/text%3E%3C/svg%3E\';" ' +
+                                        'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                        'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                        'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                        'onclick="event.preventDefault();event.stopPropagation();(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(url);}else{console.error(\'openSupplierImageLightbox not available\');}}else{console.error(\'No URL found for image\');}})(this);return false;" ' +
+                                        'title="Click to enlarge" ' +
+                                        'alt="Reference image ' + (index + 1) + '" />' +
+                                        '</div>';
+                                }
                             }
                         });
                         refImagesHTMLDark += '</div>';
@@ -1494,9 +1522,9 @@ class N88_RFQ_Auth {
                         refImagesHTMLDark = '<div style="color: #999; font-size: 12px; padding: 8px; font-family: monospace;">No reference images available</div>';
                     }
                     
-                    // Build modal HTML - Dark theme with inline bid form expansion
+                    // Build modal HTML - Commit 2.3.5.4: Clean header (item title only)
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #00ff00; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
-                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">Item #' + item.item_id + ' <span style="color: #00ff00;">(Maker View)</span></h2>' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
                         '</div>' +
                         '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
@@ -1510,35 +1538,44 @@ class N88_RFQ_Auth {
                                 '</div>';
                         })() : '') +
                         
-                        // Reference Images
-                        '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference Images:</label>' +
-                        refImagesHTMLDark +
-                        '</div>' +
+                        // Commit 2.3.5.4: Inspiration/Reference Images + PDFs (only at top, no duplicates)
+                        (refImages && refImages.length > 0 ? 
+                            '<div style="margin-bottom: 24px;">' +
+                            '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Inspiration / References / Sketch Drawings:</label>' +
+                            refImagesHTMLDark +
+                            '</div>' : ''
+                        ) +
                         
                         // Warning Banner
                         (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
                             '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
                         
-                        // All fields in one bordered box with inline labels
+                        // Commit 2.3.5.4: Item Context Block (exact order as specified)
                         '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
+                        '<div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Title:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dimensions:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Total CBM:</strong> <span style="color: #00ff00; font-weight: 600;">' + (item.total_cbm !== null && item.total_cbm !== undefined ? item.total_cbm.toFixed(3) + ' m³' : '—') + '</span></div>' +
+                        // 1. Item:
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
+                        // 2. Category:
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
+                        // 3. Dims:
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
+                        // 4. Quantity:
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
+                        // 5. Routing:
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Routing:</strong> <span style="color: #00ff00;">' + item.route_label + '</span></div>' : '') +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' +
-                            (item.delivery_country ? 'Country: ' + item.delivery_country + ' ' : '') +
-                            (item.delivery_postal_code ? 'Postal Code: ' + item.delivery_postal_code + ' ' : '') +
-                            'Shipping: ' + item.shipping_mode_label +
-                        '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Sourcing Type:</strong> <span style="color: #fff;">' + sourcingTypeText + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Timeline Type:</strong> <span style="color: #fff;">' + timelineTypeText + '</span></div>' +
+                        // 6. Delivery: (Commit 2.3.5.4: Country only, no postal/zip, no shipping estimate)
+                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
+                        // 7. Description:
                         '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Description:</strong></div>' +
                         '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + (item.description || '—') + '</div>' +
+                        // 8. Designer notes: (Commit 2.3.5.4: smart_alternatives_note)
+                        (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Designer notes:</strong></div>' +
+                            '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
+                        ) +
                         '</div>' +
                         '</div>' +
                         
@@ -1655,6 +1692,14 @@ class N88_RFQ_Auth {
                     
                     modalContent.innerHTML = modalHTML;
                     
+                    // Commit 2.3.5.4: Ensure bid form visible without scrolling - scroll to top on modal open
+                    setTimeout(function() {
+                        var modalScrollContainer = modalContent.querySelector('div[style*="overflow-y: auto"]');
+                        if (modalScrollContainer) {
+                            modalScrollContainer.scrollTop = 0;
+                        }
+                    }, 100);
+                    
                     // Store item data for inline bid form
                     window.currentItemData = item;
                 })
@@ -1692,8 +1737,8 @@ class N88_RFQ_Auth {
                         toggleBtn.style.borderColor = '#00ff00';
                     }
                     
-                    // Scroll to form section
-                    formSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    // Commit 2.3.5.4: Ensure bid form visible without scrolling - scroll to top of form section
+                    formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     
                     // Load bid form content if not already loaded
                     if (!formContent.innerHTML || formContent.innerHTML.trim() === '') {
@@ -1852,16 +1897,16 @@ class N88_RFQ_Auth {
                         '</div>';
                 }
                 
-                // Build bid form HTML with dark background and green accents (#00ff00)
+                // Commit 2.3.5.4: Build bid form HTML - Remove images (shown only at top), remove Anonymous/No contact text
                 var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
-                    imageGalleryHTML +
+                    // Commit 2.3.5.4: Images removed from bid form (only shown at top of modal)
                     
-                    // BID FORM Title (green heading)
+                    // BID FORM Title (Commit 2.3.5.4: Remove "Anonymous • No contact info allowed")
                     '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
-                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM (Anonymous • No contact info allowed)</h2>' +
+                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
-                    // Video links (optional) - white heading
+                    // 1. Video links (0-3, optional) - Commit 2.3.5.4: Field order 1
                         '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
@@ -1876,9 +1921,9 @@ class N88_RFQ_Auth {
                     '<div id="n88-video-links-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                    // Bid Photos (Required) - white heading
+                    // 2. Reference photo(s) (required, min 1, max 5) - Commit 2.3.5.4: Renamed from "BID PHOTOS" to "Reference photo(s)"
                         '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">BID PHOTOS <span style="color: #ff0000;">*</span></label>' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
                     '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
                     '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
@@ -1886,7 +1931,7 @@ class N88_RFQ_Auth {
                     '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                    // Prototype (Required) - white heading
+                    // 3. Prototype (Yes/No or required commitment) - Commit 2.3.5.4: Field order 3
                         '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">PROTOTYPE (Required)</label>' +
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Will you prepare and video a prototype?</div>' +
@@ -1923,7 +1968,7 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '</div>' +
                         
-                    // Production lead time - white heading
+                    // 6. Production lead time (dropdown) - Commit 2.3.5.4: Field order 6
                         '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) — Dropdown</label>' +
                     '<select name="production_lead_time_text" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
@@ -1937,18 +1982,17 @@ class N88_RFQ_Auth {
                     '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                    // Unit price - white heading
+                    // 7. Unit price - Commit 2.3.5.4: Field order 7
                         '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Unit price (Required)</label>' +
                     '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<div id="n88-unit-price-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                             '</div>' +
                     
-                    // Smart Alternatives (Optional) - Display + Response Area
+                    // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.4: Remove "(Optional)" label, show as "SMART ALTERNATIVE (DFM)"
                     ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
                     '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVES (DFM) (Optional)</label>' +
-                    '<div style="font-size: 10px; color: #fff; margin-bottom: 8px; font-family: monospace; font-style: italic;">(Optional – shown ONLY if creator enabled)</div>' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
                     // C1: Display designer's Smart Alternatives setting + note (read-only)
                     '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
                     '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
@@ -2061,8 +2105,10 @@ class N88_RFQ_Auth {
                     // Footer buttons
                     '<div style="padding: 20px 0; border-top: 1px solid #00ff00; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
                     '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
+                    // Commit 2.3.5.4: Buttons row - Validate, Cancel, Save for later
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Validate ]</button>' +
                     '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
+                    '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                         '</div>' +
                     '</form>';
                 
@@ -2301,15 +2347,15 @@ class N88_RFQ_Auth {
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
                         
-                        // BID FORM Title
+                        // Commit 2.3.5.4: BID FORM Title - Remove "Anonymous • No contact info allowed"
                         '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
-                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM (Anonymous • No contact info allowed)</h2>' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
-                        // 1. Video links (optional, 0-3) - Commit 2.3.5.2: Dark theme
+                        // 1. Video links (optional, 0-3) - Commit 2.3.5.4: Field order 1
                         '<div style="margin-bottom: 24px;">' +
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
-                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 1, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
                         '<div id="n88-video-links-container">' +
                         '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
                         '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">1)</span>' +
@@ -2321,9 +2367,9 @@ class N88_RFQ_Auth {
                         '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                        // 1.5. Bid Photos (Required, min 1, max 5) - Commit 2.3.5.2: Dark theme
+                        // 2. Reference photo(s) (required, min 1, max 5) - Commit 2.3.5.4: Renamed from "BID PHOTOS"
                         '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">BID PHOTOS <span style="color: #ff0000;">*</span></label>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
                         '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
                         '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
                         '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
@@ -2389,11 +2435,10 @@ class N88_RFQ_Auth {
                         '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                        // Smart Alternatives (Optional) - Display + Response Area
+                        // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.4: Remove "(Optional)" label
                         ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
                         '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVES (DFM) (Optional)</label>' +
-                        '<div style="font-size: 10px; color: #fff; margin-bottom: 8px; font-family: monospace; font-style: italic;">(Optional – shown ONLY if creator enabled)</div>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
                         // C1: Display designer's Smart Alternatives setting + note (read-only)
                         '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
                         '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
@@ -3869,6 +3914,12 @@ class N88_RFQ_Auth {
                 }
                 validateBidFormEmbedded(itemId);
                 return true;
+            }
+            
+            // Commit 2.3.5.4: Save bid draft function (stub - to be implemented)
+            function saveBidDraftEmbedded(itemId) {
+                // TODO: Implement save draft functionality
+                alert('Save draft functionality will be implemented in a future commit.');
             }
             
             function validateAndSubmitBidEmbedded(event, itemId) {
@@ -6307,6 +6358,16 @@ class N88_RFQ_Auth {
                     }
                     $img_data['url'] = esc_url_raw( $thumb_url );
                     $img_data['full_url'] = esc_url_raw( $full_url ? $full_url : $thumb_url );
+                    // Commit 2.3.5.4: Include type information for PDFs
+                    $img_data['type'] = isset( $insp_item['type'] ) ? sanitize_text_field( $insp_item['type'] ) : 'image';
+                    // Also check URL extension for PDF
+                    if ( $img_data['type'] !== 'pdf' && preg_match( '/\.pdf$/i', $thumb_url ) ) {
+                        $img_data['type'] = 'pdf';
+                    }
+                    // Get filename for PDF display
+                    if ( $img_data['type'] === 'pdf' ) {
+                        $img_data['filename'] = isset( $insp_item['title'] ) ? sanitize_text_field( $insp_item['title'] ) : ( isset( $insp_item['filename'] ) ? sanitize_text_field( $insp_item['filename'] ) : basename( $thumb_url ) );
+                    }
                     
                     $reference_images[] = $img_data;
                     $inspiration_images[] = $img_data;
@@ -6367,9 +6428,9 @@ class N88_RFQ_Auth {
                         $bid_id
                     ), ARRAY_A );
                     
-                    // Get bid photos
+                    // Get bid photos (Commit 2.3.5.4: Fix column name - use file_url instead of attachment_id)
                     $bid_photos = $wpdb->get_results( $wpdb->prepare(
-                        "SELECT attachment_id FROM {$bid_media_files_table}
+                        "SELECT file_url FROM {$bid_media_files_table}
                         WHERE bid_id = %d
                         ORDER BY sort_order ASC, id ASC",
                         $bid_id
@@ -6377,9 +6438,8 @@ class N88_RFQ_Auth {
                     
                     $photo_urls = array();
                     foreach ( $bid_photos as $photo ) {
-                        $photo_url = wp_get_attachment_image_url( intval( $photo['attachment_id'] ), 'medium' );
-                        if ( $photo_url ) {
-                            $photo_urls[] = esc_url_raw( $photo_url );
+                        if ( isset( $photo['file_url'] ) && ! empty( $photo['file_url'] ) ) {
+                            $photo_urls[] = esc_url_raw( $photo['file_url'] );
                         }
                     }
                     
@@ -6512,6 +6572,12 @@ class N88_RFQ_Auth {
         $smart_alternatives_enabled = isset( $meta['smart_alternatives'] ) && $meta['smart_alternatives'] === true;
         $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
         
+        // Commit 2.3.5.4: Get keywords from meta (initialize as empty array if not present)
+        $keywords = array();
+        if ( isset( $meta['keywords'] ) && is_array( $meta['keywords'] ) ) {
+            $keywords = $meta['keywords'];
+        }
+        
         // Commit 2.3.5.1 Addendum: Calculate Total CBM from current item facts
         $total_cbm = null;
         if ( $dims && isset( $dims['w'] ) && isset( $dims['d'] ) && isset( $dims['h'] ) && isset( $dims['unit'] ) && $quantity && $quantity > 0 ) {
@@ -6551,16 +6617,18 @@ class N88_RFQ_Auth {
         }
 
         // Build response (read-only, no writes)
+        // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         $response = array(
             'item_id' => intval( $item['id'] ),
             'title' => sanitize_text_field( $item['title'] ),
             'description' => sanitize_textarea_field( $item['description'] ),
             'category' => $category_name,
+            'keywords' => array_map( 'sanitize_text_field', $keywords ), // Commit 2.3.5.4: Add keywords
             'image_url' => $image_url ? esc_url_raw( $image_url ) : '', // Keep for backward compatibility
             'primary_image_url' => $primary_image_url ? esc_url_raw( $primary_image_url ) : '', // Standardized key
             'quantity' => $quantity,
             'dimensions' => $dims,
-            'total_cbm' => $total_cbm, // Commit 2.3.5.1 Addendum: Total CBM from current item facts
+            // Commit 2.3.5.4: total_cbm removed - CBM should not be visible to suppliers
             'sourcing_type' => isset( $meta['sourcing_type'] ) ? sanitize_text_field( $meta['sourcing_type'] ) : null,
             'timeline_type' => isset( $meta['timeline_type'] ) ? sanitize_text_field( $meta['timeline_type'] ) : null,
             'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,

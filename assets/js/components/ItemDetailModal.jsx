@@ -995,7 +995,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             if (invitedSuppliers.length > 0) {
                 return 'We\'ll invite 2 additional makers in 24 hours.';
             } else {
-                return 'We sent your request to 2 suppliers that match your category and keywords.';
+                return 'We will send your request on your behalf.';
             }
         }
         return '';
@@ -1042,7 +1042,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             if (newSuppliers.length > 0) {
                 setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
             } else {
-                setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                setSystemInvitesMessage('We will send your request on your behalf.');
             }
         }
     };
@@ -1295,7 +1295,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             <div style={{
                                 marginBottom: '24px',
                             }}>
-                                {/* Header Row: ITEM DETAILS (left) and Close Button (right) */}
+                                {/* Header Row: Item Detail (left) and Close Button (right) */}
                                 <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -1308,7 +1308,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         color: darkText,
                                         fontFamily: 'monospace',
                                     }}>
-                                       
+                                        Item Detail
                                     </div>
                             <button
                                 onClick={onClose}
@@ -1400,7 +1400,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         }}
                                                         onClick={() => {
                                                             if (insp.url) {
-                                                                setLightboxImage(insp.url);
+                                                                // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
+                                                                if (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) {
+                                                                    window.open(insp.url, '_blank');
+                                                                } else {
+                                                                    setLightboxImage(insp.url);
+                                                                }
                                                             }
                                                         }}
                                                     >
@@ -1521,7 +1526,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         }}
                                                         onClick={() => {
                                                             if (insp.url) {
-                                                                setLightboxImage(insp.url);
+                                                                // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
+                                                                if (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) {
+                                                                    window.open(insp.url, '_blank');
+                                                                } else {
+                                                                    setLightboxImage(insp.url);
+                                                                }
                                                             }
                                                         }}
                                                     >
@@ -1814,7 +1824,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 
                             {/* IMAGES Section - Removed in State C (images already shown at top) */}
                             
-                            {/* BIDS Section */}
+                            {/* BIDS Section - Commit 2.3.5.4: Only show in State C (bids received) or State B when bids exist */}
+                            {(currentState === 'C' || (currentState === 'B' && itemState.has_bids && itemState.bids && itemState.bids.length > 0)) && (
                             <div 
                                 style={{ marginBottom: '24px' }}
                                 onClick={(e) => e.stopPropagation()}
@@ -1867,6 +1878,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     />
                                 )}
                             </div>
+                            )}
                             
                             {/* Request Quote Button / RFQ Form */}
                             {/* Commit 2.3.5.3: Ensure Request Quote is visible without scrolling */}
@@ -2114,7 +2126,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             }}
                                                             onClick={() => {
                                                                 if (insp.url) {
-                                                                    setLightboxImage(insp.url);
+                                                                    // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
+                                                                    if (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) {
+                                                                        window.open(insp.url, '_blank');
+                                                                    } else {
+                                                                        setLightboxImage(insp.url);
+                                                                    }
                                                                 }
                                                             }}
                                                         >
@@ -2326,7 +2343,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     if (invitedSuppliers.length > 0) {
                                                                         setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
                                             } else {
-                                                                        setSystemInvitesMessage('We sent your request to 2 suppliers that match your category and keywords.');
+                                                                        setSystemInvitesMessage('We will send your request on your behalf.');
                                             }
                                                                 } else {
                                                                     setSystemInvitesMessage('');
@@ -2424,16 +2441,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 </div>
                                     )}
                                     
-                                    {description && (
-                                        <div style={{ marginBottom: '24px' }}>
-                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                                Description
-                            </div>
-                                            <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.6' }}>
-                                                {description}
-                            </div>
-                                                    </div>
-                                    )}
+                                    {/* Commit 2.3.5.4: Removed duplicate Description heading - already shown above in State B/C section */}
                         
                                     {/* Quantity, Dimensions, and Notes for suppliers - Editable in State B */}
                                     <div style={{ marginBottom: '24px' }}>
