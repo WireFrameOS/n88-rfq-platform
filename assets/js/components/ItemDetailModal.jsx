@@ -155,6 +155,337 @@ const getTimelineTypeFromCategory = (category) => {
 };
 
 /**
+ * Commit 2.3.6: Bid Comparison Matrix Component - Read-only matrix view
+ * Shows submitted bids in columns (Supplier A/B/C) ordered by created_at ASC
+ */
+const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick }) => {
+    // Order bids by created_at ASC (already ordered from backend, but ensure stability)
+    const orderedBids = [...bids].sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateA - dateB;
+    });
+
+    // Helper to get supplier label (A, B, C, etc.)
+    const getSupplierLabel = (idx) => String.fromCharCode(65 + idx);
+
+    // Helper to render media (videos + photos)
+    const renderMedia = (bid) => {
+        const videoLinksByProvider = bid.video_links_by_provider || {
+            youtube: [],
+            vimeo: [],
+            loom: [],
+        };
+        const totalVideos = (videoLinksByProvider.youtube?.length || 0) + 
+                           (videoLinksByProvider.vimeo?.length || 0) + 
+                           (videoLinksByProvider.loom?.length || 0);
+        const photos = bid.photo_urls || [];
+        const hasMedia = totalVideos > 0 || photos.length > 0;
+
+        if (!hasMedia) {
+            return <div style={{ fontSize: '11px', color: darkText }}>No media</div>;
+        }
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* Videos (0-3) */}
+                {totalVideos > 0 && (
+                    <div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '4px' }}>
+                            Videos ({totalVideos})
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {videoLinksByProvider.youtube?.map((url, idx) => (
+                                <a
+                                    key={`yt-${idx}`}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontSize: '10px', color: greenAccent, textDecoration: 'none' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    YouTube {idx + 1}
+                                </a>
+                            ))}
+                            {videoLinksByProvider.vimeo?.map((url, idx) => (
+                                <a
+                                    key={`vm-${idx}`}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontSize: '10px', color: greenAccent, textDecoration: 'none' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    Vimeo {idx + 1}
+                                </a>
+                            ))}
+                            {videoLinksByProvider.loom?.map((url, idx) => (
+                                <a
+                                    key={`lm-${idx}`}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontSize: '10px', color: greenAccent, textDecoration: 'none' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    Loom {idx + 1}
+                                </a>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {/* Photos (if present) */}
+                {photos.length > 0 && (
+                    <div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '4px' }}>
+                            Photos ({photos.length})
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {photos.slice(0, 3).map((url, idx) => (
+                                <img
+                                    key={`photo-${idx}`}
+                                    src={url}
+                                    alt=""
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onImageClick) {
+                                            onImageClick(url);
+                                        } else {
+                                            window.open(url, '_blank');
+                                        }
+                                    }}
+                                    style={{
+                                        width: '40px',
+                                        height: '40px',
+                                        objectFit: 'cover',
+                                        cursor: 'pointer',
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '2px',
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    if (orderedBids.length === 0) {
+        return null;
+    }
+
+    return (
+        <div style={{
+            marginTop: '16px',
+            border: `1px solid ${darkBorder}`,
+            borderRadius: '4px',
+            overflow: 'hidden',
+            backgroundColor: '#111111',
+        }}>
+            {/* Table Header */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                borderBottom: `1px solid ${darkBorder}`,
+                backgroundColor: '#0a0a0a',
+            }}>
+                {orderedBids.map((bid, idx) => (
+                    <div
+                        key={bid.bid_id}
+                        style={{
+                            padding: '12px',
+                            textAlign: 'center',
+                            borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                        }}
+                    >
+                        Supplier {getSupplierLabel(idx)}
+                    </div>
+                ))}
+            </div>
+
+            {/* Table Body - Rows */}
+            <div>
+                {/* Row: Media */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`media-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                            }}
+                        >
+                            {renderMedia(bid)}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: Prototype */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`prototype-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                            }}
+                        >
+                            <div style={{ marginBottom: '4px' }}>
+                                <span style={{ color: darkText }}>Commitment: </span>
+                                <span style={{ color: bid.prototype_commitment ? greenAccent : '#999' }}>
+                                    {bid.prototype_commitment ? 'YES' : 'NO'}
+                                </span>
+                            </div>
+                            {bid.prototype_timeline && (
+                                <div style={{ marginBottom: '4px' }}>
+                                    <span style={{ color: darkText }}>Timeline: </span>
+                                    <span style={{ color: greenAccent }}>{bid.prototype_timeline}</span>
+                                </div>
+                            )}
+                            {bid.prototype_cost !== null && (
+                                <div>
+                                    <span style={{ color: darkText }}>Cost: </span>
+                                    <span style={{ color: greenAccent }}>${bid.prototype_cost}</span>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: CAD Flag */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`cad-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <span style={{ color: bid.cad_yes ? greenAccent : '#999' }}>
+                                {bid.cad_yes ? 'Yes' : 'No'}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: Production Lead Time */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`leadtime-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            {bid.production_lead_time ? (
+                                <span style={{ color: greenAccent }}>{bid.production_lead_time}</span>
+                            ) : (
+                                <span style={{ color: darkText }}>—</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: Unit Price */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`price-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            {bid.unit_price !== null ? (
+                                <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                            ) : (
+                                <span style={{ color: darkText }}>—</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: Landed Cost (Placeholder) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`landed-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                                textAlign: 'center',
+                                color: darkText,
+                            }}
+                        >
+                            coming soon
+                        </div>
+                    ))}
+                </div>
+
+                {/* Row: Shipping (Placeholder) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${orderedBids.length}, 1fr)`,
+                }}>
+                    {orderedBids.map((bid, idx) => (
+                        <div
+                            key={`shipping-${bid.bid_id}`}
+                            style={{
+                                padding: '12px',
+                                borderRight: idx < orderedBids.length - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '11px',
+                                textAlign: 'center',
+                                color: darkText,
+                            }}
+                        >
+                            coordinated when you proceed
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/**
  * Bid Comparison Component - Shows bid details with video links organized by provider
  */
 const BidComparisonList = ({ bids, darkBorder, greenAccent }) => {
@@ -1824,8 +2155,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 
                             {/* IMAGES Section - Removed in State C (images already shown at top) */}
                             
-                            {/* BIDS Section - Commit 2.3.5.4: Only show in State C (bids received) or State B when bids exist */}
-                            {(currentState === 'C' || (currentState === 'B' && itemState.has_bids && itemState.bids && itemState.bids.length > 0)) && (
+                            {/* Commit 2.3.6: BIDS Section - Read-only Matrix View */}
+                            {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
                             <div 
                                 style={{ marginBottom: '24px' }}
                                 onClick={(e) => e.stopPropagation()}
@@ -1835,47 +2166,85 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        cursor: (currentState === 'C' || bidsExpanded) ? 'pointer' : 'default',
+                                        cursor: 'pointer',
                                         marginBottom: bidsExpanded ? '12px' : '0',
                                     }}
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
-                                        if (currentState === 'C') {
-                                            setBidsExpanded(!bidsExpanded);
-                                        }
+                                        setBidsExpanded(!bidsExpanded);
                                     }}
                                 >
                                     <div style={{ fontSize: '14px', fontWeight: '600' }}>
                                         BIDS
                                     </div>
-                                    {currentState === 'C' && (
-                                        <span 
-                                            style={{ fontSize: '12px', color: darkText, cursor: 'pointer' }}
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                setBidsExpanded(!bidsExpanded);
-                                            }}
-                                        >
-                                            {bidsExpanded ? '▼' : '▶'}
-                                        </span>
-                                    )}
-                            </div>
+                                    <span 
+                                        style={{ fontSize: '12px', color: darkText, cursor: 'pointer' }}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setBidsExpanded(!bidsExpanded);
+                                        }}
+                                    >
+                                        {bidsExpanded ? '▼' : '▶'}
+                                    </span>
+                                </div>
                             
-                                {!bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 && (
+                                {!bidsExpanded && (
                                     <div style={{ fontSize: '12px', color: darkText, marginTop: '8px' }}>
                                         {`${itemState.bids.length} bid${itemState.bids.length !== 1 ? 's' : ''} received`}
                                     </div>
                                 )}
                                 
-                                {/* Expanded BIDS comparison (State C) */}
-                                {bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 && (
-                                    <BidComparisonList 
-                                        bids={itemState.bids}
-                                        darkBorder={darkBorder}
-                                        greenAccent={greenAccent}
-                                    />
+                                {/* Commit 2.3.6: Expanded BIDS Matrix View */}
+                                {bidsExpanded && (
+                                    <>
+                                        <BidComparisonMatrix 
+                                            bids={itemState.bids}
+                                            darkBorder={darkBorder}
+                                            greenAccent={greenAccent}
+                                            darkText={darkText}
+                                            darkBg={darkBg}
+                                            onImageClick={setLightboxImage}
+                                        />
+                                        
+                                        {/* Commit 2.3.6: Concierge + Delivery Banner */}
+                                        <div style={{
+                                            marginTop: '20px',
+                                            padding: '16px',
+                                            backgroundColor: '#1a1a1a',
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                        }}>
+                                            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                Bids are in. When you're ready to move to prototypes or orders, concierge oversight is available.
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }}>
+                                                Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.
+                                            </div>
+                                            <button
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    backgroundColor: greenAccent,
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    color: darkBg,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                }}
+                                                title="Concierge support becomes available when you request a prototype or proceed to order. This includes delivery coordination."
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    // Commit 2.3.6: Visual only - no action
+                                                }}
+                                            >
+                                                Get Concierge Help
+                                            </button>
+                                        </div>
+                                    </>
                                 )}
                             </div>
                             )}

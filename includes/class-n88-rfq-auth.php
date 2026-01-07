@@ -3581,7 +3581,8 @@ class N88_RFQ_Auth {
                         
                         fetch(ajaxUrl, {
                             method: 'POST',
-                            body: formData
+                            body: formData,
+                            credentials: 'same-origin'
                         })
                         .then(function(response) {
                             if (!response.ok) {
@@ -3594,6 +3595,10 @@ class N88_RFQ_Auth {
                             var placeholderEl = document.getElementById(placeholderId);
                             if (placeholderEl) {
                                 placeholderEl.remove();
+                            }
+                            
+                            if (!data) {
+                                throw new Error('No response data received');
                             }
                             
                             if (data.success && data.data && data.data.id && data.data.url) {
@@ -4197,6 +4202,7 @@ class N88_RFQ_Auth {
             window.validateBidFormEmbedded = validateBidFormEmbedded;
             window.validateAndSubmitBidEmbedded = validateAndSubmitBidEmbedded;
             window.submitBidEmbedded = submitBidEmbedded;
+            window.saveBidDraftEmbedded = saveBidDraftEmbedded;
             
             // Smart Alternatives preview update function
             function updateSmartAltPreview(itemId) {
@@ -6725,7 +6731,7 @@ class N88_RFQ_Auth {
 
         $bids = array();
         if ( $has_bids ) {
-            // Get all submitted bids with media links
+            // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
             $bids_data = $wpdb->get_results( $wpdb->prepare(
                 "SELECT 
                     b.bid_id,
@@ -6733,6 +6739,8 @@ class N88_RFQ_Auth {
                     b.production_lead_time_text,
                     b.prototype_timeline_option,
                     b.prototype_cost,
+                    b.prototype_video_yes,
+                    b.cad_yes,
                     b.created_at
                 FROM {$item_bids_table} b
                 WHERE b.item_id = %d 
@@ -6741,11 +6749,22 @@ class N88_RFQ_Auth {
                 $item_id
             ), ARRAY_A );
 
+            $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+
             foreach ( $bids_data as $bid ) {
                 // Get media links for this bid with provider information
                 $media_links = $wpdb->get_results( $wpdb->prepare(
                     "SELECT url, provider 
                     FROM {$bid_media_links_table}
+                    WHERE bid_id = %d
+                    ORDER BY sort_order ASC, id ASC",
+                    $bid['bid_id']
+                ), ARRAY_A );
+
+                // Commit 2.3.6: Get bid photos from n88_bid_media_files
+                $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT file_url 
+                    FROM {$bid_media_files_table}
                     WHERE bid_id = %d
                     ORDER BY sort_order ASC, id ASC",
                     $bid['bid_id']
@@ -6767,16 +6786,24 @@ class N88_RFQ_Auth {
                     }
                 }
 
+                // Commit 2.3.6: Extract photo URLs (no metadata/filenames to prevent identity leakage)
+                $photo_urls = array_map( function( $photo ) {
+                    return esc_url_raw( $photo['file_url'] );
+                }, $bid_photos );
+
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
                     'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
                     'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
                     'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
                     'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
+                    'prototype_commitment' => isset( $bid['prototype_video_yes'] ) && intval( $bid['prototype_video_yes'] ) === 1 ? true : false,
+                    'cad_yes' => isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false,
                     'video_links' => array_map( function( $link ) {
                         return esc_url_raw( $link['url'] );
                     }, $media_links ),
                     'video_links_by_provider' => $video_links_by_provider,
+                    'photo_urls' => $photo_urls,
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
                     'smart_alternatives_note' => $smart_alternatives_note,
                     'created_at' => $bid['created_at'],

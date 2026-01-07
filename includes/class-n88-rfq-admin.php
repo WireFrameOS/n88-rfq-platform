@@ -5535,6 +5535,340 @@ class N88_RFQ_Admin {
                 };
                 
                 // Bid Item Component for inline version
+                // Commit 2.3.6: Bid Comparison Matrix Component - Read-only matrix view
+                var BidComparisonMatrixInline = function(matrixProps) {
+                    var bids = matrixProps.bids;
+                    var darkBorder = matrixProps.darkBorder;
+                    var greenAccent = matrixProps.greenAccent;
+                    var darkText = matrixProps.darkText || '#d3d3d3';
+                    var darkBg = matrixProps.darkBg || '#000000';
+                    var onImageClick = matrixProps.onImageClick;
+                    
+                    // Order bids by created_at ASC (already ordered from backend, but ensure stability)
+                    var orderedBids = bids.slice().sort(function(a, b) {
+                        var dateA = new Date(a.created_at || 0);
+                        var dateB = new Date(b.created_at || 0);
+                        return dateA - dateB;
+                    });
+                    
+                    // Helper to get supplier label (A, B, C, etc.)
+                    var getSupplierLabel = function(idx) {
+                        return String.fromCharCode(65 + idx);
+                    };
+                    
+                    // Helper to render media (videos + photos)
+                    var renderMedia = function(bid) {
+                        var videoLinksByProvider = bid.video_links_by_provider || {
+                            youtube: [],
+                            vimeo: [],
+                            loom: [],
+                        };
+                        var totalVideos = (videoLinksByProvider.youtube ? videoLinksByProvider.youtube.length : 0) + 
+                                       (videoLinksByProvider.vimeo ? videoLinksByProvider.vimeo.length : 0) + 
+                                       (videoLinksByProvider.loom ? videoLinksByProvider.loom.length : 0);
+                        var photos = bid.photo_urls || [];
+                        var hasMedia = totalVideos > 0 || photos.length > 0;
+                        
+                        if (!hasMedia) {
+                            return React.createElement('div', {
+                                style: { fontSize: '11px', color: darkText }
+                            }, 'No media');
+                        }
+                        
+                        return React.createElement('div', {
+                            style: { display: 'flex', flexDirection: 'column', gap: '8px' }
+                        },
+                            // Videos (0-3)
+                            totalVideos > 0 ? React.createElement('div', null,
+                                React.createElement('div', {
+                                    style: { fontSize: '10px', color: darkText, marginBottom: '4px' }
+                                }, 'Videos (' + totalVideos + ')'),
+                                React.createElement('div', {
+                                    style: { display: 'flex', flexDirection: 'column', gap: '2px' }
+                                },
+                                    videoLinksByProvider.youtube ? videoLinksByProvider.youtube.map(function(url, idx) {
+                                        return React.createElement('a', {
+                                            key: 'yt-' + idx,
+                                            href: url,
+                                            target: '_blank',
+                                            rel: 'noopener noreferrer',
+                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
+                                            onClick: function(e) { e.stopPropagation(); }
+                                        }, 'YouTube ' + (idx + 1));
+                                    }) : null,
+                                    videoLinksByProvider.vimeo ? videoLinksByProvider.vimeo.map(function(url, idx) {
+                                        return React.createElement('a', {
+                                            key: 'vm-' + idx,
+                                            href: url,
+                                            target: '_blank',
+                                            rel: 'noopener noreferrer',
+                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
+                                            onClick: function(e) { e.stopPropagation(); }
+                                        }, 'Vimeo ' + (idx + 1));
+                                    }) : null,
+                                    videoLinksByProvider.loom ? videoLinksByProvider.loom.map(function(url, idx) {
+                                        return React.createElement('a', {
+                                            key: 'lm-' + idx,
+                                            href: url,
+                                            target: '_blank',
+                                            rel: 'noopener noreferrer',
+                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
+                                            onClick: function(e) { e.stopPropagation(); }
+                                        }, 'Loom ' + (idx + 1));
+                                    }) : null
+                                )
+                            ) : null,
+                            // Photos (if present)
+                            photos.length > 0 ? React.createElement('div', null,
+                                React.createElement('div', {
+                                    style: { fontSize: '10px', color: darkText, marginBottom: '4px' }
+                                }, 'Photos (' + photos.length + ')'),
+                                React.createElement('div', {
+                                    style: { display: 'flex', flexWrap: 'wrap', gap: '4px' }
+                                },
+                                    photos.slice(0, 3).map(function(url, idx) {
+                                        return React.createElement('img', {
+                                            key: 'photo-' + idx,
+                                            src: url,
+                                            alt: '',
+                                            onClick: function(e) {
+                                                e.stopPropagation();
+                                                if (onImageClick) {
+                                                    onImageClick(url);
+                                                } else {
+                                                    window.open(url, '_blank');
+                                                }
+                                            },
+                                            style: {
+                                                width: '40px',
+                                                height: '40px',
+                                                objectFit: 'cover',
+                                                cursor: 'pointer',
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '2px',
+                                            }
+                                        });
+                                    })
+                                )
+                            ) : null
+                        );
+                    };
+                    
+                    if (orderedBids.length === 0) {
+                        return null;
+                    }
+                    
+                    return React.createElement('div', {
+                        style: {
+                            marginTop: '16px',
+                            border: '1px solid ' + darkBorder,
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            backgroundColor: '#111111',
+                        }
+                    },
+                        // Table Header
+                        React.createElement('div', {
+                            style: {
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                borderBottom: '1px solid ' + darkBorder,
+                                backgroundColor: '#0a0a0a',
+                            }
+                        },
+                            orderedBids.map(function(bid, idx) {
+                                return React.createElement('div', {
+                                    key: bid.bid_id,
+                                    style: {
+                                        padding: '12px',
+                                        textAlign: 'center',
+                                        borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                    }
+                                }, 'Supplier ' + getSupplierLabel(idx));
+                            })
+                        ),
+                        // Table Body - Rows
+                        React.createElement('div', null,
+                            // Row: Media
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'media-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                        }
+                                    }, renderMedia(bid));
+                                })
+                            ),
+                            // Row: Prototype
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                return React.createElement('div', {
+                                    key: 'prototype-' + bid.bid_id,
+                                    style: {
+                                        padding: '12px',
+                                        borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                        fontSize: '11px',
+                                    }
+                                },
+                                    React.createElement('div', {
+                                        style: { marginBottom: '4px' }
+                                    },
+                                        React.createElement('span', { style: { color: darkText } }, 'Commitment: '),
+                                        React.createElement('span', {
+                                            style: { color: bid.prototype_commitment ? greenAccent : '#999' }
+                                        }, bid.prototype_commitment ? 'YES' : 'NO')
+                                    ),
+                                    bid.prototype_timeline ? React.createElement('div', {
+                                        style: { marginBottom: '4px' }
+                                    },
+                                        React.createElement('span', { style: { color: darkText } }, 'Timeline: '),
+                                        React.createElement('span', { style: { color: greenAccent } }, bid.prototype_timeline)
+                                    ) : null,
+                                    bid.prototype_cost !== null ? React.createElement('div', null,
+                                        React.createElement('span', { style: { color: darkText } }, 'Cost: '),
+                                        React.createElement('span', { style: { color: greenAccent } }, '$' + bid.prototype_cost)
+                                    ) : null
+                                );
+                            })
+                            ),
+                            // Row: CAD Flag
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'cad-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                            textAlign: 'center',
+                                        }
+                                    },
+                                        React.createElement('span', {
+                                            style: { color: bid.cad_yes ? greenAccent : '#999' }
+                                        }, bid.cad_yes ? 'Yes' : 'No')
+                                    );
+                                })
+                            ),
+                            // Row: Production Lead Time
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'leadtime-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                            textAlign: 'center',
+                                        }
+                                    },
+                                        bid.production_lead_time ? React.createElement('span', {
+                                            style: { color: greenAccent }
+                                        }, bid.production_lead_time) : React.createElement('span', {
+                                            style: { color: darkText }
+                                        }, '—')
+                                    );
+                                })
+                            ),
+                            // Row: Unit Price
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'price-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                            textAlign: 'center',
+                                        }
+                                    },
+                                        bid.unit_price !== null ? React.createElement('span', {
+                                            style: { color: greenAccent }
+                                        }, '$' + bid.unit_price) : React.createElement('span', {
+                                            style: { color: darkText }
+                                        }, '—')
+                                    );
+                                })
+                            ),
+                            // Row: Landed Cost (Placeholder)
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'landed-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                            textAlign: 'center',
+                                            color: darkText,
+                                        }
+                                    }, 'coming soon');
+                                })
+                            ),
+                            // Row: Shipping (Placeholder)
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                }
+                            },
+                                orderedBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'shipping-' + bid.bid_id,
+                                        style: {
+                                            padding: '12px',
+                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '11px',
+                                            textAlign: 'center',
+                                            color: darkText,
+                                        }
+                                    }, 'coordinated when you proceed');
+                                })
+                            )
+                        )
+                    );
+                };
+                
                 var BidItemInline = function(bidProps) {
                     var bid = bidProps.bid;
                     var idx = bidProps.idx;
@@ -7133,8 +7467,8 @@ class N88_RFQ_Admin {
                                 ),
                                 // Removed SECTION: Item Facts - all fields moved to Request Quote box
                                 // IMAGES Section - Removed in State C (images already shown at top)
-                                // BIDS Section - Commit 2.3.5.4: Only show in State C (bids received) or State B when bids exist
-                                (currentState === 'C' || (currentState === 'B' && itemState.has_bids && itemState.bids && itemState.bids.length > 0)) ? React.createElement('div', {
+                                // Commit 2.3.6: BIDS Section - Read-only Matrix View
+                                itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
                                     style: { marginBottom: '24px' },
                                     onClick: function(e) { e.stopPropagation(); }
                                 },
@@ -7142,56 +7476,77 @@ class N88_RFQ_Admin {
                                         onClick: function(e) {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            if (currentState === 'C') {
-                                                setBidsExpanded(!bidsExpanded);
-                                            }
+                                            setBidsExpanded(!bidsExpanded);
                                         },
                                         style: {
                                             display: 'flex',
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
-                                            cursor: (currentState === 'C' || bidsExpanded) ? 'pointer' : 'default',
+                                            cursor: 'pointer',
                                             marginBottom: bidsExpanded ? '12px' : '0',
                                         }
                                     },
                                         React.createElement('div', {
                                             style: { fontSize: '14px', fontWeight: '600' }
                                         }, 'BIDS'),
-                                        currentState === 'C' ? React.createElement('span', {
-                                            style: { fontSize: '12px', color: darkText },
+                                        React.createElement('span', {
+                                            style: { fontSize: '12px', color: darkText, cursor: 'pointer' },
                                             onClick: function(e) {
                                                 e.preventDefault();
                                                 e.stopPropagation();
                                                 setBidsExpanded(!bidsExpanded);
                                             }
-                                        }, bidsExpanded ? '▼' : '▶') : null
+                                        }, bidsExpanded ? '▼' : '▶')
                                     ),
                                     !bidsExpanded ? React.createElement('div', {
                                         style: { fontSize: '12px', color: darkText, marginTop: '8px' }
-                                    },
-                                        currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? (itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : ''
-                                    ) : null,
-                                    // Expanded BIDS comparison (State C)
-                                    bidsExpanded && currentState === 'C' && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
-                                                    style: {
-                                            marginTop: '16px',
-                                            border: '1px solid ' + darkBorder,
-                                            borderRadius: '4px',
-                                            padding: '12px',
-                                            backgroundColor: '#111111',
-                                        }
-                                    },
-                                        itemState.bids.map(function(bid, idx) {
-                                            return React.createElement(BidItemInline, {
-                                                key: bid.bid_id,
-                                                bid: bid,
-                                                idx: idx,
-                                                totalBids: itemState.bids.length,
-                                                darkBorder: darkBorder,
-                                                greenAccent: greenAccent,
-                                                darkText: darkText
-                                            });
-                                        })
+                                    }, itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
+                                    // Commit 2.3.6: Expanded BIDS Matrix View
+                                    bidsExpanded ? React.createElement(React.Fragment, null,
+                                        React.createElement(BidComparisonMatrixInline, {
+                                            bids: itemState.bids,
+                                            darkBorder: darkBorder,
+                                            greenAccent: greenAccent,
+                                            darkText: darkText,
+                                            darkBg: darkBg,
+                                            onImageClick: setLightboxImage
+                                        }),
+                                        // Commit 2.3.6: Concierge + Delivery Banner
+                                        React.createElement('div', {
+                                            style: {
+                                                marginTop: '20px',
+                                                padding: '16px',
+                                                backgroundColor: '#1a1a1a',
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                            }, 'Bids are in. When you\'re ready to move to prototypes or orders, concierge oversight is available.'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }
+                                            }, 'Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.'),
+                                            React.createElement('button', {
+                                                style: {
+                                                    padding: '8px 16px',
+                                                    backgroundColor: greenAccent,
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    color: darkBg,
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                },
+                                                title: 'Concierge support becomes available when you request a prototype or proceed to order. This includes delivery coordination.',
+                                                onClick: function(e) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    // Commit 2.3.6: Visual only - no action
+                                                }
+                                            }, 'Get Concierge Help')
+                                        )
                                     ) : null
                                 ) : null,
                                 // Request Quote Button / RFQ Form (State A only)
