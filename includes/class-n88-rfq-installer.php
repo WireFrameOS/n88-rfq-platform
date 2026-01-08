@@ -1573,20 +1573,57 @@ class N88_RFQ_Installer {
         // First, ensure categories exist (create if they don't)
         // IDEMPOTENT: Checks for existing category by exact name match before inserting
         $categories = array(
-            'Upholstery',
-            'Indoor Furniture (Casegoods)',
+            // Existing furniture categories
+            'Indoor Furniture',
+            'Sofas & Seating (Indoor)',
+            'Chairs & Armchairs (Indoor)',
+            'Dining Tables (Indoor)',
+            'Cabinetry / Millwork (Custom)',
+            'Casegoods (Beds, Nightstands, Desks, Consoles)',
             'Outdoor Furniture',
+            'Outdoor Seating',
+            'Outdoor Dining Sets',
+            'Outdoor Loungers & Daybeds',
+            'Pool Furniture',
+            // Lighting
             'Lighting',
-            'Stone (Marble / Granite / Quartz)',
-            'Metalwork',
-            'Millwork / Cabinetry',
-            'Flooring',
-            'Drapery / Window Treatments',
-            'Glass / Mirrors',
-            'Hardware / Accessories',
+            'Decorative Lighting',
+            'Architectural Lighting',
+            'Electrical / LED Components',
+            // Plumbing + Bath + Kitchen
+            'Bathroom Fixtures',
+            'Kitchen Fixtures',
+            'Faucets / Hardware (Plumbing)',
+            'Sinks / Basins',
+            'Shower Systems / Accessories',
+            // Surfaces + Stone
+            'Marble / Stone',
+            'Granite',
+            'Quartz',
+            'Porcelain / Ceramic Slabs',
+            'Tile (Wall / Floor)',
+            'Terrazzo',
+            // Soft Goods
             'Rugs / Carpets',
-            'Wallcoverings / Finishes',
-            'Appliances'
+            'Drapery',
+            'Window Treatments / Shades',
+            'Wallcoverings',
+            'Acoustic Panels',
+            // Decor + Accessories
+            'Mirrors',
+            'Artwork',
+            'Decorative Accessories',
+            'Planters',
+            'Sculptural Objects',
+            // Architectural / Exterior
+            'Railings',
+            'Screens / Louvers',
+            'Pergola / Shade Components',
+            'Facade Materials',
+            // Other
+            'Material Sample Kit',
+            'Fabric Sample',
+            'Custom Sourcing / Not Listed'
         );
 
         $category_ids = array();
@@ -1612,185 +1649,443 @@ class N88_RFQ_Installer {
             }
         }
 
-        // Define keywords by category (exactly as specified in SOT)
+        // Define keywords by category (Commit 2.3.6.2: Expanded for sourcing-neutral system)
         $keywords_by_category = array(
-            'Upholstery' => array(
-                'COM / COL',
-                'Banquettes',
-                'Curved seating',
-                'Tufting',
-                'Channel stitching',
-                'Tight seat / loose seat',
-                'Bench seating',
-                'Dining chairs',
-                'Barstools upholstery',
-                'Headboards',
-                'Ottomans',
-                'Booth seating (F&B)',
-                'Leather',
-                'Performance fabric',
-                'Hospitality grade',
-                'CAL117 / FR compliance'
+            // Indoor Furniture
+            'Indoor Furniture' => array(
+                'furniture',
+                'indoor',
+                'casegoods',
+                'upholstery',
+                'seating',
+                'tables',
+                'storage'
             ),
-            'Indoor Furniture (Casegoods)' => array(
-                'Solid wood',
-                'Veneer',
-                'Lacquer finish',
-                'High gloss',
-                'Matte finish',
-                'RTA / KD (knockdown)',
-                'Tables (dining / coffee / side)',
-                'Nightstands',
-                'Dressers',
-                'Desks',
-                'Credenzas',
-                'Built-in look',
-                'Hospitality casegoods',
-                'Contract grade',
-                'Mixed materials'
+            'Sofas & Seating (Indoor)' => array(
+                'sofa',
+                'couch',
+                'sectional',
+                'loveseat',
+                'banquette',
+                'bench',
+                'upholstery',
+                'fabric',
+                'leather'
             ),
+            'Chairs & Armchairs (Indoor)' => array(
+                'chair',
+                'armchair',
+                'dining chair',
+                'side chair',
+                'accent chair',
+                'upholstered',
+                'wood',
+                'metal'
+            ),
+            'Dining Tables (Indoor)' => array(
+                'dining table',
+                'table',
+                'wood',
+                'marble',
+                'glass',
+                'extendable',
+                'round',
+                'rectangular'
+            ),
+            'Cabinetry / Millwork (Custom)' => array(
+                'cabinetry',
+                'millwork',
+                'custom',
+                'built-in',
+                'kitchen',
+                'bathroom',
+                'vanity',
+                'storage'
+            ),
+            'Casegoods (Beds, Nightstands, Desks, Consoles)' => array(
+                'casegoods',
+                'bed',
+                'nightstand',
+                'desk',
+                'console',
+                'dresser',
+                'chest',
+                'storage'
+            ),
+            // Outdoor Furniture
             'Outdoor Furniture' => array(
-                'Aluminum frames',
-                'Stainless steel',
-                'Teak',
-                'Powder coat',
-                'Rope weave',
-                'Wicker / resin weave',
-                'Sling',
-                'Upholstered outdoor cushions',
-                'Quick dry foam',
-                'Sunbrella / outdoor fabrics',
-                'Sectionals',
-                'Daybeds',
-                'Chaise lounges',
-                'Outdoor dining',
-                'Salt-air / coastal spec'
+                'outdoor',
+                'furniture',
+                'patio',
+                'garden',
+                'weatherproof',
+                'aluminum',
+                'teak',
+                'resin'
             ),
+            'Outdoor Seating' => array(
+                'outdoor seating',
+                'patio chairs',
+                'outdoor sofa',
+                'weatherproof',
+                'cushions',
+                'aluminum',
+                'teak'
+            ),
+            'Outdoor Dining Sets' => array(
+                'outdoor dining',
+                'patio table',
+                'dining set',
+                'weatherproof',
+                'aluminum',
+                'teak',
+                'umbrella'
+            ),
+            'Outdoor Loungers & Daybeds' => array(
+                'lounger',
+                'daybed',
+                'chaise',
+                'outdoor',
+                'weatherproof',
+                'cushions',
+                'aluminum',
+                'teak'
+            ),
+            'Pool Furniture' => array(
+                'pool furniture',
+                'poolside',
+                'weatherproof',
+                'salt-air',
+                'coastal',
+                'aluminum',
+                'resin'
+            ),
+            // Lighting
             'Lighting' => array(
-                'Decorative lighting',
-                'Custom chandeliers',
-                'Sconces',
-                'Pendants',
-                'Table lamps',
-                'Floor lamps',
-                'LED',
-                'Dimmable',
-                'UL / ETL',
-                'Hospitality lighting',
-                'Custom finishes',
-                'Glass shades',
-                'Metal shades'
+                'lighting',
+                'pendant',
+                'chandelier',
+                'sconce',
+                'lamp',
+                'led',
+                'track',
+                'recessed',
+                'downlight',
+                'spotlight',
+                'driver'
             ),
-            'Stone (Marble / Granite / Quartz)' => array(
-                'Marble',
-                'Granite',
-                'Quartz',
-                'Sintered stone',
-                'Porcelain slab',
-                'Waterjet',
-                'Edge profiles',
-                'Bookmatch',
-                'Honed / polished / leathered',
-                'Thickness (2cm / 3cm)',
-                'Vanity tops',
-                'Tabletops',
-                'Feature walls',
-                'Hospitality stone packages'
+            'Decorative Lighting' => array(
+                'decorative lighting',
+                'pendant',
+                'chandelier',
+                'sconce',
+                'table lamp',
+                'floor lamp',
+                'decorative',
+                'custom'
             ),
-            'Metalwork' => array(
-                'Stainless steel',
-                'Aluminum',
-                'Brass',
-                'Bronze',
-                'Blackened steel',
-                'Patina finishes',
-                'Welded frames',
-                'Sheet metal',
-                'Laser cut',
-                'CNC bending',
-                'Architectural metal',
-                'Custom hardware'
+            'Architectural Lighting' => array(
+                'architectural lighting',
+                'recessed',
+                'track',
+                'downlight',
+                'spotlight',
+                'linear',
+                'commercial',
+                'led'
             ),
-            'Millwork / Cabinetry' => array(
-                'Kitchen cabinetry',
-                'Bathroom vanities',
-                'Veneer matching',
-                'Laminate',
-                'Thermofoil',
-                'Paint grade',
-                'Stain grade',
-                'Soft-close hardware',
-                'Hospitality millwork',
-                'Reception desks',
-                'Built-ins',
-                'Shop drawings / submittals'
+            'Electrical / LED Components' => array(
+                'led',
+                'driver',
+                'transformer',
+                'dimmer',
+                'switch',
+                'electrical',
+                'components',
+                'wiring'
             ),
-            'Flooring' => array(
-                'Engineered wood',
-                'Solid wood',
-                'LVT',
-                'Tile',
-                'Stone flooring',
-                'Terrazzo',
-                'Underlayment',
-                'Moisture barrier',
-                'Commercial spec',
-                'Hospitality corridors',
-                'Stair nosings'
+            // Plumbing + Bath + Kitchen
+            'Bathroom Fixtures' => array(
+                'bathroom',
+                'fixtures',
+                'vanity',
+                'toilet',
+                'bathtub',
+                'shower',
+                'bathroom accessories'
             ),
-            'Drapery / Window Treatments' => array(
-                'Blackout',
-                'Sheer',
-                'Motorized',
-                'Manual',
-                'Roller shades',
-                'Roman shades',
-                'Track systems',
-                'Hospitality drapery',
-                'COM',
-                'Hardware included'
+            'Kitchen Fixtures' => array(
+                'kitchen',
+                'fixtures',
+                'sink',
+                'faucet',
+                'kitchen accessories',
+                'hardware'
             ),
-            'Glass / Mirrors' => array(
-                'Tempered',
-                'Laminated',
-                'Safety glass',
-                'Mirrors (antique, smoked)',
-                'Beveled',
-                'Custom shapes',
-                'Back-painted'
+            'Faucets / Hardware (Plumbing)' => array(
+                'faucet',
+                'fixtures',
+                'sink',
+                'basin',
+                'shower',
+                'valve',
+                'hardware',
+                'drain',
+                'spout',
+                'mixer',
+                'tap'
             ),
-            'Hardware / Accessories' => array(
-                'Pulls / knobs',
-                'Hinges',
-                'Locks',
-                'Bathroom accessories',
-                'Door hardware',
-                'Custom finishes',
-                'Hospitality durability'
+            'Sinks / Basins' => array(
+                'sink',
+                'basin',
+                'kitchen sink',
+                'bathroom sink',
+                'undermount',
+                'drop-in',
+                'farmhouse',
+                'stainless',
+                'porcelain',
+                'stone'
             ),
+            'Shower Systems / Accessories' => array(
+                'shower',
+                'shower system',
+                'showerhead',
+                'shower panel',
+                'shower accessories',
+                'handheld',
+                'rain',
+                'body jets'
+            ),
+            // Surfaces + Stone
+            'Marble / Stone' => array(
+                'marble',
+                'stone',
+                'granite',
+                'quartz',
+                'slab',
+                'porcelain',
+                'ceramic',
+                'terrazzo',
+                'tile',
+                'backsplash',
+                'countertop'
+            ),
+            'Granite' => array(
+                'granite',
+                'stone',
+                'slab',
+                'countertop',
+                'vanity top',
+                'tabletop',
+                'polished',
+                'honed'
+            ),
+            'Quartz' => array(
+                'quartz',
+                'engineered stone',
+                'countertop',
+                'vanity top',
+                'tabletop',
+                'slab',
+                'polished',
+                'honed'
+            ),
+            'Porcelain / Ceramic Slabs' => array(
+                'porcelain',
+                'ceramic',
+                'slab',
+                'large format',
+                'countertop',
+                'wall',
+                'floor',
+                'tile'
+            ),
+            'Tile (Wall / Floor)' => array(
+                'tile',
+                'wall tile',
+                'floor tile',
+                'ceramic',
+                'porcelain',
+                'mosaic',
+                'backsplash',
+                'bathroom',
+                'kitchen'
+            ),
+            'Terrazzo' => array(
+                'terrazzo',
+                'aggregate',
+                'floor',
+                'wall',
+                'countertop',
+                'precast',
+                'poured'
+            ),
+            // Soft Goods
             'Rugs / Carpets' => array(
-                'Broadloom',
-                'Area rugs',
-                'Hand-tufted',
-                'Hand-knotted',
-                'Flatweave',
-                'Custom patterns',
-                'Hospitality rating',
-                'Stain resistant'
+                'rug',
+                'carpet',
+                'area rug',
+                'broadloom',
+                'hand-tufted',
+                'hand-knotted',
+                'flatweave',
+                'wool',
+                'silk'
             ),
-            'Wallcoverings / Finishes' => array(
-                'Wallpaper',
-                'Vinyl wallcovering',
-                'Acoustic panels',
-                'Decorative panels',
-                'Paint systems',
-                'Hospitality durability'
+            'Drapery' => array(
+                'drapery',
+                'curtain',
+                'drapes',
+                'fabric',
+                'blackout',
+                'sheer',
+                'motorized',
+                'track'
             ),
-            'Appliances' => array(
-                'Built-in',
-                'Commercial kitchen spec',
-                'Panels / integrated fronts',
-                'Voltage requirements'
+            'Window Treatments / Shades' => array(
+                'window treatment',
+                'shade',
+                'roller shade',
+                'roman shade',
+                'blinds',
+                'blackout',
+                'sheer',
+                'motorized'
+            ),
+            'Wallcoverings' => array(
+                'wallcovering',
+                'wallpaper',
+                'vinyl',
+                'fabric',
+                'acoustic',
+                'decorative',
+                'commercial'
+            ),
+            'Acoustic Panels' => array(
+                'acoustic',
+                'panel',
+                'sound',
+                'absorption',
+                'fabric',
+                'wood',
+                'custom',
+                'commercial'
+            ),
+            // Decor + Accessories
+            'Mirrors' => array(
+                'mirror',
+                'wall mirror',
+                'bathroom mirror',
+                'decorative',
+                'framed',
+                'antique',
+                'smoked',
+                'beveled'
+            ),
+            'Artwork' => array(
+                'artwork',
+                'art',
+                'painting',
+                'print',
+                'sculpture',
+                'custom',
+                'commissioned'
+            ),
+            'Decorative Accessories' => array(
+                'decorative',
+                'accessories',
+                'vase',
+                'bowl',
+                'sculpture',
+                'objects',
+                'decor'
+            ),
+            'Planters' => array(
+                'planter',
+                'planter box',
+                'pot',
+                'indoor',
+                'outdoor',
+                'ceramic',
+                'fiberglass',
+                'metal',
+                'wood'
+            ),
+            'Sculptural Objects' => array(
+                'sculpture',
+                'sculptural',
+                'object',
+                'art',
+                'decorative',
+                'custom',
+                'commissioned'
+            ),
+            // Architectural / Exterior
+            'Railings' => array(
+                'railing',
+                'handrail',
+                'guardrail',
+                'stair',
+                'metal',
+                'glass',
+                'wood',
+                'custom'
+            ),
+            'Screens / Louvers' => array(
+                'screen',
+                'louver',
+                'louvre',
+                'privacy',
+                'exterior',
+                'interior',
+                'metal',
+                'wood',
+                'aluminum'
+            ),
+            'Pergola / Shade Components' => array(
+                'pergola',
+                'shade',
+                'canopy',
+                'outdoor',
+                'structure',
+                'wood',
+                'aluminum',
+                'fabric'
+            ),
+            'Facade Materials' => array(
+                'facade',
+                'cladding',
+                'exterior',
+                'siding',
+                'metal',
+                'composite',
+                'wood',
+                'stone',
+                'tile'
+            ),
+            // Other
+            'Material Sample Kit' => array(
+                'sample',
+                'material',
+                'fabric',
+                'finish',
+                'swatch'
+            ),
+            'Fabric Sample' => array(
+                'fabric',
+                'sample',
+                'swatch',
+                'textile',
+                'upholstery',
+                'drapery'
+            ),
+            'Custom Sourcing / Not Listed' => array(
+                'custom',
+                'sourcing',
+                'specialty',
+                'unique',
+                'bespoke'
             )
         );
 

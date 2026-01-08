@@ -2466,7 +2466,7 @@ class N88_RFQ_Admin {
                                 <td><input type="text" id="item-title" name="title" required style="width: 100%;" /></td>
                             </tr>
                             <tr>
-                                <th><label for="item-description">Description</label></th>
+                                <th><label for="item-description">Description (tell us what you're sourcing)</label></th>
                                 <td><textarea id="item-description" name="description" rows="3" style="width: 100%;"></textarea></td>
                             </tr>
                             <tr>
@@ -2474,28 +2474,49 @@ class N88_RFQ_Admin {
                                 <td>
                                     <select id="item-type" name="item_type" style="width: 100%;">
                                         <option value="">-- Select Category --</option>
-                                        <optgroup label="Indoor Furniture (6-Step Timeline)">
-                                            <option value="Indoor Furniture">Indoor Furniture</option>
-                                            <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                            <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                            <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                            <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                            <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                        </optgroup>
-                                        <optgroup label="Outdoor Furniture (6-Step Timeline)">
-                                            <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                            <option value="Outdoor Seating">Outdoor Seating</option>
-                                            <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                            <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                            <option value="Pool Furniture">Pool Furniture</option>
-                                        </optgroup>
-                                        <optgroup label="Sourcing (4-Step Timeline)">
-                                            <option value="Lighting">Lighting</option>
-                                        </optgroup>
-                                        <optgroup label="Other">
-                                            <option value="Material Sample Kit">Material Sample Kit</option>
-                                            <option value="Fabric Sample">Fabric Sample</option>
-                                        </optgroup>
+                                        <option value="Indoor Furniture">Indoor Furniture</option>
+                                        <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                        <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                        <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                        <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                        <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                        <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                        <option value="Outdoor Seating">Outdoor Seating</option>
+                                        <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                        <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                        <option value="Pool Furniture">Pool Furniture</option>
+                                        <option value="Lighting">Lighting</option>
+                                        <option value="Decorative Lighting">Decorative Lighting</option>
+                                        <option value="Architectural Lighting">Architectural Lighting</option>
+                                        <option value="Electrical / LED Components">Electrical / LED Components</option>
+                                        <option value="Bathroom Fixtures">Bathroom Fixtures</option>
+                                        <option value="Kitchen Fixtures">Kitchen Fixtures</option>
+                                        <option value="Faucets / Hardware (Plumbing)">Faucets / Hardware (Plumbing)</option>
+                                        <option value="Sinks / Basins">Sinks / Basins</option>
+                                        <option value="Shower Systems / Accessories">Shower Systems / Accessories</option>
+                                        <option value="Marble / Stone">Marble / Stone</option>
+                                        <option value="Granite">Granite</option>
+                                        <option value="Quartz">Quartz</option>
+                                        <option value="Porcelain / Ceramic Slabs">Porcelain / Ceramic Slabs</option>
+                                        <option value="Tile (Wall / Floor)">Tile (Wall / Floor)</option>
+                                        <option value="Terrazzo">Terrazzo</option>
+                                        <option value="Rugs / Carpets">Rugs / Carpets</option>
+                                        <option value="Drapery">Drapery</option>
+                                        <option value="Window Treatments / Shades">Window Treatments / Shades</option>
+                                        <option value="Wallcoverings">Wallcoverings</option>
+                                        <option value="Acoustic Panels">Acoustic Panels</option>
+                                        <option value="Mirrors">Mirrors</option>
+                                        <option value="Artwork">Artwork</option>
+                                        <option value="Decorative Accessories">Decorative Accessories</option>
+                                        <option value="Planters">Planters</option>
+                                        <option value="Sculptural Objects">Sculptural Objects</option>
+                                        <option value="Railings">Railings</option>
+                                        <option value="Screens / Louvers">Screens / Louvers</option>
+                                        <option value="Pergola / Shade Components">Pergola / Shade Components</option>
+                                        <option value="Facade Materials">Facade Materials</option>
+                                        <option value="Material Sample Kit">Material Sample Kit</option>
+                                        <option value="Fabric Sample">Fabric Sample</option>
+                                        <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
                                     </select>
                                 </td>
                             </tr>
@@ -2507,7 +2528,7 @@ class N88_RFQ_Admin {
                                 </td>
                             </tr>
                             <tr>
-                                <th><label>Dimensions</label></th>
+                                <th><label>Dimensions (provide ideal dimensions when applicable)</label></th>
                                 <td>
                                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                         <div>
@@ -7930,7 +7951,7 @@ class N88_RFQ_Admin {
                                         },
                                         React.createElement('label', {
                                                 style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                        }, 'Description'),
+                                        }, 'Description (tell us what you\'re sourcing)'),
                                         React.createElement('textarea', {
                                             value: description,
                                             onChange: function(e) { setDescription(e.target.value); },
@@ -7970,28 +7991,49 @@ class N88_RFQ_Admin {
                                             }
                                         },
                                                 React.createElement('option', { value: '' }, '-- Select Category --'),
-                                                React.createElement('optgroup', { label: 'Indoor Furniture (6-Step Timeline)' },
-                                                    React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
-                                                    React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
-                                                    React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
-                                                    React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
-                                                    React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
-                                                    React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)')
-                                                ),
-                                                React.createElement('optgroup', { label: 'Outdoor Furniture (6-Step Timeline)' },
-                                                    React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
-                                                    React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
-                                                    React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
-                                                    React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
-                                                    React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture')
-                                                ),
-                                                React.createElement('optgroup', { label: 'Sourcing (4-Step Timeline)' },
-                                                    React.createElement('option', { value: 'Lighting' }, 'Lighting')
-                                                ),
-                                                React.createElement('optgroup', { label: 'Other' },
-                                                    React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
-                                                    React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample')
-                                                )
+                                                React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
+                                                React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
+                                                React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
+                                                React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
+                                                React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
+                                                React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)'),
+                                                React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
+                                                React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
+                                                React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
+                                                React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
+                                                React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture'),
+                                                React.createElement('option', { value: 'Lighting' }, 'Lighting'),
+                                                React.createElement('option', { value: 'Decorative Lighting' }, 'Decorative Lighting'),
+                                                React.createElement('option', { value: 'Architectural Lighting' }, 'Architectural Lighting'),
+                                                React.createElement('option', { value: 'Electrical / LED Components' }, 'Electrical / LED Components'),
+                                                React.createElement('option', { value: 'Bathroom Fixtures' }, 'Bathroom Fixtures'),
+                                                React.createElement('option', { value: 'Kitchen Fixtures' }, 'Kitchen Fixtures'),
+                                                React.createElement('option', { value: 'Faucets / Hardware (Plumbing)' }, 'Faucets / Hardware (Plumbing)'),
+                                                React.createElement('option', { value: 'Sinks / Basins' }, 'Sinks / Basins'),
+                                                React.createElement('option', { value: 'Shower Systems / Accessories' }, 'Shower Systems / Accessories'),
+                                                React.createElement('option', { value: 'Marble / Stone' }, 'Marble / Stone'),
+                                                React.createElement('option', { value: 'Granite' }, 'Granite'),
+                                                React.createElement('option', { value: 'Quartz' }, 'Quartz'),
+                                                React.createElement('option', { value: 'Porcelain / Ceramic Slabs' }, 'Porcelain / Ceramic Slabs'),
+                                                React.createElement('option', { value: 'Tile (Wall / Floor)' }, 'Tile (Wall / Floor)'),
+                                                React.createElement('option', { value: 'Terrazzo' }, 'Terrazzo'),
+                                                React.createElement('option', { value: 'Rugs / Carpets' }, 'Rugs / Carpets'),
+                                                React.createElement('option', { value: 'Drapery' }, 'Drapery'),
+                                                React.createElement('option', { value: 'Window Treatments / Shades' }, 'Window Treatments / Shades'),
+                                                React.createElement('option', { value: 'Wallcoverings' }, 'Wallcoverings'),
+                                                React.createElement('option', { value: 'Acoustic Panels' }, 'Acoustic Panels'),
+                                                React.createElement('option', { value: 'Mirrors' }, 'Mirrors'),
+                                                React.createElement('option', { value: 'Artwork' }, 'Artwork'),
+                                                React.createElement('option', { value: 'Decorative Accessories' }, 'Decorative Accessories'),
+                                                React.createElement('option', { value: 'Planters' }, 'Planters'),
+                                                React.createElement('option', { value: 'Sculptural Objects' }, 'Sculptural Objects'),
+                                                React.createElement('option', { value: 'Railings' }, 'Railings'),
+                                                React.createElement('option', { value: 'Screens / Louvers' }, 'Screens / Louvers'),
+                                                React.createElement('option', { value: 'Pergola / Shade Components' }, 'Pergola / Shade Components'),
+                                                React.createElement('option', { value: 'Facade Materials' }, 'Facade Materials'),
+                                                React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
+                                                React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample'),
+                                                React.createElement('option', { value: 'Custom Sourcing / Not Listed' }, 'Custom Sourcing / Not Listed')
                                             )
                                     )
                                     )
@@ -8190,7 +8232,7 @@ class N88_RFQ_Admin {
                                         },
                                         React.createElement('label', {
                                                 style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                        }, 'Dimensions'),
+                                        }, 'Dimensions (provide ideal dimensions when applicable)'),
                                         React.createElement('div', {
                                                 style: { display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }
                                         },

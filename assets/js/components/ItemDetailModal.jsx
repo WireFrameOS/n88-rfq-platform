@@ -2466,7 +2466,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     {/* 3. Description */}
                                     <div style={{ marginBottom: '24px' }}>
                                         <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                            Description
+                                            Description (tell us what you're sourcing)
                                         </label>
                                         <textarea
                                             value={description}
@@ -2507,28 +2507,49 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             }}
                                         >
                                             <option value="">-- Select Category --</option>
-                                            <optgroup label="Indoor Furniture (6-Step Timeline)">
-                                                <option value="Indoor Furniture">Indoor Furniture</option>
-                                                <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                                <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                                <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                                <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                            </optgroup>
-                                            <optgroup label="Outdoor Furniture (6-Step Timeline)">
-                                                <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                                <option value="Outdoor Seating">Outdoor Seating</option>
-                                                <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                                <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                                <option value="Pool Furniture">Pool Furniture</option>
-                                            </optgroup>
-                                            <optgroup label="Sourcing (4-Step Timeline)">
-                                                <option value="Lighting">Lighting</option>
-                                            </optgroup>
-                                            <optgroup label="Other">
-                                                <option value="Material Sample Kit">Material Sample Kit</option>
-                                                <option value="Fabric Sample">Fabric Sample</option>
-                                            </optgroup>
+                                            <option value="Indoor Furniture">Indoor Furniture</option>
+                                            <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                            <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                            <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                            <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                            <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                            <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                            <option value="Outdoor Seating">Outdoor Seating</option>
+                                            <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                            <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                            <option value="Pool Furniture">Pool Furniture</option>
+                                            <option value="Lighting">Lighting</option>
+                                            <option value="Decorative Lighting">Decorative Lighting</option>
+                                            <option value="Architectural Lighting">Architectural Lighting</option>
+                                            <option value="Electrical / LED Components">Electrical / LED Components</option>
+                                            <option value="Bathroom Fixtures">Bathroom Fixtures</option>
+                                            <option value="Kitchen Fixtures">Kitchen Fixtures</option>
+                                            <option value="Faucets / Hardware (Plumbing)">Faucets / Hardware (Plumbing)</option>
+                                            <option value="Sinks / Basins">Sinks / Basins</option>
+                                            <option value="Shower Systems / Accessories">Shower Systems / Accessories</option>
+                                            <option value="Marble / Stone">Marble / Stone</option>
+                                            <option value="Granite">Granite</option>
+                                            <option value="Quartz">Quartz</option>
+                                            <option value="Porcelain / Ceramic Slabs">Porcelain / Ceramic Slabs</option>
+                                            <option value="Tile (Wall / Floor)">Tile (Wall / Floor)</option>
+                                            <option value="Terrazzo">Terrazzo</option>
+                                            <option value="Rugs / Carpets">Rugs / Carpets</option>
+                                            <option value="Drapery">Drapery</option>
+                                            <option value="Window Treatments / Shades">Window Treatments / Shades</option>
+                                            <option value="Wallcoverings">Wallcoverings</option>
+                                            <option value="Acoustic Panels">Acoustic Panels</option>
+                                            <option value="Mirrors">Mirrors</option>
+                                            <option value="Artwork">Artwork</option>
+                                            <option value="Decorative Accessories">Decorative Accessories</option>
+                                            <option value="Planters">Planters</option>
+                                            <option value="Sculptural Objects">Sculptural Objects</option>
+                                            <option value="Railings">Railings</option>
+                                            <option value="Screens / Louvers">Screens / Louvers</option>
+                                            <option value="Pergola / Shade Components">Pergola / Shade Components</option>
+                                            <option value="Facade Materials">Facade Materials</option>
+                                            <option value="Material Sample Kit">Material Sample Kit</option>
+                                            <option value="Fabric Sample">Fabric Sample</option>
+                                            <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
                                         </select>
                                     </div>
                                     
@@ -2869,7 +2890,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 {/* Dimensions */}
                                 <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                        Dimensions
+                                        Dimensions (provide ideal dimensions when applicable)
                                     </label>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
                                             <input
@@ -3407,7 +3428,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             {/* Dimensions */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Dimensions
+                                                    Dimensions (provide ideal dimensions when applicable)
                                                 </label>
                                                 <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
                                                     <input
