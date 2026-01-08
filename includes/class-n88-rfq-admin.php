@@ -5594,6 +5594,7 @@ class N88_RFQ_Admin {
                     var darkText = matrixProps.darkText || '#d3d3d3';
                     var darkBg = matrixProps.darkBg || '#000000';
                     var onImageClick = matrixProps.onImageClick;
+                    var smartAlternativesEnabled = matrixProps.smartAlternativesEnabled || false;
                     
                     // Order bids by created_at ASC (already ordered from backend, but ensure stability)
                     var orderedBids = bids.slice().sort(function(a, b) {
@@ -5601,6 +5602,22 @@ class N88_RFQ_Admin {
                         var dateB = new Date(b.created_at || 0);
                         return dateA - dateB;
                     });
+                    
+                    // Track expanded state per bid column
+                    var _expandedSmartAltState = React.useState({});
+                    var expandedSmartAltByBidId = _expandedSmartAltState[0];
+                    var setExpandedSmartAltByBidId = _expandedSmartAltState[1];
+                    
+                    var toggleSmartAltExpanded = function(bidId) {
+                        setExpandedSmartAltByBidId(function(prev) {
+                            var next = {};
+                            for (var key in prev) {
+                                next[key] = prev[key];
+                            }
+                            next[bidId] = !prev[bidId];
+                            return next;
+                        });
+                    };
                     
                     // Helper to get supplier label (A, B, C, etc.)
                     var getSupplierLabel = function(idx) {
@@ -5631,45 +5648,45 @@ class N88_RFQ_Admin {
                             style: { display: 'flex', flexDirection: 'column', gap: compact ? '2px' : '4px' }
                         },
                             allVideos.length > 0 ? React.createElement('div', {
-                                style: { display: 'flex', flexDirection: 'column', gap: '2px' }
-                            },
+                                    style: { display: 'flex', flexDirection: 'column', gap: '2px' }
+                                },
                                 allVideos.map(function(video, idx) {
-                                    return React.createElement('a', {
+                                        return React.createElement('a', {
                                         key: 'video-' + idx,
                                         href: video.url,
-                                        target: '_blank',
-                                        rel: 'noopener noreferrer',
+                                            target: '_blank',
+                                            rel: 'noopener noreferrer',
                                         style: { fontSize: compact ? '10px' : '11px', color: greenAccent, textDecoration: 'none' },
-                                        onClick: function(e) { e.stopPropagation(); }
+                                            onClick: function(e) { e.stopPropagation(); }
                                     }, '[' + video.provider + ' ►]');
                                 })
                             ) : null,
                             photos.length > 0 ? React.createElement('div', {
                                 style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: allVideos.length > 0 ? '2px' : '0' }
-                            },
-                                photos.slice(0, 3).map(function(url, idx) {
-                                    return React.createElement('img', {
-                                        key: 'photo-' + idx,
-                                        src: url,
-                                        alt: '',
-                                        onClick: function(e) {
-                                            e.stopPropagation();
-                                            if (onImageClick) {
-                                                onImageClick(url);
-                                            } else {
-                                                window.open(url, '_blank');
-                                            }
-                                        },
-                                        style: {
+                                },
+                                    photos.slice(0, 3).map(function(url, idx) {
+                                        return React.createElement('img', {
+                                            key: 'photo-' + idx,
+                                            src: url,
+                                            alt: '',
+                                            onClick: function(e) {
+                                                e.stopPropagation();
+                                                if (onImageClick) {
+                                                    onImageClick(url);
+                                                } else {
+                                                    window.open(url, '_blank');
+                                                }
+                                            },
+                                            style: {
                                             width: compact ? '28px' : '32px',
                                             height: compact ? '28px' : '32px',
-                                            objectFit: 'cover',
-                                            cursor: 'pointer',
-                                            border: '1px solid ' + darkBorder,
-                                            borderRadius: '2px',
-                                        }
-                                    });
-                                })
+                                                objectFit: 'cover',
+                                                cursor: 'pointer',
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '2px',
+                                            }
+                                        });
+                                    })
                             ) : null
                         );
                     };
@@ -5697,22 +5714,60 @@ class N88_RFQ_Admin {
                         if (!sa || typeof sa !== 'object') {
                             return '—';
                         }
-                        var hasData = sa.from || sa.to || sa.category || sa.comparisons;
+                        // Check for data using correct field names (comparison_points, not comparisons)
+                        var hasData = sa.from || sa.to || sa.category || (sa.comparison_points && sa.comparison_points.length > 0) || (sa.comparisons && sa.comparisons.length > 0);
                         if (!hasData) {
                             return '—';
                         }
                         var parts = [];
+                        
+                        // Format category
+                        var categoryLabels = {
+                            'material': 'Material',
+                            'finish': 'Finish',
+                            'hardware': 'Hardware',
+                            'dimensions': 'Dimensions',
+                            'construction': 'Construction Method',
+                            'packaging': 'Packaging'
+                        };
+                        if (sa.category) {
+                            parts.push(categoryLabels[sa.category] || sa.category.charAt(0).toUpperCase() + sa.category.slice(1));
+                        }
+                        
+                        // Format From → To
                         if (sa.from && sa.to) {
                             var formatLabel = function(str) {
                                 if (!str) return '';
-                                return str.split('-').map(function(word) {
+                                var labels = {
+                                    'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                    'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                    'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                };
+                                return labels[str] || str.split('-').map(function(word) {
                                     return word.charAt(0).toUpperCase() + word.slice(1);
                                 }).join(' ');
                             };
                             parts.push(formatLabel(sa.from) + ' → ' + formatLabel(sa.to));
-                        } else if (sa.category) {
-                            parts.push(sa.category.charAt(0).toUpperCase() + sa.category.slice(1));
                         }
+                        
+                        // Format comparison points
+                        var comparisonLabels = {
+                            'cost-reduction': 'Cost Reduction',
+                            'faster-production': 'Faster Production',
+                            'better-durability': 'Better Durability',
+                            'easier-sourcing': 'Easier Sourcing',
+                            'lighter-weight': 'Lighter Weight',
+                            'eco-friendly': 'Eco-Friendly'
+                        };
+                        var comparisonPoints = sa.comparison_points || sa.comparisons || [];
+                        if (Array.isArray(comparisonPoints) && comparisonPoints.length > 0) {
+                            var formattedComparisons = comparisonPoints.map(function(cp) {
+                                return comparisonLabels[cp] || cp;
+                            }).join(', ');
+                            parts.push('(' + formattedComparisons + ')');
+                        }
+                        
+                        // Format impacts
                         if (sa.price_impact || sa.lead_time_impact) {
                             var impacts = [];
                             if (sa.price_impact) {
@@ -5737,7 +5792,7 @@ class N88_RFQ_Admin {
                                 parts.push(impacts.join(' | '));
                             }
                         }
-                        return parts.length > 0 ? parts.join(' | ') : '—';
+                        return parts.length > 0 ? parts.join(' · ') : '—';
                     };
                     
                     if (orderedBids.length === 0) {
@@ -5748,9 +5803,9 @@ class N88_RFQ_Admin {
                     if (orderedBids.length === 1) {
                         var bid = orderedBids[0];
                         var media = renderMedia(bid, true);
-                        
-                        return React.createElement('div', {
-                            style: {
+                    
+                    return React.createElement('div', {
+                        style: {
                                 border: '1px solid ' + darkBorder,
                                 borderRadius: '4px',
                                 backgroundColor: '#111111',
@@ -5793,22 +5848,148 @@ class N88_RFQ_Admin {
                                         style: { fontSize: '11px', color: greenAccent }
                                     }, '$' + bid.unit_price)
                                 ) : null,
-                                formatSmartAlt(bid) !== '—' ? React.createElement('div', null,
-                                    React.createElement('div', {
-                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
-                                    }, 'Smart Alternatives'),
-                                    React.createElement('div', {
-                                        style: { fontSize: '11px', color: greenAccent }
-                                    }, formatSmartAlt(bid))
-                                ) : null,
-                                bid.smart_alternatives_note && bid.smart_alternatives_note.trim() ? React.createElement('div', null,
-                                    React.createElement('div', {
-                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
-                                    }, 'Notes'),
-                                    React.createElement('div', {
-                                        style: { fontSize: '11px', color: darkText, padding: '6px', backgroundColor: '#0a0a0a', borderRadius: '2px', whiteSpace: 'pre-wrap' }
-                                    }, bid.smart_alternatives_note)
-                                ) : null
+                                (function() {
+                                    if (!smartAlternativesEnabled) return null;
+                                    var sa = bid.smart_alternatives_suggestion;
+                                    var hasNote = bid.bid_smart_alternatives_note && bid.bid_smart_alternatives_note.trim();
+                                    var hasDetails = sa && (sa.category || sa.from || sa.to || (sa.comparison_points && sa.comparison_points.length > 0));
+                                    var hasContent = hasNote || hasDetails;
+                                    if (!hasContent) return null;
+                                    
+                                    var _smartAltExpandedState = React.useState(false);
+                                    var isSmartAltExpanded = _smartAltExpandedState[0];
+                                    var setIsSmartAltExpanded = _smartAltExpandedState[1];
+                                    
+                                    var formatFullDetails = function() {
+                                        var parts = [];
+                                        if (sa) {
+                                            var categoryLabels = {
+                                                'material': 'Material',
+                                                'finish': 'Finish',
+                                                'hardware': 'Hardware',
+                                                'dimensions': 'Dimensions',
+                                                'construction': 'Construction Method',
+                                                'packaging': 'Packaging'
+                                            };
+                                            if (sa.category) {
+                                                parts.push('Category: ' + (categoryLabels[sa.category] || sa.category));
+                                            }
+                                            if (sa.from && sa.to) {
+                                                var formatLabel = function(str) {
+                                                    if (!str) return '';
+                                                    var labels = {
+                                                        'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                                        'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                                        'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                                    };
+                                                    return labels[str] || str.split('-').map(function(word) {
+                                                        return word.charAt(0).toUpperCase() + word.slice(1);
+                                                    }).join(' ');
+                                                };
+                                                parts.push('From: ' + formatLabel(sa.from) + ' → To: ' + formatLabel(sa.to));
+                                            }
+                                            if (sa.comparison_points && sa.comparison_points.length > 0) {
+                                                var comparisonLabels = {
+                                                    'cost-reduction': 'Cost Reduction',
+                                                    'faster-production': 'Faster Production',
+                                                    'better-durability': 'Better Durability',
+                                                    'easier-sourcing': 'Easier Sourcing',
+                                                    'lighter-weight': 'Lighter Weight',
+                                                    'eco-friendly': 'Eco-Friendly'
+                                                };
+                                                var comparisons = sa.comparison_points.map(function(cp) {
+                                                    return comparisonLabels[cp] || cp;
+                                                }).join(', ');
+                                                parts.push('Comparison Points: ' + comparisons);
+                                            }
+                                            if (sa.price_impact) {
+                                                var priceLabels = {
+                                                    'reduces-10-20': 'Reduces 10-20%',
+                                                    'reduces-20-30': 'Reduces 20-30%',
+                                                    'reduces-30-plus': 'Reduces 30%+',
+                                                    'similar': 'Similar Price',
+                                                    'increases-10-20': 'Increases 10-20%',
+                                                    'increases-20-plus': 'Increases 20%+'
+                                                };
+                                                parts.push('Price Impact: ' + (priceLabels[sa.price_impact] || sa.price_impact));
+                                            }
+                                            if (sa.lead_time_impact) {
+                                                var leadTimeLabels = {
+                                                    'reduces-1-2w': 'Reduces 1-2 weeks',
+                                                    'reduces-2-4w': 'Reduces 2-4 weeks',
+                                                    'reduces-4w-plus': 'Reduces 4+ weeks',
+                                                    'similar': 'Similar Lead Time',
+                                                    'increases-1-2w': 'Increases 1-2 weeks',
+                                                    'increases-2w-plus': 'Increases 2+ weeks'
+                                                };
+                                                parts.push('Lead Time Impact: ' + (leadTimeLabels[sa.lead_time_impact] || sa.lead_time_impact));
+                                            }
+                                        }
+                                        if (hasNote) {
+                                            parts.push('Note: ' + bid.bid_smart_alternatives_note);
+                                        }
+                                        return parts.join('\n');
+                                    };
+                                    
+                                    var fullDetails = formatFullDetails();
+                                    var previewText = hasNote ? bid.bid_smart_alternatives_note : (sa ? formatSmartAlt(bid) : '');
+                                    var previewLength = 100;
+                                    var showPreview = previewText && previewText.length > previewLength && !isSmartAltExpanded;
+                                    
+                                    return React.createElement('div', null,
+                                        React.createElement('div', {
+                                            style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                        }, 'Smart Alternatives'),
+                                        isSmartAltExpanded ? React.createElement('div', null,
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '11px',
+                                                    color: darkText,
+                                                    whiteSpace: 'pre-wrap',
+                                                    lineHeight: '1.4',
+                                                    marginBottom: '4px',
+                                                    padding: '6px',
+                                                    backgroundColor: '#0a0a0a',
+                                                    borderRadius: '2px'
+                                                }
+                                            }, fullDetails),
+                                            React.createElement('button', {
+                                                onClick: function(e) {
+                                                    e.stopPropagation();
+                                                    setIsSmartAltExpanded(false);
+                                                },
+                                                style: {
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: greenAccent,
+                                                    cursor: 'pointer',
+                                                    fontSize: '10px',
+                                                    padding: '2px 0',
+                                                    textDecoration: 'underline',
+                                                }
+                                            }, 'Less')
+                                        ) : React.createElement('div', null,
+                                            React.createElement('div', {
+                                                style: { fontSize: '11px', color: greenAccent, marginBottom: '4px' }
+                                            }, showPreview ? (previewText.substring(0, previewLength) + '...') : previewText),
+                                            React.createElement('button', {
+                                                onClick: function(e) {
+                                                    e.stopPropagation();
+                                                    setIsSmartAltExpanded(true);
+                                                },
+                                                style: {
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: greenAccent,
+                                                    cursor: 'pointer',
+                                                    fontSize: '10px',
+                                                    padding: '2px 0',
+                                                    textDecoration: 'underline',
+                                                }
+                                            }, 'More')
+                                        )
+                                    );
+                                })()
                             )
                         );
                     }
@@ -5909,17 +6090,17 @@ class N88_RFQ_Admin {
                                     }
                                 }, 'Prototype'),
                                 displayBids.map(function(bid, idx) {
-                                    return React.createElement('div', {
-                                        key: 'prototype-' + bid.bid_id,
-                                        style: {
+                                return React.createElement('div', {
+                                    key: 'prototype-' + bid.bid_id,
+                                    style: {
                                             padding: '6px 10px',
                                             borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
                                             fontSize: '10px',
-                                        }
-                                    },
+                                    }
+                                },
                                         React.createElement('span', { style: { color: greenAccent } }, formatPrototype(bid))
-                                    );
-                                })
+                                );
+                            })
                             ),
                             // Production Lead Time Row
                             React.createElement('div', {
@@ -5995,38 +6176,212 @@ class N88_RFQ_Admin {
                                     );
                                 })
                             ),
-                            // Smart Alternatives Row
+                            // Smart Alternatives Rows - Only show if enabled
+                            smartAlternativesEnabled ? React.createElement(React.Fragment, null,
+                                // Smart Alt Summary Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                        gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                     borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
-                                React.createElement('div', {
-                                    style: {
-                                        padding: '6px 10px',
-                                        borderRight: '1px solid ' + darkBorder,
-                                        fontSize: '10px',
-                                        color: darkText,
-                                        backgroundColor: '#0a0a0a',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                    }
-                                }, 'Smart Alternatives'),
-                                displayBids.map(function(bid, idx) {
-                                    return React.createElement('div', {
-                                        key: 'smalt-' + bid.bid_id,
+                                    React.createElement('div', {
                                         style: {
                                             padding: '6px 10px',
-                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            borderRight: '1px solid ' + darkBorder,
                                             fontSize: '10px',
+                                            color: darkText,
+                                            backgroundColor: '#0a0a0a',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                        }
+                                    }, 'Smart Alt'),
+                                    displayBids.map(function(bid, idx) {
+                                        var sa = bid.smart_alternatives_suggestion;
+                                        var hasSmartAltData = sa && (sa.category || sa.from || sa.to || (sa.comparison_points && sa.comparison_points.length > 0));
+                                    return React.createElement('div', {
+                                            key: 'smalt-' + bid.bid_id,
+                                        style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
                                         }
                                     },
-                                        React.createElement('span', { style: { color: greenAccent } }, formatSmartAlt(bid))
+                                            hasSmartAltData ? React.createElement('span', { style: { color: greenAccent } }, formatSmartAlt(bid)) : React.createElement('span', { style: { color: darkText } }, '—')
                                     );
                                 })
                             ),
+                                // Smart Alt Notes Row (Expandable)
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                        gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                    React.createElement('div', {
+                                        style: {
+                                            padding: '6px 10px',
+                                            borderRight: '1px solid ' + darkBorder,
+                                            fontSize: '10px',
+                                            color: darkText,
+                                            backgroundColor: '#0a0a0a',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                        }
+                                    }, 'Smart Alt Notes'),
+                                    displayBids.map(function(bid, idx) {
+                                        var sa = bid.smart_alternatives_suggestion;
+                                        var hasNote = bid.bid_smart_alternatives_note && bid.bid_smart_alternatives_note.trim();
+                                        var hasDetails = sa && (sa.category || sa.from || sa.to || (sa.comparison_points && sa.comparison_points.length > 0));
+                                        var hasContent = hasNote || hasDetails;
+                                        var isExpanded = expandedSmartAltByBidId[bid.bid_id] || false;
+                                        
+                                        // Format full details
+                                        var formatFullDetails = function() {
+                                            if (!hasContent) return null;
+                                            var parts = [];
+                                            
+                                            if (sa) {
+                                                var categoryLabels = {
+                                                    'material': 'Material',
+                                                    'finish': 'Finish',
+                                                    'hardware': 'Hardware',
+                                                    'dimensions': 'Dimensions',
+                                                    'construction': 'Construction Method',
+                                                    'packaging': 'Packaging'
+                                                };
+                                                
+                                                if (sa.category) {
+                                                    parts.push('Category: ' + (categoryLabels[sa.category] || sa.category));
+                                                }
+                                                
+                                                if (sa.from && sa.to) {
+                                                    var formatLabel = function(str) {
+                                                        if (!str) return '';
+                                                        var labels = {
+                                                            'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                                            'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                                            'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                                        };
+                                                        return labels[str] || str.split('-').map(function(word) {
+                                                            return word.charAt(0).toUpperCase() + word.slice(1);
+                                                        }).join(' ');
+                                                    };
+                                                    parts.push('From: ' + formatLabel(sa.from) + ' → To: ' + formatLabel(sa.to));
+                                                }
+                                                
+                                                if (sa.comparison_points && sa.comparison_points.length > 0) {
+                                                    var comparisonLabels = {
+                                                        'cost-reduction': 'Cost Reduction',
+                                                        'faster-production': 'Faster Production',
+                                                        'better-durability': 'Better Durability',
+                                                        'easier-sourcing': 'Easier Sourcing',
+                                                        'lighter-weight': 'Lighter Weight',
+                                                        'eco-friendly': 'Eco-Friendly'
+                                                    };
+                                                    var comparisons = sa.comparison_points.map(function(cp) {
+                                                        return comparisonLabels[cp] || cp;
+                                                    }).join(', ');
+                                                    parts.push('Comparison Points: ' + comparisons);
+                                                }
+                                                
+                                                if (sa.price_impact) {
+                                                    var priceLabels = {
+                                                        'reduces-10-20': 'Reduces 10-20%',
+                                                        'reduces-20-30': 'Reduces 20-30%',
+                                                        'reduces-30-plus': 'Reduces 30%+',
+                                                        'similar': 'Similar Price',
+                                                        'increases-10-20': 'Increases 10-20%',
+                                                        'increases-20-plus': 'Increases 20%+'
+                                                    };
+                                                    parts.push('Price Impact: ' + (priceLabels[sa.price_impact] || sa.price_impact));
+                                                }
+                                                
+                                                if (sa.lead_time_impact) {
+                                                    var leadTimeLabels = {
+                                                        'reduces-1-2w': 'Reduces 1-2 weeks',
+                                                        'reduces-2-4w': 'Reduces 2-4 weeks',
+                                                        'reduces-4w-plus': 'Reduces 4+ weeks',
+                                                        'similar': 'Similar Lead Time',
+                                                        'increases-1-2w': 'Increases 1-2 weeks',
+                                                        'increases-2w-plus': 'Increases 2+ weeks'
+                                                    };
+                                                    parts.push('Lead Time Impact: ' + (leadTimeLabels[sa.lead_time_impact] || sa.lead_time_impact));
+                                                }
+                                            }
+                                            
+                                            if (hasNote) {
+                                                parts.push('Note: ' + bid.bid_smart_alternatives_note);
+                                            }
+                                            
+                                            return parts.join('\n');
+                                        };
+                                        
+                                        var fullDetails = formatFullDetails();
+                                        var previewText = hasNote ? bid.bid_smart_alternatives_note : (sa ? formatSmartAlt(bid) : '');
+                                        var previewLength = 100;
+                                        var showPreview = previewText && previewText.length > previewLength && !isExpanded;
+                                        
+                                    return React.createElement('div', {
+                                            key: 'smalt-notes-' + bid.bid_id,
+                                        style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                            }
+                                        },
+                                            hasContent ? React.createElement('div', null,
+                                                isExpanded ? React.createElement('div', null,
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            whiteSpace: 'pre-wrap',
+                                            color: darkText,
+                                                            lineHeight: '1.4',
+                                                            marginBottom: '4px'
+                                        }
+                                                    }, fullDetails),
+                                                    React.createElement('button', {
+                                                        onClick: function(e) {
+                                                            e.stopPropagation();
+                                                            toggleSmartAltExpanded(bid.bid_id);
+                                                        },
+                                                        style: {
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: greenAccent,
+                                                            cursor: 'pointer',
+                                                            fontSize: '9px',
+                                                            padding: '2px 0',
+                                                            textDecoration: 'underline',
+                                                        }
+                                                    }, 'Less')
+                                                ) : React.createElement('div', null,
+                                                    React.createElement('div', {
+                                                        style: { color: darkText, marginBottom: '4px' }
+                                                    }, showPreview ? (previewText.substring(0, previewLength) + '...') : previewText),
+                                                    React.createElement('button', {
+                                                        onClick: function(e) {
+                                                            e.stopPropagation();
+                                                            toggleSmartAltExpanded(bid.bid_id);
+                                                        },
+                                                        style: {
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: greenAccent,
+                                                            cursor: 'pointer',
+                                                            fontSize: '9px',
+                                                            padding: '2px 0',
+                                                            textDecoration: 'underline',
+                                                        }
+                                                    }, 'More')
+                                                )
+                                            ) : React.createElement('span', { style: { color: darkText } }, '—')
+                                        );
+                                    })
+                                )
+                            ) : null,
                             // Landed Shipping Costs Row
                             React.createElement('div', {
                                 style: {
@@ -7733,7 +8088,8 @@ class N88_RFQ_Admin {
                                             greenAccent: greenAccent,
                                             darkText: darkText,
                                             darkBg: darkBg,
-                                            onImageClick: setLightboxImage
+                                            onImageClick: setLightboxImage,
+                                            smartAlternativesEnabled: smartAlternativesEnabled
                                         }),
                                         // Commit 2.3.6: Concierge + Delivery Banner
                                         React.createElement('div', {

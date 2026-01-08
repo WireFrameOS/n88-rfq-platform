@@ -159,7 +159,7 @@ const getTimelineTypeFromCategory = (category) => {
  * Single bid: Compact box with all details (no CAD)
  * Multiple bids: Comparison table with 3 columns (Supplier A, B, C)
  */
-const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick }) => {
+const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick, smartAlternativesEnabled = false }) => {
     // Order bids by created_at ASC, bid_id ASC (deterministic tie-breaker)
     const orderedBids = [...bids].sort((a, b) => {
         const dateA = new Date(a.created_at || 0).getTime();
@@ -167,6 +167,16 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
         if (dateA !== dateB) return dateA - dateB;
         return (a.bid_id || 0) - (b.bid_id || 0);
     });
+    
+    // Track expanded state per bid column
+    const [expandedSmartAltByBidId, setExpandedSmartAltByBidId] = React.useState({});
+    
+    const toggleSmartAltExpanded = (bidId) => {
+        setExpandedSmartAltByBidId(prev => ({
+            ...prev,
+            [bidId]: !prev[bidId]
+        }));
+    };
 
     // Helper to get supplier label (A, B, C, etc.)
     const getSupplierLabel = (idx) => String.fromCharCode(65 + idx);
@@ -264,22 +274,58 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
         if (!sa || (typeof sa !== 'object')) {
             return '—';
         }
-        const hasData = sa.from || sa.to || sa.category || sa.comparisons;
+        // Check for data using correct field names (comparison_points, not comparisons)
+        const hasData = sa.from || sa.to || sa.category || (sa.comparison_points && sa.comparison_points.length > 0) || sa.comparisons;
         if (!hasData) {
             return '—';
         }
         const parts = [];
+        
+        // Format category
+        const categoryLabels = {
+            'material': 'Material',
+            'finish': 'Finish',
+            'hardware': 'Hardware',
+            'dimensions': 'Dimensions',
+            'construction': 'Construction Method',
+            'packaging': 'Packaging'
+        };
+        if (sa.category) {
+            parts.push(categoryLabels[sa.category] || sa.category.charAt(0).toUpperCase() + sa.category.slice(1));
+        }
+        
+        // Format From → To
         if (sa.from && sa.to) {
             const formatLabel = (str) => {
                 if (!str) return '';
-                return str.split('-').map(word => 
+                const labels = {
+                    'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                    'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                    'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                };
+                return labels[str] || str.split('-').map(word => 
                     word.charAt(0).toUpperCase() + word.slice(1)
                 ).join(' ');
             };
             parts.push(`${formatLabel(sa.from)} → ${formatLabel(sa.to)}`);
-        } else if (sa.category) {
-            parts.push(sa.category.charAt(0).toUpperCase() + sa.category.slice(1));
         }
+        
+        // Format comparison points
+        const comparisonLabels = {
+            'cost-reduction': 'Cost Reduction',
+            'faster-production': 'Faster Production',
+            'better-durability': 'Better Durability',
+            'easier-sourcing': 'Easier Sourcing',
+            'lighter-weight': 'Lighter Weight',
+            'eco-friendly': 'Eco-Friendly'
+        };
+        const comparisonPoints = sa.comparison_points || sa.comparisons || [];
+        if (Array.isArray(comparisonPoints) && comparisonPoints.length > 0) {
+            const formattedComparisons = comparisonPoints.map(cp => comparisonLabels[cp] || cp).join(', ');
+            parts.push(`(${formattedComparisons})`);
+        }
+        
+        // Format impacts
         if (sa.price_impact || sa.lead_time_impact) {
             const impacts = [];
             if (sa.price_impact) {
@@ -306,7 +352,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                 parts.push(impacts.join(' | '));
             }
         }
-        return parts.length > 0 ? parts.join(' | ') : '—';
+        return parts.length > 0 ? parts.join(' · ') : '—';
     };
 
     if (orderedBids.length === 0) {
@@ -317,6 +363,95 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
     if (orderedBids.length === 1) {
         const bid = orderedBids[0];
         const media = renderMedia(bid, true);
+        const [isSmartAltExpanded, setIsSmartAltExpanded] = React.useState(false);
+        const sa = bid.smart_alternatives_suggestion;
+        const hasNote = bid.bid_smart_alternatives_note && bid.bid_smart_alternatives_note.trim();
+        const hasDetails = sa && (sa.category || sa.from || sa.to || (sa.comparison_points && sa.comparison_points.length > 0));
+        const hasSmartAltContent = smartAlternativesEnabled && (hasNote || hasDetails);
+        
+        // Format full details for single bid display
+        const formatFullDetails = () => {
+            if (!hasSmartAltContent) return null;
+            const parts = [];
+            
+            if (sa) {
+                const categoryLabels = {
+                    'material': 'Material',
+                    'finish': 'Finish',
+                    'hardware': 'Hardware',
+                    'dimensions': 'Dimensions',
+                    'construction': 'Construction Method',
+                    'packaging': 'Packaging'
+                };
+                
+                if (sa.category) {
+                    parts.push(`Category: ${categoryLabels[sa.category] || sa.category}`);
+                }
+                
+                if (sa.from && sa.to) {
+                    const formatLabel = (str) => {
+                        if (!str) return '';
+                        const labels = {
+                            'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                            'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                            'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                        };
+                        return labels[str] || str.split('-').map(word => 
+                            word.charAt(0).toUpperCase() + word.slice(1)
+                        ).join(' ');
+                    };
+                    parts.push(`From: ${formatLabel(sa.from)} → To: ${formatLabel(sa.to)}`);
+                }
+                
+                if (sa.comparison_points && sa.comparison_points.length > 0) {
+                    const comparisonLabels = {
+                        'cost-reduction': 'Cost Reduction',
+                        'faster-production': 'Faster Production',
+                        'better-durability': 'Better Durability',
+                        'easier-sourcing': 'Easier Sourcing',
+                        'lighter-weight': 'Lighter Weight',
+                        'eco-friendly': 'Eco-Friendly'
+                    };
+                    const comparisons = sa.comparison_points.map(cp => comparisonLabels[cp] || cp).join(', ');
+                    parts.push(`Comparison Points: ${comparisons}`);
+                }
+                
+                if (sa.price_impact) {
+                    const priceLabels = {
+                        'reduces-10-20': 'Reduces 10-20%',
+                        'reduces-20-30': 'Reduces 20-30%',
+                        'reduces-30-plus': 'Reduces 30%+',
+                        'similar': 'Similar Price',
+                        'increases-10-20': 'Increases 10-20%',
+                        'increases-20-plus': 'Increases 20%+'
+                    };
+                    parts.push(`Price Impact: ${priceLabels[sa.price_impact] || sa.price_impact}`);
+                }
+                
+                if (sa.lead_time_impact) {
+                    const leadTimeLabels = {
+                        'reduces-1-2w': 'Reduces 1-2 weeks',
+                        'reduces-2-4w': 'Reduces 2-4 weeks',
+                        'reduces-4w-plus': 'Reduces 4+ weeks',
+                        'similar': 'Similar Lead Time',
+                        'increases-1-2w': 'Increases 1-2 weeks',
+                        'increases-2w-plus': 'Increases 2+ weeks'
+                    };
+                    parts.push(`Lead Time Impact: ${leadTimeLabels[sa.lead_time_impact] || sa.lead_time_impact}`);
+                }
+            }
+            
+            if (hasNote) {
+                parts.push(`Note: ${bid.bid_smart_alternatives_note}`);
+            }
+            
+            return parts.join('\n');
+        };
+        
+        const fullDetails = formatFullDetails();
+        const previewText = hasNote ? bid.bid_smart_alternatives_note : (sa ? formatSmartAlt(bid) : '');
+        const previewLength = 100;
+        const showPreview = previewText && previewText.length > previewLength && !isSmartAltExpanded;
         
         return (
             <div style={{
@@ -338,7 +473,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     )}
                     
                     <div>
-                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Prototype</div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Prototype/Timeline/Price</div>
                         <div style={{ fontSize: '11px', color: greenAccent }}>{formatPrototype(bid)}</div>
                     </div>
                     
@@ -356,19 +491,65 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         </div>
                     )}
                     
-                    {formatSmartAlt(bid) !== '—' && (
+                    {hasSmartAltContent && (
                         <div>
                             <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Smart Alternatives</div>
-                            <div style={{ fontSize: '11px', color: greenAccent }}>{formatSmartAlt(bid)}</div>
-                        </div>
-                    )}
-                    
-                    {bid.smart_alternatives_note && bid.smart_alternatives_note.trim() && (
-                        <div>
-                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Notes</div>
-                            <div style={{ fontSize: '11px', color: darkText, padding: '6px', backgroundColor: '#0a0a0a', borderRadius: '2px', whiteSpace: 'pre-wrap' }}>
-                                {bid.smart_alternatives_note}
-                            </div>
+                            {isSmartAltExpanded ? (
+                                <div>
+                                    <div style={{ 
+                                        fontSize: '11px', 
+                                        color: darkText,
+                                        whiteSpace: 'pre-wrap',
+                                        lineHeight: '1.4',
+                                        marginBottom: '4px',
+                                        padding: '6px',
+                                        backgroundColor: '#0a0a0a',
+                                        borderRadius: '2px'
+                                    }}>
+                                        {fullDetails}
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsSmartAltExpanded(false);
+                                        }}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: greenAccent,
+                                            cursor: 'pointer',
+                                            fontSize: '10px',
+                                            padding: '2px 0',
+                                            textDecoration: 'underline',
+                                        }}
+                                    >
+                                        Less
+                                    </button>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div style={{ fontSize: '11px', color: greenAccent, marginBottom: '4px' }}>
+                                        {showPreview ? `${previewText.substring(0, previewLength)}...` : previewText}
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsSmartAltExpanded(true);
+                                        }}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: greenAccent,
+                                            cursor: 'pointer',
+                                            fontSize: '10px',
+                                            padding: '2px 0',
+                                            textDecoration: 'underline',
+                                        }}
+                                    >
+                                        More
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -465,7 +646,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         display: 'flex',
                         alignItems: 'center',
                     }}>
-                        Prototype
+                        Prototype/Timeline/Price
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
@@ -553,36 +734,232 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     ))}
                 </div>
 
-                {/* Smart Alternatives Row */}
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
-                    borderBottom: `1px solid ${darkBorder}`,
-                }}>
-                    <div style={{
-                        padding: '6px 10px',
-                        borderRight: `1px solid ${darkBorder}`,
-                        fontSize: '10px',
-                        color: darkText,
-                        backgroundColor: '#0a0a0a',
-                        display: 'flex',
-                        alignItems: 'center',
-                    }}>
-                        Smart Alternatives
-                    </div>
-                    {displayBids.map((bid, idx) => (
-                        <div
-                            key={`smalt-${bid.bid_id}`}
-                            style={{
+                {/* Smart Alternatives Rows - Only show if enabled */}
+                {smartAlternativesEnabled && (
+                    <>
+                        {/* Smart Alt Summary Row */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                            borderBottom: `1px solid ${darkBorder}`,
+                        }}>
+                            <div style={{
                                 padding: '6px 10px',
-                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                borderRight: `1px solid ${darkBorder}`,
                                 fontSize: '10px',
-                            }}
-                        >
-                            <span style={{ color: greenAccent }}>{formatSmartAlt(bid)}</span>
+                                color: darkText,
+                                backgroundColor: '#0a0a0a',
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}>
+                                Smart Alt
+                            </div>
+                            {displayBids.map((bid, idx) => {
+                                const hasSmartAltData = bid.smart_alternatives_suggestion && 
+                                    (bid.smart_alternatives_suggestion.category || 
+                                     bid.smart_alternatives_suggestion.from || 
+                                     bid.smart_alternatives_suggestion.to ||
+                                     (bid.smart_alternatives_suggestion.comparison_points && bid.smart_alternatives_suggestion.comparison_points.length > 0));
+                                return (
+                                    <div
+                                        key={`smalt-${bid.bid_id}`}
+                                        style={{
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                            fontSize: '10px',
+                                        }}
+                                    >
+                                        {hasSmartAltData ? (
+                                            <span style={{ color: greenAccent }}>{formatSmartAlt(bid)}</span>
+                                        ) : (
+                                            <span style={{ color: darkText }}>—</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
-                    ))}
-                </div>
+
+                        {/* Smart Alt Notes Row (Expandable) */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                            borderBottom: `1px solid ${darkBorder}`,
+                        }}>
+                            <div style={{
+                                padding: '6px 10px',
+                                borderRight: `1px solid ${darkBorder}`,
+                                fontSize: '10px',
+                                color: darkText,
+                                backgroundColor: '#0a0a0a',
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}>
+                                Smart Alt Notes
+                            </div>
+                            {displayBids.map((bid, idx) => {
+                                const sa = bid.smart_alternatives_suggestion;
+                                const hasNote = bid.bid_smart_alternatives_note && bid.bid_smart_alternatives_note.trim();
+                                const hasDetails = sa && (sa.category || sa.from || sa.to || (sa.comparison_points && sa.comparison_points.length > 0));
+                                const hasContent = hasNote || hasDetails;
+                                const isExpanded = expandedSmartAltByBidId[bid.bid_id] || false;
+                                
+                                // Format full details for display
+                                const formatFullDetails = () => {
+                                    if (!hasContent) return null;
+                                    const parts = [];
+                                    
+                                    if (sa) {
+                                        const categoryLabels = {
+                                            'material': 'Material',
+                                            'finish': 'Finish',
+                                            'hardware': 'Hardware',
+                                            'dimensions': 'Dimensions',
+                                            'construction': 'Construction Method',
+                                            'packaging': 'Packaging'
+                                        };
+                                        
+                                        if (sa.category) {
+                                            parts.push(`Category: ${categoryLabels[sa.category] || sa.category}`);
+                                        }
+                                        
+                                        if (sa.from && sa.to) {
+                                            const formatLabel = (str) => {
+                                                if (!str) return '';
+                                                const labels = {
+                                                    'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                                    'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                                    'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                                };
+                                                return labels[str] || str.split('-').map(word => 
+                                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                                ).join(' ');
+                                            };
+                                            parts.push(`From: ${formatLabel(sa.from)} → To: ${formatLabel(sa.to)}`);
+                                        }
+                                        
+                                        if (sa.comparison_points && sa.comparison_points.length > 0) {
+                                            const comparisonLabels = {
+                                                'cost-reduction': 'Cost Reduction',
+                                                'faster-production': 'Faster Production',
+                                                'better-durability': 'Better Durability',
+                                                'easier-sourcing': 'Easier Sourcing',
+                                                'lighter-weight': 'Lighter Weight',
+                                                'eco-friendly': 'Eco-Friendly'
+                                            };
+                                            const comparisons = sa.comparison_points.map(cp => comparisonLabels[cp] || cp).join(', ');
+                                            parts.push(`Comparison Points: ${comparisons}`);
+                                        }
+                                        
+                                        if (sa.price_impact) {
+                                            const priceLabels = {
+                                                'reduces-10-20': 'Reduces 10-20%',
+                                                'reduces-20-30': 'Reduces 20-30%',
+                                                'reduces-30-plus': 'Reduces 30%+',
+                                                'similar': 'Similar Price',
+                                                'increases-10-20': 'Increases 10-20%',
+                                                'increases-20-plus': 'Increases 20%+'
+                                            };
+                                            parts.push(`Price Impact: ${priceLabels[sa.price_impact] || sa.price_impact}`);
+                                        }
+                                        
+                                        if (sa.lead_time_impact) {
+                                            const leadTimeLabels = {
+                                                'reduces-1-2w': 'Reduces 1-2 weeks',
+                                                'reduces-2-4w': 'Reduces 2-4 weeks',
+                                                'reduces-4w-plus': 'Reduces 4+ weeks',
+                                                'similar': 'Similar Lead Time',
+                                                'increases-1-2w': 'Increases 1-2 weeks',
+                                                'increases-2w-plus': 'Increases 2+ weeks'
+                                            };
+                                            parts.push(`Lead Time Impact: ${leadTimeLabels[sa.lead_time_impact] || sa.lead_time_impact}`);
+                                        }
+                                    }
+                                    
+                                    if (hasNote) {
+                                        parts.push(`Note: ${bid.bid_smart_alternatives_note}`);
+                                    }
+                                    
+                                    return parts.join('\n');
+                                };
+                                
+                                const fullDetails = formatFullDetails();
+                                const previewText = hasNote ? bid.bid_smart_alternatives_note : (sa ? formatSmartAlt(bid) : '');
+                                const previewLength = 100;
+                                const showPreview = previewText && previewText.length > previewLength && !isExpanded;
+                                
+                                return (
+                                    <div
+                                        key={`smalt-notes-${bid.bid_id}`}
+                                        style={{
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                            fontSize: '10px',
+                                        }}
+                                    >
+                                        {hasContent ? (
+                                            <div>
+                                                {isExpanded ? (
+                                                    <div>
+                                                        <div style={{ 
+                                                            whiteSpace: 'pre-wrap', 
+                                                            color: darkText,
+                                                            lineHeight: '1.4',
+                                                            marginBottom: '4px'
+                                                        }}>
+                                                            {fullDetails}
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleSmartAltExpanded(bid.bid_id);
+                                                            }}
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: greenAccent,
+                                                                cursor: 'pointer',
+                                                                fontSize: '9px',
+                                                                padding: '2px 0',
+                                                                textDecoration: 'underline',
+                                                            }}
+                                                        >
+                                                            Less
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <div style={{ color: darkText, marginBottom: '4px' }}>
+                                                            {showPreview ? `${previewText.substring(0, previewLength)}...` : previewText}
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleSmartAltExpanded(bid.bid_id);
+                                                            }}
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: greenAccent,
+                                                                cursor: 'pointer',
+                                                                fontSize: '9px',
+                                                                padding: '2px 0',
+                                                                textDecoration: 'underline',
+                                                            }}
+                                                        >
+                                                            More
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span style={{ color: darkText }}>—</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
+                )}
 
                 {/* Landed Shipping Costs Row */}
                 <div style={{
@@ -2383,6 +2760,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             darkText={darkText}
                                             darkBg={darkBg}
                                             onImageClick={setLightboxImage}
+                                            smartAlternativesEnabled={smartAlternativesEnabled}
                                         />
                                         
                                         {/* Commit 2.3.6: Concierge + Delivery Banner */}

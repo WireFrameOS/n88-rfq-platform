@@ -1610,57 +1610,104 @@ class N88_RFQ_Auth {
                             
                             // Build Smart Alternatives HTML if present
                             var smartAltHTML = '';
-                            if (bid.smart_alternatives_suggestion && typeof bid.smart_alternatives_suggestion === 'object' && bid.smart_alternatives_suggestion.category) {
-                                var smartAlt = bid.smart_alternatives_suggestion;
-                                var categoryLabels = {
-                                    'material': 'Material',
-                                    'finish': 'Finish',
-                                    'hardware': 'Hardware',
-                                    'dimensions': 'Dimensions',
-                                    'construction': 'Construction Method',
-                                    'packaging': 'Packaging'
-                                };
-                                var fromLabels = {
-                                    'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
-                                    'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
-                                    'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
-                                };
-                                var toLabels = fromLabels;
-                                var comparisonLabels = {
-                                    'cost-reduction': 'Cost Reduction',
-                                    'faster-production': 'Faster Production',
-                                    'better-durability': 'Better Durability',
-                                    'easier-sourcing': 'Easier Sourcing',
-                                    'lighter-weight': 'Lighter Weight',
-                                    'eco-friendly': 'Eco-Friendly'
-                                };
-                                var priceLabels = {
-                                    'reduces-10-20': 'Reduces 10-20%',
-                                    'reduces-20-30': 'Reduces 20-30%',
-                                    'reduces-30-plus': 'Reduces 30%+',
-                                    'similar': 'Similar Price',
-                                    'increases-10-20': 'Increases 10-20%',
-                                    'increases-20-plus': 'Increases 20%+'
-                                };
-                                var leadTimeLabels = {
-                                    'reduces-1-2w': 'Reduces 1-2 weeks',
-                                    'reduces-2-4w': 'Reduces 2-4 weeks',
-                                    'reduces-4w-plus': 'Reduces 4+ weeks',
-                                    'similar': 'Similar Lead Time',
-                                    'increases-1-2w': 'Increases 1-2 weeks',
-                                    'increases-2w-plus': 'Increases 2+ weeks'
-                                };
+                            // Debug: Log bid data to see what we have
+                            console.log('Bid data for Smart Alt check:', {
+                                has_smart_alt: !!bid.smart_alternatives_suggestion,
+                                smart_alt_type: typeof bid.smart_alternatives_suggestion,
+                                smart_alt_value: bid.smart_alternatives_suggestion
+                            });
+                            
+                            // Handle both string and object formats
+                            var smartAltData = bid.smart_alternatives_suggestion;
+                            if (!smartAltData) {
+                                console.log('No smart_alternatives_suggestion in bid data');
+                            } else {
+                                if (typeof smartAltData === 'string') {
+                                    try {
+                                        smartAltData = JSON.parse(smartAltData);
+                                        console.log('Parsed Smart Alt from string:', smartAltData);
+                                    } catch(e) {
+                                        console.error('Failed to parse Smart Alt JSON:', e);
+                                        smartAltData = null;
+                                    }
+                                }
                                 
-                                smartAltHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
-                                    '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Smart Alternative Suggestion:</strong></div>' +
-                                    '<div style="padding-left: 12px; font-size: 13px; color: #fff; line-height: 1.6;">' +
-                                    '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (categoryLabels[smartAlt.category] || smartAlt.category) + '</span></div>' +
-                                    (smartAlt.from && smartAlt.to ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">From:</strong> <span style="color: #fff;">' + (fromLabels[smartAlt.from] || smartAlt.from) + '</span> <strong style="color: #00ff00;">To:</strong> <span style="color: #fff;">' + (toLabels[smartAlt.to] || smartAlt.to) + '</span></div>' : '') +
-                                    (smartAlt.comparison_points && smartAlt.comparison_points.length > 0 ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Comparison Points:</strong> <span style="color: #fff;">' + smartAlt.comparison_points.map(function(cp) { return comparisonLabels[cp] || cp; }).join(', ') + '</span></div>' : '') +
-                                    (smartAlt.price_impact ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Price Impact:</strong> <span style="color: #fff;">' + (priceLabels[smartAlt.price_impact] || smartAlt.price_impact) + '</span></div>' : '') +
-                                    (smartAlt.lead_time_impact ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Lead Time Impact:</strong> <span style="color: #fff;">' + (leadTimeLabels[smartAlt.lead_time_impact] || smartAlt.lead_time_impact) + '</span></div>' : '') +
-                                    '</div>' +
-                                    '</div>';
+                                if (smartAltData && typeof smartAltData === 'object' && smartAltData !== null) {
+                                    console.log('Processing Smart Alt data:', smartAltData);
+                                    // Check if ANY field has data (not just category)
+                                    var hasCategory = smartAltData.category && String(smartAltData.category).trim() !== '';
+                                    var hasFrom = smartAltData.from && String(smartAltData.from).trim() !== '';
+                                    var hasTo = smartAltData.to && String(smartAltData.to).trim() !== '';
+                                    var hasPrice = smartAltData.price_impact && String(smartAltData.price_impact).trim() !== '';
+                                    var hasLeadTime = smartAltData.lead_time_impact && String(smartAltData.lead_time_impact).trim() !== '';
+                                    var hasComparisons = smartAltData.comparison_points && Array.isArray(smartAltData.comparison_points) && smartAltData.comparison_points.length > 0;
+                                    
+                                    console.log('Smart Alt field checks:', {
+                                        hasCategory: hasCategory,
+                                        hasFrom: hasFrom,
+                                        hasTo: hasTo,
+                                        hasPrice: hasPrice,
+                                        hasLeadTime: hasLeadTime,
+                                        hasComparisons: hasComparisons
+                                    });
+                                    
+                                    // Always show if we have any data, even if all checks fail (fallback)
+                                    var shouldShow = hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons || Object.keys(smartAltData).length > 0;
+                                    
+                                    if (shouldShow) {
+                                        console.log('Displaying Smart Alt HTML');
+                                        var smartAlt = smartAltData;
+                                        var categoryLabels = {
+                                            'material': 'Material',
+                                            'finish': 'Finish',
+                                            'hardware': 'Hardware',
+                                            'dimensions': 'Dimensions',
+                                            'construction': 'Construction Method',
+                                            'packaging': 'Packaging'
+                                        };
+                                        var fromLabels = {
+                                            'solid-wood': 'Solid Wood', 'plywood': 'Plywood', 'mdf': 'MDF',
+                                            'metal': 'Metal', 'plastic': 'Plastic', 'glass': 'Glass',
+                                            'fabric': 'Fabric', 'leather': 'Leather', 'other': 'Other'
+                                        };
+                                        var toLabels = fromLabels;
+                                        var comparisonLabels = {
+                                            'cost-reduction': 'Cost Reduction',
+                                            'faster-production': 'Faster Production',
+                                            'better-durability': 'Better Durability',
+                                            'easier-sourcing': 'Easier Sourcing',
+                                            'lighter-weight': 'Lighter Weight',
+                                            'eco-friendly': 'Eco-Friendly'
+                                        };
+                                        var priceLabels = {
+                                            'reduces-10-20': 'Reduces 10-20%',
+                                            'reduces-20-30': 'Reduces 20-30%',
+                                            'reduces-30-plus': 'Reduces 30%+',
+                                            'similar': 'Similar Price',
+                                            'increases-10-20': 'Increases 10-20%',
+                                            'increases-20-plus': 'Increases 20%+'
+                                        };
+                                        var leadTimeLabels = {
+                                            'reduces-1-2w': 'Reduces 1-2 weeks',
+                                            'reduces-2-4w': 'Reduces 2-4 weeks',
+                                            'reduces-4w-plus': 'Reduces 4+ weeks',
+                                            'similar': 'Similar Lead Time',
+                                            'increases-1-2w': 'Increases 1-2 weeks',
+                                            'increases-2w-plus': 'Increases 2+ weeks'
+                                        };
+                                        
+                                        smartAltHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                                            '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Smart Alternative Suggestion:</strong></div>' +
+                                            '<div style="padding-left: 12px; font-size: 13px; color: #fff; line-height: 1.6;">' +
+                                            (hasCategory ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (categoryLabels[smartAlt.category] || smartAlt.category) + '</span></div>' : '') +
+                                            (hasFrom && hasTo ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">From:</strong> <span style="color: #fff;">' + (fromLabels[smartAlt.from] || smartAlt.from) + '</span> <strong style="color: #00ff00;">To:</strong> <span style="color: #fff;">' + (toLabels[smartAlt.to] || smartAlt.to) + '</span></div>' : '') +
+                                            (hasComparisons ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Comparison Points:</strong> <span style="color: #fff;">' + smartAlt.comparison_points.map(function(cp) { return comparisonLabels[cp] || cp; }).join(', ') + '</span></div>' : '') +
+                                            (hasPrice ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Price Impact:</strong> <span style="color: #fff;">' + (priceLabels[smartAlt.price_impact] || smartAlt.price_impact) + '</span></div>' : '') +
+                                            (hasLeadTime ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Lead Time Impact:</strong> <span style="color: #fff;">' + (leadTimeLabels[smartAlt.lead_time_impact] || smartAlt.lead_time_impact) + '</span></div>' : '') +
+                                            '</div>' +
+                                            '</div>';
+                                    }
+                                }
                             }
                             
                             return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
@@ -3296,22 +3343,30 @@ class N88_RFQ_Auth {
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 
-                // Smart Alternatives suggestion (if enabled and filled)
+                // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
-                if (smartAltCategory && smartAltCategory.value) {
-                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
-                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
-                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
-                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
-                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
-                    
+                var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                
+                // Check if ANY Smart Alternatives field has a value
+                var hasCategory = smartAltCategory && smartAltCategory.value;
+                var hasFrom = smartAltFrom && smartAltFrom.value;
+                var hasTo = smartAltTo && smartAltTo.value;
+                var hasPrice = smartAltPrice && smartAltPrice.value;
+                var hasLeadTime = smartAltLeadTime && smartAltLeadTime.value;
+                var hasComparisons = smartAltComparisons && smartAltComparisons.length > 0;
+                
+                if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
                     var smartAltData = {
-                        category: smartAltCategory.value,
-                        from: smartAltFrom ? smartAltFrom.value : '',
-                        to: smartAltTo ? smartAltTo.value : '',
-                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
-                        price_impact: smartAltPrice ? smartAltPrice.value : '',
-                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                        category: hasCategory ? smartAltCategory.value : '',
+                        from: hasFrom ? smartAltFrom.value : '',
+                        to: hasTo ? smartAltTo.value : '',
+                        comparison_points: hasComparisons ? Array.from(smartAltComparisons).map(function(cb) { return cb.value; }) : [],
+                        price_impact: hasPrice ? smartAltPrice.value : '',
+                        lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
                     };
                     formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
                 }
@@ -3452,22 +3507,30 @@ class N88_RFQ_Auth {
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 
-                // Smart Alternatives suggestion (if enabled and filled)
+                // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
-                if (smartAltCategory && smartAltCategory.value) {
-                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
-                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
-                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
-                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
-                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
-                    
+                var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                
+                // Check if ANY Smart Alternatives field has a value
+                var hasCategory = smartAltCategory && smartAltCategory.value;
+                var hasFrom = smartAltFrom && smartAltFrom.value;
+                var hasTo = smartAltTo && smartAltTo.value;
+                var hasPrice = smartAltPrice && smartAltPrice.value;
+                var hasLeadTime = smartAltLeadTime && smartAltLeadTime.value;
+                var hasComparisons = smartAltComparisons && smartAltComparisons.length > 0;
+                
+                if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
                     var smartAltData = {
-                        category: smartAltCategory.value,
-                        from: smartAltFrom ? smartAltFrom.value : '',
-                        to: smartAltTo ? smartAltTo.value : '',
-                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
-                        price_impact: smartAltPrice ? smartAltPrice.value : '',
-                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                        category: hasCategory ? smartAltCategory.value : '',
+                        from: hasFrom ? smartAltFrom.value : '',
+                        to: hasTo ? smartAltTo.value : '',
+                        comparison_points: hasComparisons ? Array.from(smartAltComparisons).map(function(cb) { return cb.value; }) : [],
+                        price_impact: hasPrice ? smartAltPrice.value : '',
+                        lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
                     };
                     formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
                 }
@@ -4004,7 +4067,7 @@ class N88_RFQ_Auth {
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]') ? form.querySelector('select[name="production_lead_time_text"]').value : '');
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]') ? form.querySelector('input[name="unit_price"]').value : '');
                 
-                // Smart Alternatives (if enabled)
+                // Smart Alternatives (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
                 var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
                 var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
@@ -4016,14 +4079,22 @@ class N88_RFQ_Auth {
                     comparisonValues.push(cb.value);
                 });
                 
-                if (smartAltCategory || smartAltFrom || smartAltTo || comparisonValues.length > 0) {
+                // Check if ANY Smart Alternatives field has a value
+                var hasCategory = smartAltCategory && smartAltCategory.value;
+                var hasFrom = smartAltFrom && smartAltFrom.value;
+                var hasTo = smartAltTo && smartAltTo.value;
+                var hasPrice = smartAltPrice && smartAltPrice.value;
+                var hasLeadTime = smartAltLeadTime && smartAltLeadTime.value;
+                var hasComparisons = comparisonValues.length > 0;
+                
+                if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
                     var smartAltData = {
-                        category: smartAltCategory ? smartAltCategory.value : '',
-                        from: smartAltFrom ? smartAltFrom.value : '',
-                        to: smartAltTo ? smartAltTo.value : '',
-                        price_impact: smartAltPrice ? smartAltPrice.value : '',
-                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : '',
-                        comparisons: comparisonValues
+                        category: hasCategory ? smartAltCategory.value : '',
+                        from: hasFrom ? smartAltFrom.value : '',
+                        to: hasTo ? smartAltTo.value : '',
+                        price_impact: hasPrice ? smartAltPrice.value : '',
+                        lead_time_impact: hasLeadTime ? smartAltLeadTime.value : '',
+                        comparison_points: hasComparisons ? comparisonValues : []
                     };
                     formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
                 }
@@ -4259,22 +4330,30 @@ class N88_RFQ_Auth {
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 
-                // Smart Alternatives suggestion (if enabled and filled)
+                // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
-                if (smartAltCategory && smartAltCategory.value) {
-                    var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
-                    var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
-                    var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
-                    var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
-                    var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
-                    
+                var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
+                
+                // Check if ANY Smart Alternatives field has a value
+                var hasCategory = smartAltCategory && smartAltCategory.value;
+                var hasFrom = smartAltFrom && smartAltFrom.value;
+                var hasTo = smartAltTo && smartAltTo.value;
+                var hasPrice = smartAltPrice && smartAltPrice.value;
+                var hasLeadTime = smartAltLeadTime && smartAltLeadTime.value;
+                var hasComparisons = smartAltComparisons && smartAltComparisons.length > 0;
+                
+                if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
                     var smartAltData = {
-                        category: smartAltCategory.value,
-                        from: smartAltFrom ? smartAltFrom.value : '',
-                        to: smartAltTo ? smartAltTo.value : '',
-                        comparison_points: Array.from(smartAltComparisons).map(function(cb) { return cb.value; }),
-                        price_impact: smartAltPrice ? smartAltPrice.value : '',
-                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : ''
+                        category: hasCategory ? smartAltCategory.value : '',
+                        from: hasFrom ? smartAltFrom.value : '',
+                        to: hasTo ? smartAltTo.value : '',
+                        comparison_points: hasComparisons ? Array.from(smartAltComparisons).map(function(cb) { return cb.value; }) : [],
+                        price_impact: hasPrice ? smartAltPrice.value : '',
+                        lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
                     };
                     formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
                 }
@@ -6758,11 +6837,28 @@ class N88_RFQ_Auth {
                     
                     // Get Smart Alternatives suggestion from meta_json if available
                     $smart_alternatives_suggestion = null;
-                    if ( $has_bid_meta_json && ! empty( $existing_bid['meta_json'] ) ) {
-                        $bid_meta = json_decode( $existing_bid['meta_json'], true );
-                        if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
-                            $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                    if ( $has_bid_meta_json ) {
+                        // Debug: Log meta_json status
+                        error_log( 'Bid retrieval - has_bid_meta_json: ' . ( $has_bid_meta_json ? 'true' : 'false' ) . ', meta_json value: ' . ( isset( $existing_bid['meta_json'] ) ? substr( $existing_bid['meta_json'], 0, 200 ) : 'NOT SET' ) );
+                        
+                        if ( ! empty( $existing_bid['meta_json'] ) ) {
+                            $bid_meta = json_decode( $existing_bid['meta_json'], true );
+                            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                                error_log( 'Bid retrieval - JSON decode error: ' . json_last_error_msg() . ', raw: ' . substr( $existing_bid['meta_json'], 0, 200 ) );
+                            } else {
+                                error_log( 'Bid retrieval - Decoded meta_json: ' . print_r( $bid_meta, true ) );
+                                if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                                    $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                                    error_log( 'Bid retrieval - Found smart_alternatives_suggestion: ' . print_r( $smart_alternatives_suggestion, true ) );
+                                } else {
+                                    error_log( 'Bid retrieval - smart_alternatives_suggestion not found in decoded meta. Keys: ' . ( is_array( $bid_meta ) ? implode( ', ', array_keys( $bid_meta ) ) : 'not array' ) );
+                                }
+                            }
+                        } else {
+                            error_log( 'Bid retrieval - meta_json is empty or null' );
                         }
+                    } else {
+                        error_log( 'Bid retrieval - meta_json column does not exist in table' );
                     }
                     
                     $bid_data = array(
@@ -7060,12 +7156,19 @@ class N88_RFQ_Auth {
                     return esc_url_raw( $photo['file_url'] );
                 }, $bid_photos );
 
-                // Get Smart Alternatives suggestion from meta_json if available
+                // Get Smart Alternatives suggestion and note from meta_json if available
                 $smart_alternatives_suggestion = null;
+                $bid_smart_alternatives_note = null;
                 if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) ) {
                     $bid_meta = json_decode( $bid['meta_json'], true );
-                    if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
-                        $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                    if ( is_array( $bid_meta ) ) {
+                        if ( isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                            $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                        }
+                        // Get supplier's note if stored in bid meta_json
+                        if ( isset( $bid_meta['smart_alternatives_note'] ) ) {
+                            $bid_smart_alternatives_note = sanitize_textarea_field( $bid_meta['smart_alternatives_note'] );
+                        }
                     }
                 }
                 
@@ -7089,7 +7192,8 @@ class N88_RFQ_Auth {
                     'photo_urls' => $photo_urls,
                     'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
-                    'smart_alternatives_note' => $smart_alternatives_note,
+                    'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
+                    'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
                     'created_at' => $bid['created_at'],
                 );
             }
@@ -7502,15 +7606,42 @@ class N88_RFQ_Auth {
         $smart_alternatives_suggestion = null;
         if ( isset( $_POST['smart_alternatives_suggestion'] ) && ! empty( $_POST['smart_alternatives_suggestion'] ) ) {
             $smart_alt_json = wp_unslash( $_POST['smart_alternatives_suggestion'] );
+            error_log( 'Bid validation - Received smart_alternatives_suggestion: ' . $smart_alt_json );
             $smart_alt_data = json_decode( $smart_alt_json, true );
-            if ( is_array( $smart_alt_data ) && isset( $smart_alt_data['category'] ) && ! empty( $smart_alt_data['category'] ) ) {
-                // Validate comparison points max 3
-                if ( isset( $smart_alt_data['comparison_points'] ) && is_array( $smart_alt_data['comparison_points'] ) && count( $smart_alt_data['comparison_points'] ) > 3 ) {
-                    $errors['smart_alternatives'] = 'Maximum 3 comparison points allowed.';
+            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                error_log( 'Bid validation - JSON decode error: ' . json_last_error_msg() );
+            } else {
+                error_log( 'Bid validation - Decoded smart_alt_data: ' . print_r( $smart_alt_data, true ) );
+                if ( is_array( $smart_alt_data ) ) {
+                    // Check if ANY field has data (not just category)
+                    $has_data = false;
+                    if ( ! empty( $smart_alt_data['category'] ) ) $has_data = true;
+                    if ( ! empty( $smart_alt_data['from'] ) ) $has_data = true;
+                    if ( ! empty( $smart_alt_data['to'] ) ) $has_data = true;
+                    if ( ! empty( $smart_alt_data['price_impact'] ) ) $has_data = true;
+                    if ( ! empty( $smart_alt_data['lead_time_impact'] ) ) $has_data = true;
+                    if ( ! empty( $smart_alt_data['comparison_points'] ) && is_array( $smart_alt_data['comparison_points'] ) && count( $smart_alt_data['comparison_points'] ) > 0 ) {
+                        $has_data = true;
+                        // Validate comparison points max 3
+                        if ( count( $smart_alt_data['comparison_points'] ) > 3 ) {
+                            $errors['smart_alternatives'] = 'Maximum 3 comparison points allowed.';
+                        }
+                    }
+                    
+                    error_log( 'Bid validation - has_data: ' . ( $has_data ? 'true' : 'false' ) . ', errors: ' . ( empty( $errors['smart_alternatives'] ) ? 'none' : $errors['smart_alternatives'] ) );
+                    
+                    if ( $has_data && empty( $errors['smart_alternatives'] ) ) {
+                        $smart_alternatives_suggestion = $smart_alt_data;
+                        error_log( 'Bid validation - Set smart_alternatives_suggestion: ' . print_r( $smart_alternatives_suggestion, true ) );
+                    } else {
+                        error_log( 'Bid validation - NOT setting smart_alternatives_suggestion (has_data: ' . ( $has_data ? 'true' : 'false' ) . ', has_errors: ' . ( empty( $errors['smart_alternatives'] ) ? 'false' : 'true' ) . ')' );
+                    }
                 } else {
-                    $smart_alternatives_suggestion = $smart_alt_data;
+                    error_log( 'Bid validation - smart_alt_data is not an array' );
                 }
             }
+        } else {
+            error_log( 'Bid validation - smart_alternatives_suggestion not in POST or empty' );
         }
 
         // If validation errors, return them
@@ -7559,12 +7690,41 @@ class N88_RFQ_Auth {
             $meta_json = null;
             if ( $smart_alternatives_suggestion !== null ) {
                 $meta_json = wp_json_encode( array( 'smart_alternatives_suggestion' => $smart_alternatives_suggestion ) );
+                error_log( 'Bid submission - Smart Alt data: ' . print_r( $smart_alternatives_suggestion, true ) );
+                error_log( 'Bid submission - meta_json to save: ' . $meta_json );
+            } else {
+                error_log( 'Bid submission - smart_alternatives_suggestion is null, not saving' );
             }
             
-            // Check if table has meta_json column, if so add it to bid_data
-            $table_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
-            if ( in_array( 'meta_json', $table_columns, true ) ) {
-                $bid_data['meta_json'] = $meta_json;
+            // Check if table has meta_json column, and try to add it if it doesn't
+            $item_bids_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $item_bids_table );
+            $table_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table_safe}" );
+            $has_bid_meta_json = in_array( 'meta_json', $table_columns, true );
+            
+            // If column doesn't exist, try to add it automatically
+            if ( ! $has_bid_meta_json ) {
+                $alter_result = $wpdb->query( "ALTER TABLE {$item_bids_table_safe} ADD COLUMN meta_json LONGTEXT NULL AFTER status" );
+                if ( $alter_result !== false ) {
+                    $has_bid_meta_json = true;
+                    error_log( 'Bid submission - Successfully added meta_json column to bids table' );
+                } else {
+                    error_log( 'Bid submission - Failed to add meta_json column: ' . $wpdb->last_error );
+                }
+            }
+            
+            // Add meta_json to bid_data if column exists
+            if ( $has_bid_meta_json ) {
+                // Only add meta_json if it's not null (to avoid saving NULL)
+                if ( $meta_json !== null ) {
+                    $bid_data['meta_json'] = $meta_json;
+                    error_log( 'Bid submission - meta_json column exists, adding to bid_data: ' . $meta_json );
+                } else {
+                    // Set to empty JSON object instead of NULL
+                    $bid_data['meta_json'] = '{}';
+                    error_log( 'Bid submission - meta_json column exists, but data is null, setting to empty JSON object' );
+                }
+            } else {
+                error_log( 'Bid submission - meta_json column does NOT exist in table and could not be created' );
             }
 
             // Prepare format array based on whether meta_json is included
