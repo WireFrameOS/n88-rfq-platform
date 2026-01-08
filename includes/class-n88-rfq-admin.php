@@ -3629,6 +3629,9 @@ class N88_RFQ_Admin {
             'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
             'nonce_get_item_rfq_state' => wp_create_nonce( 'n88_get_item_rfq_state' ),
             'nonce_submit_rfq' => wp_create_nonce( 'n88_submit_rfq' ),
+            'nonce_submit_supplier_bid' => wp_create_nonce( 'n88_submit_supplier_bid' ),
+            'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
+            'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -4448,6 +4451,54 @@ class N88_RFQ_Admin {
                     
                     // Update message
                     updateSystemInvitesMessage();
+                }
+            };
+            
+            // Supplier Bid Button Management Helper (Commit 2.3.5.5)
+            window.updateSupplierBidButton = function(itemId, state) {
+                // state can be: 'validate', 'validating', 'submit', 'submitting'
+                var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                
+                if (!validateBtn) return;
+                
+                switch(state) {
+                    case 'validate':
+                        // Initial state - show validate button
+                        validateBtn.innerHTML = '[ Validate Bid ]';
+                        validateBtn.disabled = false;
+                        validateBtn.style.cursor = 'pointer';
+                        validateBtn.style.opacity = '1';
+                        if (submitBtn) {
+                            submitBtn.style.display = 'none';
+                        }
+                        break;
+                        
+                    case 'validating':
+                        // During validation
+                        validateBtn.innerHTML = '[ Validating... ]';
+                        validateBtn.disabled = true;
+                        validateBtn.style.cursor = 'not-allowed';
+                        validateBtn.style.opacity = '0.6';
+                        break;
+                        
+                    case 'submit':
+                        // After successful validation - show submit button
+                        validateBtn.innerHTML = '[ Submit Bid ]';
+                        validateBtn.disabled = false;
+                        validateBtn.style.cursor = 'pointer';
+                        validateBtn.style.opacity = '1';
+                        validateBtn.style.backgroundColor = '#00ff00';
+                        validateBtn.style.color = '#000';
+                        break;
+                        
+                    case 'submitting':
+                        // During submission
+                        validateBtn.innerHTML = '[ Submitting... ]';
+                        validateBtn.disabled = true;
+                        validateBtn.style.cursor = 'not-allowed';
+                        validateBtn.style.opacity = '0.6';
+                        break;
                 }
             };
             
@@ -5557,110 +5608,218 @@ class N88_RFQ_Admin {
                     };
                     
                     // Helper to render media (videos + photos)
-                    var renderMedia = function(bid) {
+                    var renderMedia = function(bid, compact) {
+                        if (compact === undefined) compact = false;
                         var videoLinksByProvider = bid.video_links_by_provider || {
                             youtube: [],
                             vimeo: [],
                             loom: [],
                         };
-                        var totalVideos = (videoLinksByProvider.youtube ? videoLinksByProvider.youtube.length : 0) + 
-                                       (videoLinksByProvider.vimeo ? videoLinksByProvider.vimeo.length : 0) + 
-                                       (videoLinksByProvider.loom ? videoLinksByProvider.loom.length : 0);
+                        var allVideos = [
+                            ...(videoLinksByProvider.youtube || []).slice(0, 3).map(function(u) { return { provider: 'YouTube', url: u }; }),
+                            ...(videoLinksByProvider.vimeo || []).slice(0, 3).map(function(u) { return { provider: 'Vimeo', url: u }; }),
+                            ...(videoLinksByProvider.loom || []).slice(0, 3).map(function(u) { return { provider: 'Loom', url: u }; }),
+                        ].slice(0, 3);
                         var photos = bid.photo_urls || [];
-                        var hasMedia = totalVideos > 0 || photos.length > 0;
+                        var hasMedia = allVideos.length > 0 || photos.length > 0;
                         
                         if (!hasMedia) {
-                            return React.createElement('div', {
-                                style: { fontSize: '11px', color: darkText }
-                            }, 'No media');
+                            return null;
                         }
                         
                         return React.createElement('div', {
-                            style: { display: 'flex', flexDirection: 'column', gap: '8px' }
+                            style: { display: 'flex', flexDirection: 'column', gap: compact ? '2px' : '4px' }
                         },
-                            // Videos (0-3)
-                            totalVideos > 0 ? React.createElement('div', null,
-                                React.createElement('div', {
-                                    style: { fontSize: '10px', color: darkText, marginBottom: '4px' }
-                                }, 'Videos (' + totalVideos + ')'),
-                                React.createElement('div', {
-                                    style: { display: 'flex', flexDirection: 'column', gap: '2px' }
-                                },
-                                    videoLinksByProvider.youtube ? videoLinksByProvider.youtube.map(function(url, idx) {
-                                        return React.createElement('a', {
-                                            key: 'yt-' + idx,
-                                            href: url,
-                                            target: '_blank',
-                                            rel: 'noopener noreferrer',
-                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
-                                            onClick: function(e) { e.stopPropagation(); }
-                                        }, 'YouTube ' + (idx + 1));
-                                    }) : null,
-                                    videoLinksByProvider.vimeo ? videoLinksByProvider.vimeo.map(function(url, idx) {
-                                        return React.createElement('a', {
-                                            key: 'vm-' + idx,
-                                            href: url,
-                                            target: '_blank',
-                                            rel: 'noopener noreferrer',
-                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
-                                            onClick: function(e) { e.stopPropagation(); }
-                                        }, 'Vimeo ' + (idx + 1));
-                                    }) : null,
-                                    videoLinksByProvider.loom ? videoLinksByProvider.loom.map(function(url, idx) {
-                                        return React.createElement('a', {
-                                            key: 'lm-' + idx,
-                                            href: url,
-                                            target: '_blank',
-                                            rel: 'noopener noreferrer',
-                                            style: { fontSize: '10px', color: greenAccent, textDecoration: 'none' },
-                                            onClick: function(e) { e.stopPropagation(); }
-                                        }, 'Loom ' + (idx + 1));
-                                    }) : null
-                                )
+                            allVideos.length > 0 ? React.createElement('div', {
+                                style: { display: 'flex', flexDirection: 'column', gap: '2px' }
+                            },
+                                allVideos.map(function(video, idx) {
+                                    return React.createElement('a', {
+                                        key: 'video-' + idx,
+                                        href: video.url,
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        style: { fontSize: compact ? '10px' : '11px', color: greenAccent, textDecoration: 'none' },
+                                        onClick: function(e) { e.stopPropagation(); }
+                                    }, '[' + video.provider + ' ►]');
+                                })
                             ) : null,
-                            // Photos (if present)
-                            photos.length > 0 ? React.createElement('div', null,
-                                React.createElement('div', {
-                                    style: { fontSize: '10px', color: darkText, marginBottom: '4px' }
-                                }, 'Photos (' + photos.length + ')'),
-                                React.createElement('div', {
-                                    style: { display: 'flex', flexWrap: 'wrap', gap: '4px' }
-                                },
-                                    photos.slice(0, 3).map(function(url, idx) {
-                                        return React.createElement('img', {
-                                            key: 'photo-' + idx,
-                                            src: url,
-                                            alt: '',
-                                            onClick: function(e) {
-                                                e.stopPropagation();
-                                                if (onImageClick) {
-                                                    onImageClick(url);
-                                                } else {
-                                                    window.open(url, '_blank');
-                                                }
-                                            },
-                                            style: {
-                                                width: '40px',
-                                                height: '40px',
-                                                objectFit: 'cover',
-                                                cursor: 'pointer',
-                                                border: '1px solid ' + darkBorder,
-                                                borderRadius: '2px',
+                            photos.length > 0 ? React.createElement('div', {
+                                style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: allVideos.length > 0 ? '2px' : '0' }
+                            },
+                                photos.slice(0, 3).map(function(url, idx) {
+                                    return React.createElement('img', {
+                                        key: 'photo-' + idx,
+                                        src: url,
+                                        alt: '',
+                                        onClick: function(e) {
+                                            e.stopPropagation();
+                                            if (onImageClick) {
+                                                onImageClick(url);
+                                            } else {
+                                                window.open(url, '_blank');
                                             }
-                                        });
-                                    })
-                                )
+                                        },
+                                        style: {
+                                            width: compact ? '28px' : '32px',
+                                            height: compact ? '28px' : '32px',
+                                            objectFit: 'cover',
+                                            cursor: 'pointer',
+                                            border: '1px solid ' + darkBorder,
+                                            borderRadius: '2px',
+                                        }
+                                    });
+                                })
                             ) : null
                         );
+                    };
+                    
+                    // Helper to format prototype
+                    var formatPrototype = function(bid) {
+                        var parts = [];
+                        if (bid.prototype_commitment) {
+                            parts.push('YES');
+                        } else {
+                            parts.push('NO');
+                        }
+                        if (bid.prototype_timeline) {
+                            parts.push(bid.prototype_timeline);
+                        }
+                        if (bid.prototype_cost !== null) {
+                            parts.push('$' + bid.prototype_cost);
+                        }
+                        return parts.length > 0 ? parts.join(' · ') : '—';
+                    };
+                    
+                    // Helper to format Smart Alternatives
+                    var formatSmartAlt = function(bid) {
+                        var sa = bid.smart_alternatives_suggestion;
+                        if (!sa || typeof sa !== 'object') {
+                            return '—';
+                        }
+                        var hasData = sa.from || sa.to || sa.category || sa.comparisons;
+                        if (!hasData) {
+                            return '—';
+                        }
+                        var parts = [];
+                        if (sa.from && sa.to) {
+                            var formatLabel = function(str) {
+                                if (!str) return '';
+                                return str.split('-').map(function(word) {
+                                    return word.charAt(0).toUpperCase() + word.slice(1);
+                                }).join(' ');
+                            };
+                            parts.push(formatLabel(sa.from) + ' → ' + formatLabel(sa.to));
+                        } else if (sa.category) {
+                            parts.push(sa.category.charAt(0).toUpperCase() + sa.category.slice(1));
+                        }
+                        if (sa.price_impact || sa.lead_time_impact) {
+                            var impacts = [];
+                            if (sa.price_impact) {
+                                if (sa.price_impact.indexOf('reduces') !== -1) {
+                                    impacts.push('-' + sa.price_impact.replace('reduces-', '').replace('-', '-') + '% price');
+                                } else if (sa.price_impact.indexOf('increases') !== -1) {
+                                    impacts.push('+' + sa.price_impact.replace('increases-', '').replace('-', '-') + '% price');
+                                } else if (sa.price_impact === 'similar') {
+                                    impacts.push('same price');
+                                }
+                            }
+                            if (sa.lead_time_impact) {
+                                if (sa.lead_time_impact.indexOf('reduces') !== -1) {
+                                    impacts.push('-' + sa.lead_time_impact.replace('reduces-', '') + ' LT');
+                                } else if (sa.lead_time_impact.indexOf('increases') !== -1) {
+                                    impacts.push('+' + sa.lead_time_impact.replace('increases-', '') + ' LT');
+                                } else if (sa.lead_time_impact === 'similar') {
+                                    impacts.push('same LT');
+                                }
+                            }
+                            if (impacts.length > 0) {
+                                parts.push(impacts.join(' | '));
+                            }
+                        }
+                        return parts.length > 0 ? parts.join(' | ') : '—';
                     };
                     
                     if (orderedBids.length === 0) {
                         return null;
                     }
                     
+                    // Single bid: Show compact detail box
+                    if (orderedBids.length === 1) {
+                        var bid = orderedBids[0];
+                        var media = renderMedia(bid, true);
+                        
+                        return React.createElement('div', {
+                            style: {
+                                border: '1px solid ' + darkBorder,
+                                borderRadius: '4px',
+                                backgroundColor: '#111111',
+                                padding: '12px',
+                            }
+                        },
+                            React.createElement('div', {
+                                style: { fontSize: '13px', fontWeight: '600', marginBottom: '10px', color: darkText }
+                            }, 'Supplier A'),
+                            React.createElement('div', {
+                                style: { display: 'flex', flexDirection: 'column', gap: '8px' }
+                            },
+                                media ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '4px', opacity: 0.7 }
+                                    }, 'Media'),
+                                    media
+                                ) : null,
+                                React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Prototype'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: greenAccent }
+                                    }, formatPrototype(bid))
+                                ),
+                                bid.production_lead_time ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Production Lead Time'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: greenAccent }
+                                    }, bid.production_lead_time)
+                                ) : null,
+                                bid.unit_price !== null ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Unit Price'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: greenAccent }
+                                    }, '$' + bid.unit_price)
+                                ) : null,
+                                formatSmartAlt(bid) !== '—' ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Smart Alternatives'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: greenAccent }
+                                    }, formatSmartAlt(bid))
+                                ) : null,
+                                bid.smart_alternatives_note && bid.smart_alternatives_note.trim() ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Notes'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: darkText, padding: '6px', backgroundColor: '#0a0a0a', borderRadius: '2px', whiteSpace: 'pre-wrap' }
+                                    }, bid.smart_alternatives_note)
+                                ) : null
+                            )
+                        );
+                    }
+                    
+                    // Multiple bids: Show comparison table with 3 columns max
+                    var maxBids = Math.min(orderedBids.length, 3);
+                    var displayBids = orderedBids.slice(0, maxBids);
+                    var labelWidth = '140px';
+                    
                     return React.createElement('div', {
                         style: {
-                            marginTop: '16px',
                             border: '1px solid ' + darkBorder,
                             borderRadius: '4px',
                             overflow: 'hidden',
@@ -5671,122 +5830,123 @@ class N88_RFQ_Admin {
                         React.createElement('div', {
                             style: {
                                 display: 'grid',
-                                gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                 borderBottom: '1px solid ' + darkBorder,
                                 backgroundColor: '#0a0a0a',
                             }
                         },
-                            orderedBids.map(function(bid, idx) {
+                            React.createElement('div', {
+                                style: {
+                                    padding: '6px 10px',
+                                    borderRight: '1px solid ' + darkBorder,
+                                    fontSize: '10px',
+                                    color: darkText,
+                                }
+                            }),
+                            displayBids.map(function(bid, idx) {
                                 return React.createElement('div', {
                                     key: bid.bid_id,
                                     style: {
-                                        padding: '12px',
+                                        padding: '6px 10px',
                                         textAlign: 'center',
-                                        borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                        fontSize: '14px',
+                                        borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                        fontSize: '11px',
                                         fontWeight: '600',
                                     }
                                 }, 'Supplier ' + getSupplierLabel(idx));
                             })
                         ),
-                        // Table Body - Rows
+                        // Table Body
                         React.createElement('div', null,
-                            // Row: Media
+                            // Media Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                     borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
-                                orderedBids.map(function(bid, idx) {
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Media'),
+                                displayBids.map(function(bid, idx) {
+                                    var media = renderMedia(bid, true);
                                     return React.createElement('div', {
                                         key: 'media-' + bid.bid_id,
                                         style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
                                         }
-                                    }, renderMedia(bid));
+                                    }, media || React.createElement('span', { style: { color: darkText } }, '—'));
                                 })
                             ),
-                            // Row: Prototype
+                            // Prototype Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                     borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
-                                orderedBids.map(function(bid, idx) {
-                                return React.createElement('div', {
-                                    key: 'prototype-' + bid.bid_id,
+                                React.createElement('div', {
                                     style: {
-                                        padding: '12px',
-                                        borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                        fontSize: '11px',
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
                                     }
-                                },
-                                    React.createElement('div', {
-                                        style: { marginBottom: '4px' }
-                                    },
-                                        React.createElement('span', { style: { color: darkText } }, 'Commitment: '),
-                                        React.createElement('span', {
-                                            style: { color: bid.prototype_commitment ? greenAccent : '#999' }
-                                        }, bid.prototype_commitment ? 'YES' : 'NO')
-                                    ),
-                                    bid.prototype_timeline ? React.createElement('div', {
-                                        style: { marginBottom: '4px' }
-                                    },
-                                        React.createElement('span', { style: { color: darkText } }, 'Timeline: '),
-                                        React.createElement('span', { style: { color: greenAccent } }, bid.prototype_timeline)
-                                    ) : null,
-                                    bid.prototype_cost !== null ? React.createElement('div', null,
-                                        React.createElement('span', { style: { color: darkText } }, 'Cost: '),
-                                        React.createElement('span', { style: { color: greenAccent } }, '$' + bid.prototype_cost)
-                                    ) : null
-                                );
-                            })
-                            ),
-                            // Row: CAD Flag
-                            React.createElement('div', {
-                                style: {
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
-                                    borderBottom: '1px solid ' + darkBorder,
-                                }
-                            },
-                                orderedBids.map(function(bid, idx) {
+                                }, 'Prototype'),
+                                displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
-                                        key: 'cad-' + bid.bid_id,
+                                        key: 'prototype-' + bid.bid_id,
                                         style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
-                                            textAlign: 'center',
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
                                         }
                                     },
-                                        React.createElement('span', {
-                                            style: { color: bid.cad_yes ? greenAccent : '#999' }
-                                        }, bid.cad_yes ? 'Yes' : 'No')
+                                        React.createElement('span', { style: { color: greenAccent } }, formatPrototype(bid))
                                     );
                                 })
                             ),
-                            // Row: Production Lead Time
+                            // Production Lead Time Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                     borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
-                                orderedBids.map(function(bid, idx) {
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Prod LT'),
+                                displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
                                         key: 'leadtime-' + bid.bid_id,
                                         style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
                                             textAlign: 'center',
                                         }
                                     },
@@ -5798,21 +5958,32 @@ class N88_RFQ_Admin {
                                     );
                                 })
                             ),
-                            // Row: Unit Price
+                            // Unit Price Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                     borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
-                                orderedBids.map(function(bid, idx) {
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Unit Price'),
+                                displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
                                         key: 'price-' + bid.bid_id,
                                         style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
                                             textAlign: 'center',
                                         }
                                     },
@@ -5824,45 +5995,35 @@ class N88_RFQ_Admin {
                                     );
                                 })
                             ),
-                            // Row: Landed Cost (Placeholder)
+                            // Smart Alternatives Row
                             React.createElement('div', {
                                 style: {
                                     display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
-                                    borderBottom: '1px solid ' + darkBorder,
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
                                 }
                             },
-                                orderedBids.map(function(bid, idx) {
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Smart Alt'),
+                                displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
-                                        key: 'landed-' + bid.bid_id,
+                                        key: 'smalt-' + bid.bid_id,
                                         style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
-                                            textAlign: 'center',
-                                            color: darkText,
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
                                         }
-                                    }, 'coming soon');
-                                })
-                            ),
-                            // Row: Shipping (Placeholder)
-                            React.createElement('div', {
-                                style: {
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(' + orderedBids.length + ', 1fr)',
-                                }
-                            },
-                                orderedBids.map(function(bid, idx) {
-                                    return React.createElement('div', {
-                                        key: 'shipping-' + bid.bid_id,
-                                        style: {
-                                            padding: '12px',
-                                            borderRight: idx < orderedBids.length - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                            fontSize: '11px',
-                                            textAlign: 'center',
-                                            color: darkText,
-                                        }
-                                    }, 'coordinated when you proceed');
+                                    },
+                                        React.createElement('span', { style: { color: greenAccent } }, formatSmartAlt(bid))
+                                    );
                                 })
                             )
                         )
@@ -6673,7 +6834,16 @@ class N88_RFQ_Admin {
                                 
                                 alert(data.data.message || 'RFQ submitted successfully!');
                                 setShowRfqForm(false);
-                                // Refresh item state to update to State B
+                                // Optimistically update state to State B immediately
+                                setItemState(function(prev) {
+                                    return {
+                                        has_rfq: true,
+                                        has_bids: false,
+                                        bids: [],
+                                        loading: false,
+                                    };
+                                });
+                                // Then refresh from server to get actual state
                                 fetchItemState();
                             } else {
                                 if (data.data && data.data.errors) {
@@ -7164,6 +7334,27 @@ class N88_RFQ_Admin {
                                     }
                                 }, '×')
                             ),
+                            // RFQ Sent Status Indicator (State B Only)
+                            currentState === 'B' ? React.createElement('div', {
+                                style: {
+                                    marginBottom: '24px',
+                                    padding: '12px 16px',
+                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
+                                    border: '1px solid rgba(0, 128, 0, 0.2)',
+                                    borderRadius: '4px',
+                                    textAlign: 'center',
+                                    opacity: 0.7,
+                                }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        color: 'rgb(0, 255, 0)',
+                                        fontFamily: 'monospace',
+                                    }
+                                }, 'RFQ request sent — waiting to hear back')
+                            ) : null,
                             // Main Image on Top - before heading (State A and B)
                             (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
                                 style: { marginBottom: '24px' }
@@ -9062,6 +9253,11 @@ class N88_RFQ_Admin {
 
         wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
             'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+            'nonce_get_item_rfq_state' => wp_create_nonce( 'n88_get_item_rfq_state' ),
+            'nonce_submit_rfq' => wp_create_nonce( 'n88_submit_rfq' ),
+            'nonce_submit_supplier_bid' => wp_create_nonce( 'n88_submit_supplier_bid' ),
+            'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
+            'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
         ) );
         ?>
         <div class="wrap">

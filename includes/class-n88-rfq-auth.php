@@ -53,6 +53,10 @@ class N88_RFQ_Auth {
         // Commit 2.3.5: Withdraw bid (optional)
         add_action( 'wp_ajax_n88_withdraw_supplier_bid', array( $this, 'ajax_withdraw_supplier_bid' ) );
         
+        // Commit 2.3.6: Save bid draft
+        add_action( 'wp_ajax_n88_save_bid_draft', array( $this, 'ajax_save_bid_draft' ) );
+        add_action( 'wp_ajax_n88_get_bid_draft', array( $this, 'ajax_get_bid_draft' ) );
+        
         // Commit 2.3.4: RFQ submission routing
         add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
 
@@ -1766,16 +1770,38 @@ class N88_RFQ_Auth {
                 formData.append('item_id', itemId);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
                 
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
+                // Add timeout to prevent hanging
+                var timeoutPromise = new Promise(function(resolve, reject) {
+                    setTimeout(function() {
+                        reject(new Error('Request timeout'));
+                    }, 30000); // 30 second timeout
+                });
+                
+                Promise.race([
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin'
+                    }),
+                    timeoutPromise
+                ])
                 .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP error! status: ' + response.status);
+                    }
+                    // Check if response is JSON
+                    var contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        // If not JSON, try to get text to see what we got
+                        return response.text().then(function(text) {
+                            throw new Error('Response is not JSON. Got: ' + text.substring(0, 100));
+                        });
+                    }
                     return response.json();
                 })
                 .then(function(data) {
-                    if (!data.success) {
-                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details.</div>';
+                    if (!data || !data.success) {
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details: ' + (data && data.data && data.data.message ? data.data.message : 'Unknown error') + '</div>';
                         return;
                     }
                     
@@ -1783,14 +1809,22 @@ class N88_RFQ_Auth {
                     var bidFormHTML = buildEmbeddedBidFormHTML(item, itemId);
                     container.innerHTML = bidFormHTML;
                     
-                    // Initialize form validation
+                    // Initialize form validation first
                     setTimeout(function() {
                         validateBidFormEmbedded(itemId);
                     }, 100);
+                    
+                    // Load draft if available (non-blocking, won't break form if it fails)
+                    loadBidDraft(itemId);
                 })
                 .catch(function(error) {
                     console.error('Error loading bid form:', error);
-                    container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Network error. Please try again.</div>';
+                    // Check if error is due to JSON parsing (504 timeout returns HTML)
+                    if (error.message && error.message.includes('JSON')) {
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Server timeout. Please refresh and try again.</div>';
+                    } else {
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Network error. Please try again.</div>';
+                    }
                 });
             }
             
@@ -1989,23 +2023,16 @@ class N88_RFQ_Auth {
                     '<div id="n88-unit-price-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                             '</div>' +
                     
-                    // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.4: Remove "(Optional)" label, show as "SMART ALTERNATIVE (DFM)"
-                    ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
+                    // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.5: Remove designer notes from Smart Alternatives (they belong in Item Context)
+                    ((item.smart_alternatives_enabled) ? 
                     '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
-                    // C1: Display designer's Smart Alternatives setting + note (read-only)
+                    // C1: Display designer's Smart Alternatives setting (read-only) - NO designer notes here
                     '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
                     '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
                     '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
                         '</div>' +
                     (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
-                            (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                        '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #00ff00;">' +
-                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 4px;"><strong>Designer Note:</strong></div>' +
-                        '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 11px; font-family: monospace;">' + (item.smart_alternatives_note || '—') + '</div>' +
-                                '</div>' : 
-                        (item.smart_alternatives_enabled ? '<div style="margin-top: 8px; color: #666; font-style: italic; font-size: 10px; font-family: monospace;">No note provided</div>' : '')
-                            ) +
                         '</div>' +
                     // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
                     (item.smart_alternatives_enabled ? 
@@ -2106,7 +2133,7 @@ class N88_RFQ_Auth {
                     '<div style="padding: 20px 0; border-top: 1px solid #00ff00; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
                     '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
                     // Commit 2.3.5.4: Buttons row - Validate, Cancel, Save for later
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Validate ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
                     '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                     '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                         '</div>' +
@@ -2435,23 +2462,16 @@ class N88_RFQ_Auth {
                         '<div id="n88-unit-price-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
-                        // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.4: Remove "(Optional)" label
-                        ((item.smart_alternatives_enabled || (item.smart_alternatives_note && item.smart_alternatives_note.trim())) ? 
+                        // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.5: Remove designer notes from Smart Alternatives (they belong in Item Context)
+                        ((item.smart_alternatives_enabled) ? 
                         '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
-                        // C1: Display designer's Smart Alternatives setting + note (read-only)
+                        // C1: Display designer's Smart Alternatives setting (read-only) - NO designer notes here
                         '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
                         '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
                         '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
                         '</div>' +
                         (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
-                        (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                            '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #00ff00;">' +
-                            '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 4px;"><strong>Designer Note:</strong></div>' +
-                            '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 11px; font-family: monospace;">' + (item.smart_alternatives_note || '—') + '</div>' +
-                            '</div>' : 
-                            (item.smart_alternatives_enabled ? '<div style="margin-top: 8px; color: #666; font-style: italic; font-size: 10px; font-family: monospace;">No note provided</div>' : '')
-                        ) +
                         '</div>' +
                         // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
                         (item.smart_alternatives_enabled ? 
@@ -2556,13 +2576,11 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Rules:</div>' +
                         '<div style="font-size: 10px; color: #fff; font-family: monospace;">Rules: No emails / phones / URLs / contact text. No uploads. No links here.</div>' +
                         '</div>' +
-                        '<div style="display: flex; gap: 12px; align-items: center;">' +
+                        '<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">' +
                         '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
                         '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                        '<div id="n88-validate-status" style="font-size: 10px; color: #666; font-family: monospace; display: none;">(disabled until required fields complete)</div>' +
-                        '<div id="n88-after-validation" style="display: none; font-size: 10px; color: #00ff00; font-family: monospace; margin-left: 8px;">After validation success → show:</div>' +
                         '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
-                        '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace; margin-left: 8px;">[ Cancel ]</button>' +
+                        '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                         '</div>' +
                         '</div>';
                     
@@ -2573,16 +2591,22 @@ class N88_RFQ_Auth {
                         validateBidForm();
                     }, 100);
                     
-                    // Reset button states (Commit 2.3.5)
+                    // Commit 2.3.5.5: Reset button states - Validate button visible, Submit button hidden
                     setTimeout(function() {
                         var validateBtn = document.getElementById('n88-validate-bid-btn');
                         var submitBtn = document.getElementById('n88-submit-bid-btn');
                         if (validateBtn) {
                             validateBtn.style.display = 'inline-block';
+                            validateBtn.disabled = true;
+                            validateBtn.style.opacity = '0.5';
                         }
                         if (submitBtn) {
                             submitBtn.style.display = 'none';
                             submitBtn.disabled = true;
+                        }
+                        // Run validation to enable/disable validate button
+                        if (typeof validateBidForm === 'function') {
+                            validateBidForm();
                         }
                     }, 150);
                 })
@@ -2934,9 +2958,13 @@ class N88_RFQ_Auth {
                 if (!form) return false;
                 
                 var isValid = true;
-                var submitBtn = isEmbedded ? 
+                // Commit 2.3.5.5: Get the correct button - Validate button for enabling/disabling, Submit button for after validation
+                var validateBtn = isEmbedded ? 
                     document.getElementById('n88-validate-bid-btn-embedded-' + itemId) : 
                     document.getElementById('n88-validate-bid-btn');
+                var submitBtn = isEmbedded ? 
+                    document.getElementById('n88-submit-bid-btn-embedded-' + itemId) : 
+                    document.getElementById('n88-submit-bid-btn');
                 
                 // 1. Video links: optional, max 3, all valid (Commit 2.3.5.1: Remove mandatory requirement)
                 var videoLinks = form.querySelectorAll('.n88-video-link-input');
@@ -3168,18 +3196,16 @@ class N88_RFQ_Auth {
                     }
                 }
                 
-                // Enable/disable submit button
-                if (submitBtn) {
+                // Commit 2.3.5.5: Enable/disable Validate button based on form validity
+                if (validateBtn) {
                     if (isValid) {
-                        submitBtn.disabled = false;
-                        submitBtn.style.backgroundColor = '#0073aa';
-                        submitBtn.style.color = '#fff';
-                        submitBtn.style.cursor = 'pointer';
+                        validateBtn.disabled = false;
+                        validateBtn.style.opacity = '1';
+                        validateBtn.style.cursor = 'pointer';
                     } else {
-                        submitBtn.disabled = true;
-                        submitBtn.style.backgroundColor = '#ccc';
-                        submitBtn.style.color = '#666';
-                        submitBtn.style.cursor = 'not-allowed';
+                        validateBtn.disabled = true;
+                        validateBtn.style.opacity = '0.5';
+                        validateBtn.style.cursor = 'not-allowed';
                     }
                 }
                 
@@ -3921,10 +3947,123 @@ class N88_RFQ_Auth {
                 return true;
             }
             
-            // Commit 2.3.5.4: Save bid draft function (stub - to be implemented)
+            // Save bid draft function - stores draft in user meta
             function saveBidDraftEmbedded(itemId) {
-                // TODO: Implement save draft functionality
-                alert('Save draft functionality will be implemented in a future commit.');
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    alert('Bid form not found.');
+                    return;
+                }
+                
+                // Collect form data
+                var formData = new FormData();
+                formData.append('action', 'n88_save_bid_draft');
+                formData.append('item_id', itemId);
+                
+                // Video links
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var videoLinksArray = [];
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (url) {
+                        videoLinksArray.push(url);
+                    }
+                });
+                formData.append('video_links', JSON.stringify(videoLinksArray));
+                
+                // Bid photos (photo IDs)
+                var bidPhotoIds = [];
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotoIds.push(photoId);
+                    }
+                });
+                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
+                
+                // Other fields
+                var prototypeVideoYes = form.querySelector('input[name="prototype_video_yes"]:checked');
+                formData.append('prototype_video_yes', prototypeVideoYes ? prototypeVideoYes.value : '');
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]') ? form.querySelector('input[name="prototype_cost"]').value : '');
+                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]') ? form.querySelector('select[name="production_lead_time_text"]').value : '');
+                formData.append('unit_price', form.querySelector('input[name="unit_price"]') ? form.querySelector('input[name="unit_price"]').value : '');
+                
+                // Smart Alternatives (if enabled)
+                var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
+                var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
+                var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
+                var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
+                var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                var smartAltComparisons = form.querySelectorAll('.n88-smart-alt-checkbox:checked');
+                var comparisonValues = [];
+                smartAltComparisons.forEach(function(cb) {
+                    comparisonValues.push(cb.value);
+                });
+                
+                if (smartAltCategory || smartAltFrom || smartAltTo || comparisonValues.length > 0) {
+                    var smartAltData = {
+                        category: smartAltCategory ? smartAltCategory.value : '',
+                        from: smartAltFrom ? smartAltFrom.value : '',
+                        to: smartAltTo ? smartAltTo.value : '',
+                        price_impact: smartAltPrice ? smartAltPrice.value : '',
+                        lead_time_impact: smartAltLeadTime ? smartAltLeadTime.value : '',
+                        comparisons: comparisonValues
+                    };
+                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                }
+                
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_save_bid_draft' ); ?>');
+                
+                // Show saving indicator
+                var saveBtn = form.querySelector('button[onclick*="saveBidDraftEmbedded"]');
+                var originalText = saveBtn ? saveBtn.textContent : '';
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving...';
+                }
+                
+                // Save draft via AJAX
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = originalText;
+                    }
+                    
+                    if (data.success) {
+                        // Show success message
+                        var successMsg = document.createElement('div');
+                        successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        successMsg.textContent = '✓ Draft saved successfully';
+                        document.body.appendChild(successMsg);
+                        
+                        // Remove message after 3 seconds
+                        setTimeout(function() {
+                            if (successMsg.parentNode) {
+                                successMsg.parentNode.removeChild(successMsg);
+                            }
+                        }, 3000);
+                    } else {
+                        alert('Failed to save draft: ' + (data.data && data.data.message ? data.data.message : 'Unknown error'));
+                    }
+                })
+                .catch(function(error) {
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = originalText;
+                    }
+                    console.error('Error saving draft:', error);
+                    alert('Error saving draft. Please try again.');
+                });
             }
             
             function validateAndSubmitBidEmbedded(event, itemId) {
@@ -4190,6 +4329,157 @@ class N88_RFQ_Auth {
                 return false;
             }
             
+            // Load bid draft from user meta
+            function loadBidDraft(itemId) {
+                // Wait a bit to ensure form is fully rendered
+                setTimeout(function() {
+                    var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                    if (!form) {
+                        console.log('Form not found, skipping draft load');
+                        return;
+                    }
+                    
+                    var formData = new FormData();
+                    formData.append('action', 'n88_get_bid_draft');
+                    formData.append('item_id', itemId);
+                    formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_bid_draft' ); ?>');
+                    
+                    // Add timeout to prevent hanging
+                    var timeoutPromise = new Promise(function(resolve, reject) {
+                        setTimeout(function() {
+                            reject(new Error('Request timeout'));
+                        }, 10000); // 10 second timeout
+                    });
+                    
+                    Promise.race([
+                        fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        }),
+                        timeoutPromise
+                    ])
+                    .then(function(response) {
+                        if (!response.ok) {
+                            throw new Error('HTTP error! status: ' + response.status);
+                        }
+                        // Check if response is JSON
+                        var contentType = response.headers.get('content-type');
+                        if (!contentType || !contentType.includes('application/json')) {
+                            throw new Error('Response is not JSON');
+                        }
+                        return response.json();
+                    })
+                    .then(function(data) {
+                    if (data.success && data.data && data.data.draft) {
+                        var draft = data.data.draft;
+                        var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                        if (!form) return;
+                        
+                        // Restore video links
+                        if (draft.video_links && draft.video_links.length > 0) {
+                            draft.video_links.forEach(function(url, index) {
+                                if (index === 0) {
+                                    var firstInput = form.querySelector('.n88-video-link-input-embedded');
+                                    if (firstInput) {
+                                        firstInput.value = url;
+                                    }
+                                } else {
+                                    addVideoLinkEmbedded(itemId);
+                                    var inputs = form.querySelectorAll('.n88-video-link-input-embedded');
+                                    if (inputs[index]) {
+                                        inputs[index].value = url;
+                                    }
+                                }
+                            });
+                        }
+                        
+                        // Restore form fields
+                        if (draft.prototype_video_yes) {
+                            var radio = form.querySelector('input[name="prototype_video_yes"][value="' + draft.prototype_video_yes + '"]');
+                            if (radio) radio.checked = true;
+                        }
+                        if (draft.prototype_timeline_option) {
+                            var timelineSelect = form.querySelector('select[name="prototype_timeline_option"]');
+                            if (timelineSelect) timelineSelect.value = draft.prototype_timeline_option;
+                        }
+                        if (draft.prototype_cost) {
+                            var costInput = form.querySelector('input[name="prototype_cost"]');
+                            if (costInput) costInput.value = draft.prototype_cost;
+                        }
+                        if (draft.production_lead_time_text) {
+                            var leadTimeSelect = form.querySelector('select[name="production_lead_time_text"]');
+                            if (leadTimeSelect) leadTimeSelect.value = draft.production_lead_time_text;
+                        }
+                        if (draft.unit_price) {
+                            var priceInput = form.querySelector('input[name="unit_price"]');
+                            if (priceInput) priceInput.value = draft.unit_price;
+                        }
+                        
+                        // Restore Smart Alternatives
+                        if (draft.smart_alternatives_suggestion) {
+                            var sa = draft.smart_alternatives_suggestion;
+                            if (sa.category) {
+                                var catSelect = form.querySelector('select[name="smart_alt_category"]');
+                                if (catSelect) catSelect.value = sa.category;
+                            }
+                            if (sa.from) {
+                                var fromSelect = form.querySelector('select[name="smart_alt_from"]');
+                                if (fromSelect) fromSelect.value = sa.from;
+                            }
+                            if (sa.to) {
+                                var toSelect = form.querySelector('select[name="smart_alt_to"]');
+                                if (toSelect) toSelect.value = sa.to;
+                            }
+                            if (sa.price_impact) {
+                                var priceSelect = form.querySelector('select[name="smart_alt_price_impact"]');
+                                if (priceSelect) priceSelect.value = sa.price_impact;
+                            }
+                            if (sa.lead_time_impact) {
+                                var leadSelect = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                                if (leadSelect) leadSelect.value = sa.lead_time_impact;
+                            }
+                            if (sa.comparisons && sa.comparisons.length > 0) {
+                                sa.comparisons.forEach(function(comp) {
+                                    var checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"]');
+                                    if (checkbox) checkbox.checked = true;
+                                });
+                            }
+                            if (typeof updateSmartAltPreview === 'function') {
+                                updateSmartAltPreview(itemId);
+                            }
+                        }
+                        
+                        // Restore photos (photo IDs are stored, but we can't restore the actual images without re-uploading)
+                        // Photos will need to be re-uploaded, but we can show a message
+                        if (draft.bid_photo_ids && draft.bid_photo_ids.length > 0) {
+                            console.log('Draft had ' + draft.bid_photo_ids.length + ' photos. Please re-upload photos.');
+                        }
+                        
+                        // Trigger validation
+                        if (typeof validateBidFormEmbedded === 'function') {
+                            validateBidFormEmbedded(itemId);
+                        }
+                        
+                        // Show notification that draft was loaded
+                        var notification = document.createElement('div');
+                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
+                        document.body.appendChild(notification);
+                        setTimeout(function() {
+                            if (notification.parentNode) {
+                                notification.parentNode.removeChild(notification);
+                            }
+                        }, 4000);
+                    }
+                })
+                .catch(function(error) {
+                    // Silently fail - draft loading is optional and shouldn't break the form
+                    console.log('Draft not available or error loading draft:', error.message || error);
+                });
+                }, 500); // Wait 500ms for form to be fully rendered
+            }
+            
             // Make functions globally accessible
             window.validateAndSubmitBid = validateAndSubmitBid;
             window.submitBid = submitBid;
@@ -4448,8 +4738,11 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (data.success) {
                         alert(data.data.message || 'Bid withdrawn successfully.');
-                        // Refresh the item detail modal to show "Start Bid" button
-                        openBidModal(itemId);
+                        // Commit 2.3.5.5: Refresh the item detail modal immediately to show updated state
+                        closeBidModal();
+                        setTimeout(function() {
+                            openBidModal(itemId);
+                        }, 100);
                     } else {
                         alert(data.data.message || 'Failed to withdraw bid. Please try again.');
                     }
@@ -6496,82 +6789,43 @@ class N88_RFQ_Auth {
             }
         }
 
-        // Extract dimensions - Commit 2.3.5.1 Addendum: For suppliers with submitted bids where dims/qty changed,
-        // prioritize LATEST item meta values (not RFQ submission values) so they see updated values
+        // Commit 2.3.5.5: Always prioritize LATEST item meta values (from n88_items) over RFQ submission values
+        // This ensures supplier always sees current dims/qty after designer edits
         $dims = null;
-        if ( $has_submitted_bid && $show_dims_qty_warning ) {
-            // Supplier has submitted bid AND dims/qty changed after bid: Show LATEST values from item meta
-            if ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
-                $dims = $meta['dims'];
-                error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims) for item ' . $item_id . ' (supplier has bid, values changed after bid)' );
-            } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
-                $dims = $meta['dims_cm'];
-                error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims_cm) for item ' . $item_id . ' (supplier has bid, values changed after bid)' );
-            } elseif ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
-                // Fallback to delivery context if meta not available
-                $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
-                if ( is_array( $decoded_dims ) ) {
-                    $dims = array(
-                        'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
-                        'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
-                        'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
-                        'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
-                    );
-                    error_log( 'Supplier Detail View - Using dimensions from delivery context (fallback) for item ' . $item_id );
-                }
+        // Always check item meta first (current item facts)
+        if ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
+            $dims = $meta['dims'];
+            error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims) for item ' . $item_id );
+        } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
+            $dims = $meta['dims_cm'];
+            error_log( 'Supplier Detail View - Using LATEST dimensions from item meta (dims_cm) for item ' . $item_id );
+        } elseif ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
+            // Fallback to delivery context if item meta not available
+            $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
+            if ( is_array( $decoded_dims ) ) {
+                $dims = array(
+                    'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
+                    'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
+                    'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
+                    'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
+                );
+                error_log( 'Supplier Detail View - Using dimensions from delivery context (fallback) for item ' . $item_id );
             }
         } else {
-            // Normal case: Prioritize RFQ submission dimensions over item meta (for suppliers without bids or before changes)
-            if ( $delivery_context && $has_dimensions && ! empty( $delivery_context['dimensions_json'] ) ) {
-                // Use dimensions from RFQ submission (stored in delivery context)
-                $decoded_dims = json_decode( $delivery_context['dimensions_json'], true );
-                if ( is_array( $decoded_dims ) ) {
-                    // Normalize to w/d/h format for frontend compatibility (frontend expects w, d, h, unit)
-                    $dims = array(
-                        'w' => isset( $decoded_dims['width'] ) ? floatval( $decoded_dims['width'] ) : ( isset( $decoded_dims['w'] ) ? floatval( $decoded_dims['w'] ) : null ),
-                        'd' => isset( $decoded_dims['depth'] ) ? floatval( $decoded_dims['depth'] ) : ( isset( $decoded_dims['d'] ) ? floatval( $decoded_dims['d'] ) : null ),
-                        'h' => isset( $decoded_dims['height'] ) ? floatval( $decoded_dims['height'] ) : ( isset( $decoded_dims['h'] ) ? floatval( $decoded_dims['h'] ) : null ),
-                        'unit' => isset( $decoded_dims['unit'] ) ? sanitize_text_field( $decoded_dims['unit'] ) : '',
-                    );
-                    error_log( 'Supplier Detail View - Using dimensions from delivery context for item ' . $item_id . ': ' . wp_json_encode( $dims ) );
-                } else {
-                    error_log( 'Supplier Detail View - Failed to decode dimensions_json for item ' . $item_id . ': ' . $delivery_context['dimensions_json'] );
-                }
-            } elseif ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
-                // Fallback to item meta
-                $dims = $meta['dims'];
-                error_log( 'Supplier Detail View - Using dimensions from item meta (dims) for item ' . $item_id );
-            } elseif ( isset( $meta['dims_cm'] ) && is_array( $meta['dims_cm'] ) ) {
-                // Fallback to item meta (cm)
-                $dims = $meta['dims_cm'];
-                error_log( 'Supplier Detail View - Using dimensions from item meta (dims_cm) for item ' . $item_id );
-            } else {
-                error_log( 'Supplier Detail View - No dimensions found for item ' . $item_id . ' (has_dimensions: ' . ( $has_dimensions ? 'true' : 'false' ) . ', delivery_context exists: ' . ( $delivery_context ? 'true' : 'false' ) . ')' );
-            }
+            error_log( 'Supplier Detail View - No dimensions found for item ' . $item_id );
         }
 
-        // Get quantity - Commit 2.3.5.1 Addendum: For suppliers with submitted bids where dims/qty changed,
-        // prioritize LATEST item meta values (not RFQ submission values) so they see updated values
+        // Commit 2.3.5.5: Always prioritize LATEST item meta values (from n88_items) over RFQ submission values
+        // This ensures supplier always sees current dims/qty after designer edits
         $quantity = null;
-        if ( $has_submitted_bid && $show_dims_qty_warning ) {
-            // Supplier has submitted bid AND dims/qty changed after bid: Show LATEST values from item meta
-            if ( isset( $meta['quantity'] ) ) {
-                $quantity = intval( $meta['quantity'] );
-                error_log( 'Supplier Detail View - Using LATEST quantity from item meta for item ' . $item_id . ' (supplier has bid, values changed after bid): ' . $quantity );
-            } elseif ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
-                // Fallback to delivery context if meta not available
-                $quantity = intval( $delivery_context['quantity'] );
-                error_log( 'Supplier Detail View - Using quantity from delivery context (fallback) for item ' . $item_id );
-            }
-        } else {
-            // Normal case: Prioritize RFQ submission quantity over item meta (for suppliers without bids or before changes)
-            if ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
-                // Use quantity from RFQ submission (stored in delivery context)
-                $quantity = intval( $delivery_context['quantity'] );
-            } elseif ( isset( $meta['quantity'] ) ) {
-                // Fallback to item meta
-                $quantity = intval( $meta['quantity'] );
-            }
+        // Always check item meta first (current item facts)
+        if ( isset( $meta['quantity'] ) ) {
+            $quantity = intval( $meta['quantity'] );
+            error_log( 'Supplier Detail View - Using LATEST quantity from item meta for item ' . $item_id . ': ' . $quantity );
+        } elseif ( $delivery_context && $has_quantity && ! empty( $delivery_context['quantity'] ) ) {
+            // Fallback to delivery context if item meta not available
+            $quantity = intval( $delivery_context['quantity'] );
+            error_log( 'Supplier Detail View - Using quantity from delivery context (fallback) for item ' . $item_id );
         }
 
         // Get Smart Alternatives data from meta
@@ -6732,20 +6986,21 @@ class N88_RFQ_Auth {
         $bids = array();
         if ( $has_bids ) {
             // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
+            // Check if meta_json column exists
+            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+            $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
+            
+            $select_fields = "b.bid_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.created_at";
+            if ( $has_bid_meta_json ) {
+                $select_fields .= ", b.meta_json";
+            }
+            
             $bids_data = $wpdb->get_results( $wpdb->prepare(
-                "SELECT 
-                    b.bid_id,
-                    b.unit_price,
-                    b.production_lead_time_text,
-                    b.prototype_timeline_option,
-                    b.prototype_cost,
-                    b.prototype_video_yes,
-                    b.cad_yes,
-                    b.created_at
+                "SELECT {$select_fields}
                 FROM {$item_bids_table} b
                 WHERE b.item_id = %d 
                 AND b.status = 'submitted'
-                ORDER BY b.created_at ASC",
+                ORDER BY b.created_at ASC, b.bid_id ASC",
                 $item_id
             ), ARRAY_A );
 
@@ -6791,6 +7046,20 @@ class N88_RFQ_Auth {
                     return esc_url_raw( $photo['file_url'] );
                 }, $bid_photos );
 
+                // Get Smart Alternatives suggestion from meta_json if available
+                $smart_alternatives_suggestion = null;
+                if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) ) {
+                    $bid_meta = json_decode( $bid['meta_json'], true );
+                    if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                        $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                    }
+                }
+                
+                // Debug: Log if meta_json exists but smart_alternatives_suggestion is null
+                if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) && $smart_alternatives_suggestion === null ) {
+                    error_log( 'Bid ' . $bid['bid_id'] . ': meta_json exists but smart_alternatives_suggestion is null. meta_json: ' . substr( $bid['meta_json'], 0, 200 ) );
+                }
+
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
                     'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
@@ -6804,6 +7073,7 @@ class N88_RFQ_Auth {
                     }, $media_links ),
                     'video_links_by_provider' => $video_links_by_provider,
                     'photo_urls' => $photo_urls,
+                    'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
                     'smart_alternatives_note' => $smart_alternatives_note,
                     'created_at' => $bid['created_at'],
@@ -7348,7 +7618,7 @@ class N88_RFQ_Auth {
                 $sort_order++;
             }
             
-            // Commit 2.3.5.1: Handle bid photos upload and save to n88_bid_media_files
+            // Commit 2.3.5.1: Handle bid photos - support both file uploads and existing attachment IDs
             $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
             
             // Delete old bid photos
@@ -7358,13 +7628,40 @@ class N88_RFQ_Auth {
                 array( '%d' )
             );
             
-            // Upload and save new bid photos
-            require_once( ABSPATH . 'wp-admin/includes/file.php' );
-            require_once( ABSPATH . 'wp-admin/includes/media.php' );
-            require_once( ABSPATH . 'wp-admin/includes/image.php' );
+            $photo_sort_order = 0;
             
-            $files_to_upload = array();
+            // First, handle bid_photo_ids (already uploaded WordPress attachments)
+            if ( ! empty( $bid_photo_ids ) && is_array( $bid_photo_ids ) ) {
+                foreach ( $bid_photo_ids as $photo_id ) {
+                    $photo_id = intval( $photo_id );
+                    if ( $photo_id > 0 ) {
+                        // Get attachment URL
+                        $file_url = wp_get_attachment_url( $photo_id );
+                        if ( $file_url ) {
+                            // Save to n88_bid_media_files table
+                            $wpdb->insert(
+                                $bid_media_files_table,
+                                array(
+                                    'bid_id' => $bid_id,
+                                    'file_url' => $file_url,
+                                    'sort_order' => $photo_sort_order,
+                                ),
+                                array( '%d', '%s', '%d' )
+                            );
+                            
+                            $photo_sort_order++;
+                        }
+                    }
+                }
+            }
+            
+            // Also handle file uploads if provided (fallback for direct file uploads)
             if ( ! empty( $_FILES['bid_photos'] ) ) {
+                require_once( ABSPATH . 'wp-admin/includes/file.php' );
+                require_once( ABSPATH . 'wp-admin/includes/media.php' );
+                require_once( ABSPATH . 'wp-admin/includes/image.php' );
+                
+                $files_to_upload = array();
                 if ( is_array( $_FILES['bid_photos']['name'] ) ) {
                     foreach ( $_FILES['bid_photos']['name'] as $index => $name ) {
                         if ( ! empty( $name ) ) {
@@ -7382,37 +7679,36 @@ class N88_RFQ_Auth {
                         $files_to_upload[] = $_FILES['bid_photos'];
                     }
                 }
-            }
-            
-            $photo_sort_order = 0;
-            foreach ( $files_to_upload as $file ) {
-                if ( $file['error'] === UPLOAD_ERR_OK ) {
-                    $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
-                    if ( ! isset( $upload['error'] ) ) {
-                        $attachment = array(
-                            'post_mime_type' => $upload['type'],
-                            'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
-                            'post_content'   => '',
-                            'post_status'    => 'inherit'
-                        );
-                        $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
-                        $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
-                        wp_update_attachment_metadata( $attach_id, $attach_data );
-                        
-                        $file_url = $upload['url'];
-                        
-                        // Save to n88_bid_media_files table
-                        $wpdb->insert(
-                            $bid_media_files_table,
-                            array(
-                                'bid_id' => $bid_id,
-                                'file_url' => $file_url,
-                                'sort_order' => $photo_sort_order,
-                            ),
-                            array( '%d', '%s', '%d' )
-                        );
-                        
-                        $photo_sort_order++;
+                
+                foreach ( $files_to_upload as $file ) {
+                    if ( $file['error'] === UPLOAD_ERR_OK ) {
+                        $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+                        if ( ! isset( $upload['error'] ) ) {
+                            $attachment = array(
+                                'post_mime_type' => $upload['type'],
+                                'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                                'post_content'   => '',
+                                'post_status'    => 'inherit'
+                            );
+                            $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                            $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                            wp_update_attachment_metadata( $attach_id, $attach_data );
+                            
+                            $file_url = $upload['url'];
+                            
+                            // Save to n88_bid_media_files table
+                            $wpdb->insert(
+                                $bid_media_files_table,
+                                array(
+                                    'bid_id' => $bid_id,
+                                    'file_url' => $file_url,
+                                    'sort_order' => $photo_sort_order,
+                                ),
+                                array( '%d', '%s', '%d' )
+                            );
+                            
+                            $photo_sort_order++;
+                        }
                     }
                 }
             }
@@ -7503,6 +7799,147 @@ class N88_RFQ_Auth {
         wp_send_json_success( array(
             'message' => 'Bid withdrawn successfully. You can resubmit a new bid.',
         ) );
+    }
+
+    /**
+     * AJAX handler to save bid draft (Commit 2.3.6)
+     * Stores draft bid data in user meta for later retrieval
+     */
+    public function ajax_save_bid_draft() {
+        check_ajax_referer( 'n88_save_bid_draft', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        // Verify supplier has route for this item (unless system operator)
+        if ( ! $is_system_operator ) {
+            global $wpdb;
+            $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+            $route_exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                WHERE item_id = %d 
+                AND supplier_id = %d 
+                AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                $item_id,
+                $current_user->ID
+            ) );
+
+            if ( ! $route_exists || intval( $route_exists ) === 0 ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+            }
+        }
+
+        // Collect draft data
+        $draft_data = array(
+            'item_id' => $item_id,
+            'saved_at' => current_time( 'mysql' ),
+        );
+
+        // Video links
+        $video_links_json = isset( $_POST['video_links'] ) ? wp_unslash( $_POST['video_links'] ) : '[]';
+        $video_links = json_decode( $video_links_json, true );
+        if ( is_array( $video_links ) ) {
+            $draft_data['video_links'] = array_map( 'esc_url_raw', $video_links );
+        } else {
+            $draft_data['video_links'] = array();
+        }
+
+        // Bid photos
+        $bid_photo_ids_json = isset( $_POST['bid_photo_ids'] ) ? wp_unslash( $_POST['bid_photo_ids'] ) : '[]';
+        $bid_photo_ids = json_decode( $bid_photo_ids_json, true );
+        if ( is_array( $bid_photo_ids ) ) {
+            $draft_data['bid_photo_ids'] = array_map( 'intval', $bid_photo_ids );
+        } else {
+            $draft_data['bid_photo_ids'] = array();
+        }
+
+        // Form fields
+        $draft_data['prototype_video_yes'] = isset( $_POST['prototype_video_yes'] ) ? sanitize_text_field( $_POST['prototype_video_yes'] ) : '';
+        $draft_data['prototype_timeline_option'] = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( $_POST['prototype_timeline_option'] ) : '';
+        $draft_data['prototype_cost'] = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( $_POST['prototype_cost'] ) : '';
+        $draft_data['production_lead_time_text'] = isset( $_POST['production_lead_time_text'] ) ? sanitize_text_field( $_POST['production_lead_time_text'] ) : '';
+        $draft_data['unit_price'] = isset( $_POST['unit_price'] ) ? sanitize_text_field( $_POST['unit_price'] ) : '';
+
+        // Smart Alternatives suggestion
+        if ( isset( $_POST['smart_alternatives_suggestion'] ) && ! empty( $_POST['smart_alternatives_suggestion'] ) ) {
+            $smart_alt_json = wp_unslash( $_POST['smart_alternatives_suggestion'] );
+            $smart_alt_data = json_decode( $smart_alt_json, true );
+            if ( is_array( $smart_alt_data ) ) {
+                $draft_data['smart_alternatives_suggestion'] = $smart_alt_data;
+            }
+        }
+
+        // Store draft in user meta (key: n88_bid_draft_{item_id})
+        $meta_key = 'n88_bid_draft_' . $item_id;
+        $meta_value = wp_json_encode( $draft_data );
+        
+        $updated = update_user_meta( $current_user->ID, $meta_key, $meta_value );
+
+        if ( $updated === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to save draft. Please try again.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message' => 'Draft saved successfully.',
+            'saved_at' => $draft_data['saved_at'],
+        ) );
+    }
+
+    /**
+     * AJAX handler to get bid draft (Commit 2.3.6)
+     * Retrieves saved draft bid data from user meta
+     */
+    public function ajax_get_bid_draft() {
+        check_ajax_referer( 'n88_get_bid_draft', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        // Get draft from user meta
+        $meta_key = 'n88_bid_draft_' . $item_id;
+        $draft_json = get_user_meta( $current_user->ID, $meta_key, true );
+
+        if ( empty( $draft_json ) ) {
+            wp_send_json_success( array( 'draft' => null ) );
+        }
+
+        $draft = json_decode( $draft_json, true );
+
+        if ( ! is_array( $draft ) ) {
+            wp_send_json_success( array( 'draft' => null ) );
+        }
+
+        wp_send_json_success( array( 'draft' => $draft ) );
     }
 
     /**
@@ -7902,6 +8339,10 @@ class N88_RFQ_Auth {
             wp_send_json_success( array(
                 'message' => $message,
                 'items_processed' => count( $validated_items ),
+                'state_updated' => array(
+                    'has_rfq' => true,
+                    'has_bids' => false,
+                ),
             ) );
 
         } catch ( Exception $e ) {
