@@ -496,7 +496,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         display: 'flex',
                         alignItems: 'center',
                     }}>
-                        Prod LT
+                       Production Timeline
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
@@ -557,6 +557,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
                         padding: '6px 10px',
@@ -567,7 +568,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         display: 'flex',
                         alignItems: 'center',
                     }}>
-                        Smart Alt
+                        Smart Alternatives
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
@@ -579,6 +580,37 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                             }}
                         >
                             <span style={{ color: greenAccent }}>{formatSmartAlt(bid)}</span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Landed Shipping Costs Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Landed Shipping Costs
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div
+                            key={`landed-${bid.bid_id}`}
+                            style={{
+                                padding: '6px 10px',
+                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '10px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <span style={{ color: darkText }}>—</span>
                         </div>
                     ))}
                 </div>

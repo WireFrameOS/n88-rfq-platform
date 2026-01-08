@@ -5939,7 +5939,7 @@ class N88_RFQ_Admin {
                                         display: 'flex',
                                         alignItems: 'center',
                                     }
-                                }, 'Prod LT'),
+                                }, 'Production Timeline'),
                                 displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
                                         key: 'leadtime-' + bid.bid_id,
@@ -6000,6 +6000,7 @@ class N88_RFQ_Admin {
                                 style: {
                                     display: 'grid',
                                     gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
                                 }
                             },
                                 React.createElement('div', {
@@ -6012,7 +6013,7 @@ class N88_RFQ_Admin {
                                         display: 'flex',
                                         alignItems: 'center',
                                     }
-                                }, 'Smart Alt'),
+                                }, 'Smart Alternatives'),
                                 displayBids.map(function(bid, idx) {
                                     return React.createElement('div', {
                                         key: 'smalt-' + bid.bid_id,
@@ -6023,6 +6024,38 @@ class N88_RFQ_Admin {
                                         }
                                     },
                                         React.createElement('span', { style: { color: greenAccent } }, formatSmartAlt(bid))
+                                    );
+                                })
+                            ),
+                            // Landed Shipping Costs Row
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Landed Shipping Costs'),
+                                displayBids.map(function(bid, idx) {
+                                    return React.createElement('div', {
+                                        key: 'landed-' + bid.bid_id,
+                                        style: {
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
+                                            textAlign: 'center',
+                                        }
+                                    },
+                                        React.createElement('span', { style: { color: darkText } }, '—')
                                     );
                                 })
                             )

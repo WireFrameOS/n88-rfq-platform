@@ -3072,38 +3072,42 @@ class N88_RFQ_Auth {
                     console.log('✓ Photo validation PASSED -', bidPhotosCount, 'photo(s)');
                 }
                 
-                // 2. Prototype video must be YES
+                // 2. Prototype video (optional - YES or NO)
                 var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
-                if (!prototypeYes || !prototypeYes.checked) {
-                    isValid = false;
-                    var prototypeError = isEmbedded ? 
-                        document.getElementById('n88-prototype-video-error-embedded-' + itemId) : 
-                        document.getElementById('n88-prototype-video-error');
-                    if (prototypeError) {
-                        prototypeError.textContent = 'Prototype video commitment must be YES.';
-                        prototypeError.style.display = 'block';
-                    }
-                } else {
-                    var prototypeError = isEmbedded ? 
-                        document.getElementById('n88-prototype-video-error-embedded-' + itemId) : 
-                        document.getElementById('n88-prototype-video-error');
-                    if (prototypeError) {
-                        prototypeError.style.display = 'none';
-                    }
+                var prototypeNo = form.querySelector('input[name="prototype_video_yes"][value="0"]');
+                var isPrototypeYes = prototypeYes && prototypeYes.checked;
+                var isPrototypeNo = prototypeNo && prototypeNo.checked;
+                
+                // Clear any previous error
+                var prototypeError = isEmbedded ? 
+                    document.getElementById('n88-prototype-video-error-embedded-' + itemId) : 
+                    document.getElementById('n88-prototype-video-error');
+                if (prototypeError) {
+                    prototypeError.style.display = 'none';
                 }
                 
-                // 3. Prototype timeline required
+                // 3. Prototype timeline required ONLY if prototype is YES
                 var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (!timeline || !timeline.value) {
-                    isValid = false;
-                    var timelineError = isEmbedded ? 
-                        document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
-                        document.getElementById('n88-prototype-timeline-error');
-                    if (timelineError) {
-                        timelineError.textContent = 'Prototype timeline is required.';
-                        timelineError.style.display = 'block';
+                if (isPrototypeYes) {
+                    if (!timeline || !timeline.value) {
+                        isValid = false;
+                        var timelineError = isEmbedded ? 
+                            document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
+                            document.getElementById('n88-prototype-timeline-error');
+                        if (timelineError) {
+                            timelineError.textContent = 'Prototype timeline is required.';
+                            timelineError.style.display = 'block';
+                        }
+                    } else {
+                        var timelineError = isEmbedded ? 
+                            document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
+                            document.getElementById('n88-prototype-timeline-error');
+                        if (timelineError) {
+                            timelineError.style.display = 'none';
+                        }
                     }
                 } else {
+                    // Clear timeline error if prototype is NO
                     var timelineError = isEmbedded ? 
                         document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
                         document.getElementById('n88-prototype-timeline-error');
@@ -3112,35 +3116,45 @@ class N88_RFQ_Auth {
                     }
                 }
                 
-                // 4. Prototype cost: numeric >= 0
+                // 4. Prototype cost required ONLY if prototype is YES
                 var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (prototypeCost && prototypeCost.value) {
-                    var costValue = parseFloat(prototypeCost.value);
-                    if (isNaN(costValue) || costValue < 0) {
+                if (isPrototypeYes) {
+                    if (prototypeCost && prototypeCost.value) {
+                        var costValue = parseFloat(prototypeCost.value);
+                        if (isNaN(costValue) || costValue < 0) {
+                            isValid = false;
+                            var costError = isEmbedded ? 
+                                document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
+                                document.getElementById('n88-prototype-cost-error');
+                            if (costError) {
+                                costError.textContent = 'Prototype cost must be a valid number >= 0.';
+                                costError.style.display = 'block';
+                            }
+                        } else {
+                            var costError = isEmbedded ? 
+                                document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
+                                document.getElementById('n88-prototype-cost-error');
+                            if (costError) {
+                                costError.style.display = 'none';
+                            }
+                        }
+                    } else {
                         isValid = false;
                         var costError = isEmbedded ? 
                             document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
                             document.getElementById('n88-prototype-cost-error');
                         if (costError) {
-                            costError.textContent = 'Prototype cost must be a valid number >= 0.';
+                            costError.textContent = 'Prototype cost is required.';
                             costError.style.display = 'block';
-                        }
-                    } else {
-                        var costError = isEmbedded ? 
-                            document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
-                            document.getElementById('n88-prototype-cost-error');
-                        if (costError) {
-                            costError.style.display = 'none';
                         }
                     }
                 } else {
-                    isValid = false;
+                    // Clear cost error if prototype is NO
                     var costError = isEmbedded ? 
                         document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
                         document.getElementById('n88-prototype-cost-error');
                     if (costError) {
-                        costError.textContent = 'Prototype cost is required.';
-                        costError.style.display = 'block';
+                        costError.style.display = 'none';
                     }
                 }
                 
@@ -3786,27 +3800,27 @@ class N88_RFQ_Auth {
                     }
                 }
                 
-                // 2. Prototype video must be YES
+                // 2. Prototype video (optional - YES or NO)
                 var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
-                if (!prototypeYes || !prototypeYes.checked) {
-                    isValid = false;
-                }
+                var isPrototypeYes = prototypeYes && prototypeYes.checked;
                 
-                // 3. Prototype timeline required
+                // 3. Prototype timeline required ONLY if prototype is YES
                 var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (!timeline || !timeline.value) {
+                if (isPrototypeYes && (!timeline || !timeline.value)) {
                     isValid = false;
                 }
                 
-                // 4. Prototype cost: numeric >= 0
+                // 4. Prototype cost required ONLY if prototype is YES
                 var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (prototypeCost && prototypeCost.value) {
-                    var costValue = parseFloat(prototypeCost.value);
-                    if (isNaN(costValue) || costValue < 0) {
+                if (isPrototypeYes) {
+                    if (prototypeCost && prototypeCost.value) {
+                        var costValue = parseFloat(prototypeCost.value);
+                        if (isNaN(costValue) || costValue < 0) {
+                            isValid = false;
+                        }
+                    } else {
                         isValid = false;
                     }
-                } else {
-                    isValid = false;
                 }
                 
                 // 5. Production lead time: non-empty
@@ -7235,27 +7249,29 @@ class N88_RFQ_Auth {
             }
         }
 
-        // 2. Prototype video commitment (must be YES)
+        // 2. Prototype video commitment (optional - YES or NO)
         $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
-        if ( $prototype_video_yes !== 1 ) {
-            $errors['prototype_video_yes'] = 'Prototype video is required to submit a bid.';
-        }
+        $is_prototype_yes = ( $prototype_video_yes === 1 );
 
-        // 3. Prototype timeline (required)
+        // 3. Prototype timeline (required ONLY if prototype is YES)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
-        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
-            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+        if ( $is_prototype_yes ) {
+            $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+            if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+                $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+            }
         }
 
-        // 4. Prototype cost (numeric >= 0)
+        // 4. Prototype cost (required ONLY if prototype is YES)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( empty( $prototype_cost ) ) {
-            $errors['prototype_cost'] = 'Prototype cost is required.';
-        } else {
-            $prototype_cost_float = floatval( $prototype_cost );
-            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
-                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+        if ( $is_prototype_yes ) {
+            if ( empty( $prototype_cost ) ) {
+                $errors['prototype_cost'] = 'Prototype cost is required.';
+            } else {
+                $prototype_cost_float = floatval( $prototype_cost );
+                if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                    $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+                }
             }
         }
 
@@ -7439,27 +7455,29 @@ class N88_RFQ_Auth {
             }
         }
 
-        // 2. Prototype video commitment (must be YES)
+        // 2. Prototype video commitment (optional - YES or NO)
         $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
-        if ( $prototype_video_yes !== 1 ) {
-            $errors['prototype_video_yes'] = 'Prototype video is required to submit a bid.';
-        }
+        $is_prototype_yes = ( $prototype_video_yes === 1 );
 
-        // 3. Prototype timeline (required)
+        // 3. Prototype timeline (required ONLY if prototype is YES)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
-        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
-            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+        if ( $is_prototype_yes ) {
+            $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+            if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+                $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
+            }
         }
 
-        // 4. Prototype cost (numeric >= 0)
+        // 4. Prototype cost (required ONLY if prototype is YES)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( empty( $prototype_cost ) ) {
-            $errors['prototype_cost'] = 'Prototype cost is required.';
-        } else {
-            $prototype_cost_float = floatval( $prototype_cost );
-            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
-                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+        if ( $is_prototype_yes ) {
+            if ( empty( $prototype_cost ) ) {
+                $errors['prototype_cost'] = 'Prototype cost is required.';
+            } else {
+                $prototype_cost_float = floatval( $prototype_cost );
+                if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                    $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
+                }
             }
         }
 
