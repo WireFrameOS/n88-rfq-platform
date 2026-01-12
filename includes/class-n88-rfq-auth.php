@@ -7069,11 +7069,20 @@ class N88_RFQ_Auth {
         
         $smart_alternatives_enabled = false;
         $smart_alternatives_note = '';
+        $rfq_revision_current = null;
+        $revision_changed = false;
         if ( ! empty( $item_meta ) ) {
             $meta = json_decode( $item_meta, true );
             if ( is_array( $meta ) ) {
                 $smart_alternatives_enabled = isset( $meta['smart_alternatives'] ) && $meta['smart_alternatives'] === true;
                 $smart_alternatives_note = isset( $meta['smart_alternatives_note'] ) ? sanitize_textarea_field( $meta['smart_alternatives_note'] ) : '';
+                // D5: Get revision info for Specs Updated panel
+                if ( isset( $meta['rfq_revision_current'] ) ) {
+                    $rfq_revision_current = intval( $meta['rfq_revision_current'] );
+                }
+                if ( isset( $meta['revision_changed'] ) ) {
+                    $revision_changed = (bool) $meta['revision_changed'];
+                }
             }
         }
 
@@ -7096,13 +7105,17 @@ class N88_RFQ_Auth {
         $bids = array();
         if ( $has_bids ) {
             // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
-            // Check if meta_json column exists
+            // Check if meta_json and rfq_revision_at_submit columns exist
             $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
+            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
             
             $select_fields = "b.bid_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.created_at";
             if ( $has_bid_meta_json ) {
                 $select_fields .= ", b.meta_json";
+            }
+            if ( $has_revision_column ) {
+                $select_fields .= ", b.rfq_revision_at_submit";
             }
             
             $bids_data = $wpdb->get_results( $wpdb->prepare(
@@ -7177,6 +7190,12 @@ class N88_RFQ_Auth {
                     error_log( 'Bid ' . $bid['bid_id'] . ': meta_json exists but smart_alternatives_suggestion is null. meta_json: ' . substr( $bid['meta_json'], 0, 200 ) );
                 }
 
+                // D5: Get rfq_revision_at_submit for bid filtering
+                $bid_revision = null;
+                if ( $has_revision_column && isset( $bid['rfq_revision_at_submit'] ) && $bid['rfq_revision_at_submit'] !== null ) {
+                    $bid_revision = intval( $bid['rfq_revision_at_submit'] );
+                }
+                
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
                     'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
@@ -7195,6 +7214,7 @@ class N88_RFQ_Auth {
                     'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
                     'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
                     'created_at' => $bid['created_at'],
+                    'rfq_revision_at_submit' => $bid_revision, // D5: Revision tracking for bid filtering
                 );
             }
         }
@@ -7203,6 +7223,8 @@ class N88_RFQ_Auth {
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
             'bids' => $bids,
+            'rfq_revision_current' => $rfq_revision_current, // D5: Current revision for Specs Updated panel
+            'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
         ) );
     }
 
@@ -7727,10 +7749,34 @@ class N88_RFQ_Auth {
                 error_log( 'Bid submission - meta_json column does NOT exist in table and could not be created' );
             }
 
-            // Prepare format array based on whether meta_json is included
+            // Get current RFQ revision from item meta and set rfq_revision_at_submit
+            $items_table = $wpdb->prefix . 'n88_items';
+            $item_meta_json = $wpdb->get_var( $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+            $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+            if ( ! is_array( $item_meta ) ) {
+                $item_meta = array();
+            }
+            
+            // Get current revision (default to 1 if not set)
+            $current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
+            
+            // Check if rfq_revision_at_submit column exists
+            $has_revision_column = in_array( 'rfq_revision_at_submit', $table_columns, true );
+            if ( $has_revision_column ) {
+                $bid_data['rfq_revision_at_submit'] = $current_revision;
+                error_log( 'Bid submission - Setting rfq_revision_at_submit to ' . $current_revision . ' for bid on item ' . $item_id );
+            }
+
+            // Prepare format array based on whether meta_json and rfq_revision_at_submit are included
             $format_array = array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%s', '%s' );
             if ( isset( $bid_data['meta_json'] ) ) {
                 $format_array[] = '%s';
+            }
+            if ( isset( $bid_data['rfq_revision_at_submit'] ) ) {
+                $format_array[] = '%d';
             }
 
             if ( $existing_bid && $existing_bid->status === 'withdrawn' ) {
@@ -8486,6 +8532,33 @@ class N88_RFQ_Auth {
                             }
                         }
                     }
+                }
+                
+                // Initialize rfq_revision_current to 1 if not already set (first RFQ submission)
+                $item_meta_json = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                    $item_id
+                ) );
+                $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+                if ( ! is_array( $item_meta ) ) {
+                    $item_meta = array();
+                }
+                
+                // Only set revision if not already set (first RFQ submission)
+                if ( ! isset( $item_meta['rfq_revision_current'] ) || empty( $item_meta['rfq_revision_current'] ) ) {
+                    $item_meta['rfq_revision_current'] = 1;
+                    $item_meta['revision_changed'] = false; // Reset revision_changed flag on new RFQ
+                    
+                    $updated_meta_json = wp_json_encode( $item_meta );
+                    $wpdb->update(
+                        $items_table,
+                        array( 'meta_json' => $updated_meta_json ),
+                        array( 'id' => $item_id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                    
+                    error_log( 'RFQ Submission - Initialized rfq_revision_current to 1 for item ' . $item_id );
                 }
             }
 

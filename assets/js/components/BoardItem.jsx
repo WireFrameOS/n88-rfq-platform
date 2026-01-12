@@ -40,6 +40,21 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     // Local state to track if card is expanded (showing details)
     const [isExpanded, setIsExpanded] = React.useState(item.displayMode === 'full');
     
+    // Close menu when clicking outside
+    React.useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (isMenuOpen && !event.target.closest('[data-menu-container]')) {
+                setIsMenuOpen(false);
+            }
+        };
+        if (isMenuOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+            return () => {
+                document.removeEventListener('mousedown', handleClickOutside);
+            };
+        }
+    }, [isMenuOpen]);
+    
     // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
     const [priceRequested, setPriceRequested] = React.useState(false);
     
@@ -85,6 +100,33 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     // Calculate z-index: XL and L items should appear above others
     // Use item.z as base, but add extra boost for XL and L sizes
     const calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
+
+    // Calculate item status based on available data
+    const getItemStatus = () => {
+        // Check if item has award_set (In Production)
+        if (item.award_set === true || item.award_set === 'true' || item.award_set === 1) {
+            return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+        }
+        
+        // Check if item has bids (Bids Received)
+        const bidCount = item.bid_count || item.bids_count || 0;
+        if (bidCount > 0 || item.has_bids === true || item.has_bids === 'true') {
+            return { text: 'Bids Received', color: '#2196f3', dot: '#2196f3' };
+        }
+        
+        // Check if RFQ exists (RFQ Sent)
+        if (item.has_rfq === true || item.has_rfq === 'true' || item.rfq_status === 'sent' || item.rfq_status === 'submitted') {
+            return { text: 'RFQ Sent', color: '#ff9800', dot: '#ff9800' };
+        }
+        
+        // Default: Draft (item exists but no RFQ)
+        return { text: 'Draft', color: '#999', dot: '#999' };
+    };
+
+    const itemStatus = getItemStatus();
+    
+    // State for 3-dot menu
+    const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
     // Handle size preset selection
     const handleSizeChange = (size, e) => {
@@ -324,7 +366,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 layout: { duration: 0.3, ease: 'easeOut' },
             }}
         >
-            {/* Main tile container */}
+            {/* Main tile container - Photo-First Design */}
             <div
                 style={{
                     width: '100%',
@@ -335,39 +377,27 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                     overflow: 'hidden',
                     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
                     position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxSizing: 'border-box',
                 }}
             >
-                {/* Hero image */}
+                {/* Photo Section - 75% of card (100% when photo_only mode) */}
                 <div
                     style={{
                         width: '100%',
-                        height: item.displayMode === 'photo_only' ? '100%' : '60%',
+                        flex: item.displayMode === 'photo_only' ? '0 0 100%' : '0 0 75%',
+                        minHeight: 0,
                         backgroundColor: '#e0e0e0',
                         backgroundImage: item.imageUrl ? `url(${item.imageUrl})` : 'none',
-                        backgroundSize: 'contain',
+                        backgroundSize: 'cover',
                         backgroundPosition: 'center',
                         backgroundRepeat: 'no-repeat',
                         position: 'relative',
+                        boxSizing: 'border-box',
                     }}
                 >
-                    {/* Show item title overlay only if no image */}
-                    {!item.imageUrl && (
-                        <div style={{
-                            position: 'absolute',
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            backgroundColor: 'rgba(255,255,255,0.8)',
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '14px',
-                            color: '#999',
-                        }}>
-                            {item.title || `Item ${item.id}`}
-                        </div>
-                    )}
-                    
-                    {/* Delete button - always visible */}
+                    {/* Delete button - top right */}
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -376,8 +406,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         }}
                         style={{
                             position: 'absolute',
-                            top: '10px',
-                            right: '10px',
+                            top: '8px',
+                            right: '8px',
                             width: '24px',
                             height: '24px',
                             padding: 0,
@@ -408,234 +438,210 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                     >
                         ×
                     </button>
-                    
-                    {/* Show Card button - appears when in photo_only mode */}
-                    {item.displayMode === 'photo_only' && (
+                    {item.displayMode !== 'photo_only' && (
+                <div
+                    style={{
+                        width: '100%',
+                        flex: '0 0 25%',
+                        minHeight: 0,
+                        backgroundColor: '#ffffff',
+                        borderTop: '1px solid #e0e0e0',
+                        padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        boxSizing: 'border-box',
+                        flexShrink: 0,
+                    }}
+                >
+                    {/* Status Text with Dot */}
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            flex: 1,
+                            fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
+                            color: '#333',
+                        }}
+                    >
+                        <span
+                            style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: itemStatus.dot,
+                                display: 'inline-block',
+                            }}
+                        />
+                        <span style={{ fontWeight: 500 }}>{itemStatus.text}</span>
+                        {/* Action Required Indicator (if needed) */}
+                        {item.action_required && (
+                            <span
+                                style={{
+                                    fontSize: '10px',
+                                    color: '#ff9800',
+                                    marginLeft: '4px',
+                                }}
+                                title="Action Required"
+                            >
+                                ⚠
+                            </span>
+                        )}
+                    </div>
+
+                    {/* 3-Dot Menu */}
+                    <div style={{ position: 'relative' }} data-menu-container>
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
-                                const newMode = 'full';
-                                updateLayout(item.id, { displayMode: newMode });
-                                setIsExpanded(true);
-                                setTimeout(() => {
-                                    if (onLayoutChanged) {
-                                        onLayoutChanged({
-                                            id: item.id,
-                                            x: item.x,
-                                            y: item.y,
-                                            width: item.width,
-                                            height: item.height,
-                                            displayMode: newMode,
-                                        });
-                                    }
-                                }, 350);
+                                setIsMenuOpen(!isMenuOpen);
                             }}
                             style={{
-                                position: 'absolute',
-                                top: '10px',
-                                right: '40px',
-                                padding: '6px 12px',
-                                fontSize: '11px',
-                                fontWeight: '500',
+                                width: '28px',
+                                height: '28px',
+                                padding: 0,
+                                backgroundColor: 'transparent',
+                                border: 'none',
                                 cursor: 'pointer',
-                                backgroundColor: '#0073aa',
-                                color: '#fff',
-                                border: '1px solid #0073aa',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                                 borderRadius: '4px',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
                                 transition: 'all 0.2s',
-                                zIndex: 10,
                             }}
                             onMouseEnter={(e) => {
-                                e.target.style.backgroundColor = '#005a87';
+                                e.target.style.backgroundColor = '#f0f0f0';
                             }}
                             onMouseLeave={(e) => {
-                                e.target.style.backgroundColor = '#0073aa';
+                                e.target.style.backgroundColor = 'transparent';
                             }}
+                            title="Menu"
                         >
-                            Show Card
+                            <span style={{ fontSize: '16px', color: '#666', lineHeight: '1' }}>⋮</span>
                         </button>
-                    )}
-                </div>
 
-                {/* Metadata section - always visible when not photo_only */}
-                {item.displayMode !== 'photo_only' && (
-                    <div
-                        style={{
-                            padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
-                            backgroundColor: '#ffffff',
-                            overflow: 'visible',
-                        }}
-                    >
-                        {/* Category (small label) */}
-                        {item.item_type && (
-                            <div style={{ 
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px', 
-                                color: '#999',
-                                textTransform: 'uppercase',
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px',
-                            }}>
-                                {item.item_type}
-                            </div>
-                        )}
-
-                        {/* Description */}
-                        {item.description && (
-                            <div style={{ 
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', 
-                                color: '#666', 
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
-                                lineHeight: '1.4',
-                            }}>
-                                {item.description}
-                            </div>
-                        )}
-
-                        {/* Size Preset Controls (S / D / L / XL) */}
-                        <div
-                            style={{
-                                display: 'flex',
-                                gap: '2px',
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
-                                pointerEvents: 'auto',
-                                flexWrap: 'wrap',
-                            }}
-                        >
-                            {['S', 'D', 'L', 'XL'].map((size) => (
+                        {/* Dropdown Menu */}
+                        {isMenuOpen && (
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    right: 0,
+                                    marginTop: '4px',
+                                    backgroundColor: '#ffffff',
+                                    border: '1px solid #e0e0e0',
+                                    borderRadius: '4px',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                    zIndex: 1000,
+                                    minWidth: '160px',
+                                    padding: '4px 0',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {/* 1. Open Item Modal */}
                                 <button
-                                    key={size}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         e.preventDefault();
-                                        handleSizeChange(size, e);
+                                        setIsModalOpen(true);
+                                        setIsMenuOpen(false);
                                     }}
                                     style={{
-                                        padding: (currentSize === 'S' || currentSize === 'D') ? '2px 4px' : '3px 6px',
-                                        fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                        fontWeight: currentSize === size ? 'bold' : 'normal',
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        textAlign: 'left',
+                                        backgroundColor: 'transparent',
+                                        border: 'none',
                                         cursor: 'pointer',
-                                        backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                        color: currentSize === size ? '#fff' : '#333',
-                                        border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
-                                        borderRadius: '3px',
-                                        minWidth: (currentSize === 'S' || currentSize === 'D') ? '25px' : '30px',
-                                        flex: '1 1 0',
-                                        transition: 'all 0.2s',
+                                        fontSize: '13px',
+                                        color: '#333',
+                                        transition: 'background-color 0.2s',
                                     }}
                                     onMouseEnter={(e) => {
-                                        if (currentSize !== size) {
-                                            e.target.style.backgroundColor = '#e0e0e0';
-                                        }
+                                        e.target.style.backgroundColor = '#f5f5f5';
                                     }}
                                     onMouseLeave={(e) => {
-                                        if (currentSize !== size) {
-                                            e.target.style.backgroundColor = '#f0f0f0';
-                                        }
+                                        e.target.style.backgroundColor = 'transparent';
                                     }}
                                 >
-                                    {size}
+                                    Open Item Modal
                                 </button>
-                            ))}
-                        </div>
 
-                        {/* Photo only | Full | Request price row */}
-                        <div
-                            style={{
-                                display: 'flex',
-                                gap: '4px',
-                                alignItems: 'center',
-                                pointerEvents: 'auto',
-                            }}
-                        >
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    // Toggle between photo_only and full
-                                    const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
-                                    updateLayout(item.id, { displayMode: newMode });
-                                    setIsExpanded(newMode !== 'photo_only');
-                                    setTimeout(() => {
-                                        if (onLayoutChanged) {
-                                            onLayoutChanged({
-                                                id: item.id,
-                                                x: item.x,
-                                                y: item.y,
-                                                width: item.width,
-                                                height: item.height,
-                                                displayMode: newMode,
-                                            });
-                                        }
-                                    }, 350);
-                                }}
-                                style={{
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: item.displayMode === 'photo_only' ? 'bold' : 'normal',
-                                    cursor: 'pointer',
-                                    backgroundColor: item.displayMode === 'photo_only' ? '#0073aa' : 'transparent',
-                                    color: item.displayMode === 'photo_only' ? '#fff' : '#666',
-                                    border: `1px solid ${item.displayMode === 'photo_only' ? '#0073aa' : '#ddd'}`,
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                }}
-                            >
-                                Photo only
-                            </button>
-                            <span style={{ color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' }}>|</span>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    // Commit 1.3.8: Open item detail modal
-                                    setIsModalOpen(true);
-                                }}
-                                style={{
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: 'normal',
-                                    cursor: 'pointer',
-                                    backgroundColor: 'transparent',
-                                    color: '#666',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.target.style.backgroundColor = '#f0f0f0';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.target.style.backgroundColor = 'transparent';
-                                }}
-                            >
-                                Full
-                            </button>
-                            <span style={{ color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' }}>|</span>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    setPriceRequested(true);
-                                }}
-                                disabled={priceRequested}
-                                style={{
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: 'normal',
-                                    cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                    backgroundColor: priceRequested ? '#ccc' : 'transparent',
-                                    color: priceRequested ? '#999' : '#666',
-                                    border: `1px solid ${priceRequested ? '#ccc' : '#ddd'}`,
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                }}
-                            >
-                                {priceRequested ? 'Price Requested' : 'Request price'}
-                            </button>
-                        </div>
+                                {/* 2. Resize Card */}
+                                <div
+                                    style={{
+                                        borderTop: '1px solid #e0e0e0',
+                                        padding: '4px 0',
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            padding: '6px 12px',
+                                            fontSize: '11px',
+                                            color: '#999',
+                                            textTransform: 'uppercase',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        Resize Card
+                                    </div>
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            gap: '4px',
+                                            padding: '4px 8px',
+                                        }}
+                                    >
+                                        {['S', 'D', 'L', 'XL'].map((size) => (
+                                            <button
+                                                key={size}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    e.preventDefault();
+                                                    handleSizeChange(size, e);
+                                                    setIsMenuOpen(false);
+                                                }}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '4px 6px',
+                                                    fontSize: '11px',
+                                                    fontWeight: currentSize === size ? 'bold' : 'normal',
+                                                    cursor: 'pointer',
+                                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
+                                                    color: currentSize === size ? '#fff' : '#333',
+                                                    border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
+                                                    borderRadius: '3px',
+                                                    transition: 'all 0.2s',
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    if (currentSize !== size) {
+                                                        e.target.style.backgroundColor = '#e0e0e0';
+                                                    }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    if (currentSize !== size) {
+                                                        e.target.style.backgroundColor = '#f0f0f0';
+                                                    }
+                                                }}
+                                            >
+                                                {size}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                              
+                            </div>
+                        )}
                     </div>
+                </div>
                 )}
+                </div>
+
+                {/* Status Strip - 25% of card - Only show when not in photo_only mode */}
+               
             </div>
             
             {/* Commit 1.3.8: Item Detail Modal */}

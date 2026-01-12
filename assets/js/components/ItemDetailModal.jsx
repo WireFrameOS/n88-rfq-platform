@@ -1377,6 +1377,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     has_rfq: data.data.has_rfq || false,
                     has_bids: data.data.has_bids || false,
                     bids: data.data.bids || [],
+                    rfq_revision_current: data.data.rfq_revision_current || null,
+                    revision_changed: data.data.revision_changed || false,
                     loading: false,
                 });
             } else {
@@ -2507,18 +2509,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             }}
                                         >
                                             <option value="">-- Select Category --</option>
-                                            <option value="Indoor Furniture">Indoor Furniture</option>
-                                            <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                            <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                            <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                            <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                            <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                            <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                            <option value="Outdoor Seating">Outdoor Seating</option>
-                                            <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                            <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                            <option value="Pool Furniture">Pool Furniture</option>
-                                            <option value="Lighting">Lighting</option>
+                                                <option value="Indoor Furniture">Indoor Furniture</option>
+                                                <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                                <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                                <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                                <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                                <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                                <option value="Outdoor Seating">Outdoor Seating</option>
+                                                <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                                <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                                <option value="Pool Furniture">Pool Furniture</option>
+                                                <option value="Lighting">Lighting</option>
                                             <option value="Decorative Lighting">Decorative Lighting</option>
                                             <option value="Architectural Lighting">Architectural Lighting</option>
                                             <option value="Electrical / LED Components">Electrical / LED Components</option>
@@ -2547,8 +2549,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             <option value="Screens / Louvers">Screens / Louvers</option>
                                             <option value="Pergola / Shade Components">Pergola / Shade Components</option>
                                             <option value="Facade Materials">Facade Materials</option>
-                                            <option value="Material Sample Kit">Material Sample Kit</option>
-                                            <option value="Fabric Sample">Fabric Sample</option>
+                                                <option value="Material Sample Kit">Material Sample Kit</option>
+                                                <option value="Fabric Sample">Fabric Sample</option>
                                             <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
                                         </select>
                                     </div>
@@ -2827,12 +2829,141 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             </div>
                             )}
                             
-                            {/* Request Quote Button / RFQ Form */}
+                            {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
                             {/* Commit 2.3.5.3: Ensure Request Quote is visible without scrolling */}
                             {/* Request Quote section - Hidden in State C (only bid tab shown) */}
+                            {/* D5: Show Specs Updated panel if revision_changed and has_rfq, otherwise show RFQ form */}
                             {currentState === 'A' && (
                                 <div id="request-quote-section" style={{ marginBottom: '24px' }}>
-                                    {!showRfqForm ? (
+                                    {/* D5: Specs Updated Panel - Show when revision_changed=true and has_rfq=true */}
+                                    {(itemState.revision_changed === true || item.revision_changed === true) && itemState.has_rfq === true ? (
+                                        <div style={{
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px',
+                                            padding: '16px',
+                                            backgroundColor: '#111111',
+                                        }}>
+                                            {/* Title */}
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: darkText }}>
+                                                Specs Updated
+                                            </div>
+                                            
+                                            {/* Message */}
+                                            <div style={{ fontSize: '12px', color: darkText, marginBottom: '16px', lineHeight: '1.5' }}>
+                                                Suppliers have been notified to update bids to match the new specs.
+                                            </div>
+                                            
+                                            {/* Current Dimensions and Quantity (read-only) */}
+                                            <div style={{ marginBottom: '16px' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                    Current Specifications
+                                                </div>
+                                                
+                                                {/* Dimensions */}
+                                                <div style={{ marginBottom: '8px' }}>
+                                                    <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px' }}>
+                                                        Dimensions
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: darkText, fontFamily: 'monospace' }}>
+                                                        {width && depth && height ? `${width} × ${depth} × ${height} ${unit}` : 'Not specified'}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Quantity */}
+                                                <div style={{ marginBottom: '8px' }}>
+                                                    <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px' }}>
+                                                        Quantity
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: darkText, fontFamily: 'monospace' }}>
+                                                        {quantity || 'Not specified'}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Revision Label */}
+                                                {(itemState.rfq_revision_current || item.rfq_revision_current || item.meta?.rfq_revision_current) && (
+                                                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#999' }}>
+                                                        Revision {itemState.rfq_revision_current || item.rfq_revision_current || item.meta?.rfq_revision_current}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Bids Area */}
+                                            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${darkBorder}` }}>
+                                                {/* Filter bids by revision */}
+                                                {(() => {
+                                                    const currentRevision = itemState.rfq_revision_current || item.rfq_revision_current || item.meta?.rfq_revision_current || null;
+                                                    const currentBids = itemState.bids.filter(bid => {
+                                                        if (bid.status !== 'submitted') return false;
+                                                        if (currentRevision !== null) {
+                                                            const bidRevision = bid.rfq_revision_at_submit || bid.meta?.rfq_revision_at_submit;
+                                                            return bidRevision === currentRevision;
+                                                        }
+                                                        return true; // If no revision tracking, show all submitted bids
+                                                    });
+                                                    const outdatedBids = itemState.bids.filter(bid => {
+                                                        if (bid.status !== 'submitted') return false;
+                                                        if (currentRevision !== null) {
+                                                            const bidRevision = bid.rfq_revision_at_submit || bid.meta?.rfq_revision_at_submit;
+                                                            return bidRevision !== currentRevision && bidRevision !== null;
+                                                        }
+                                                        return false;
+                                                    });
+                                                    
+                                                    return (
+                                                        <>
+                                                            {/* Current Revision Bids */}
+                                                            {currentBids.length > 0 ? (
+                                                                <div style={{ marginBottom: '12px' }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                                        Current Bids (Revision {currentRevision || 'N/A'})
+                                                                    </div>
+                                                                    <BidComparisonMatrix 
+                                                                        bids={currentBids}
+                                                                        darkBorder={darkBorder}
+                                                                        greenAccent={greenAccent}
+                                                                        darkText={darkText}
+                                                                        darkBg={darkBg}
+                                                                        onImageClick={setLightboxImage}
+                                                                        smartAlternativesEnabled={smartAlternativesEnabled}
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ 
+                                                                    padding: '12px',
+                                                                    backgroundColor: '#1a1a1a',
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    fontSize: '12px',
+                                                                    color: darkText,
+                                                                    textAlign: 'center',
+                                                                }}>
+                                                                    Waiting for updated bids (Revision {currentRevision || 'N/A'})
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {/* Outdated Bids */}
+                                                            {outdatedBids.length > 0 && (
+                                                                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#999' }}>
+                                                                        Outdated Bids (previous specs)
+                                                                    </div>
+                                                                    <BidComparisonMatrix 
+                                                                        bids={outdatedBids}
+                                                                        darkBorder={darkBorder}
+                                                                        greenAccent={greenAccent}
+                                                                        darkText={darkText}
+                                                                        darkBg={darkBg}
+                                                                        onImageClick={setLightboxImage}
+                                                                        smartAlternativesEnabled={smartAlternativesEnabled}
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    ) : !showRfqForm ? (
                                         <button
                                             onClick={() => setShowRfqForm(true)}
                                         style={{

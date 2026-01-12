@@ -61,24 +61,27 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
         <>
             <div
                 style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100vw',
-                    height: '100vh',
-                    overflow: 'hidden',
+                    position: 'relative',
+                    width: '100%',
+                    minHeight: '100%',
+                    height: '100%',
                     backgroundColor: '#f5f5f5',
                     zIndex: 1, // Lower than modal (20000) to ensure modal appears on top
+                    padding: '20px',
                 }}
             >
-                {items.map((item) => (
-                    <BoardItem
-                        key={item.id}
-                        item={item}
-                        onLayoutChanged={handleLayoutChanged}
-                        boardId={boardId}
-                    />
-                ))}
+                {items && items.length > 0 ? (
+                    items.map((item) => (
+                        <BoardItem
+                            key={item.id}
+                            item={item}
+                            onLayoutChanged={handleLayoutChanged}
+                            boardId={boardId}
+                        />
+                    ))
+                ) : (
+                    <div style={{ padding: '20px', color: '#666' }}>No items on board</div>
+                )}
                 {/* Concierge Overlay - read-only, non-blocking */}
                 <ConciergeOverlay concierge={concierge} />
             </div>

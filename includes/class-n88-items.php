@@ -1552,6 +1552,100 @@ class N88_Items {
             }
         }
         
+        // D2) Revision Increment Logic: If RFQ exists and dims/quantity changed, increment revision
+        $revision_incremented = false;
+        $new_revision = null;
+        if ( $has_rfq && ! empty( $changed_fields ) ) {
+            // Check if dims or quantity changed (these trigger revision increment)
+            $specs_changed = in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true );
+            
+            if ( $specs_changed ) {
+                // Get current revision from meta (default to 1 if not set)
+                $current_revision = isset( $meta['rfq_revision_current'] ) ? intval( $meta['rfq_revision_current'] ) : 1;
+                
+                // Increment revision
+                $new_revision = $current_revision + 1;
+                $meta['rfq_revision_current'] = $new_revision;
+                $revision_incremented = true;
+                
+                // Set revision_changed flag to true
+                $meta['revision_changed'] = true;
+                
+                error_log( 'Item Facts Save - Revision incremented for item ' . $item_id . ' from ' . $current_revision . ' to ' . $new_revision );
+                
+                // Mark existing bids as stale (bids with older revision or no revision)
+                $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                
+                if ( $has_revision_column ) {
+                    // Update bids where rfq_revision_at_submit < new_revision OR is NULL
+                    $stale_bids_updated = $wpdb->query( $wpdb->prepare(
+                        "UPDATE {$item_bids_table} 
+                        SET rfq_revision_at_submit = NULL 
+                        WHERE item_id = %d 
+                        AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)",
+                        $item_id,
+                        $new_revision
+                    ) );
+                    
+                    if ( $stale_bids_updated !== false ) {
+                        error_log( 'Item Facts Save - Marked ' . $stale_bids_updated . ' stale bid(s) for item ' . $item_id );
+                    }
+                }
+                
+                // Get supplier IDs from RFQ routes for this item
+                $supplier_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT supplier_id FROM {$rfq_routes_table} 
+                    WHERE item_id = %d 
+                    AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                    $item_id
+                ) );
+                
+                // Send notifications to suppliers about spec changes
+                if ( ! empty( $supplier_ids ) ) {
+                    // Get item title for notification
+                    $item_title = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT title FROM {$items_table} WHERE id = %d",
+                        $item_id
+                    ) );
+                    $item_title = $item_title ? $item_title : 'Item #' . $item_id;
+                    
+                    // Get board_id from board_items table if available (for notification project_id)
+                    $board_items_table = $wpdb->prefix . 'n88_board_items';
+                    $board_id_for_notification = $board_id > 0 ? $board_id : $wpdb->get_var( $wpdb->prepare(
+                        "SELECT board_id FROM {$board_items_table} 
+                        WHERE item_id = %d AND removed_at IS NULL 
+                        LIMIT 1",
+                        $item_id
+                    ) );
+                    $board_id_for_notification = $board_id_for_notification ? intval( $board_id_for_notification ) : 0;
+                    
+                    // Send notification to each supplier
+                    foreach ( $supplier_ids as $supplier_id ) {
+                        // Create in-app notification
+                        if ( class_exists( 'N88_RFQ_Notifications' ) ) {
+                            $notification_message = sprintf( 
+                                'Specifications changed for item: %s. Please review the updated requirements.',
+                                $item_title
+                            );
+                            
+                            // Use board_id as project_id for notification system
+                            N88_RFQ_Notifications::create_notification(
+                                $board_id_for_notification, // project_id (using board_id)
+                                $supplier_id,
+                                'specs_changed',
+                                $notification_message,
+                                $item_id
+                            );
+                            
+                            error_log( 'Item Facts Save - Sent specs_changed notification to supplier ' . $supplier_id . ' for item ' . $item_id . ' (board_id: ' . $board_id_for_notification . ')' );
+                        }
+                    }
+                }
+            }
+        }
+        
         // Update meta_json
         $meta_json_encoded = wp_json_encode( $meta );
         $update_data['meta_json'] = $meta_json_encoded;

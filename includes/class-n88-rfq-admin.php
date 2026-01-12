@@ -3434,6 +3434,73 @@ class N88_RFQ_Admin {
                         $item_delivery_postal = isset( $item_meta['delivery_postal'] ) ? sanitize_text_field( $item_meta['delivery_postal'] ) : '';
                         $item_smart_alternatives = isset( $item_meta['smart_alternatives'] ) ? (bool) $item_meta['smart_alternatives'] : null;
                         
+                        // Check RFQ status
+                        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+                        $has_rfq = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                             WHERE item_id = %d 
+                             AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                            $item_id
+                        ) ) > 0;
+                        
+                        // Get current RFQ revision from item meta
+                        $rfq_revision_current = isset( $item_meta['rfq_revision_current'] ) ? $item_meta['rfq_revision_current'] : null;
+                        
+                        // Check bid count - only count valid bids (status = 'submitted' and matching current revision)
+                        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                        $valid_bid_count = 0;
+                        
+                        if ( $rfq_revision_current !== null ) {
+                            // Count bids matching current revision
+                            // Check if bids table has rfq_revision_at_submit column
+                            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                            
+                            if ( $has_revision_column ) {
+                                $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'
+                                     AND rfq_revision_at_submit = %s",
+                                    $item_id,
+                                    $rfq_revision_current
+                                ) ) );
+                            } else {
+                                // Fallback: count all submitted bids if revision column doesn't exist
+                                $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'",
+                                    $item_id
+                                ) ) );
+                            }
+                        } else {
+                            // No revision tracking - count all submitted bids
+                            $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(*) FROM {$item_bids_table} 
+                                 WHERE item_id = %d 
+                                 AND status = 'submitted'",
+                                $item_id
+                            ) ) );
+                        }
+                        
+                        $bid_count = $valid_bid_count; // For backward compatibility
+                        $has_bids = $valid_bid_count > 0;
+                        
+                        // Check if revision changed (dimensions/quantity changed after RFQ)
+                        $revision_changed = false;
+                        if ( $has_rfq && isset( $item_meta['revision_changed'] ) ) {
+                            $revision_changed = (bool) $item_meta['revision_changed'];
+                        }
+                        
+                        // Check award_set from item meta or status
+                        $award_set = false;
+                        if ( isset( $item_meta['award_set'] ) ) {
+                            $award_set = (bool) $item_meta['award_set'];
+                        } else if ( isset( $board_item->status ) && $board_item->status === 'awarded' ) {
+                            $award_set = true;
+                        }
+                        
                         $items[] = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
@@ -3460,6 +3527,15 @@ class N88_RFQ_Admin {
                             'delivery_country' => $item_delivery_country,
                             'delivery_postal' => $item_delivery_postal,
                             'smart_alternatives' => $item_smart_alternatives,
+                            // RFQ and bid status fields
+                            'has_rfq' => $has_rfq,
+                            'has_bids' => $has_bids,
+                            'bid_count' => $bid_count,
+                            'bids_count' => $bid_count,
+                            'valid_bid_count' => $valid_bid_count,
+                            'rfq_revision_current' => $rfq_revision_current,
+                            'revision_changed' => $revision_changed,
+                            'award_set' => $award_set,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -3508,30 +3584,94 @@ class N88_RFQ_Admin {
                         $item_delivery_postal = isset( $item_meta['delivery_postal'] ) ? sanitize_text_field( $item_meta['delivery_postal'] ) : '';
                         $item_smart_alternatives = isset( $item_meta['smart_alternatives'] ) ? (bool) $item_meta['smart_alternatives'] : null;
                         
-                        // Calculate position for new items - arrange in grid within canvas bounds
-                        // Canvas is typically 1200px wide, arrange items in rows
-                        $items_per_row = 4; // 4 items per row
-                        $item_spacing = 20; // Space between items
-                        $start_x = 50;
-                        $start_y = 50;
-                        $current_index = count( $items ); // Index of this new item
-                        $row = intval( $current_index / $items_per_row );
-                        $col = $current_index % $items_per_row;
+                        // Check RFQ status
+                        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+                        $has_rfq = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                             WHERE item_id = %d 
+                             AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                            $item_id
+                        ) ) > 0;
                         
-                        // Calculate position based on item size
+                        // Get current RFQ revision from item meta
+                        $rfq_revision_current = isset( $item_meta['rfq_revision_current'] ) ? $item_meta['rfq_revision_current'] : null;
+                        
+                        // Check bid count - only count valid bids (status = 'submitted' and matching current revision)
+                        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                        $valid_bid_count = 0;
+                        
+                        if ( $rfq_revision_current !== null ) {
+                            // Count bids matching current revision
+                            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                            
+                            if ( $has_revision_column ) {
+                                $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'
+                                     AND rfq_revision_at_submit = %s",
+                                    $item_id,
+                                    $rfq_revision_current
+                                ) ) );
+                            } else {
+                                $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'",
+                                    $item_id
+                                ) ) );
+                            }
+                        } else {
+                            $valid_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(*) FROM {$item_bids_table} 
+                                 WHERE item_id = %d 
+                                 AND status = 'submitted'",
+                                $item_id
+                            ) ) );
+                        }
+                        
+                        $bid_count = $valid_bid_count;
+                        $has_bids = $valid_bid_count > 0;
+                        
+                        // Check if revision changed
+                        $revision_changed = false;
+                        if ( $has_rfq && isset( $item_meta['revision_changed'] ) ) {
+                            $revision_changed = (bool) $item_meta['revision_changed'];
+                        }
+                        
+                        // Check award_set from item meta or status
+                        $award_set = false;
+                        if ( isset( $item_meta['award_set'] ) ) {
+                            $award_set = (bool) $item_meta['award_set'];
+                        } else if ( isset( $board_item->status ) && $board_item->status === 'awarded' ) {
+                            $award_set = true;
+                        }
+                        
+                        // Calculate position for new items - arrange in grid side-by-side
+                        // Items will be arranged horizontally, wrapping to new rows as needed
+                        $item_spacing = 20; // Space between items
+                        $start_x = 20;
+                        $start_y = 20;
+                        $current_index = count( $items ); // Index of this new item
+                        
+                        // Calculate position based on actual item size
                         $item_width_for_spacing = $CARD_SIZES[ $default_size ]['w'];
                         $item_height_for_spacing = $CARD_SIZES[ $default_size ]['h'];
                         
-                        // Position calculation: ensure items stay within canvas (max width ~1200px)
-                        $max_item_width = max( array_column( $CARD_SIZES, 'w' ) ); // Get max width (XL: 360)
-                        $available_width = 1200 - ( $start_x * 2 ); // Canvas width minus margins
-                        $items_per_row_calc = max( 1, floor( ( $available_width + $item_spacing ) / ( $max_item_width + $item_spacing ) ) );
+                        // Calculate how many items can fit per row based on viewport width
+                        // Use a reasonable viewport width (e.g., 1400px) for initial calculation
+                        // Items will extend horizontally and scroll
+                        $viewport_width = 1400; // Approximate viewport width
+                        $available_width = $viewport_width - ( $start_x * 2 );
+                        $items_per_row_calc = max( 1, floor( ( $available_width + $item_spacing ) / ( $item_width_for_spacing + $item_spacing ) ) );
                         
-                        // Recalculate row/col with actual canvas constraints
+                        // Calculate row and column for this item
                         $row = intval( $current_index / $items_per_row_calc );
                         $col = $current_index % $items_per_row_calc;
                         
-                        $item_x = $start_x + ( $col * ( $max_item_width + $item_spacing ) );
+                        // Position items side-by-side in grid
+                        $item_x = $start_x + ( $col * ( $item_width_for_spacing + $item_spacing ) );
                         $item_y = $start_y + ( $row * ( $item_height_for_spacing + $item_spacing ) );
                         
                         $items[] = array(
@@ -3560,6 +3700,15 @@ class N88_RFQ_Admin {
                             'delivery_country' => $item_delivery_country,
                             'delivery_postal' => $item_delivery_postal,
                             'smart_alternatives' => $item_smart_alternatives,
+                            // RFQ and bid status fields
+                            'has_rfq' => $has_rfq,
+                            'has_bids' => $has_bids,
+                            'bid_count' => $bid_count,
+                            'bids_count' => $bid_count,
+                            'valid_bid_count' => $valid_bid_count,
+                            'rfq_revision_current' => $rfq_revision_current,
+                            'revision_changed' => $revision_changed,
+                            'award_set' => $award_set,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -3661,20 +3810,160 @@ class N88_RFQ_Admin {
             'nonce' => wp_create_nonce( 'n88_get_item_rfq_state' ),
         ) );
         ?>
+        <style>
+            /* Hide sidebar menu for designer board page */
+            body.n88-board-page #adminmenuwrap,
+            body.n88-board-page #adminmenuback,
+            body.n88-board-page #adminmenu {
+                display: none !important;
+            }
+            
+            body.n88-board-page #wpcontent {
+                margin-left: 0px !important;
+            }
+            #wpcontent{
+                margin-left: 0px !important;
+            }
+            /* Prevent body scrolling - board is fixed workspace */
+            body.n88-board-page {
+                overflow: hidden !important;
+                height: 100vh !important;
+            }
+            
+            /* Remove page scrollbar - only canvas should scroll */
+            body.n88-board-page #wpcontent,
+            body.n88-board-page #wpbody-content,
+            body.n88-board-page .wrap {
+                overflow: hidden !important;
+                height: 100vh !important;
+            }
+            
+            /* Sticky header */
+            #n88-board-header {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background-color: #fff;
+                z-index: 1000;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            
+            /* Board canvas container - relative positioning with proper scrolling */
+            #n88-board-canvas-container {
+                position: relative !important;
+                top: 160px !important;
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                background-color: #f5f5f5 !important;
+                z-index: 1 !important;
+                width: 100% !important;
+                height: calc(100vh - 200px) !important;
+                scroll-behavior: smooth !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
+            
+            /* Board canvas root - expands to fit all items */
+            #n88-board-demo-root {
+                position: relative !important;
+                min-width: 100% !important;
+                min-height: 100% !important;
+                width: 100% !important;
+                height: 100% !important;
+                overflow: visible !important;
+                display: block !important;
+            }
+            
+            /* Ensure the React-rendered canvas div is visible */
+            #n88-board-demo-root > div {
+                position: relative !important;
+                overflow: visible !important;
+                width: 100% !important;
+                min-height: 100% !important;
+                height: 100% !important;
+                display: block !important;
+                visibility: visible !important;
+            }
+            
+            /* Prevent page scroll when interacting with board items */
+            #n88-board-canvas-container * {
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* Prevent body scroll when clicking items */
+            body.n88-board-page {
+                overflow-y: auto !important;
+            }
+            
+            /* Prevent auto-scroll on item click - items should not cause page scroll */
+            #n88-board-demo-root [style*="position: absolute"],
+            #n88-board-demo-root [style*="position:absolute"] {
+                touch-action: none;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            
+            /* Ensure items are part of canvas and don't trigger page scroll */
+            #n88-board-canvas-container {
+                contain: layout style paint;
+            }
+        </style>
+        
         <div class="wrap">
+            <!-- Sticky Header -->
+            <div id="n88-board-header">
             <!-- Top Bar -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #ddd; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #ddd;">
                 <div style="font-size: 16px; font-weight: 500; color: #333;">
-                    NorthEightyEight / Workspace
+                        WireFrame OS / Workspace
                 </div>
                 <div style="position: relative;">
                     <div id="n88-profile-dropdown-trigger" style="font-size: 14px; color: #666; cursor: pointer; padding: 6px 12px; border-radius: 4px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f0f0f0';" onmouseout="this.style.backgroundColor='transparent';">
                         <?php echo esc_html( $current_user->display_name ); ?> ▼
                     </div>
-                    <div id="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); min-width: 150px; z-index: 1000;">
+                        <div id="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); min-width: 150px; z-index: 1001;">
                         <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="display: block; padding: 10px 16px; color: #dc3545; text-decoration: none; font-size: 14px;" onmouseover="this.style.backgroundColor='#f8f8f8';" onmouseout="this.style.backgroundColor='transparent';">
                             Logout
                         </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tabs -->
+                <div style="padding: 10px 20px; border-bottom: 1px solid #ddd;">
+                    <span style="margin-right: 10px; padding: 8px 15px; background-color: #0073aa; color: #fff; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                        My Board
+                    </span>
+                    <span style="margin-right: 10px; padding: 8px 15px; background-color: #f0f0f0; color: #666; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                        Firm Board (View-Only)
+                    </span>
+                </div>
+                
+                <!-- Controls Row -->
+                <div style="display: flex; align-items: center; gap: 20px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 14px; color: #666;">Project:</span>
+                        <select id="n88-project-selector" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px; cursor: pointer;">
+                            <option value="">Select Project</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                        <span style="font-size: 14px; color: #666;">Search:</span>
+                        <input type="text" id="n88-board-search" placeholder="Search items…" style="flex: 1; max-width: 400px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
+                            + Create Project
+                        </button>
+                        <?php if ( $is_real_board ) : ?>
+                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
+                               style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
+                                + Add Item
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -3697,37 +3986,165 @@ class N88_RFQ_Admin {
                         }
                     });
                 }
+                
+                // Create Project button - UI only (no functionality in 2.3.7)
+                var createProjectBtn = document.getElementById('n88-create-project-btn');
+                if (createProjectBtn) {
+                    createProjectBtn.addEventListener('click', function() {
+                        alert('Create Project functionality will be available in a future update.');
+                    });
+                }
+                
+                // Add body class to prevent scrolling
+                if (document.body) {
+                    document.body.classList.add('n88-board-page');
+                }
+                
+                // SIMPLE: Just prevent focus from causing scroll - this is the main issue
+                var canvasContainer = document.getElementById('n88-board-canvas-container');
+                if (canvasContainer) {
+                    // CRITICAL: Prevent focus from scrolling - buttons/inputs cause scroll jumps
+                    canvasContainer.addEventListener('focusin', function(e) {
+                        // Prevent any focus from causing scroll
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, true);
+                    
+                    // Prevent wheel events from scrolling page when over canvas
+                    canvasContainer.addEventListener('wheel', function(e) {
+                        var isAtTop = canvasContainer.scrollTop <= 0;
+                        var isAtBottom = canvasContainer.scrollTop >= canvasContainer.scrollHeight - canvasContainer.clientHeight - 1;
+                        
+                        if (!isAtTop && !isAtBottom) {
+                            e.stopPropagation();
+                        }
+                    }, { passive: false });
+                }
+                
+                // Completely disable page scroll - only canvas should scroll
+                window.addEventListener('scroll', function(e) {
+                    // Prevent page scroll, only allow canvas scroll
+                    if (window.pageYOffset > 0) {
+                        window.scrollTo(0, 0);
+                    }
+                }, { passive: false });
+                
+                // Lock page scroll on load
+                setTimeout(function() {
+                    window.scrollTo(0, 0);
+                    document.documentElement.scrollTop = 0;
+                    document.body.scrollTop = 0;
+                }, 100);
             })();
             </script>
             
-            <!-- Tabs -->
-            <div style="margin-bottom: 20px;">
-                <span style="margin-right: 10px; padding: 8px 15px; background-color: #0073aa; color: #fff; border-radius: 4px; font-size: 14px; cursor: pointer;">
-                    My Board
-                </span>
-                <span style="margin-right: 10px; padding: 8px 15px; background-color: #f0f0f0; color: #666; border-radius: 4px; font-size: 14px; cursor: pointer;">
-                    Firm Board (View-Only)
-                </span>
+            <!-- Board Canvas Container - Fixed height, horizontal scroll only -->
+            <div id="n88-board-canvas-container">
+                <div id="n88-board-demo-root"></div>
             </div>
             
-            <!-- Board Mode and Search -->
-            <div style="display: flex; align-items: center; gap: 30px; margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 4px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 14px; color: #666;">Board Mode:</span>
-                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 14px;">
-                        <input type="radio" name="board_mode" value="furniture" checked style="cursor: pointer;">
-                        <span>Furniture</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 14px; margin-left: 15px;">
-                        <input type="radio" name="board_mode" value="global_sourcing" style="cursor: pointer;">
-                        <span>Global Sourcing</span>
-                    </label>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 14px; color: #666;">Search:</span>
-                    <input type="text" placeholder="Search items..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 250px;">
-                </div>
-            </div>
+            <script>
+            // Ensure board container expands to fit all items horizontally
+            (function() {
+                function updateBoardContainerWidth() {
+                    var container = document.getElementById('n88-board-canvas-container');
+                    var root = document.getElementById('n88-board-demo-root');
+                    if (!container || !root) {
+                        console.log('Board container or root not found');
+                        return;
+                    }
+                    
+                    // Wait for items to render, then calculate max width
+                    setTimeout(function() {
+                        // Try multiple selectors to find items
+                        var items = root.querySelectorAll('[style*="position: absolute"], [style*="position:absolute"]');
+                        if (items.length === 0) {
+                            // Try finding items by checking all children
+                            var allChildren = root.querySelectorAll('*');
+                            items = Array.from(allChildren).filter(function(el) {
+                                var style = window.getComputedStyle(el);
+                                return style.position === 'absolute';
+                            });
+                        }
+                        
+                        console.log('Found items for width calculation:', items.length);
+                        
+                        var maxX = 0;
+                        var maxY = 0;
+                        
+                        items.forEach(function(item) {
+                            var style = window.getComputedStyle(item);
+                            var left = parseFloat(style.left) || 0;
+                            var top = parseFloat(style.top) || 0;
+                            var width = parseFloat(style.width) || 0;
+                            var height = parseFloat(style.height) || 0;
+                            var totalX = left + width;
+                            var totalY = top + height;
+                            if (totalX > maxX) {
+                                maxX = totalX;
+                            }
+                            if (totalY > maxY) {
+                                maxY = totalY;
+                            }
+                        });
+                        
+                        // Set minimum width and height to accommodate all items with padding
+                        if (maxX > 0) {
+                            root.style.minWidth = Math.max(maxX + 100, window.innerWidth) + 'px';
+                            console.log('Set root minWidth to:', root.style.minWidth);
+                        }
+                        if (maxY > 0) {
+                            root.style.minHeight = Math.max(maxY + 100, window.innerHeight - 200) + 'px';
+                            console.log('Set root minHeight to:', root.style.minHeight);
+                        }
+                    }, 1500); // Wait 1.5 seconds for React to render items
+                }
+                
+                // Run on load and after a delay to catch React-rendered items
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', updateBoardContainerWidth);
+                } else {
+                    updateBoardContainerWidth();
+                }
+                
+                // Also run after React renders (check periodically)
+                var checkInterval = setInterval(function() {
+                    var root = document.getElementById('n88-board-demo-root');
+                    var container = document.getElementById('n88-board-canvas-container');
+                    if (root && container) {
+                        var hasChildren = root.children.length > 0;
+                        var hasAbsoluteItems = root.querySelectorAll('[style*="position: absolute"], [style*="position:absolute"], [style*="transform"]').length > 0;
+                        
+                        console.log('Checking board render - children:', root.children.length, 'absolute items:', hasAbsoluteItems);
+                        
+                        if (hasChildren || hasAbsoluteItems) {
+                            updateBoardContainerWidth();
+                            clearInterval(checkInterval);
+                            
+                            // Debug: Log container and root dimensions
+                            console.log('Container dimensions:', {
+                                width: container.offsetWidth,
+                                height: container.offsetHeight,
+                                scrollWidth: container.scrollWidth,
+                                scrollHeight: container.scrollHeight
+                            });
+                            console.log('Root dimensions:', {
+                                width: root.offsetWidth,
+                                height: root.offsetHeight,
+                                scrollWidth: root.scrollWidth,
+                                scrollHeight: root.scrollHeight
+                            });
+                        }
+                    }
+                }, 500);
+                
+                // Clear interval after 15 seconds
+                setTimeout(function() {
+                    clearInterval(checkInterval);
+                }, 15000);
+                
+            })();
+            </script>
             
             <?php if ( isset( $_GET['item_added'] ) && $_GET['item_added'] == '1' ) : ?>
                 <div id="n88-item-added-toast" class="notice notice-success is-dismissible" style="margin: 20px 0; position: relative;">
@@ -3754,16 +4171,10 @@ class N88_RFQ_Admin {
                 </script>
             <?php endif; ?>
             
-            <?php if ( $is_real_board ) : ?>
-                <div style="margin-bottom: 20px;">
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
-                       class="button" 
-                       style="background-color: #000; color: #fff; padding: 8px 16px; text-decoration: none; border: none; cursor: pointer; border-radius: 4px; font-size: 14px; display: inline-block;">
-                        + Add Item
-                    </a>
-                </div>
-            <?php endif; ?>
+            <!-- Board Canvas Container - Fixed height, horizontal scroll only -->
+            <div id="n88-board-canvas-container">
             <div id="n88-board-demo-root"></div>
+            </div>
             <div id="n88-board-demo-debug" style="position: fixed; bottom: 10px; right: 10px; background: #fff; padding: 10px; border: 1px solid #ccc; z-index: 9999; font-size: 12px; max-width: 300px;">
                 <div>Loading...</div>
             </div>
@@ -4682,7 +5093,7 @@ class N88_RFQ_Admin {
         })();
         </script>
         <script>
-        (function() {
+        (function() { 
             function updateDebug(msg) {
                 const debugEl = document.getElementById('n88-board-demo-debug');
                 if (debugEl) debugEl.innerHTML = '<div>' + msg + '</div>';
@@ -4763,6 +5174,11 @@ class N88_RFQ_Admin {
             }
 
             function initBoard() {
+                // Prevent multiple initialization attempts
+                if (window._n88BoardInitialized) {
+                    return true;
+                }
+                
                 // Check all dependencies
                 if (typeof window.React === 'undefined') {
                     updateDebug('Waiting for React...');
@@ -5051,6 +5467,117 @@ class N88_RFQ_Admin {
                     // Use item.z as base, but add extra boost for XL and L sizes
                     var calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
 
+                    // Calculate item status based on available data
+                    var getItemStatus = function() {
+                        // Priority 1: Check if item has award_set (In Production) - This is the ONLY condition
+                        if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
+                            return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+                        }
+                        
+                        // Get valid bid count - only bids with status = 'submitted' and matching current revision
+                        // For now, we'll use bid_count from backend which should already filter valid bids
+                        var validBidCount = 0;
+                        if (item.valid_bid_count !== undefined && item.valid_bid_count !== null) {
+                            validBidCount = parseInt(item.valid_bid_count, 10);
+                        } else if (item.bid_count !== undefined && item.bid_count !== null) {
+                            validBidCount = parseInt(item.bid_count, 10);
+                        } else if (item.bids_count !== undefined && item.bids_count !== null) {
+                            validBidCount = parseInt(item.bids_count, 10);
+                        } else if (item.bids && Array.isArray(item.bids)) {
+                            // Filter valid bids: status = 'submitted' and rfq_revision_at_submit matches current
+                            var currentRevision = item.rfq_revision_current || item.meta?.rfq_revision_current || null;
+                            validBidCount = item.bids.filter(function(bid) {
+                                if (bid.status !== 'submitted') return false;
+                                if (currentRevision !== null) {
+                                    var bidRevision = bid.rfq_revision_at_submit || bid.meta?.rfq_revision_at_submit;
+                                    return bidRevision === currentRevision;
+                                }
+                                return true; // If no revision tracking, count all submitted bids
+                            }).length;
+                        }
+                        if (isNaN(validBidCount)) validBidCount = 0;
+                        
+                        var hasValidBids = validBidCount > 0;
+                        
+                        // Check if RFQ is active for current revision
+                        var isRfqActive = false;
+                        if (item.has_rfq === true || item.has_rfq === 'true' || item.has_rfq === 1 || item.has_rfq === '1') {
+                            isRfqActive = true;
+                        } else if (item.rfq_status === 'sent' || item.rfq_status === 'submitted' || item.rfq_status === 'Sent' || item.rfq_status === 'Submitted') {
+                            isRfqActive = true;
+                        } else if (item.rfq_id || item.rfqId || (item.meta && item.meta.rfq_id)) {
+                            isRfqActive = true;
+                        }
+                        
+                        // Check if revision changed (dimensions/quantity changed after RFQ)
+                        // If revision_changed flag exists, treat as new revision
+                        var revisionChanged = item.revision_changed === true || item.revision_changed === 'true' || item.revision_changed === 1;
+                        
+                        // Priority 2: If revision changed (specs changed after RFQ), show Standby/Draft
+                        if (revisionChanged && isRfqActive) {
+                            // Even if old bids exist, new revision means no valid bids yet
+                            return { text: 'Standby', color: '#999', dot: '#999' };
+                        }
+                        
+                        // Priority 3: If has valid bids for current revision
+                        if (hasValidBids) {
+                            return { text: 'Bids Received (' + validBidCount + ')', color: '#2196f3', dot: '#2196f3' };
+                        }
+                        
+                        // Priority 4: If RFQ is active but no valid bids yet
+                        if (isRfqActive) {
+                            return { text: 'RFQ Sent', color: '#ff9800', dot: '#ff9800' };
+                        }
+                        
+                        // Priority 5: Check if item has meaningful details filled by designer
+                        var hasItemDetails = false;
+                        if (item.title && item.title.trim() && item.title.trim() !== 'Item ' + item.id && item.title.trim() !== 'New Item') {
+                            hasItemDetails = true;
+                        } else if (item.description && item.description.trim() && item.description.trim().length > 10) {
+                            hasItemDetails = true;
+                        } else if (item.notes && item.notes.trim() && item.notes.trim().length > 10) {
+                            hasItemDetails = true;
+                        } else if (item.materials && (Array.isArray(item.materials) ? item.materials.length > 0 : item.materials.trim())) {
+                            hasItemDetails = true;
+                        } else if (item.meta) {
+                            if ((item.meta.title && item.meta.title.trim() && item.meta.title.trim() !== 'Item ' + item.id) ||
+                                (item.meta.description && item.meta.description.trim() && item.meta.description.trim().length > 10)) {
+                                hasItemDetails = true;
+                            }
+                        }
+                        
+                        // Priority 6: If has details but no RFQ was ever sent, show Standby
+                        // Also show Standby for new items (no details, no RFQ)
+                        if (hasItemDetails && !isRfqActive) {
+                            return { text: 'Standby', color: '#999', dot: '#999' };
+                        }
+                        
+                        // Priority 7: Default for new items (Standby) - no details, no RFQ
+                        return { text: 'Standby', color: '#999', dot: '#999' };
+                    };
+
+                    var itemStatus = getItemStatus();
+                    
+                    // State for 3-dot menu
+                    var _menuState = React.useState(false);
+                    var isMenuOpen = _menuState[0];
+                    var setIsMenuOpen = _menuState[1];
+                    
+                    // Close menu when clicking outside
+                    React.useEffect(function() {
+                        var handleClickOutside = function(event) {
+                            if (isMenuOpen && !event.target.closest('[data-menu-container]')) {
+                                setIsMenuOpen(false);
+                            }
+                        };
+                        if (isMenuOpen) {
+                            document.addEventListener('mousedown', handleClickOutside);
+                            return function() {
+                                document.removeEventListener('mousedown', handleClickOutside);
+                            };
+                        }
+                    }, [isMenuOpen]);
+
                     // Handle size preset selection
                     var handleSizeChange = function(size, e) {
                         if (e) {
@@ -5082,7 +5609,12 @@ class N88_RFQ_Admin {
                         }
                     };
 
-                    var handlePointerDown = function() {
+                    var handlePointerDown = function(e) {
+                        // Prevent page scroll only
+                        if (e && e.stopPropagation) {
+                            e.stopPropagation();
+                        }
+                        
                         // Bring item to front on pointer down (click or drag start)
                         // Compute maxZ accounting for L/XL boost (they get +1000 to calculated z-index)
                         var currentItems = window.N88StudioOS.useBoardStore.getState().items;
@@ -5145,9 +5677,14 @@ class N88_RFQ_Admin {
                         }
                     };
 
-                    var handleDragStart = function() {
+                    var handleDragStart = function(e) {
+                        // Don't prevent default - allow dragging
+                        // Only stop propagation to prevent page scroll
+                        if (e && e.stopPropagation) {
+                            e.stopPropagation();
+                        }
                         // Bring to front on drag start (same as pointer down)
-                        handlePointerDown();
+                        handlePointerDown(e);
                     };
 
                     var handleDragEnd = function(event, info) {
@@ -5175,7 +5712,7 @@ class N88_RFQ_Admin {
 
                     return React.createElement(motion.div, {
                         layoutId: 'board-item-' + item.id,
-                        style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: 'grab' },
+                        style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: 'grab', overflow: 'visible' },
                         drag: true,
                         dragMomentum: false,
                         onPointerDown: handlePointerDown,
@@ -5183,24 +5720,52 @@ class N88_RFQ_Admin {
                         onDragEnd: handleDragEnd,
                         whileDrag: { cursor: 'grabbing', scale: 1.05 },
                         transition: { layout: { duration: 0.3, ease: 'easeOut' } },
-                    }, React.createElement('div', {
-                        style: { width: '100%', height: '100%', backgroundColor: '#ffffff', border: '1px solid #e0e0e0', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', position: 'relative' },
+                        dragConstraints: false,
+                        dragElastic: 0,
+                        onClick: function(e) {
+                            // Prevent page scroll on click
+                            if (e) {
+                                e.stopPropagation();
+                            }
+                        },
+                        onMouseDown: function(e) {
+                            // Prevent page scroll on mouse down
+                            if (e) {
+                                e.stopPropagation();
+                            }
+                        }
                     }, React.createElement('div', {
                         style: { 
                             width: '100%', 
-                            height: item.displayMode === 'photo_only' ? '100%' : ((currentSize === 'S' || currentSize === 'D') ? '55%' : '60%'), 
+                            height: '100%', 
+                            backgroundColor: '#ffffff', 
+                            border: '1px solid #e0e0e0', 
+                            borderRadius: '8px', 
+                            overflow: 'visible', 
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', 
+                            position: 'relative',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            boxSizing: 'border-box'
+                        }
+                    }, 
+                    // Photo Section - 75% of card
+                    React.createElement('div', {
+                        style: { 
+                            width: '100%', 
+                            flex: '0 0 75%',
+                            minHeight: 0,
                             backgroundColor: '#e0e0e0', 
                             backgroundImage: item.imageUrl ? 'url(' + item.imageUrl + ')' : 'none',
-                            backgroundSize: 'contain',
+                            backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             backgroundRepeat: 'no-repeat',
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            color: '#999', 
-                            fontSize: '14px',
-                            position: 'relative'
-                        },
+                            position: 'relative',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                            borderTopLeftRadius: '8px',
+                            borderTopRightRadius: '8px'
+                        }
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
                     // Delete button - always visible
@@ -5317,169 +5882,101 @@ class N88_RFQ_Admin {
                             e.target.style.transform = 'scale(1)';
                         },
                         title: 'Delete item'
-                    }, '×'),
-                    // Show Card button - appears when in photo_only mode
-                    item.displayMode === 'photo_only' ? React.createElement('button', {
-                        onClick: function(e) {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            const newMode = 'full';
-                            updateLayout(item.id, { displayMode: newMode });
-                            setIsExpanded(true);
-                            setTimeout(function() {
-                                if (onLayoutChanged) {
-                                    onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: newMode });
-                                }
-                            }, 350);
-                        },
+                    }, '×')
+                    )
+                    ,
+                    // Status Strip - 25% of card, below the image
+                    React.createElement('div', {
                         style: {
-                            position: 'absolute',
-                            top: '10px',
-                            right: '40px',
-                            padding: '6px 12px',
-                            fontSize: '11px',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            backgroundColor: '#0073aa',
-                            color: '#fff',
-                            border: '1px solid #0073aa',
-                            borderRadius: '4px',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                            transition: 'all 0.2s',
-                            zIndex: 10,
-                        },
-                        onMouseEnter: function(e) {
-                            e.target.style.backgroundColor = '#005a87';
-                        },
-                        onMouseLeave: function(e) {
-                            e.target.style.backgroundColor = '#0073aa';
-                        },
-                    }, 'Show Card') : null
-                    ),
-                    item.displayMode !== 'photo_only' ? React.createElement('div', {
-                        style: { 
-                            padding: (currentSize === 'S' || currentSize === 'D') ? '6px' : '12px',
+                            width: '100%',
+                            flex: '0 0 25%',
                             backgroundColor: '#ffffff',
+                            borderTop: '1px solid #e0e0e0',
+                            padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            boxSizing: 'border-box',
+                            minHeight: 0,
                             overflow: 'visible',
-                        },
-                    }, 
-                        // Category (small label)
-                        item.item_type ? React.createElement('div', { 
-                            style: { 
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px', 
-                                color: '#999',
-                                textTransform: 'uppercase',
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '2px' : '4px',
-                            } 
-                        }, item.item_type) : null, 
-                        // Description
-                        item.description ? React.createElement('div', { 
-                            style: { 
-                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', 
-                                color: '#666', 
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
-                                lineHeight: '1.4',
-                            } 
-                        }, item.description) : null, 
-                        // Size Preset Controls (S / D / L / XL)
+                            position: 'relative',
+                            borderBottomLeftRadius: '8px',
+                            borderBottomRightRadius: '8px'
+                        }
+                    },
+                        // Status Text with Dot - on the left
                         React.createElement('div', {
                             style: {
                                 display: 'flex',
-                                gap: '2px',
-                                marginBottom: (currentSize === 'S' || currentSize === 'D') ? '4px' : '8px',
-                                pointerEvents: 'auto',
-                                flexWrap: 'wrap',
-                            },
-                        }, ['S', 'D', 'L', 'XL'].map(function(size) {
-                            return React.createElement('button', {
-                                key: size,
-                                onClick: function(e) {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    handleSizeChange(size, e);
-                                },
-                                style: {
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '2px 4px' : '3px 6px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: currentSize === size ? 'bold' : 'normal',
-                                    cursor: 'pointer',
-                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                    color: currentSize === size ? '#fff' : '#333',
-                                    border: '1px solid ' + (currentSize === size ? '#0073aa' : '#ccc'),
-                                    borderRadius: '3px',
-                                    minWidth: (currentSize === 'S' || currentSize === 'D') ? '25px' : '30px',
-                                    flex: '1 1 0',
-                                    transition: 'all 0.2s',
-                                },
-                                onMouseEnter: function(e) {
-                                    if (currentSize !== size) {
-                                        e.target.style.backgroundColor = '#e0e0e0';
-                                    }
-                                },
-                                onMouseLeave: function(e) {
-                                    if (currentSize !== size) {
-                                        e.target.style.backgroundColor = '#f0f0f0';
-                                    }
-                                },
-                            }, size);
-                        })),
-                        // Photo only | Full | Request price row
-                        React.createElement('div', {
-                            style: {
-                                display: 'flex',
-                                gap: '4px',
+                                flexDirection: 'row',
                                 alignItems: 'center',
-                                pointerEvents: 'auto',
+                                gap: '6px',
+                                fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                color: '#333',
+                                flex: 1,
+                                minWidth: 0
+                            }
+                        },
+                            React.createElement('span', {
+                                style: {
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: itemStatus.dot,
+                                    display: 'inline-block',
+                                    flexShrink: 0
+                                }
+                            }),
+                            React.createElement('span', {
+                                style: {
+                                    fontWeight: 500,
+                                    lineHeight: '1.2',
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                }
+                            }, itemStatus.text),
+                            // Action Required Indicator (if needed)
+                            item.action_required ? React.createElement('span', {
+                                style: {
+                                    fontSize: '10px',
+                                    color: '#ff9800',
+                                    marginLeft: '4px',
+                                    flexShrink: 0
+                                },
+                                title: 'Action Required'
+                            }, '⚠') : null
+                        ),
+                        // 3-Dot Menu - on the right
+                        React.createElement('div', {
+                            style: {
+                                position: 'relative',
+                                flexShrink: 0,
+                                overflow: 'visible',
+                                zIndex: 10001
                             },
+                            'data-menu-container': true
                         },
                             React.createElement('button', {
                                 onClick: function(e) {
                                     e.stopPropagation();
                                     e.preventDefault();
-                                    // Toggle between photo_only and full
-                                    const newMode = item.displayMode === 'photo_only' ? 'full' : 'photo_only';
-                                    updateLayout(item.id, { displayMode: newMode });
-                                    setIsExpanded(newMode !== 'photo_only');
-                                    setTimeout(function() {
-                                        if (onLayoutChanged) {
-                                            onLayoutChanged({ id: item.id, x: item.x, y: item.y, width: item.width, height: item.height, displayMode: newMode });
-                                        }
-                                    }, 350);
+                                    setIsMenuOpen(!isMenuOpen);
                                 },
                                 style: {
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: item.displayMode === 'photo_only' ? 'bold' : 'normal',
-                                    cursor: 'pointer',
-                                    backgroundColor: item.displayMode === 'photo_only' ? '#0073aa' : 'transparent',
-                                    color: item.displayMode === 'photo_only' ? '#fff' : '#666',
-                                    border: '1px solid ' + (item.displayMode === 'photo_only' ? '#0073aa' : '#ddd'),
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                },
-                            }, 'Photo only'),
-                            React.createElement('span', { style: { color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' } }, '|'),
-                            React.createElement('button', {
-                                onClick: function(e) {
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    // Commit 1.3.8: Open item detail modal
-                                    if (_modalHandlers && _modalHandlers.open) {
-                                        _modalHandlers.open();
-                                    } else if (typeof setIsModalOpen === 'function') {
-                                        setIsModalOpen(true);
-                                    }
-                                },
-                                style: {
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: 'normal',
-                                    cursor: 'pointer',
+                                    width: '28px',
+                                    height: '28px',
+                                    padding: 0,
                                     backgroundColor: 'transparent',
-                                    color: '#666',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '4px',
+                                    transition: 'all 0.2s'
                                 },
                                 onMouseEnter: function(e) {
                                     e.target.style.backgroundColor = '#f0f0f0';
@@ -5487,31 +5984,128 @@ class N88_RFQ_Admin {
                                 onMouseLeave: function(e) {
                                     e.target.style.backgroundColor = 'transparent';
                                 },
-                            }, 'Full'),
-                            React.createElement('span', { style: { color: '#ccc', fontSize: (currentSize === 'S' || currentSize === 'D') ? '8px' : '10px' } }, '|'),
-                            React.createElement('button', {
+                                title: 'Menu'
+                            }, React.createElement('span', {
+                                style: {
+                                    fontSize: '16px',
+                                    color: '#666',
+                                    lineHeight: '1',
+                                    cursor: 'pointer',
+                                    pointerEvents: 'none'
+                                }
+                            }, '⋮')),
+                            // Dropdown Menu
+                            isMenuOpen ? React.createElement('div', {
+                                style: {
+                                    position: 'absolute',
+                                    top: '100%',
+                                    right: 0,
+                                    marginTop: '4px',
+                                    backgroundColor: '#ffffff',
+                                    border: '1px solid #e0e0e0',
+                                    borderRadius: '4px',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                    zIndex: 10000,
+                                    minWidth: '160px',
+                                    padding: '4px 0',
+                                    overflow: 'visible'
+                                },
                                 onClick: function(e) {
                                     e.stopPropagation();
-                                    e.preventDefault();
-                                    setPriceRequested(true);
+                                }
+                            },
+                                // 1. Open Item Modal
+                                React.createElement('button', {
+                                    onClick: function(e) {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        if (_modalHandlers && _modalHandlers.open) {
+                                            _modalHandlers.open();
+                                        } else if (typeof setIsModalOpen === 'function') {
+                                            setIsModalOpen(true);
+                                        }
+                                        setIsMenuOpen(false);
+                                    },
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        textAlign: 'left',
+                                        backgroundColor: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        color: '#333',
+                                        transition: 'background-color 0.2s'
+                                    },
+                                    onMouseEnter: function(e) {
+                                        e.target.style.backgroundColor = '#f5f5f5';
+                                    },
+                                    onMouseLeave: function(e) {
+                                        e.target.style.backgroundColor = 'transparent';
+                                    }
+                                }, 'Open Item Details / Submit RFQ'),
+                                // 2. Resize Card
+                                React.createElement('div', {
+                                    style: {
+                                        borderTop: '1px solid #e0e0e0',
+                                        padding: '4px 0'
+                                    }
                                 },
-                                disabled: priceRequested,
-                                style: {
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: 'normal',
-                                    cursor: priceRequested ? 'not-allowed' : 'pointer',
-                                    backgroundColor: priceRequested ? '#ccc' : 'transparent',
-                                    color: priceRequested ? '#999' : '#666',
-                                    border: '1px solid ' + (priceRequested ? '#ccc' : '#ddd'),
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                },
-                            }, priceRequested ? 'Price Requested' : 'Request price')
+                                    React.createElement('div', {
+                                        style: {
+                                            padding: '6px 12px',
+                                            fontSize: '11px',
+                                            color: '#999',
+                                            textTransform: 'uppercase',
+                                            fontWeight: 600
+                                        }
+                                    }, 'Resize Card'),
+                                    React.createElement('div', {
+                                        style: {
+                                            display: 'flex',
+                                            gap: '4px',
+                                            padding: '4px 8px'
+                                        }
+                                    }, ['S', 'D', 'L', 'XL'].map(function(size) {
+                                        return React.createElement('button', {
+                                            key: size,
+                                            onClick: function(e) {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                handleSizeChange(size, e);
+                                                setIsMenuOpen(false);
+                                            },
+                                            style: {
+                                                flex: 1,
+                                                padding: '4px 6px',
+                                                fontSize: '11px',
+                                                fontWeight: currentSize === size ? 'bold' : 'normal',
+                                                cursor: 'pointer',
+                                                backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
+                                                color: currentSize === size ? '#fff' : '#333',
+                                                border: '1px solid ' + (currentSize === size ? '#0073aa' : '#ccc'),
+                                                borderRadius: '3px',
+                                                transition: 'all 0.2s'
+                                            },
+                                            onMouseEnter: function(e) {
+                                                if (currentSize !== size) {
+                                                    e.target.style.backgroundColor = '#e0e0e0';
+                                                }
+                                            },
+                                            onMouseLeave: function(e) {
+                                                if (currentSize !== size) {
+                                                    e.target.style.backgroundColor = '#f0f0f0';
+                                                }
+                                            }
+                                        }, size);
+                                    }))
+                                )
+                            ) : null
                         )
-                    ) : null
                     )
-                    )
+                )
+                );
+
                 };
 
                 // Commit 1.3.8: Item Detail Modal Component (full inline version)
@@ -7252,8 +7846,33 @@ class N88_RFQ_Admin {
                                         loading: false,
                                     };
                                 });
+                                // Update board item in store to reflect RFQ sent status
+                                if (window.N88StudioOS && window.N88StudioOS.useBoardStore) {
+                                    var store = window.N88StudioOS.useBoardStore.getState();
+                                    var currentItems = store.items || [];
+                                    var updatedItems = currentItems.map(function(storeItem) {
+                                        if (storeItem.id === item.id || storeItem.id === 'item-' + itemId || storeItem.id === itemId) {
+                                            // Update item with RFQ status
+                                            return Object.assign({}, storeItem, {
+                                                has_rfq: true,
+                                                has_bids: false,
+                                                bid_count: 0,
+                                                valid_bid_count: 0,
+                                                revision_changed: false
+                                            });
+                                        }
+                                        return storeItem;
+                                    });
+                                    store.setItems(updatedItems);
+                                }
                                 // Then refresh from server to get actual state
                                 fetchItemState();
+                                // Close modal after update
+                                if (onClose) {
+                                    setTimeout(function() {
+                                        onClose();
+                                    }, 100);
+                                }
                             } else {
                                 if (data.data && data.data.errors) {
                                     var errorMessages = [];
@@ -8034,7 +8653,7 @@ class N88_RFQ_Admin {
                                                 React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
                                                 React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample'),
                                                 React.createElement('option', { value: 'Custom Sourcing / Not Listed' }, 'Custom Sourcing / Not Listed')
-                                            )
+                                        )
                                     )
                                     )
                                 ) : currentState === 'C' ? (
@@ -9101,7 +9720,9 @@ class N88_RFQ_Admin {
                     var boardItemProps = Object.assign({}, props);
                     // Store modal handlers in a way BoardItem can access
                     boardItemProps._modalHandlers = {
-                        open: function() { setIsModalOpen(true); },
+                        open: function() { 
+                            setIsModalOpen(true);
+                        },
                         close: function() { setIsModalOpen(false); }
                     };
                     
@@ -9125,6 +9746,56 @@ class N88_RFQ_Admin {
                                 if (!data.success) {
                                     throw new Error(data.data && data.data.message ? data.data.message : 'Failed to save item facts');
                                 }
+                                
+                                // Update board item in store after save
+                                if (window.N88StudioOS && window.N88StudioOS.useBoardStore) {
+                                    var store = window.N88StudioOS.useBoardStore.getState();
+                                    var currentItems = store.items || [];
+                                    var updatedItems = currentItems.map(function(storeItem) {
+                                        var storeItemId = storeItem.id;
+                                        var itemIdStr = 'item-' + itemId;
+                                        if (storeItemId === item.id || storeItemId === itemIdStr || storeItemId === itemId) {
+                                            // Check if RFQ exists and revision changed (dimensions/quantity changed)
+                                            var hasRfq = storeItem.has_rfq === true || storeItem.has_rfq === 'true' || storeItem.has_rfq === 1;
+                                            var revisionChanged = false;
+                                            
+                                            // If RFQ exists and save was successful, check if revision changed
+                                            if (hasRfq && data.data) {
+                                                // Backend should set revision_changed if dims/qty changed
+                                                revisionChanged = data.data.revision_changed === true || data.data.revision_changed === 'true' || data.data.revision_changed === 1;
+                                                
+                                                // Also check if has_warning (indicates dims/qty changed after RFQ with bids)
+                                                if (data.data.has_warning) {
+                                                    revisionChanged = true;
+                                                }
+                                            }
+                                            
+                                            // Update item with new data and revision_changed flag
+                                            var updatedItem = Object.assign({}, storeItem);
+                                            if (revisionChanged) {
+                                                updatedItem.revision_changed = true;
+                                                updatedItem.valid_bid_count = 0; // Reset valid bid count for new revision
+                                                updatedItem.bid_count = 0;
+                                                updatedItem.has_bids = false;
+                                            }
+                                            // Update other fields from payload if needed
+                                            if (payload.dims) {
+                                                updatedItem.dims = payload.dims;
+                                            }
+                                            if (payload.dims_cm) {
+                                                updatedItem.dims_cm = payload.dims_cm;
+                                            }
+                                            if (payload.quantity !== undefined) {
+                                                updatedItem.quantity = payload.quantity;
+                                            }
+                                            
+                                            return updatedItem;
+                                        }
+                                        return storeItem;
+                                    });
+                                    store.setItems(updatedItems);
+                                }
+                                
                                 // Commit 2.3.5.1: Return data.data to access has_warning flag
                                 return data.data || data;
                             });
@@ -9432,6 +10103,7 @@ class N88_RFQ_Admin {
                         if (onLayoutChanged) {
                             onLayoutChanged(data);
                         }
+                        
                         // For demo mode (boardId = 0), save to localStorage with debounce
                         if (boardId === 0) {
                             // Clear existing timer
@@ -9463,25 +10135,30 @@ class N88_RFQ_Admin {
                         return React.createElement('div', { style: { padding: '20px' } }, 'No items loaded. Items count: ' + (items ? items.length : 0));
                     }
                     
-                    // Use relative positioning within the admin page container
+                    // Use relative positioning within the fixed canvas container
+                    // Container handles horizontal scrolling, canvas expands to fit items
+                    console.log('BoardCanvas rendering with', items ? items.length : 0, 'items');
+                    if (!items || items.length === 0) {
+                        console.warn('BoardCanvas: No items to render!');
+                    }
                     return React.createElement(React.Fragment, null,
                         React.createElement('div', {
                             style: { 
                                 position: 'relative', 
                                 width: '100%', 
-                                minHeight: '1200px', 
-                                height: 'auto',
+                                minHeight: '100%',
+                                height: '100%',
                                 overflow: 'visible', 
                                 backgroundColor: '#f5f5f5',
-                                marginTop: '20px',
                                 padding: '20px',
-                                border: '1px solid #ddd',
-                                borderRadius: '4px',
-                                zIndex: 1
+                                zIndex: 1,
+                                boxSizing: 'border-box',
+                                display: 'block'
                             },
-                        }, items.map(function(item) {
+                        }, items && items.length > 0 ? items.map(function(item) {
+                            console.log('Rendering item:', item.id, 'at position', item.x, item.y, 'size', item.width, 'x', item.height);
                             return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
-                        }), 
+                        }) : React.createElement('div', { style: { padding: '20px', color: '#666', fontSize: '16px' } }, 'No items on board. Items count: ' + (items ? items.length : 0)), 
                         // Concierge Overlay - read-only, non-blocking
                         React.createElement(ConciergeOverlay, { concierge: conciergeData })),
                         // Welcome Modal - shown once per user
@@ -9499,14 +10176,24 @@ class N88_RFQ_Admin {
                 }
 
                 try {
-                    const root = ReactDOM.createRoot(rootEl);
-                    root.render(React.createElement(BoardCanvas, {
+                    // Check if root already exists to avoid multiple createRoot calls
+                    if (!window._n88BoardRoot) {
+                        window._n88BoardRoot = ReactDOM.createRoot(rootEl);
+                    }
+                    
+                    window._n88BoardRoot.render(React.createElement(BoardCanvas, {
                         boardId: testBoardId,
                         userId: currentUserId,
                         concierge: conciergeData,
-                        onLayoutChanged: function(data) { console.log('Layout changed:', data); },
+                        onLayoutChanged: function(data) { 
+                            console.log('Layout changed:', data);
+                        },
                     }));
+                    
                     updateDebug('Board rendered! Items: ' + initialItems.length + (testBoardId > 0 ? ' (Real board - persistence enabled)' : ' (Demo mode - localStorage)'));
+                    
+                    // Mark as initialized to prevent multiple calls
+                    window._n88BoardInitialized = true;
                     
                     // If after item creation and still no items, check again after React renders
                     var urlParamsCheck = new URLSearchParams(window.location.search);
@@ -9806,19 +10493,16 @@ class N88_RFQ_Admin {
                             style: { 
                                 position: 'relative', 
                                 width: '100%', 
-                                minHeight: '1200px', 
-                                height: 'auto',
+                                minHeight: '100%',
+                                height: '100%',
                                 overflow: 'visible', 
                                 backgroundColor: '#f5f5f5',
-                                marginTop: '20px',
                                 padding: '20px',
-                                border: '1px solid #ddd',
-                                borderRadius: '4px',
                                 zIndex: 1
                             }
-                        }, (items || []).map(function(item) {
+                        }, items && items.length > 0 ? (items || []).map(function(item) {
                             return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
-                        }), 
+                        }) : React.createElement('div', { style: { padding: '20px', color: '#666' } }, 'No items on board'), 
                         React.createElement(ConciergeOverlay, { concierge: concierge })
                         ),
                         React.createElement(WelcomeModal, { userId: currentUserId }),
@@ -9834,8 +10518,12 @@ class N88_RFQ_Admin {
                         return false;
                     }
                     
-                    const root = ReactDOM.createRoot(rootEl);
-                    root.render(React.createElement(BoardCanvas, {
+                    // Check if root already exists to avoid multiple createRoot calls
+                    if (!window._n88RealBoardRoot) {
+                        window._n88RealBoardRoot = ReactDOM.createRoot(rootEl);
+                    }
+                    
+                    window._n88RealBoardRoot.render(React.createElement(BoardCanvas, {
                         boardId: realBoardId,
                         userId: currentUserId,
                         concierge: conciergeData,

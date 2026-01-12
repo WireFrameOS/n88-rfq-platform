@@ -1527,18 +1527,18 @@ class N88_RFQ_Frontend {
                                 <label>Product Category <span class="required">*</span></label>
                                 <select name="pieces[${itemCount}][product_category]" required class="n88-item-field">
                                     <option value="">-- Select Category --</option>
-                                    <option value="Indoor Furniture">Indoor Furniture</option>
-                                    <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                    <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                    <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                    <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                    <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                    <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                    <option value="Outdoor Seating">Outdoor Seating</option>
-                                    <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                    <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                    <option value="Pool Furniture">Pool Furniture</option>
-                                    <option value="Lighting">Lighting</option>
+                                        <option value="Indoor Furniture">Indoor Furniture</option>
+                                        <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
+                                        <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
+                                        <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
+                                        <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
+                                        <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
+                                        <option value="Outdoor Furniture">Outdoor Furniture</option>
+                                        <option value="Outdoor Seating">Outdoor Seating</option>
+                                        <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
+                                        <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
+                                        <option value="Pool Furniture">Pool Furniture</option>
+                                        <option value="Lighting">Lighting</option>
                                     <option value="Decorative Lighting">Decorative Lighting</option>
                                     <option value="Architectural Lighting">Architectural Lighting</option>
                                     <option value="Electrical / LED Components">Electrical / LED Components</option>
@@ -1567,8 +1567,8 @@ class N88_RFQ_Frontend {
                                     <option value="Screens / Louvers">Screens / Louvers</option>
                                     <option value="Pergola / Shade Components">Pergola / Shade Components</option>
                                     <option value="Facade Materials">Facade Materials</option>
-                                    <option value="Material Sample Kit">Material Sample Kit</option>
-                                    <option value="Fabric Sample">Fabric Sample</option>
+                                        <option value="Material Sample Kit">Material Sample Kit</option>
+                                        <option value="Fabric Sample">Fabric Sample</option>
                                     <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
                                 </select>
                                 <small class="description">This determines the production timeline for this item</small>
