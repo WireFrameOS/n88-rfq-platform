@@ -3830,6 +3830,25 @@ class N88_RFQ_Admin {
                 height: 100vh !important;
             }
             
+            /* K) Forceful scroll lock when modal is open */
+            body.n88-modal-open,
+            html.n88-modal-open {
+                overflow: hidden !important;
+                height: 100% !important;
+                position: fixed !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            body.n88-modal-open #n88-board-canvas-container,
+            body.n88-modal-open #wpcontent,
+            body.n88-modal-open #wpbody-content,
+            body.n88-modal-open .wrap {
+                overflow: hidden !important;
+                position: fixed !important;
+            }
+            
             /* Remove page scrollbar - only canvas should scroll */
             body.n88-board-page #wpcontent,
             body.n88-board-page #wpbody-content,
@@ -3838,7 +3857,7 @@ class N88_RFQ_Admin {
                 height: 100vh !important;
             }
             
-            /* Sticky header */
+            /* Sticky header - behind modal when modal is open */
             #n88-board-header {
                 position: fixed;
                 top: 0;
@@ -3847,6 +3866,32 @@ class N88_RFQ_Admin {
                 background-color: #fff;
                 z-index: 1000;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            
+            /* K) Modal should cover full page height, header visible behind */
+            body.n88-modal-open #n88-board-header {
+                z-index: 999999; /* Behind modal (modal is 1000000) */
+            }
+            
+            /* K) Ensure modal covers full viewport height from top to bottom */
+            body.n88-modal-open [style*="z-index: 1000000"] {
+                top: 0 !important;
+                bottom: 0 !important;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                max-height: 100vh !important;
+            }
+            
+            /* K) Hide scrollbar inside modal but keep scrolling functionality */
+            .n88-modal-scroll-content {
+                scrollbar-width: none !important; /* Firefox */
+                -ms-overflow-style: none !important; /* IE/Edge */
+            }
+            
+            .n88-modal-scroll-content::-webkit-scrollbar {
+                display: none !important; /* Chrome/Safari */
+                width: 0 !important;
+                height: 0 !important;
             }
             
             /* Board canvas container - relative positioning with proper scrolling */
@@ -3932,39 +3977,38 @@ class N88_RFQ_Admin {
                     </div>
                 </div>
                 
-                <!-- Tabs -->
-                <div style="padding: 10px 20px; border-bottom: 1px solid #ddd;">
+                <!-- Tabs Row - Project dropdown and search left-aligned after Firm Board -->
+                <div style="display: flex; align-items: center; gap: 20px; padding: 10px 20px; border-bottom: 1px solid #ddd;">
                     <span style="margin-right: 10px; padding: 8px 15px; background-color: #0073aa; color: #fff; border-radius: 4px; font-size: 14px; cursor: pointer;">
                         My Board
                     </span>
                     <span style="margin-right: 10px; padding: 8px 15px; background-color: #f0f0f0; color: #666; border-radius: 4px; font-size: 14px; cursor: pointer;">
                         Firm Board (View-Only)
                     </span>
-                </div>
-                
-                <!-- Controls Row -->
-                <div style="display: flex; align-items: center; gap: 20px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <!-- K) Project dropdown and search left-aligned right after Firm Board -->
+                    <div style="display: flex; align-items: center; gap: 10px; margin-left: 10px;">
                         <span style="font-size: 14px; color: #666;">Project:</span>
                         <select id="n88-project-selector" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px; cursor: pointer;">
                             <option value="">Select Project</option>
                         </select>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
-                        <span style="font-size: 14px; color: #666;">Search:</span>
-                        <input type="text" id="n88-board-search" placeholder="Search items…" style="flex: 1; max-width: 400px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                    </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
-                            + Create Project
-                        </button>
-                        <?php if ( $is_real_board ) : ?>
-                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
-                               style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
-                                + Add Item
-                            </a>
-                        <?php endif; ?>
+                        <span style="font-size: 14px; color: #666;">Search:</span>
+                        <input type="text" id="n88-board-search" placeholder="Search items…" style="width: 300px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
                     </div>
+                </div>
+                
+                <!-- K) Controls Row - Create Project and Add Item buttons left-aligned -->
+                <div style="display: flex; align-items: center; gap: 10px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
+                    <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
+                        + Create Project
+                    </button>
+                    <?php if ( $is_real_board ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
+                           style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
+                            + Add Item
+                        </a>
+                    <?php endif; ?>
                 </div>
             </div>
             
@@ -5331,7 +5375,7 @@ class N88_RFQ_Admin {
                     // TODO: Replace with actual concierge data source if available
                     // For now, use placeholder
                     echo wp_json_encode( array(
-                        'name' => 'Your Concierge',
+                        'name' => 'Your Sourcing Agent',
                         'avatarUrl' => '',
                     ) );
                 ?>;
@@ -5525,6 +5569,8 @@ class N88_RFQ_Admin {
                         }
                         
                         // Priority 4: If RFQ is active but no valid bids yet
+                        // E) This handles: All valid bids withdrawn + routes exist + RFQ still open → "RFQ Sent"
+                        // Otherwise (no routes or RFQ closed) → falls through to "Standby"
                         if (isRfqActive) {
                             return { text: 'RFQ Sent', color: '#ff9800', dot: '#ff9800' };
                         }
@@ -8764,7 +8810,7 @@ class N88_RFQ_Admin {
                                         },
                                             React.createElement('div', {
                                                 style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Bids are in. When you\'re ready to move to prototypes or orders, concierge oversight is available.'),
+                                            }, 'Bids are in. When you\'re ready to move to prototypes or orders, sourcing agent oversight is available.'),
                                             React.createElement('div', {
                                                 style: { fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }
                                             }, 'Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.'),
@@ -8780,13 +8826,13 @@ class N88_RFQ_Admin {
                                                     fontWeight: '600',
                                                     cursor: 'pointer',
                                                 },
-                                                title: 'Concierge support becomes available when you request a prototype or proceed to order. This includes delivery coordination.',
+                                                title: 'Sourcing agent support becomes available when you request a prototype or proceed to order. This includes delivery coordination.',
                                                 onClick: function(e) {
                                                     e.preventDefault();
                                                     e.stopPropagation();
                                                     // Commit 2.3.6: Visual only - no action
                                                 }
-                                            }, 'Get Concierge Help')
+                                            }, 'Get Sourcing Agent Help')
                                         )
                                     ) : null
                                 ) : null,
@@ -9864,7 +9910,7 @@ class N88_RFQ_Admin {
 
                 // ConciergeOverlay Component (inline)
                 const ConciergeOverlay = function({ concierge }) {
-                    var conciergeData = concierge || { name: 'Your Concierge', avatarUrl: '' };
+                    var conciergeData = concierge || { name: 'Your Sourcing Agent', avatarUrl: '' };
                     return React.createElement('div', {
                         style: {
                             position: 'absolute',
@@ -10443,7 +10489,7 @@ class N88_RFQ_Admin {
                 }
                 
                 const conciergeData = {
-                    name: 'Your Concierge',
+                    name: 'Your Sourcing Agent',
                     avatarUrl: ''
                 };
 

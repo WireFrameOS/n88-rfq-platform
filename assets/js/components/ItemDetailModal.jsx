@@ -1443,12 +1443,115 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     }, [item.id, item.quantity, item.meta_json, item.meta, item.smart_alternatives_note]);
     
-    // Prevent body scroll when modal is open
+    // Prevent body scroll when modal is open (K) - FORCEFUL COMPLETE LOCK
     React.useEffect(() => {
         if (isOpen) {
-            document.body.style.overflow = 'hidden';
+            // Store original values
+            const originalBodyOverflow = document.body.style.overflow || '';
+            const originalBodyHeight = document.body.style.height || '';
+            const originalBodyPosition = document.body.style.position || '';
+            const originalBodyTop = document.body.style.top || '';
+            const originalBodyWidth = document.body.style.width || '';
+            const originalBodyLeft = document.body.style.left || '';
+            const originalHtmlOverflow = document.documentElement.style.overflow || '';
+            const originalHtmlHeight = document.documentElement.style.height || '';
+            const scrollY = window.scrollY;
+            const scrollX = window.scrollX;
+            
+            // FORCEFUL LOCK: Prevent all page scrolling with !important equivalent
+            document.body.style.setProperty('overflow', 'hidden', 'important');
+            document.body.style.setProperty('height', '100%', 'important');
+            document.body.style.setProperty('position', 'fixed', 'important');
+            document.body.style.setProperty('top', `-${scrollY}px`, 'important');
+            document.body.style.setProperty('left', `-${scrollX}px`, 'important');
+            document.body.style.setProperty('width', '100%', 'important');
+            document.body.style.setProperty('margin', '0', 'important');
+            document.body.style.setProperty('padding', '0', 'important');
+            
+            document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+            document.documentElement.style.setProperty('height', '100%', 'important');
+            
+            // Add class for CSS targeting
+            document.body.classList.add('n88-modal-open');
+            document.documentElement.classList.add('n88-modal-open');
+            
+            // Prevent board container scroll
+            const boardContainer = document.getElementById('n88-board-canvas-container');
+            if (boardContainer) {
+                const originalContainerOverflow = boardContainer.style.overflow || '';
+                boardContainer.style.setProperty('overflow', 'hidden', 'important');
+                boardContainer.style.setProperty('position', 'fixed', 'important');
+                boardContainer.setAttribute('data-original-overflow', originalContainerOverflow || 'auto');
+            }
+            
+            // Prevent wpcontent scroll
+            const wpcontent = document.getElementById('wpcontent');
+            if (wpcontent) {
+                const originalWpcontentOverflow = wpcontent.style.overflow || '';
+                wpcontent.style.setProperty('overflow', 'hidden', 'important');
+                wpcontent.style.setProperty('position', 'fixed', 'important');
+                wpcontent.setAttribute('data-original-overflow', originalWpcontentOverflow || '');
+            }
+            
+            // Prevent wpbody-content scroll
+            const wpbodyContent = document.getElementById('wpbody-content');
+            if (wpbodyContent) {
+                const originalWpbodyOverflow = wpbodyContent.style.overflow || '';
+                wpbodyContent.style.setProperty('overflow', 'hidden', 'important');
+                wpbodyContent.setAttribute('data-original-overflow', originalWpbodyOverflow || '');
+            }
+            
+            // Prevent wrap scroll
+            const wrap = document.querySelector('.wrap');
+            if (wrap) {
+                const originalWrapOverflow = wrap.style.overflow || '';
+                wrap.style.setProperty('overflow', 'hidden', 'important');
+                wrap.setAttribute('data-original-overflow', originalWrapOverflow || '');
+            }
+            
+            // Prevent ALL scrolling via event listeners
+            const preventScroll = (e) => {
+                // Only prevent if scrolling outside modal
+                const modal = document.querySelector('[style*="z-index: 1000000"]');
+                if (modal && !modal.contains(e.target)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            };
+            
+            const preventWheel = (e) => {
+                const modal = document.querySelector('[style*="z-index: 1000000"]');
+                if (modal && !modal.contains(e.target)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            };
+            
+            const preventTouchMove = (e) => {
+                const modal = document.querySelector('[style*="z-index: 1000000"]');
+                if (modal && !modal.contains(e.target)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            };
+            
+            // Add event listeners to prevent all scroll methods
+            window.addEventListener('scroll', preventScroll, { passive: false, capture: true });
+            window.addEventListener('wheel', preventWheel, { passive: false, capture: true });
+            window.addEventListener('touchmove', preventTouchMove, { passive: false, capture: true });
+            document.addEventListener('scroll', preventScroll, { passive: false, capture: true });
+            document.addEventListener('wheel', preventWheel, { passive: false, capture: true });
+            document.addEventListener('touchmove', preventTouchMove, { passive: false, capture: true });
+            
+            // Store scroll position and event listeners for cleanup
+            document.body.setAttribute('data-scroll-y', scrollY.toString());
+            document.body.setAttribute('data-scroll-x', scrollX.toString());
+            document.body.setAttribute('data-prevent-scroll', 'true');
+            
             // Commit 2.3.5.3: Ensure Request Quote button is visible without scrolling
-            // Scroll to Request Quote section when modal opens in State A
             if (currentState === 'A') {
                 setTimeout(() => {
                     const requestQuoteSection = document.getElementById('request-quote-section');
@@ -1457,12 +1560,87 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     }
                 }, 100);
             }
-        } else {
-            document.body.style.overflow = '';
+            
+            // Cleanup function
+            return () => {
+                // Remove event listeners
+                window.removeEventListener('scroll', preventScroll, { capture: true });
+                window.removeEventListener('wheel', preventWheel, { capture: true });
+                window.removeEventListener('touchmove', preventTouchMove, { capture: true });
+                document.removeEventListener('scroll', preventScroll, { capture: true });
+                document.removeEventListener('wheel', preventWheel, { capture: true });
+                document.removeEventListener('touchmove', preventTouchMove, { capture: true });
+                
+                // Remove classes
+                document.body.classList.remove('n88-modal-open');
+                document.documentElement.classList.remove('n88-modal-open');
+                
+                // Restore body scroll
+                document.body.style.removeProperty('overflow');
+                document.body.style.removeProperty('height');
+                document.body.style.removeProperty('position');
+                document.body.style.removeProperty('top');
+                document.body.style.removeProperty('left');
+                document.body.style.removeProperty('width');
+                document.body.style.removeProperty('margin');
+                document.body.style.removeProperty('padding');
+                
+                document.documentElement.style.removeProperty('overflow');
+                document.documentElement.style.removeProperty('height');
+                
+                // Restore scroll position
+                const savedScrollY = document.body.getAttribute('data-scroll-y');
+                const savedScrollX = document.body.getAttribute('data-scroll-x');
+                if (savedScrollY) {
+                    window.scrollTo(parseInt(savedScrollX || '0', 10), parseInt(savedScrollY, 10));
+                    document.body.removeAttribute('data-scroll-y');
+                    document.body.removeAttribute('data-scroll-x');
+                }
+                document.body.removeAttribute('data-prevent-scroll');
+                
+                // Restore board container scroll
+                if (boardContainer) {
+                    boardContainer.style.removeProperty('overflow');
+                    boardContainer.style.removeProperty('position');
+                    const originalOverflow = boardContainer.getAttribute('data-original-overflow') || 'auto';
+                    if (originalOverflow) {
+                        boardContainer.style.overflow = originalOverflow;
+                    }
+                    boardContainer.removeAttribute('data-original-overflow');
+                }
+                
+                // Restore wpcontent scroll
+                if (wpcontent) {
+                    wpcontent.style.removeProperty('overflow');
+                    wpcontent.style.removeProperty('position');
+                    const originalOverflow = wpcontent.getAttribute('data-original-overflow') || '';
+                    if (originalOverflow) {
+                        wpcontent.style.overflow = originalOverflow;
+                    }
+                    wpcontent.removeAttribute('data-original-overflow');
+                }
+                
+                // Restore wpbody-content scroll
+                if (wpbodyContent) {
+                    wpbodyContent.style.removeProperty('overflow');
+                    const originalOverflow = wpbodyContent.getAttribute('data-original-overflow') || '';
+                    if (originalOverflow) {
+                        wpbodyContent.style.overflow = originalOverflow;
+                    }
+                    wpbodyContent.removeAttribute('data-original-overflow');
+                }
+                
+                // Restore wrap scroll
+                if (wrap) {
+                    wrap.style.removeProperty('overflow');
+                    const originalOverflow = wrap.getAttribute('data-original-overflow') || '';
+                    if (originalOverflow) {
+                        wrap.style.overflow = originalOverflow;
+                    }
+                    wrap.removeAttribute('data-original-overflow');
+                }
+            };
         }
-        return () => {
-            document.body.style.overflow = '';
-        };
     }, [isOpen, currentState]);
     
     // Computed values
@@ -2119,7 +2297,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                         }}
                     />
                     
-                    {/* Modal */}
+                    {/* Modal - Full page height from top to bottom */}
                     <motion.div
                         initial={{ x: '100%' }}
                         animate={{ x: 0 }}
@@ -2129,9 +2307,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             position: 'fixed',
                             top: 0,
                             right: 0,
+                            bottom: 0,
+                            left: 'auto',
                             width: '600px',
                             maxWidth: '90vw',
                             height: '100vh',
+                            minHeight: '100vh',
+                            maxHeight: '100vh',
                             backgroundColor: darkBg,
                             color: darkText,
                             fontFamily: 'monospace',
@@ -2140,15 +2322,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             flexDirection: 'column',
                             overflow: 'hidden',
                             borderLeft: `1px solid ${darkBorder}`,
+                            margin: 0,
+                            padding: 0,
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Scrollable Content */}
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '20px',
-                        }}>
+                        {/* Scrollable Content - Scrollbar hidden but scrolling enabled */}
+                        <div 
+                            style={{
+                                flex: 1,
+                                overflowY: 'auto',
+                                padding: '20px',
+                                scrollbarWidth: 'none', // Firefox
+                                msOverflowStyle: 'none', // IE/Edge
+                            }}
+                            className="n88-modal-scroll-content"
+                        >
                             {/* Header with Title and Close Button */}
                             <div style={{
                                 marginBottom: '24px',

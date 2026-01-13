@@ -57,6 +57,9 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_save_bid_draft', array( $this, 'ajax_save_bid_draft' ) );
         add_action( 'wp_ajax_n88_get_bid_draft', array( $this, 'ajax_get_bid_draft' ) );
         
+        // G) Update bid to match new specs (create new draft from stale bid)
+        add_action( 'wp_ajax_n88_update_bid_to_match_new_specs', array( $this, 'ajax_update_bid_to_match_new_specs' ) );
+        
         // Commit 2.3.4: RFQ submission routing
         add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
 
@@ -1179,7 +1182,9 @@ class N88_RFQ_Auth {
                         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
                         
                         // Get items routed to this supplier
-                        $routed_items = $wpdb->get_results( $wpdb->prepare(
+                        // F) Include item revision and bid revision info for "Specs Changed" indicator
+                        // First get routed items
+                        $routed_items_base = $wpdb->get_results( $wpdb->prepare(
                             "SELECT DISTINCT
                                 r.item_id,
                                 r.status as route_status,
@@ -1188,12 +1193,11 @@ class N88_RFQ_Auth {
                                 i.title,
                                 i.item_type,
                                 i.status as item_status,
-                                c.name as category_name,
-                                b.status as bid_status
+                                i.meta_json,
+                                c.name as category_name
                             FROM {$rfq_routes_table} r
                             INNER JOIN {$items_table} i ON r.item_id = i.id
                             LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
-                            LEFT JOIN {$item_bids_table} b ON r.item_id = b.item_id AND r.supplier_id = b.supplier_id
                             WHERE r.supplier_id = %d
                             AND r.status IN ('queued', 'sent', 'viewed', 'bid_submitted')
                             AND i.deleted_at IS NULL
@@ -1201,38 +1205,130 @@ class N88_RFQ_Auth {
                             $current_user->ID
                         ), ARRAY_A );
                         
+                        // Then get all bids for these items
+                        $routed_items = array();
+                        foreach ( $routed_items_base as $item ) {
+                            $item_id = intval( $item['id'] );
+                            
+                            // Get all bids for this item and supplier
+                            $bids = $wpdb->get_results( $wpdb->prepare(
+                                "SELECT status, rfq_revision_at_submit
+                                FROM {$item_bids_table}
+                                WHERE item_id = %d
+                                AND supplier_id = %d",
+                                $item_id,
+                                $current_user->ID
+                            ), ARRAY_A );
+                            
+                            // Add bids to item data
+                            $item['bids'] = $bids;
+                            $routed_items[] = $item;
+                        }
+                        
                         // Display real routed items
                         if ( ! empty( $routed_items ) ) {
+                            // Process items (already grouped, bids already fetched)
+                            $items_by_id = array();
                             foreach ( $routed_items as $item ) {
                                 $item_id = intval( $item['id'] );
-                                // Skip demo item if it exists in real data
                                 if ( $item_id === $demo_item_id ) {
                                     continue;
                                 }
-                                $item_title = esc_html( $item['title'] ?: 'Untitled Item' );
-                                $category = esc_html( $item['category_name'] ?: $item['item_type'] ?: 'Uncategorized' );
                                 
-                                // Determine request type based on bid status
-                                $request_type = 'Awaiting Bid';
-                                if ( ! empty( $item['bid_status'] ) ) {
-                                    if ( $item['bid_status'] === 'submitted' ) {
-                                        $request_type = 'Bid Submitted';
-                                    } elseif ( $item['bid_status'] === 'awarded' ) {
-                                        $request_type = 'Awarded';
-                                    } elseif ( $item['bid_status'] === 'declined' ) {
-                                        $request_type = 'Declined';
+                                // Convert bids array to expected format
+                                $bids_formatted = array();
+                                if ( ! empty( $item['bids'] ) && is_array( $item['bids'] ) ) {
+                                    foreach ( $item['bids'] as $bid ) {
+                                        $bids_formatted[] = array(
+                                            'status' => $bid['status'],
+                                            'revision' => isset( $bid['rfq_revision_at_submit'] ) ? $bid['rfq_revision_at_submit'] : null,
+                                        );
                                     }
-                                } elseif ( $item['route_status'] === 'queued' ) {
+                                }
+                                
+                                $items_by_id[ $item_id ] = array(
+                                    'id' => $item_id,
+                                    'title' => $item['title'],
+                                    'item_type' => $item['item_type'],
+                                    'category_name' => $item['category_name'],
+                                    'route_status' => $item['route_status'],
+                                    'meta_json' => $item['meta_json'],
+                                    'bids' => $bids_formatted,
+                                );
+                            }
+                            
+                            foreach ( $items_by_id as $item_id => $item_data ) {
+                                $item_title = esc_html( $item_data['title'] ?: 'Untitled Item' );
+                                $category = esc_html( $item_data['category_name'] ?: $item_data['item_type'] ?: 'Uncategorized' );
+                                
+                                // F) Check for "Specs Changed" indicator
+                                $show_specs_changed = false;
+                                $item_meta = ! empty( $item_data['meta_json'] ) ? json_decode( $item_data['meta_json'], true ) : array();
+                                $item_current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : null;
+                                
+                                if ( $item_current_revision !== null && ! empty( $item_data['bids'] ) ) {
+                                    // Check if supplier has stale bids (old revision) but no current revision bids
+                                    $has_stale_bid = false;
+                                    $has_current_bid = false;
+                                    
+                                    foreach ( $item_data['bids'] as $bid ) {
+                                        $bid_revision = isset( $bid['revision'] ) ? intval( $bid['revision'] ) : null;
+                                        
+                                        // Check for stale bid (draft or submitted with old revision)
+                                        if ( $bid_revision !== null && $bid_revision < $item_current_revision ) {
+                                            if ( $bid['status'] === 'submitted' || $bid['status'] === 'draft' ) {
+                                                $has_stale_bid = true;
+                                            }
+                                        }
+                                        
+                                        // Check for current revision bid (draft or submitted)
+                                        if ( $bid_revision === $item_current_revision ) {
+                                            if ( $bid['status'] === 'submitted' || $bid['status'] === 'draft' ) {
+                                                $has_current_bid = true;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Show indicator if has stale bid but no current bid
+                                    $show_specs_changed = $has_stale_bid && ! $has_current_bid;
+                                }
+                                
+                                // Determine request type based on bid status (use most recent/important bid)
+                                $request_type = 'Awaiting Bid';
+                                $highest_bid_status = null;
+                                foreach ( $item_data['bids'] as $bid ) {
+                                    if ( $bid['status'] === 'submitted' ) {
+                                        $highest_bid_status = 'submitted';
+                                        break;
+                                    } elseif ( $bid['status'] === 'awarded' && $highest_bid_status !== 'submitted' ) {
+                                        $highest_bid_status = 'awarded';
+                                    } elseif ( $bid['status'] === 'declined' && ! in_array( $highest_bid_status, array( 'submitted', 'awarded' ) ) ) {
+                                        $highest_bid_status = 'declined';
+                                    }
+                                }
+                                
+                                if ( $highest_bid_status === 'submitted' ) {
+                                    $request_type = 'Bid Submitted';
+                                } elseif ( $highest_bid_status === 'awarded' ) {
+                                    $request_type = 'Awarded';
+                                } elseif ( $highest_bid_status === 'declined' ) {
+                                    $request_type = 'Declined';
+                                } elseif ( $item_data['route_status'] === 'queued' ) {
                                     $request_type = 'Queued';
-                                } elseif ( $item['route_status'] === 'sent' ) {
+                                } elseif ( $item_data['route_status'] === 'sent' ) {
                                     $request_type = 'Pricing Req';
                                 }
                                 
-                                $button_text = ( ! empty( $item['bid_status'] ) && $item['bid_status'] === 'submitted' ) ? 'View ►' : 'Open ►';
+                                $button_text = ( $highest_bid_status === 'submitted' ) ? 'View ►' : 'Open ►';
                                 ?>
                                 <tr style="border-bottom: 1px solid #e0e0e0;">
                                     <td style="padding: 15px; font-size: 14px; color: #ff6600; font-weight: 500;">#<?php echo esc_html( $item_id ); ?></td>
-                                    <td style="padding: 15px; font-size: 14px; color: #333;"><?php echo $item_title; ?></td>
+                                    <td style="padding: 15px; font-size: 14px; color: #333;">
+                                        <?php echo $item_title; ?>
+                                        <?php if ( $show_specs_changed ) { ?>
+                                            <span style="margin-left: 8px; padding: 2px 8px; background-color: #ff9800; color: #fff; border-radius: 3px; font-size: 11px; font-weight: 600;">Specs Changed</span>
+                                        <?php } ?>
+                                    </td>
                                     <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo $category; ?></td>
                                     <td style="padding: 15px; font-size: 14px; color: #666;"><?php echo esc_html( $request_type ); ?></td>
                                     <td style="padding: 15px;">
@@ -2416,7 +2512,18 @@ class N88_RFQ_Auth {
                         '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
                         '</div>' +
                         '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
-                        '<form id="n88-bid-form" style="padding: 20px; font-family: monospace;" onsubmit="return validateAndSubmitBid(event);">' +
+                        
+                        // G) Specs Changed Blocking Banner
+                        (item.has_revision_mismatch ? 
+                            '<div id="n88-specs-changed-banner" style="margin: 20px; padding: 16px; background-color: #331100; border: 2px solid #ff9800; border-radius: 4px;">' +
+                            '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                            '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
+                            'The item specifications have been updated. Please update your bid to match the new specs before submitting.' +
+                            '</div>' +
+                            '<button type="button" onclick="updateBidToMatchNewSpecs(' + itemId + ')" style="padding: 10px 20px; background-color: #ff9800; color: #000; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: monospace;">Update Bid to Match New Specs</button>' +
+                            '</div>' : '') +
+                        
+                        '<form id="n88-bid-form" style="padding: 20px; font-family: monospace; ' + (item.has_revision_mismatch ? 'display: none;' : '') + '" onsubmit="return validateAndSubmitBid(event);">' +
                         
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
@@ -2632,6 +2739,11 @@ class N88_RFQ_Auth {
                         '</div>';
                     
                     modalContent.innerHTML = modalHTML;
+                    
+                    // H) Load draft or submitted bid data for modal form
+                    setTimeout(function() {
+                        loadBidDraftModal(itemId, item);
+                    }, 200);
                     
                     // Initial validation - use setTimeout to ensure DOM is ready
                     setTimeout(function() {
@@ -4573,6 +4685,257 @@ class N88_RFQ_Auth {
                 }, 500); // Wait 500ms for form to be fully rendered
             }
             
+            // H) Load draft for modal form (n88-bid-form)
+            function loadBidDraftModal(itemId, itemData) {
+                var form = document.getElementById('n88-bid-form');
+                if (!form) {
+                    console.log('Modal form not found, skipping draft load');
+                    return;
+                }
+                
+                // First, try to load from submitted bid data (if specs changed and supplier needs to resubmit)
+                if (itemData && itemData.bid_data && itemData.has_revision_mismatch) {
+                    restoreBidDataToForm(form, itemData.bid_data, itemId);
+                    return;
+                }
+                
+                // Otherwise, load from draft
+                var formData = new FormData();
+                formData.append('action', 'n88_get_bid_draft');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_bid_draft' ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success && data.data && data.data.draft) {
+                        var draft = data.data.draft;
+                        restoreBidDataToForm(form, draft, itemId);
+                        
+                        // Show notification
+                        var notification = document.createElement('div');
+                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
+                        document.body.appendChild(notification);
+                        setTimeout(function() {
+                            if (notification.parentNode) {
+                                notification.parentNode.removeChild(notification);
+                            }
+                        }, 4000);
+                    }
+                })
+                .catch(function(error) {
+                    console.log('Draft not available or error loading draft:', error.message || error);
+                });
+            }
+            
+            // H) Restore bid data to form (works for both draft and submitted bid)
+            function restoreBidDataToForm(form, bidData, itemId) {
+                if (!form || !bidData) return;
+                
+                // Restore video links
+                if (bidData.video_links && bidData.video_links.length > 0) {
+                    var videoContainer = document.getElementById('n88-video-links-container');
+                    if (videoContainer) {
+                        // Clear existing inputs except first
+                        var existingInputs = videoContainer.querySelectorAll('.n88-video-link-input');
+                        for (var i = 1; i < existingInputs.length; i++) {
+                            var parent = existingInputs[i].closest('div');
+                            if (parent) parent.remove();
+                        }
+                        
+                        // Set first input
+                        var firstInput = videoContainer.querySelector('.n88-video-link-input');
+                        if (firstInput && bidData.video_links[0]) {
+                            firstInput.value = bidData.video_links[0];
+                        }
+                        
+                        // Add additional inputs
+                        for (var i = 1; i < bidData.video_links.length; i++) {
+                            if (typeof addVideoLink === 'function') {
+                                addVideoLink();
+                                var inputs = videoContainer.querySelectorAll('.n88-video-link-input');
+                                if (inputs[i]) {
+                                    inputs[i].value = bidData.video_links[i];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Restore photos (H) - restore from URLs
+                if (bidData.bid_photo_urls && bidData.bid_photo_urls.length > 0) {
+                    var previewContainer = document.getElementById('n88-bid-photos-preview');
+                    if (previewContainer) {
+                        previewContainer.innerHTML = '';
+                        bidData.bid_photo_urls.forEach(function(photo) {
+                            var thumbDiv = document.createElement('div');
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
+                                '<button type="button" onclick="removeBidPhoto(this, ' + photo.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                            thumbDiv.setAttribute('data-photo-id', photo.id);
+                            previewContainer.appendChild(thumbDiv);
+                            
+                            // Add hidden input
+                            var hiddenInput = document.createElement('input');
+                            hiddenInput.type = 'hidden';
+                            hiddenInput.name = 'bid_photo_ids[]';
+                            hiddenInput.value = photo.id;
+                            hiddenInput.setAttribute('data-photo-id', photo.id);
+                            hiddenInput.setAttribute('data-thumb-div', 'photo-' + photo.id);
+                            form.appendChild(hiddenInput);
+                        });
+                    }
+                } else if (bidData.bid_photos && bidData.bid_photos.length > 0) {
+                    // Fallback: restore from URLs if photo_urls not available
+                    var previewContainer = document.getElementById('n88-bid-photos-preview');
+                    if (previewContainer) {
+                        previewContainer.innerHTML = '';
+                        bidData.bid_photos.forEach(function(photoUrl, index) {
+                            var thumbDiv = document.createElement('div');
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
+                                '<button type="button" onclick="removeBidPhoto(this, null);" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                            previewContainer.appendChild(thumbDiv);
+                        });
+                    }
+                }
+                
+                // Restore form fields
+                if (bidData.prototype_video_yes !== undefined && bidData.prototype_video_yes !== null) {
+                    var radio = form.querySelector('input[name="prototype_video_yes"][value="' + bidData.prototype_video_yes + '"]');
+                    if (radio) radio.checked = true;
+                }
+                if (bidData.prototype_timeline_option) {
+                    var timelineSelect = form.querySelector('select[name="prototype_timeline_option"]');
+                    if (timelineSelect) timelineSelect.value = bidData.prototype_timeline_option;
+                }
+                if (bidData.prototype_cost) {
+                    var costInput = form.querySelector('input[name="prototype_cost"]');
+                    if (costInput) costInput.value = bidData.prototype_cost;
+                }
+                if (bidData.production_lead_time_text) {
+                    var leadTimeSelect = form.querySelector('select[name="production_lead_time_text"]');
+                    if (leadTimeSelect) leadTimeSelect.value = bidData.production_lead_time_text;
+                }
+                if (bidData.unit_price) {
+                    var priceInput = form.querySelector('input[name="unit_price"]');
+                    if (priceInput) priceInput.value = bidData.unit_price;
+                }
+                
+                // Restore Smart Alternatives (H) - fix comparison points
+                if (bidData.smart_alternatives_suggestion) {
+                    var sa = bidData.smart_alternatives_suggestion;
+                    if (sa.category) {
+                        var catSelect = form.querySelector('select[name="smart_alt_category"]');
+                        if (catSelect) catSelect.value = sa.category;
+                    }
+                    if (sa.from) {
+                        var fromSelect = form.querySelector('select[name="smart_alt_from"]');
+                        if (fromSelect) fromSelect.value = sa.from;
+                    }
+                    if (sa.to) {
+                        var toSelect = form.querySelector('select[name="smart_alt_to"]');
+                        if (toSelect) toSelect.value = sa.to;
+                    }
+                    if (sa.price_impact) {
+                        var priceSelect = form.querySelector('select[name="smart_alt_price_impact"]');
+                        if (priceSelect) priceSelect.value = sa.price_impact;
+                    }
+                    if (sa.lead_time_impact) {
+                        var leadSelect = form.querySelector('select[name="smart_alt_lead_time_impact"]');
+                        if (leadSelect) leadSelect.value = sa.lead_time_impact;
+                    }
+                    // H) Fix comparison points restoration - use correct selector
+                    if (sa.comparison_points && sa.comparison_points.length > 0) {
+                        sa.comparison_points.forEach(function(comp) {
+                            var checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"].n88-smart-alt-checkbox-modal');
+                            if (!checkbox) {
+                                // Try without class
+                                checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"]');
+                            }
+                            if (checkbox) {
+                                checkbox.checked = true;
+                            }
+                        });
+                    }
+                    // Update preview
+                    if (typeof updateSmartAltPreviewModal === 'function') {
+                        updateSmartAltPreviewModal();
+                    }
+                }
+                
+                // Trigger validation
+                if (typeof validateBidForm === 'function') {
+                    setTimeout(function() {
+                        validateBidForm();
+                    }, 100);
+                }
+            }
+            
+            // G) Update bid to match new specs
+            function updateBidToMatchNewSpecs(itemId) {
+                var formData = new FormData();
+                formData.append('action', 'n88_update_bid_to_match_new_specs');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_update_bid_to_match_new_specs' ); ?>');
+                
+                // Show loading state
+                var banner = document.getElementById('n88-specs-changed-banner');
+                if (banner) {
+                    banner.innerHTML = '<div style="padding: 16px; text-align: center; color: #fff; font-family: monospace;">Creating new draft...</div>';
+                }
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (!data.success) {
+                        alert(data.data && data.data.message ? data.data.message : 'Failed to create draft. Please try again.');
+                        if (banner) {
+                            banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                                '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
+                                'The item specifications have been updated. Please update your bid to match the new specs before submitting.' +
+                                '</div>' +
+                                '<button type="button" onclick="updateBidToMatchNewSpecs(' + itemId + ')" style="padding: 10px 20px; background-color: #ff9800; color: #000; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: monospace;">Update Bid to Match New Specs</button>';
+                        }
+                        return;
+                    }
+                    
+                    // Hide banner and show form
+                    if (banner) {
+                        banner.style.display = 'none';
+                    }
+                    var form = document.getElementById('n88-bid-form');
+                    if (form) {
+                        form.style.display = 'block';
+                    }
+                    
+                    // Reload item details to get pre-filled draft data
+                    openBidFormModalInternal(itemId);
+                })
+                .catch(function(error) {
+                    console.error('Error updating bid:', error);
+                    alert('An error occurred. Please try again.');
+                    if (banner) {
+                        banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                            '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
+                            'The item specifications have been updated. Please update your bid to match the new specs before submitting.' +
+                            '</div>' +
+                            '<button type="button" onclick="updateBidToMatchNewSpecs(' + itemId + ')" style="padding: 10px 20px; background-color: #ff9800; color: #000; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: monospace;">Update Bid to Match New Specs</button>';
+                    }
+                });
+            }
+            
             // Make functions globally accessible
             window.validateAndSubmitBid = validateAndSubmitBid;
             window.submitBid = submitBid;
@@ -4586,6 +4949,7 @@ class N88_RFQ_Auth {
             window.validateAndSubmitBidEmbedded = validateAndSubmitBidEmbedded;
             window.submitBidEmbedded = submitBidEmbedded;
             window.saveBidDraftEmbedded = saveBidDraftEmbedded;
+            window.updateBidToMatchNewSpecs = updateBidToMatchNewSpecs;
             
             // Smart Alternatives preview update function
             function updateSmartAltPreview(itemId) {
@@ -6792,14 +7156,22 @@ class N88_RFQ_Auth {
             $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             
+            // G) Check for revision column in bids table
+            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+            
             $select_bid_fields = "bid_id, status, created_at, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost";
             if ( $has_bid_meta_json ) {
                 $select_bid_fields .= ", meta_json";
             }
+            if ( $has_revision_column ) {
+                $select_bid_fields .= ", rfq_revision_at_submit";
+            }
             
             $existing_bid = $wpdb->get_row( $wpdb->prepare(
                 "SELECT {$select_bid_fields} FROM {$item_bids_table} 
-                WHERE item_id = %d AND supplier_id = %d",
+                WHERE item_id = %d AND supplier_id = %d
+                ORDER BY created_at DESC, bid_id DESC
+                LIMIT 1",
                 $item_id,
                 $current_user->ID
             ), ARRAY_A );
@@ -6808,8 +7180,14 @@ class N88_RFQ_Auth {
                 $bid_created_at = $existing_bid['created_at'];
                 $has_submitted_bid = ( $bid_status === 'submitted' );
                 
-                // If bid is submitted, get full bid data
-                if ( $has_submitted_bid ) {
+                // G) Get bid revision for "Specs Changed" check
+                $bid_revision = null;
+                if ( $has_revision_column && isset( $existing_bid['rfq_revision_at_submit'] ) && $existing_bid['rfq_revision_at_submit'] !== null ) {
+                    $bid_revision = intval( $existing_bid['rfq_revision_at_submit'] );
+                }
+                
+                // If bid is submitted or draft, get full bid data (for pre-filling on revision mismatch)
+                if ( $has_submitted_bid || $bid_status === 'draft' ) {
                     $bid_id = intval( $existing_bid['bid_id'] );
                     
                     // Get video links
@@ -6861,6 +7239,29 @@ class N88_RFQ_Auth {
                         error_log( 'Bid retrieval - meta_json column does not exist in table' );
                     }
                     
+                    // H) Get photo IDs and URLs for restoration
+                    $bid_photo_ids = array();
+                    $bid_photo_urls_array = array();
+                    foreach ( $bid_photos as $photo ) {
+                        if ( isset( $photo['file_url'] ) && ! empty( $photo['file_url'] ) ) {
+                            // Try to get attachment ID from URL
+                            $attachment_id = attachment_url_to_postid( $photo['file_url'] );
+                            if ( $attachment_id ) {
+                                $bid_photo_ids[] = $attachment_id;
+                                $bid_photo_urls_array[] = array(
+                                    'id' => $attachment_id,
+                                    'url' => esc_url_raw( $photo['file_url'] ),
+                                );
+                            } else {
+                                // If no attachment ID, just store URL
+                                $bid_photo_urls_array[] = array(
+                                    'id' => null,
+                                    'url' => esc_url_raw( $photo['file_url'] ),
+                                );
+                            }
+                        }
+                    }
+                    
                     $bid_data = array(
                         'unit_price' => $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null,
                         'production_lead_time' => $existing_bid['production_lead_time_text'] ? sanitize_text_field( $existing_bid['production_lead_time_text'] ) : null,
@@ -6871,6 +7272,77 @@ class N88_RFQ_Auth {
                             return esc_url_raw( $link['url'] );
                         }, $video_links ),
                         'bid_photos' => $photo_urls,
+                        'bid_photo_ids' => $bid_photo_ids, // H) Photo IDs for restoration
+                        'bid_photo_urls' => $bid_photo_urls_array, // H) Photo URLs with IDs for restoration
+                        'created_at' => $bid_created_at,
+                        'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
+                    );
+                } elseif ( $bid_status === 'draft' ) {
+                    // G) For draft bids, get basic data for pre-filling
+                    $bid_id = intval( $existing_bid['bid_id'] );
+                    
+                    // Get video links for draft
+                    $video_links = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT url, provider FROM {$bid_media_links_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid_id
+                    ), ARRAY_A );
+                    
+                    // Get bid photos for draft
+                    $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT file_url FROM {$bid_media_files_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid_id
+                    ), ARRAY_A );
+                    
+                    $photo_urls = array();
+                    // H) Get photo IDs and URLs for restoration (draft)
+                    $bid_photo_ids = array();
+                    $bid_photo_urls_array = array();
+                    foreach ( $bid_photos as $photo ) {
+                        if ( isset( $photo['file_url'] ) && ! empty( $photo['file_url'] ) ) {
+                            $photo_urls[] = esc_url_raw( $photo['file_url'] );
+                            // Try to get attachment ID from URL
+                            $attachment_id = attachment_url_to_postid( $photo['file_url'] );
+                            if ( $attachment_id ) {
+                                $bid_photo_ids[] = $attachment_id;
+                                $bid_photo_urls_array[] = array(
+                                    'id' => $attachment_id,
+                                    'url' => esc_url_raw( $photo['file_url'] ),
+                                );
+                            } else {
+                                // If no attachment ID, just store URL
+                                $bid_photo_urls_array[] = array(
+                                    'id' => null,
+                                    'url' => esc_url_raw( $photo['file_url'] ),
+                                );
+                            }
+                        }
+                    }
+                    
+                    // Get Smart Alternatives suggestion from meta_json for draft
+                    $smart_alternatives_suggestion = null;
+                    if ( $has_bid_meta_json && ! empty( $existing_bid['meta_json'] ) ) {
+                        $bid_meta = json_decode( $existing_bid['meta_json'], true );
+                        if ( is_array( $bid_meta ) && isset( $bid_meta['smart_alternatives_suggestion'] ) ) {
+                            $smart_alternatives_suggestion = $bid_meta['smart_alternatives_suggestion'];
+                        }
+                    }
+                    
+                    $bid_data = array(
+                        'unit_price' => $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null,
+                        'production_lead_time' => $existing_bid['production_lead_time_text'] ? sanitize_text_field( $existing_bid['production_lead_time_text'] ) : null,
+                        'prototype_video_yes' => intval( $existing_bid['prototype_video_yes'] ) === 1,
+                        'prototype_timeline' => $existing_bid['prototype_timeline_option'] ? sanitize_text_field( $existing_bid['prototype_timeline_option'] ) : null,
+                        'prototype_cost' => $existing_bid['prototype_cost'] ? floatval( $existing_bid['prototype_cost'] ) : null,
+                        'video_links' => array_map( function( $link ) {
+                            return esc_url_raw( $link['url'] );
+                        }, $video_links ),
+                        'bid_photos' => $photo_urls,
+                        'bid_photo_ids' => $bid_photo_ids, // H) Photo IDs for restoration
+                        'bid_photo_urls' => $bid_photo_urls_array, // H) Photo URLs with IDs for restoration
                         'created_at' => $bid_created_at,
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                     );
@@ -6986,6 +7458,42 @@ class N88_RFQ_Auth {
             }
         }
 
+        // G) Get item current revision for "Specs Changed" check
+        $item_current_revision = isset( $meta['rfq_revision_current'] ) ? intval( $meta['rfq_revision_current'] ) : null;
+        
+        // G) Check if supplier has revision mismatch (stale bid but no current revision bid)
+        $has_revision_mismatch = false;
+        $latest_stale_bid_data = null;
+        if ( $item_current_revision !== null && isset( $bid_revision ) && $bid_revision !== null ) {
+            if ( $bid_revision < $item_current_revision ) {
+                // Check if supplier has current revision bid
+                $current_revision_bid = null;
+                if ( $has_revision_column ) {
+                    $current_revision_bid = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT bid_id, status FROM {$item_bids_table} 
+                        WHERE item_id = %d 
+                        AND supplier_id = %d
+                        AND rfq_revision_at_submit = %d
+                        AND status IN ('submitted', 'draft')
+                        LIMIT 1",
+                        $item_id,
+                        $current_user->ID,
+                        $item_current_revision
+                    ), ARRAY_A );
+                }
+                
+                // Only show mismatch if no current revision bid exists
+                if ( ! $current_revision_bid ) {
+                    $has_revision_mismatch = true;
+                    
+                    // Use bid_data if available (already populated for submitted/draft bids above)
+                    if ( $bid_data ) {
+                        $latest_stale_bid_data = $bid_data;
+                    }
+                }
+            }
+        }
+        
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         $response = array(
@@ -7013,6 +7521,10 @@ class N88_RFQ_Auth {
             'bid_status' => $bid_status, // Commit 2.3.5 - bid status to prevent duplicate submissions
             'show_dims_qty_warning' => $show_dims_qty_warning, // Commit 2.3.5.1 Addendum: Flag to show warning banner
             'bid_data' => $bid_data, // Bid details when bid is submitted
+            'rfq_revision_current' => $item_current_revision, // G) Current item revision
+            'bid_revision' => $bid_revision, // G) Supplier's bid revision
+            'has_revision_mismatch' => $has_revision_mismatch, // G) Flag for "Specs Changed" banner
+            'latest_stale_bid_data' => $latest_stale_bid_data, // G) Latest stale bid data for pre-filling
         );
 
         wp_send_json_success( $response );
@@ -7674,14 +8186,37 @@ class N88_RFQ_Auth {
             ) );
         }
 
+        // D7: Revision guardrail - Check if item specs changed
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_meta_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+        if ( ! is_array( $item_meta ) ) {
+            $item_meta = array();
+        }
+        
+        // Get current item revision (default to 1 if not set)
+        $item_current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
+        
+        // Check if bids table has rfq_revision_at_submit column
+        $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+        $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+        
         // Start transaction
         $wpdb->query( 'START TRANSACTION' );
 
         try {
             // Check for existing bid
+            $existing_bid_query = "SELECT bid_id, status";
+            if ( $has_revision_column ) {
+                $existing_bid_query .= ", rfq_revision_at_submit";
+            }
+            $existing_bid_query .= " FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d";
+            
             $existing_bid = $wpdb->get_row( $wpdb->prepare(
-                "SELECT bid_id, status FROM {$item_bids_table} 
-                WHERE item_id = %d AND supplier_id = %d",
+                $existing_bid_query,
                 $item_id,
                 $current_user->ID
             ) );
@@ -7692,6 +8227,19 @@ class N88_RFQ_Auth {
                 wp_send_json_error( array(
                     'message' => 'You\'ve already submitted a bid for this item.',
                 ) );
+            }
+            
+            // D7: Revision guardrail - Block if specs changed while supplier was working on bid
+            if ( $existing_bid && $has_revision_column ) {
+                $existing_bid_revision = isset( $existing_bid->rfq_revision_at_submit ) ? intval( $existing_bid->rfq_revision_at_submit ) : null;
+                
+                // If existing bid has a revision set, check if it matches current item revision
+                if ( $existing_bid_revision !== null && $existing_bid_revision !== $item_current_revision ) {
+                    $wpdb->query( 'ROLLBACK' );
+                    wp_send_json_error( array(
+                        'message' => 'Specs changed. Please update your bid to match the new specs.',
+                    ) );
+                }
             }
 
             // Prepare bid data
@@ -7749,25 +8297,16 @@ class N88_RFQ_Auth {
                 error_log( 'Bid submission - meta_json column does NOT exist in table and could not be created' );
             }
 
-            // Get current RFQ revision from item meta and set rfq_revision_at_submit
-            $items_table = $wpdb->prefix . 'n88_items';
-            $item_meta_json = $wpdb->get_var( $wpdb->prepare(
-                "SELECT meta_json FROM {$items_table} WHERE id = %d",
-                $item_id
-            ) );
-            $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
-            if ( ! is_array( $item_meta ) ) {
-                $item_meta = array();
-            }
-            
-            // Get current revision (default to 1 if not set)
-            $current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
+            // D7: Revision guardrail - Final check before setting revision
+            // Ensure bid.rfq_revision_at_submit will equal item.rfq_revision_current
+            // (This check is already done above, but we verify again here before setting)
             
             // Check if rfq_revision_at_submit column exists
             $has_revision_column = in_array( 'rfq_revision_at_submit', $table_columns, true );
             if ( $has_revision_column ) {
-                $bid_data['rfq_revision_at_submit'] = $current_revision;
-                error_log( 'Bid submission - Setting rfq_revision_at_submit to ' . $current_revision . ' for bid on item ' . $item_id );
+                // Set bid revision to current item revision (they should match at this point)
+                $bid_data['rfq_revision_at_submit'] = $item_current_revision;
+                error_log( 'Bid submission - Setting rfq_revision_at_submit to ' . $item_current_revision . ' for bid on item ' . $item_id );
             }
 
             // Prepare format array based on whether meta_json and rfq_revision_at_submit are included
@@ -8083,13 +8622,28 @@ class N88_RFQ_Auth {
             $draft_data['video_links'] = array();
         }
 
-        // Bid photos
+        // Bid photos - store both IDs and URLs for restoration
         $bid_photo_ids_json = isset( $_POST['bid_photo_ids'] ) ? wp_unslash( $_POST['bid_photo_ids'] ) : '[]';
         $bid_photo_ids = json_decode( $bid_photo_ids_json, true );
         if ( is_array( $bid_photo_ids ) ) {
             $draft_data['bid_photo_ids'] = array_map( 'intval', $bid_photo_ids );
+            // Also store URLs for easy restoration
+            $draft_data['bid_photo_urls'] = array();
+            foreach ( $bid_photo_ids as $photo_id ) {
+                $photo_url = wp_get_attachment_image_url( $photo_id, 'medium' );
+                if ( ! $photo_url ) {
+                    $photo_url = wp_get_attachment_url( $photo_id );
+                }
+                if ( $photo_url ) {
+                    $draft_data['bid_photo_urls'][] = array(
+                        'id' => $photo_id,
+                        'url' => esc_url_raw( $photo_url ),
+                    );
+                }
+            }
         } else {
             $draft_data['bid_photo_ids'] = array();
+            $draft_data['bid_photo_urls'] = array();
         }
 
         // Form fields
@@ -8677,6 +9231,237 @@ class N88_RFQ_Auth {
         $supplier_ids = $wpdb->get_col( $query );
 
         return array_map( 'intval', $supplier_ids );
+    }
+    
+    /**
+     * G) AJAX handler to update bid to match new specs
+     * Creates a new draft bid for current revision, pre-filled from latest stale bid
+     */
+    public function ajax_update_bid_to_match_new_specs() {
+        check_ajax_referer( 'n88_update_bid_to_match_new_specs', '_ajax_nonce' );
+        
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+        
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+        
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+        $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+        
+        // Verify supplier has route
+        if ( ! $is_system_operator ) {
+            $route_exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$rfq_routes_table} 
+                WHERE item_id = %d 
+                AND supplier_id = %d 
+                AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                $item_id,
+                $current_user->ID
+            ) );
+            
+            if ( ! $route_exists || intval( $route_exists ) === 0 ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You do not have permission to bid on this item.' ), 403 );
+            }
+        }
+        
+        // Get item current revision
+        $item_meta_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+        if ( ! is_array( $item_meta ) ) {
+            $item_meta = array();
+        }
+        $item_current_revision = isset( $item_meta['rfq_revision_current'] ) ? intval( $item_meta['rfq_revision_current'] ) : 1;
+        
+        // Check if current revision draft already exists
+        $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+        $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+        
+        $existing_current_draft = null;
+        if ( $has_revision_column ) {
+            $existing_current_draft = $wpdb->get_row( $wpdb->prepare(
+                "SELECT bid_id FROM {$item_bids_table} 
+                WHERE item_id = %d 
+                AND supplier_id = %d
+                AND rfq_revision_at_submit = %d
+                AND status = 'draft'
+                LIMIT 1",
+                $item_id,
+                $current_user->ID,
+                $item_current_revision
+            ) );
+        }
+        
+        if ( $existing_current_draft ) {
+            wp_send_json_success( array(
+                'message' => 'Draft already exists for current revision.',
+                'bid_id' => intval( $existing_current_draft->bid_id ),
+            ) );
+            return;
+        }
+        
+        // Get latest stale bid (oldest revision, most recent created_at)
+        $stale_bid_query = "SELECT bid_id, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost";
+        $bids_columns_check = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+        $has_bid_meta_json = in_array( 'meta_json', $bids_columns_check, true );
+        if ( $has_bid_meta_json ) {
+            $stale_bid_query .= ", meta_json";
+        }
+        if ( $has_revision_column ) {
+            $stale_bid_query .= ", rfq_revision_at_submit";
+        }
+        $stale_bid_query .= " FROM {$item_bids_table} 
+            WHERE item_id = %d 
+            AND supplier_id = %d
+            AND status IN ('submitted', 'draft')";
+        
+        if ( $has_revision_column ) {
+            $stale_bid_query .= " AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)";
+            $stale_bid = $wpdb->get_row( $wpdb->prepare(
+                $stale_bid_query . " ORDER BY created_at DESC, bid_id DESC LIMIT 1",
+                $item_id,
+                $current_user->ID,
+                $item_current_revision
+            ), ARRAY_A );
+        } else {
+            $stale_bid = $wpdb->get_row( $wpdb->prepare(
+                $stale_bid_query . " ORDER BY created_at DESC, bid_id DESC LIMIT 1",
+                $item_id,
+                $current_user->ID
+            ), ARRAY_A );
+        }
+        
+        if ( ! $stale_bid ) {
+            wp_send_json_error( array( 'message' => 'No stale bid found to copy from.' ) );
+            return;
+        }
+        
+        $stale_bid_id = intval( $stale_bid['bid_id'] );
+        
+        // Start transaction
+        $wpdb->query( 'START TRANSACTION' );
+        
+        try {
+            // Create new draft bid with current revision
+            $new_draft_data = array(
+                'item_id' => $item_id,
+                'supplier_id' => $current_user->ID,
+                'is_anonymous' => 1,
+                'unit_price' => $stale_bid['unit_price'] ? floatval( $stale_bid['unit_price'] ) : null,
+                'production_lead_time_text' => $stale_bid['production_lead_time_text'] ? sanitize_text_field( $stale_bid['production_lead_time_text'] ) : null,
+                'prototype_video_yes' => intval( $stale_bid['prototype_video_yes'] ) === 1 ? 1 : 0,
+                'prototype_timeline_option' => $stale_bid['prototype_timeline_option'] ? sanitize_text_field( $stale_bid['prototype_timeline_option'] ) : null,
+                'prototype_cost' => $stale_bid['prototype_cost'] ? floatval( $stale_bid['prototype_cost'] ) : null,
+                'cad_yes' => null,
+                'status' => 'draft',
+            );
+            
+            // Add meta_json if available
+            if ( $has_bid_meta_json && ! empty( $stale_bid['meta_json'] ) ) {
+                $new_draft_data['meta_json'] = $stale_bid['meta_json'];
+            }
+            
+            // Add revision
+            if ( $has_revision_column ) {
+                $new_draft_data['rfq_revision_at_submit'] = $item_current_revision;
+            }
+            
+            // Prepare format array
+            $format_array = array( '%d', '%d', '%d', '%f', '%s', '%d', '%s', '%f', '%s', '%s' );
+            if ( $has_bid_meta_json && isset( $new_draft_data['meta_json'] ) ) {
+                $format_array[] = '%s';
+            }
+            if ( $has_revision_column ) {
+                $format_array[] = '%d';
+            }
+            
+            // Insert new draft
+            $inserted = $wpdb->insert(
+                $item_bids_table,
+                $new_draft_data,
+                $format_array
+            );
+            
+            if ( ! $inserted ) {
+                throw new Exception( 'Failed to create draft bid.' );
+            }
+            
+            $new_draft_bid_id = $wpdb->insert_id;
+            
+            // Copy video links from stale bid
+            $stale_video_links = $wpdb->get_results( $wpdb->prepare(
+                "SELECT url, provider, sort_order FROM {$bid_media_links_table}
+                WHERE bid_id = %d
+                ORDER BY sort_order ASC, id ASC",
+                $stale_bid_id
+            ), ARRAY_A );
+            
+            foreach ( $stale_video_links as $link ) {
+                $wpdb->insert(
+                    $bid_media_links_table,
+                    array(
+                        'bid_id' => $new_draft_bid_id,
+                        'url' => $link['url'],
+                        'provider' => $link['provider'],
+                        'sort_order' => $link['sort_order'],
+                    ),
+                    array( '%d', '%s', '%s', '%d' )
+                );
+            }
+            
+            // Copy bid photos from stale bid
+            $stale_photos = $wpdb->get_results( $wpdb->prepare(
+                "SELECT file_url, sort_order FROM {$bid_media_files_table}
+                WHERE bid_id = %d
+                ORDER BY sort_order ASC, id ASC",
+                $stale_bid_id
+            ), ARRAY_A );
+            
+            foreach ( $stale_photos as $photo ) {
+                $wpdb->insert(
+                    $bid_media_files_table,
+                    array(
+                        'bid_id' => $new_draft_bid_id,
+                        'file_url' => $photo['file_url'],
+                        'sort_order' => $photo['sort_order'],
+                    ),
+                    array( '%d', '%s', '%d' )
+                );
+            }
+            
+            $wpdb->query( 'COMMIT' );
+            
+            wp_send_json_success( array(
+                'message' => 'New draft created successfully. Please update your bid to match the new specs.',
+                'bid_id' => $new_draft_bid_id,
+                'revision' => $item_current_revision,
+            ) );
+            
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            wp_send_json_error( array(
+                'message' => 'Failed to create draft: ' . $e->getMessage(),
+            ) );
+        }
     }
 }
 

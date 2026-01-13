@@ -1,24 +1,24 @@
 /**
- * Concierge Overlay Component
+ * Concierge Overlay Component (K) - Updated terminology to "Your Sourcing Agent"
  * 
- * Milestone 1.3.7: Read-only overlay showing concierge info
+ * Milestone 1.3.7: Read-only overlay showing sourcing agent info
  * 
- * Non-blocking overlay that displays concierge name and avatar.
+ * Non-blocking overlay that displays sourcing agent name and avatar.
  * Must not interfere with board interactions (pointer-events: none).
  */
 
 import React from 'react';
 
 /**
- * ConciergeOverlay - Persistent overlay showing concierge information
+ * ConciergeOverlay - Persistent overlay showing sourcing agent information
  * 
  * @param {Object} props
- * @param {Object} props.concierge - Concierge data { name: string, avatarUrl: string }
+ * @param {Object} props.concierge - Sourcing agent data { name: string, avatarUrl: string }
  */
 const ConciergeOverlay = ({ concierge }) => {
-    // Default placeholder if concierge data not provided
+    // Default placeholder if sourcing agent data not provided
     const conciergeData = concierge || {
-        name: 'Your Concierge',
+        name: 'Your Sourcing Agent',
         avatarUrl: '',
     };
 
