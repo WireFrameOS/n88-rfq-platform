@@ -10,6 +10,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class N88_RFQ_Auth {
 
+    /**
+     * Commit 2.3.7.1: System-invited route expiry window (in seconds)
+     * Production: 172800 (48 hours)
+     * Testing: 3600 (60 minutes = 1 hour)
+     * 
+     * To change from testing to production, update this constant to 172800
+     */
+    const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 3600; // 60 minutes for testing (change to 172800 for 48 hours)
+
     public function __construct() {
         // Register shortcodes
         add_shortcode( 'n88_signup', array( $this, 'render_signup_form' ) );
@@ -1191,6 +1200,106 @@ class N88_RFQ_Auth {
     }
     
     /**
+     * Commit 2.3.7.1: Check and update expired system_invited routes (lazy evaluation)
+     * 
+     * For each system_invited route:
+     * - If eligible_after IS NOT NULL
+     * - AND NOW() > eligible_after + INTERVAL (N88_SYSTEM_INVITED_EXPIRY_SECONDS)
+     * - AND status IN ('queued','sent','viewed')
+     * - Then set status = 'expired'
+     * 
+     * @param int|null $item_id Optional item_id to check specific item, or null to check all
+     * @param int|null $supplier_id Optional supplier_id to check specific supplier, or null to check all
+     * @return int Number of routes updated to expired
+     */
+    private function check_and_update_expired_routes( $item_id = null, $supplier_id = null ) {
+        global $wpdb;
+        
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        
+        // Build WHERE clause
+        $where_conditions = array( "route_type = 'system_invited'" );
+        $where_conditions[] = "status IN ('queued', 'sent', 'viewed')";
+        
+        // Calculate expiry timestamp
+        // Route expires if: NOW() > eligible_after + INTERVAL (expiry_seconds) OR NOW() > routed_at + INTERVAL (expiry_seconds)
+        // For routes with eligible_after (delayed routes): use eligible_after + expiry_seconds (expiry starts when route becomes eligible)
+        // For routes without eligible_after (immediate routes): use routed_at + expiry_seconds (expiry starts when route is created)
+        $expiry_seconds = self::N88_SYSTEM_INVITED_EXPIRY_SECONDS;
+        
+        // Handle both cases: routes with eligible_after and routes without (using routed_at)
+        // Priority: If eligible_after exists, use it; otherwise use routed_at
+        $expiry_condition = $wpdb->prepare(
+            "(eligible_after IS NOT NULL AND DATE_ADD(eligible_after, INTERVAL %d SECOND) < NOW()) OR (eligible_after IS NULL AND routed_at IS NOT NULL AND DATE_ADD(routed_at, INTERVAL %d SECOND) < NOW())",
+            $expiry_seconds,
+            $expiry_seconds
+        );
+        $where_conditions[] = $expiry_condition;
+        
+        if ( $item_id !== null ) {
+            $where_conditions[] = $wpdb->prepare( "item_id = %d", $item_id );
+        }
+        
+        if ( $supplier_id !== null ) {
+            $where_conditions[] = $wpdb->prepare( "supplier_id = %d", $supplier_id );
+        }
+        
+        $where_clause = implode( ' AND ', $where_conditions );
+        
+        // Update expired routes
+        $updated = $wpdb->query(
+            "UPDATE {$rfq_routes_table} 
+            SET status = 'expired' 
+            WHERE {$where_clause}"
+        );
+        
+        if ( $updated > 0 ) {
+            error_log( sprintf( 
+                'N88 RFQ: Updated %d system_invited route(s) to expired status (expiry window: %d seconds)',
+                $updated,
+                $expiry_seconds
+            ) );
+        }
+        
+        return $updated !== false ? intval( $updated ) : 0;
+    }
+    
+    /**
+     * Commit 2.3.7.1: Check if a route is expired
+     * 
+     * @param int $item_id Item ID
+     * @param int $supplier_id Supplier ID
+     * @return bool True if route is expired, false otherwise
+     */
+    private function is_route_expired( $item_id, $supplier_id ) {
+        global $wpdb;
+        
+        // First, check and update expired routes (lazy evaluation)
+        $this->check_and_update_expired_routes( $item_id, $supplier_id );
+        
+        // Then check if this specific route is expired
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $route = $wpdb->get_row( $wpdb->prepare(
+            "SELECT status, route_type, eligible_after 
+            FROM {$rfq_routes_table} 
+            WHERE item_id = %d AND supplier_id = %d",
+            $item_id,
+            $supplier_id
+        ) );
+        
+        if ( ! $route ) {
+            return false; // Route doesn't exist
+        }
+        
+        // Only system_invited routes can expire
+        if ( $route->route_type !== 'system_invited' ) {
+            return false;
+        }
+        
+        return $route->status === 'expired';
+    }
+    
+    /**
      * Render supplier queue page (M) - Redesigned to match wireframe
      */
     public function render_supplier_queue( $atts = array() ) {
@@ -1230,18 +1339,22 @@ class N88_RFQ_Auth {
                         $categories_table = $wpdb->prefix . 'n88_categories';
                         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
                         
+        // Commit 2.3.7.1: Check and update expired system_invited routes (lazy evaluation)
+        $this->check_and_update_expired_routes( null, $current_user->ID );
+                        
         // M3: Build query with proper status filtering (include expired when needed)
         // M3.3: Exclude cancelled/closed routes
         $status_conditions = array();
         $status_conditions[] = "r.status NOT IN ('cancelled', 'closed')";
         
+        // Commit 2.3.7.1: Always exclude expired routes by default (unless explicitly filtering for expired)
         if ( $status_filter === 'expired' ) {
             $status_conditions[] = "r.status = 'expired'";
-        } elseif ( $status_filter !== 'all' ) {
-            // For other filters, exclude expired by default (unless 'all' is selected)
+        } else {
+            // For all other filters (including 'all'), exclude expired routes
+            // Expired routes should only appear when explicitly filtering for 'expired'
             $status_conditions[] = "r.status != 'expired'";
         }
-        // If 'all', include everything (expired included, but still exclude cancelled/closed)
         
         $status_where = ! empty( $status_conditions ) ? 'AND ' . implode( ' AND ', $status_conditions ) : '';
         
@@ -7295,6 +7408,14 @@ class N88_RFQ_Auth {
                     wp_send_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
                 }
             } else if ( $is_supplier ) {
+                // Commit 2.3.7.1: Check and update expired routes (lazy evaluation)
+                $this->check_and_update_expired_routes( $item_id, $current_user->ID );
+                
+                // Check if route is expired
+                if ( $this->is_route_expired( $item_id, $current_user->ID ) ) {
+                    wp_send_json_error( array( 'message' => 'This RFQ is no longer accepting bids.' ), 403 );
+                }
+                
                 // Supplier can only view items they have a route for
                 $route_exists = $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(*) FROM {$rfq_routes_table} 
@@ -8917,6 +9038,14 @@ class N88_RFQ_Auth {
 
         // Verify supplier has route for this item (unless system operator)
         if ( ! $is_system_operator ) {
+            // Commit 2.3.7.1: Check and update expired routes (lazy evaluation)
+            $this->check_and_update_expired_routes( $item_id, $current_user->ID );
+            
+            // Check if route is expired
+            if ( $this->is_route_expired( $item_id, $current_user->ID ) ) {
+                wp_send_json_error( array( 'message' => 'This RFQ is no longer accepting bids.' ), 403 );
+            }
+            
             $route = $wpdb->get_row( $wpdb->prepare(
                 "SELECT route_id, status FROM {$rfq_routes_table} 
                 WHERE item_id = %d 
@@ -9757,6 +9886,15 @@ class N88_RFQ_Auth {
         if ( ! $is_system_operator ) {
             global $wpdb;
             $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+            
+            // Commit 2.3.7.1: Check and update expired routes (lazy evaluation)
+            $this->check_and_update_expired_routes( $item_id, $current_user->ID );
+            
+            // Check if route is expired
+            if ( $this->is_route_expired( $item_id, $current_user->ID ) ) {
+                wp_send_json_error( array( 'message' => 'This RFQ is no longer accepting bids.' ), 403 );
+            }
+            
             $route_exists = $wpdb->get_var( $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$rfq_routes_table} 
                 WHERE item_id = %d 
