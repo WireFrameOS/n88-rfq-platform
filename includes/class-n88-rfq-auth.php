@@ -8642,12 +8642,19 @@ class N88_RFQ_Auth {
                     $bid_revision = intval( $bid['rfq_revision_at_submit'] );
                 }
                 
+                // Commit 2.3.7.1: Apply 65% margin markup for designer display
+                // Store raw prices for reference, but display marked-up prices to designers
+                $unit_price_raw = $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null;
+                $prototype_cost_raw = $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null;
+                
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
-                    'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
+                    'unit_price' => N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw ), // Designer sees marked-up price
+                    'unit_price_raw' => $unit_price_raw, // Keep raw price for reference
                     'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
                     'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
-                    'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
+                    'prototype_cost' => N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ), // Designer sees marked-up price
+                    'prototype_cost_raw' => $prototype_cost_raw, // Keep raw price for reference
                     'prototype_commitment' => isset( $bid['prototype_video_yes'] ) && intval( $bid['prototype_video_yes'] ) === 1 ? true : false,
                     'cad_yes' => isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false,
                     'video_links' => array_map( function( $link ) {

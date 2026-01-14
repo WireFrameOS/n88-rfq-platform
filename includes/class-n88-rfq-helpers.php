@@ -353,5 +353,30 @@ class N88_RFQ_Helpers {
         
         return false; // Not throttled
     }
+
+    /**
+     * Commit 2.3.7.1: Calculate designer display price from supplier raw price
+     * Applies 65% margin markup (equivalent to 185.714% markup)
+     * Formula: display_price = raw_price / 0.35
+     * 
+     * @param float|null $raw_price Supplier's raw price (can be null).
+     * @return float|null Display price rounded to 2 decimals, or null if input is null.
+     */
+    public static function n88_price_display_from_raw( $raw_price ) {
+        if ( $raw_price === null || $raw_price === '' ) {
+            return null;
+        }
+        
+        $raw_float = floatval( $raw_price );
+        if ( $raw_float <= 0 ) {
+            return null;
+        }
+        
+        // Apply 65% margin markup: display_price = raw_price / (1 - 0.65) = raw_price / 0.35
+        $display_price = $raw_float / 0.35;
+        
+        // Round to 2 decimals (standard currency rounding)
+        return round( $display_price, 2 );
+    }
 }
 
