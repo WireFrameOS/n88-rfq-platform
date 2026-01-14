@@ -299,6 +299,37 @@ class N88_Boards {
             $wpdb->query_cache = array();
         }
 
+        // Remove item from supplier queue (delete all routes for this item)
+        // This ensures when designer deletes item from board, it's also removed from supplier queues
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $routes_deleted = $wpdb->delete(
+            $rfq_routes_table,
+            array( 'item_id' => $item_id ),
+            array( '%d' )
+        );
+        
+        // Also delete delivery context for this item if it exists
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        $wpdb->delete(
+            $item_delivery_context_table,
+            array( 'item_id' => $item_id ),
+            array( '%d' )
+        );
+        
+        // Log event for route deletion if routes were found and deleted
+        if ( $routes_deleted !== false && $routes_deleted > 0 ) {
+            n88_log_event(
+                'item_routes_deleted_on_board_removal',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id'   => $item_id,
+                    'board_id'  => $board_id,
+                    'routes_deleted' => $routes_deleted,
+                )
+            );
+        }
+
         // Log event
         n88_log_event(
             'item_removed_from_board',

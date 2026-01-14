@@ -1694,10 +1694,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     // Determine current state
     const currentState = React.useMemo(() => {
         if (itemState.loading) return 'loading';
-        if (itemState.has_bids) return 'C'; // State C: Bids received
-        if (itemState.has_rfq) return 'B'; // State B: RFQ sent, no bids
+        // Use itemState first, fallback to item prop if itemState not loaded yet
+        const has_rfq = itemState.has_rfq || item?.has_rfq || false;
+        const has_bids = itemState.has_bids || item?.has_bids || false;
+        if (has_bids) return 'C'; // State C: Bids received
+        if (has_rfq) return 'B'; // State B: RFQ sent, no bids
         return 'A'; // State A: Before RFQ
-    }, [itemState]);
+    }, [itemState, item]);
     
     // Check if fields should be editable
     // Dimensions and quantity must remain editable at all times after RFQ submission (State B and C)
@@ -1813,6 +1816,66 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         } catch (error) {
             console.error('Error saving item facts:', error);
             alert('Failed to save item facts. Please try again.');
+            setIsSaving(false);
+        }
+    };
+
+    // Handler to update only dimensions and quantity (after RFQ is submitted)
+    const handleUpdateDimensions = async () => {
+        if (isUploadingInspiration) {
+            alert('Please wait for image uploads to complete before updating.');
+            return;
+        }
+        
+        setIsSaving(true);
+        
+        try {
+            const dimsCm = computedValues.dimsCm;
+            
+            // Process quantity
+            let qtyValue = null;
+            if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                const parsedQty = parseInt(quantity);
+                if (!isNaN(parsedQty) && parsedQty >= 0) {
+                    qtyValue = parsedQty;
+                }
+            }
+            
+            // Only update dimensions and quantity
+            const payload = {
+                quantity: qtyValue,
+                dims: {
+                    w: width ? parseFloat(width) : null,
+                    d: depth ? parseFloat(depth) : null,
+                    h: height ? parseFloat(height) : null,
+                    unit,
+                },
+                dims_cm: dimsCm,
+                cbm: computedValues.cbm,
+            };
+            
+            console.log('ItemDetailModal - Updating dimensions (handleUpdateDimensions):', {
+                itemId: item.id,
+                quantity: qtyValue,
+                payload: payload
+            });
+            
+            updateLayout(item.id, payload);
+            
+            if (onSave) {
+                const response = await onSave(item.id, payload);
+                // Show warning banner if dims/qty changed and bids exist
+                if (response && response.has_warning && itemState.has_rfq && itemState.has_bids) {
+                    setShowWarningBanner(true);
+                    setTimeout(() => setShowWarningBanner(false), 10000);
+                }
+            }
+            
+            setIsSaving(false);
+            alert('Dimensions and quantity updated successfully.');
+        } catch (error) {
+            console.error('Error updating dimensions:', error);
+            alert('Failed to update dimensions. Please try again.');
             setIsSaving(false);
         }
     };
@@ -3133,6 +3196,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             {/* Outdated Bids */}
                                                             {outdatedBids.length > 0 && (
                                                                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                    <div style={{ 
+                                                                        marginBottom: '12px',
+                                                                        padding: '10px',
+                                                                        backgroundColor: '#331100',
+                                                                        border: '1px solid #ff8800',
+                                                                        borderRadius: '4px',
+                                                                        fontSize: '11px',
+                                                                        color: '#ff8800',
+                                                                        fontWeight: '500'
+                                                                    }}>
+                                                                        ⚠️ Old bid - waiting for new bid on updated specs
+                                                                    </div>
                                                                     <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#999' }}>
                                                                         Outdated Bids (previous specs)
                                                                     </div>
@@ -3859,7 +3934,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             )}
                                                     </div>
                         
-                        {/* Footer - Save button - Hidden in State C (when bids exist) */}
+                        {/* Footer - Save button and Update button - Hidden in State C (when bids exist) */}
                         {(currentState === 'A' || currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && (
                         <div style={{
                                 padding: '16px 20px',
@@ -3868,6 +3943,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 gap: '12px',
                             justifyContent: 'flex-end',
                         }}>
+                            {/* Show Update button only if RFQ has already been submitted (State B or C) */}
+                            {/* Update button: Only updates dimensions and quantity */}
+                            {/* Also check item.has_rfq as fallback in case itemState not loaded yet */}
+                            {((currentState === 'B' || currentState === 'C') || (item?.has_rfq || itemState.has_rfq)) && (
+                                <button
+                                    onClick={handleUpdateDimensions}
+                                    disabled={isSaving || isUploadingInspiration}
+                                    style={{
+                                            padding: '10px 20px',
+                                            backgroundColor: '#111111',
+                                        border: `1px solid ${darkBorder}`,
+                                        borderRadius: '4px',
+                                            color: darkText,
+                                            fontSize: '14px',
+                                            fontFamily: 'monospace',
+                                        cursor: (isSaving || isUploadingInspiration) ? 'not-allowed' : 'pointer',
+                                            fontWeight: '600',
+                                        opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
+                                    }}
+                                >
+                                        {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')}
+                                </button>
+                            )}
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving || isUploadingInspiration}

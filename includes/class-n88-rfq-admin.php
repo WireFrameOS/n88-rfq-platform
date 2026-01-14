@@ -3493,6 +3493,46 @@ class N88_RFQ_Admin {
                             $revision_changed = (bool) $item_meta['revision_changed'];
                         }
                         
+                        // Check if there are stale bids (has_warning flag)
+                        // Warning should show if there are bids with old revision or NULL revision
+                        // IMPORTANT: Check for stale bids even if no valid bids exist (for Standby status)
+                        // Also check for withdrawn bids - if all bids are withdrawn, show Standby instead of RFQ Sent
+                        $has_warning = false;
+                        if ( $has_rfq && $rfq_revision_current !== null ) {
+                            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                            
+                            if ( $has_revision_column ) {
+                                // Check if there are any stale bids (revision < current or NULL)
+                                $stale_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'
+                                     AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)",
+                                    $item_id,
+                                    $rfq_revision_current
+                                ) ) );
+                                
+                                // Show warning if there are stale bids (regardless of valid bid count)
+                                $has_warning = $stale_bid_count > 0;
+                            }
+                        }
+                        
+                        // If no valid bids but there are withdrawn bids, set has_warning to show Standby
+                        if ( ! $has_bids && $has_rfq ) {
+                            $withdrawn_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(*) FROM {$item_bids_table} 
+                                 WHERE item_id = %d 
+                                 AND status = 'withdrawn'",
+                                $item_id
+                            ) ) );
+                            
+                            // If there are withdrawn bids but no submitted bids, show Standby
+                            if ( $withdrawn_bid_count > 0 ) {
+                                $has_warning = true;
+                            }
+                        }
+                        
                         // Check award_set from item meta or status
                         $award_set = false;
                         if ( isset( $item_meta['award_set'] ) ) {
@@ -3535,6 +3575,7 @@ class N88_RFQ_Admin {
                             'valid_bid_count' => $valid_bid_count,
                             'rfq_revision_current' => $rfq_revision_current,
                             'revision_changed' => $revision_changed,
+                            'has_warning' => $has_warning,
                             'award_set' => $award_set,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
@@ -3638,6 +3679,45 @@ class N88_RFQ_Admin {
                         $revision_changed = false;
                         if ( $has_rfq && isset( $item_meta['revision_changed'] ) ) {
                             $revision_changed = (bool) $item_meta['revision_changed'];
+                        }
+                        
+                        // Check if there are stale bids (has_warning flag)
+                        // Warning should show if there are bids with old revision or NULL revision
+                        // Also check for withdrawn bids - if all bids are withdrawn, show Standby instead of RFQ Sent
+                        $has_warning = false;
+                        if ( $has_rfq && $has_bids && $rfq_revision_current !== null ) {
+                            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                            $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                            
+                            if ( $has_revision_column ) {
+                                // Check if there are any stale bids (revision < current or NULL)
+                                $stale_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$item_bids_table} 
+                                     WHERE item_id = %d 
+                                     AND status = 'submitted'
+                                     AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)",
+                                    $item_id,
+                                    $rfq_revision_current
+                                ) ) );
+                                
+                                // Show warning only if there are stale bids
+                                $has_warning = $stale_bid_count > 0;
+                            }
+                        }
+                        
+                        // If no valid bids but there are withdrawn bids, set has_warning to show Standby
+                        if ( ! $has_bids && $has_rfq ) {
+                            $withdrawn_bid_count = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(*) FROM {$item_bids_table} 
+                                 WHERE item_id = %d 
+                                 AND status = 'withdrawn'",
+                                $item_id
+                            ) ) );
+                            
+                            // If there are withdrawn bids but no submitted bids, show Standby
+                            if ( $withdrawn_bid_count > 0 ) {
+                                $has_warning = true;
+                            }
                         }
                         
                         // Check award_set from item meta or status
@@ -5553,19 +5633,21 @@ class N88_RFQ_Admin {
                             isRfqActive = true;
                         }
                         
-                        // Check if revision changed (dimensions/quantity changed after RFQ)
-                        // If revision_changed flag exists, treat as new revision
-                        var revisionChanged = item.revision_changed === true || item.revision_changed === 'true' || item.revision_changed === 1;
+                        // Check if there are stale bids (has_warning flag indicates stale bids exist)
+                        // This is more reliable than revision_changed flag
+                        var hasStaleBids = item.has_warning === true || item.has_warning === 'true' || item.has_warning === 1;
                         
-                        // Priority 2: If revision changed (specs changed after RFQ), show Standby/Draft
-                        if (revisionChanged && isRfqActive) {
-                            // Even if old bids exist, new revision means no valid bids yet
-                            return { text: 'Standby', color: '#999', dot: '#999' };
-                        }
-                        
-                        // Priority 3: If has valid bids for current revision
+                        // Priority 2: If has valid bids for current revision, show "Bids Received"
+                        // This takes priority - if supplier resubmitted, we have valid bids
                         if (hasValidBids) {
                             return { text: 'Bids Received (' + validBidCount + ')', color: '#2196f3', dot: '#2196f3' };
+                        }
+                        
+                        // Priority 3: If no valid bids but stale bids exist (specs changed after bids received), show Standby
+                        // This means specs changed but supplier hasn't resubmitted yet
+                        if (hasStaleBids && isRfqActive) {
+                            // No valid bids for current revision but old bids exist - show Standby until supplier resubmits
+                            return { text: 'Standby', color: '#999', dot: '#999' };
                         }
                         
                         // Priority 4: If RFQ is active but no valid bids yet
@@ -7297,6 +7379,16 @@ class N88_RFQ_Admin {
                     var onSave = props.onSave;
                     var boardId = props.boardId;
                     
+                    // Get updateLayout from store (if available)
+                    var updateLayout = null;
+                    if (typeof useBoardStore !== 'undefined') {
+                        try {
+                            updateLayout = useBoardStore(function(state) { return state.updateLayout; });
+                        } catch (e) {
+                            console.warn('Could not get updateLayout from store:', e);
+                        }
+                    }
+                    
                     // Get item ID - extract numeric ID from "item-87" format or use direct ID
                     var getItemId = function() {
                         var id = item.id || item.item_id || '';
@@ -8078,6 +8170,166 @@ class N88_RFQ_Admin {
                         } catch (error) {
                             console.error('Error saving item facts:', error);
                             alert('Failed to save item facts. Please try again.');
+                            setIsSaving(false);
+                        }
+                    };
+                    
+                    // Handle update dimensions and quantity only (after RFQ is submitted)
+                    var handleUpdateDimensions = function() {
+                        // Prevent update if uploads are in progress
+                        if (typeof isUploadingInspiration !== 'undefined' && isUploadingInspiration) {
+                            alert('Please wait for image uploads to complete before updating.');
+                            return;
+                        }
+                        
+                        setIsSaving(true);
+                        
+                        try {
+                            // Check if computedValues exists, otherwise calculate dims_cm and cbm
+                            var dimsCm = null;
+                            var cbmValue = null;
+                            
+                            if (typeof computedValues !== 'undefined' && computedValues) {
+                                dimsCm = computedValues.dimsCm;
+                                cbmValue = computedValues.cbm;
+                            } else {
+                                // Calculate dims_cm if not available
+                                if (width && depth && height && unit) {
+                                    var w = parseFloat(width);
+                                    var d = parseFloat(depth);
+                                    var h = parseFloat(height);
+                                    if (!isNaN(w) && !isNaN(d) && !isNaN(h)) {
+                                        if (unit === 'cm') {
+                                            dimsCm = { w: w, d: d, h: h };
+                                        } else if (unit === 'm') {
+                                            dimsCm = { w: w * 100, d: d * 100, h: h * 100 };
+                                        } else if (unit === 'in') {
+                                            dimsCm = { w: w * 2.54, d: d * 2.54, h: h * 2.54 };
+                                        }
+                                    }
+                                }
+                                
+                                // Calculate CBM if dims_cm is available
+                                if (dimsCm && dimsCm.w && dimsCm.d && dimsCm.h) {
+                                    var w_m = dimsCm.w / 100;
+                                    var d_m = dimsCm.d / 100;
+                                    var h_m = dimsCm.h / 100;
+                                    var item_cbm = w_m * d_m * h_m;
+                                    var qty = quantity ? parseInt(quantity) : 1;
+                                    if (!isNaN(qty) && qty > 0) {
+                                        cbmValue = Math.round(item_cbm * qty * 1000) / 1000;
+                                    }
+                                }
+                            }
+                            
+                            // Process quantity
+                            var qtyValue = null;
+                            if (quantity !== '' && quantity !== null && quantity !== undefined) {
+                                var parsedQty = parseInt(quantity);
+                                if (!isNaN(parsedQty) && parsedQty >= 0) {
+                                    qtyValue = parsedQty;
+                                }
+                            }
+                            
+                            // Only update dimensions and quantity
+                            // Build payload - only include fields that have values
+                            var payload = {};
+                            
+                            // Always include quantity (even if null, to clear it)
+                            payload.quantity = qtyValue;
+                            
+                            // Include dims if at least one dimension is provided
+                            if (width || depth || height) {
+                                payload.dims = {
+                                    w: width ? parseFloat(width) : null,
+                                    d: depth ? parseFloat(depth) : null,
+                                    h: height ? parseFloat(height) : null,
+                                    unit: unit || 'in',
+                                };
+                            }
+                            
+                            // Only include dims_cm if it's calculated
+                            if (dimsCm && typeof dimsCm === 'object') {
+                                payload.dims_cm = dimsCm;
+                            }
+                            
+                            // Only include cbm if it's calculated
+                            if (cbmValue !== null && cbmValue !== undefined && !isNaN(cbmValue)) {
+                                payload.cbm = cbmValue;
+                            }
+                            
+                            console.log('ItemDetailModal (admin.php) - Updating dimensions (handleUpdateDimensions):', {
+                                itemId: item.id,
+                                quantity: qtyValue,
+                                payload: payload
+                            });
+                            
+                            // Update layout (if available - it's optional)
+                            // updateLayout is from useBoardStore and may not always be available
+                            // The backend save will update the item, so layout update is optional
+                            try {
+                                if (typeof updateLayout !== 'undefined' && updateLayout && typeof updateLayout === 'function') {
+                                    updateLayout(item.id, payload);
+                                }
+                            } catch (layoutError) {
+                                console.warn('Could not update layout (non-critical):', layoutError);
+                                // Non-critical error - continue with save
+                            }
+                            
+                            // Call onSave callback (handles AJAX and event logging)
+                            if (onSave && typeof onSave === 'function') {
+                                var itemIdNum = item.id;
+                                if (typeof itemIdNum === 'string' && itemIdNum.indexOf('item-') === 0) {
+                                    itemIdNum = parseInt(itemIdNum.replace('item-', ''), 10);
+                                } else if (typeof itemIdNum === 'string') {
+                                    itemIdNum = parseInt(itemIdNum, 10);
+                                }
+                                if (isNaN(itemIdNum) || itemIdNum <= 0) {
+                                    throw new Error('Invalid item ID: ' + item.id);
+                                }
+                                
+                                console.log('Calling onSave with itemId:', itemIdNum, 'payload:', payload);
+                                
+                                var savePromise = onSave(itemIdNum, payload);
+                                if (savePromise && typeof savePromise.then === 'function') {
+                                    savePromise.then(function(response) {
+                                        console.log('onSave response:', response);
+                                        // Show warning banner if dims/qty changed and bids exist
+                                        if (response && response.has_warning && itemState && itemState.has_rfq && itemState.has_bids) {
+                                            if (typeof setShowWarningBanner === 'function') {
+                                                setShowWarningBanner(true);
+                                                setTimeout(function() {
+                                                    setShowWarningBanner(false);
+                                                }, 10000);
+                                            }
+                                        }
+                                        setIsSaving(false);
+                                        alert('Dimensions and quantity updated successfully.');
+                                    }).catch(function(error) {
+                                        console.error('Error updating dimensions (catch):', error);
+                                        var errorMessage = 'Failed to update dimensions.';
+                                        if (error && error.message) {
+                                            errorMessage += ' ' + error.message;
+                                        } else if (error && typeof error === 'string') {
+                                            errorMessage += ' ' + error;
+                                        }
+                                        console.error('Full error object:', error);
+                                        alert(errorMessage);
+                                        setIsSaving(false);
+                                    });
+                                } else {
+                                    console.error('onSave did not return a promise');
+                                    setIsSaving(false);
+                                    alert('Error: Save function did not return a promise.');
+                                }
+                            } else {
+                                console.error('onSave is not a function:', typeof onSave);
+                                setIsSaving(false);
+                                alert('Error: Save function not available.');
+                            }
+                        } catch (error) {
+                            console.error('Error updating dimensions:', error);
+                            alert('Failed to update dimensions. Please try again.');
                             setIsSaving(false);
                         }
                     };
@@ -9652,7 +9904,7 @@ class N88_RFQ_Admin {
                                     )
                                 ) : null
                             ),
-                            // Footer - Save button (State A, B, and C - dims/qty always editable)
+                            // Footer - Update button and Save button (State A, B, and C - dims/qty always editable)
                             (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement('div', {
                                 style: {
                                     padding: '16px 20px',
@@ -9662,6 +9914,24 @@ class N88_RFQ_Admin {
                                     justifyContent: 'flex-end',
                                 }
                             },
+                                // Show Update button only if RFQ has already been submitted (State B or C)
+                                // Update button: Only updates dimensions and quantity
+                                ((currentState === 'B' || currentState === 'C') || (item && item.has_rfq) || (itemState && itemState.has_rfq)) ? React.createElement('button', {
+                                    onClick: handleUpdateDimensions,
+                                    disabled: isSaving || isUploadingInspiration,
+                                    style: {
+                                        padding: '10px 20px',
+                                        backgroundColor: '#111111',
+                                        border: '1px solid ' + darkBorder,
+                                        borderRadius: '4px',
+                                        color: darkText,
+                                        fontSize: '14px',
+                                        fontFamily: 'monospace',
+                                        cursor: (isSaving || isUploadingInspiration) ? 'not-allowed' : 'pointer',
+                                        fontWeight: '600',
+                                        opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
+                                    }
+                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')) : null,
                                 React.createElement('button', {
                                     onClick: handleSave,
                                     disabled: isSaving || isUploadingInspiration,
