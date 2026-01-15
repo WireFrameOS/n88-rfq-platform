@@ -2703,7 +2703,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         </div>
                                     )}
                                 </div>
-                            </div>
                             
                             {/* Right Column - Tabs */}
                             <div style={{
@@ -3729,6 +3728,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     )}
                                         </div>
                                     )}
+                                        </div>
+                                    )}
                                     
                                     {/* Tab 3: Bids */}
                                     {activeTab === 'bids' && itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
@@ -3981,7 +3982,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     )}
                                 </>
                             )}
-                                                    </div>
                         
                         {/* Footer - Save button and Update button - Hidden in State C (when bids exist) */}
                         {(currentState === 'A' || currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && (

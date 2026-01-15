@@ -3888,6 +3888,7 @@ class N88_RFQ_Admin {
         wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
             'nonce' => wp_create_nonce( 'n88_get_item_rfq_state' ),
+            'boardName' => $board_name,
         ) );
         ?>
         <style>
@@ -3950,11 +3951,11 @@ class N88_RFQ_Admin {
             
             /* K) Modal should cover full page height, header visible behind */
             body.n88-modal-open #n88-board-header {
-                z-index: 999999; /* Behind modal (modal is 1000000) */
+                z-index: 999999 !important; /* Behind modal (modal is 10000000) */
             }
             
             /* K) Ensure modal covers full viewport height from top to bottom */
-            body.n88-modal-open [style*="z-index: 1000000"] {
+            body.n88-modal-open [style*="z-index: 10000000"] {
                 top: 0 !important;
                 bottom: 0 !important;
                 height: 100vh !important;
@@ -3977,7 +3978,7 @@ class N88_RFQ_Admin {
             /* Board canvas container - relative positioning with proper scrolling */
             #n88-board-canvas-container {
                 position: relative !important;
-                top: 160px !important;
+                top: 125px !important;
                 left: 0 !important;
                 right: 0 !important;
                 bottom: 0 !important;
@@ -7440,6 +7441,23 @@ class N88_RFQ_Admin {
                     var isUploadingInspiration = _isUploadingInspirationState[0];
                     var setIsUploadingInspiration = _isUploadingInspirationState[1];
                     
+                    // Active tab state
+                    var _activeTabState = React.useState('details');
+                    var activeTab = _activeTabState[0];
+                    var setActiveTab = _activeTabState[1];
+                    
+                    // Auto-select tab based on state
+                    React.useEffect(function() {
+                        if (itemState.loading) return;
+                        if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
+                            setActiveTab('bids'); // Auto-select bids tab in State C
+                        } else if (itemState.has_rfq) {
+                            setActiveTab('rfq'); // Auto-select RFQ tab in State B
+                        } else {
+                            setActiveTab('details'); // Default to details tab in State A
+                        }
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading]);
+                    
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
@@ -8482,7 +8500,9 @@ class N88_RFQ_Admin {
                     var greenAccent = '#00ff00';
                     var darkBorder = '#333333';
                     
-                    return React.createElement(React.Fragment, null,
+                    // Use ReactDOM.createPortal to render modal outside canvas container
+                    // Build children array for Fragment
+                    var fragmentChildren = [
                         // Backdrop
                         React.createElement('div', {
                             onClick: onClose,
@@ -8493,510 +8513,667 @@ class N88_RFQ_Admin {
                                 right: 0,
                                 bottom: 0,
                                 // backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                zIndex: 999999,
+                                zIndex: 9999999,
                             }
                         }),
-                        // Modal
+                        // Modal - Full screen with 50px margin on all sides
                         React.createElement('div', {
                             onClick: function(e) { e.stopPropagation(); },
                             style: {
                                 position: 'fixed',
-                                top: 0,
-                                right: 0,
-                                width: '600px',
-                                maxWidth: '90vw',
-                                height: '100vh',
+                                top: '0px',
+                                left: '0px',
+                                right: '0px',
+                                bottom: '0px',
                                 backgroundColor: darkBg,
                                 color: darkText,
                                 fontFamily: 'monospace',
-                                zIndex: 1000000,
+                                zIndex: 10000000,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 overflow: 'hidden',
-                                borderLeft: '1px solid ' + darkBorder,
+                                border: '1px solid ' + darkBorder,
+                                borderRadius: '8px',
+                                margin: '20px',
+                                padding: 0,
+
                             }
                         },
-                            // Scrollable Content
+                            // Header with Board/Item info (left) and Action Dropdown + Close (right)
                             React.createElement('div', {
                                 style: {
-                                    flex: 1,
-                                    overflowY: 'auto',
-                                    padding: '20px',
-                                }
-                            },
-                                // Header with Title and Close Button
-                                React.createElement('div', {
-                                    style: {
-                                        marginBottom: '24px',
-                                    }
-                                },
-                                    // Header Row: Item Detail (left) and Close Button (right)
-                                    React.createElement('div', {
-                                        style: {
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
-                                            marginBottom: '12px',
+                                    padding: '16px 20px',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                    flexShrink: 0,
                                 }
                             },
-                                        React.createElement('div', {
-                                            style: {
-                                                fontSize: '16px',
-                                                fontWeight: '600',
-                                                color: darkText,
-                                                fontFamily: 'monospace',
-                                            }
-                                        }, 'Item Detail'),
-                                React.createElement('button', {
-                                    onClick: onClose,
-                                    style: {
-                                        background: 'none',
-                                        border: 'none',
-                                                color: darkText,
-                                        fontSize: '24px',
-                                        cursor: 'pointer',
-                                        padding: '0',
-                                                width: '32px',
-                                                height: '32px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                                fontFamily: 'monospace',
-                                    }
-                                }, '×')
-                            ),
-                            // RFQ Sent Status Indicator (State B Only)
-                            currentState === 'B' ? React.createElement('div', {
-                                style: {
-                                    marginBottom: '24px',
-                                    padding: '12px 16px',
-                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
-                                    border: '1px solid rgba(0, 128, 0, 0.2)',
-                                    borderRadius: '4px',
-                                    textAlign: 'center',
-                                    opacity: 0.7,
-                                }
-                            },
+                                // Board Name and Item ID - Left
                                 React.createElement('div', {
                                     style: {
-                                        fontSize: '14px',
-                                        fontWeight: '500',
-                                        color: 'rgb(0, 255, 0)',
+                                        fontSize: '12px',
+                                        color: darkText,
                                         fontFamily: 'monospace',
+                                        display: 'flex',
+                                        alignItems: 'center',
                                     }
-                                }, 'RFQ request sent — waiting to hear back')
-                            ) : null,
-                            // Main Image on Top - before heading (State A and B)
-                            (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
-                                style: { marginBottom: '24px' }
-                            },
+                                },
+                                    React.createElement('span', null, 'Board : '),
+                                    React.createElement('span', { style: { color: greenAccent } }, (window.n88BoardData && window.n88BoardData.boardName) || 'Demo Board'),
+                                    React.createElement('span', { style: { margin: '0 8px' } }, ' / '),
+                                    React.createElement('span', null, 'Item '),
+                                    React.createElement('span', { style: { color: greenAccent } }, itemId ? String(itemId) : (item.id ? (typeof item.id === 'string' && item.id.indexOf('item-') === 0 ? item.id.replace('item-', '') : String(item.id)) : 'N/A'))
+                                ),
+                                // Action Dropdown + Close Button - Right
+                                React.createElement('div', {
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                    }
+                                },
+                                    // Action Dropdown (read-only)
+                                    React.createElement('div', {
+                                        style: { position: 'relative' }
+                                    },
+                                        React.createElement('button', {
+                                            style: {
+                                                background: '#111111',
+                                                border: '1px solid ' + darkBorder,
+                                                color: darkText,
+                                                fontSize: '12px',
+                                                padding: '8px 16px',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                                borderRadius: '4px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                            },
+                                            disabled: true
+                                        },
+                                            'Add to Project',
+                                            React.createElement('span', { style: { fontSize: '10px' } }, '▼')
+                                        )
+                                    ),
+                                    // Close Button - Right
+                                    React.createElement('button', {
+                                        onClick: onClose,
+                                        style: {
+                                            background: 'none',
+                                            border: 'none',
+                                            color: darkText,
+                                            fontSize: '24px',
+                                            cursor: 'pointer',
+                                            padding: '0',
+                                            width: '32px',
+                                            height: '32px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontFamily: 'monospace',
+                                        }
+                                    }, '×')
+                                )
+                            ),
+                            // Main Content - Two Columns
                             React.createElement('div', {
                                 style: {
-                                        border: '1px solid ' + darkBorder,
-                                        borderRadius: '4px',
-                                        padding: '12px',
-                                        backgroundColor: '#111111',
-                                        minHeight: '150px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                    },
-                                    onClick: function() {
-                                        setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
-                                    }
-                                },
-                                    React.createElement('img', {
-                                        src: item.imageUrl || item.image_url || item.primary_image_url,
-                                        alt: 'Primary',
-                                    style: {
-                                            maxWidth: '100%',
-                                            maxHeight: '250px',
-                                            objectFit: 'contain',
-                                            borderRadius: '4px',
+                                    display: 'flex',
+                                    flex: 1,
+                                    overflow: 'hidden',
                                 }
-                                    })
-                                )
-                            ) : null,
-                            // Reference Images - before title (State B only)
-                            currentState === 'B' && inspiration && inspiration.length > 0 ? React.createElement('div', {
-                                style: { marginBottom: '24px' }
                             },
-                                React.createElement('div', {
-                                    style: { marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }
-                                }, 'Reference Images'),
+                                // Left Column - Images
                                 React.createElement('div', {
                                     style: {
-                                        display: 'flex',
-                                        gap: '8px',
-                                        flexWrap: 'wrap',
-                                    }
+                                        width: '50%',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        padding: '20px',
+                                        overflowY: 'auto',
+                                        scrollbarWidth: 'none',
+                                        msOverflowStyle: 'none',
+                                    },
+                                    className: 'n88-modal-scroll-content'
                                 },
-                                    inspiration.map(function(insp, idx) {
-                                        return React.createElement('div', {
-                                            key: idx,
-                                    style: {
-                                                width: '80px',
-                                                height: '80px',
+                                    // Main Image
+                                    (item.imageUrl || item.image_url || item.primary_image_url) ? React.createElement('div', {
+                                        style: { marginBottom: '16px' }
+                                    },
+                                        React.createElement('div', {
+                                            style: {
                                                 border: '1px solid ' + darkBorder,
-                                        borderRadius: '4px',
+                                                borderRadius: '4px',
+                                                padding: '12px',
                                                 backgroundColor: '#111111',
-                                                position: 'relative',
-                                                overflow: 'hidden',
+                                                minHeight: '200px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
                                                 cursor: 'pointer',
                                             },
                                             onClick: function() {
-                                                if (insp.url) {
-                                                    // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
-                                                    if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
-                                                        window.open(insp.url, '_blank');
-                                                    } else {
-                                                        setLightboxImage(insp.url);
-                                                    }
-                                                }
-                                    }
-                                },
-                                            insp.url ? (
-                                                (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
-                                                React.createElement('div', {
-                                                    style: {
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        backgroundColor: '#222',
-                                                        borderRadius: '4px',
-                                                        flexDirection: 'column',
-                                                        gap: '4px',
-                                                    }
-                                                }, 
-                                                    React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
-                                                    React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
-                                                ) :
-                                                React.createElement('img', {
-                                                    src: insp.url,
-                                                    alt: insp.title || 'Reference',
-                                                    style: {
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        objectFit: 'cover',
-                                                        borderRadius: '4px',
-                                                    }
-                                                })
-                                            ) : React.createElement('div', {
-                                                style: { fontSize: '10px', color: '#666' }
-                                            }, '[ img ]')
-                                        );
-                                    })
-                                )
-                                ) : null,
-                            // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
-                            showWarningBanner ? React.createElement('div', {
-                                        style: {
-                                            marginBottom: '16px',
-                                    padding: '12px',
-                                    backgroundColor: '#330000',
-                                    border: '1px solid #ff0000',
-                                    borderRadius: '4px',
-                                    fontSize: '12px',
-                                    color: '#ff0000',
-                                }
-                            }, '⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.') : null,
-                            // Item Title
-                            React.createElement('div', {
-                                        style: { fontSize: '16px', fontWeight: '600', marginBottom: '12px' }
-                                    }, item.title || item.description || 'Untitled Item'),
-                                    // Item Details - Show when RFQ is sent (State B/C only) - Commit 2.3.5.3: Moved to after editable fields
-                                    itemState.has_rfq ? React.createElement('div', {
-                                        style: {
-                                            padding: '12px',
-                                            backgroundColor: darkBg,
-                                            border: '1px solid ' + darkBorder,
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
-                                            fontFamily: 'monospace',
-                                        }
-                                    },
-                                        React.createElement('div', {
-                                            style: { marginBottom: '6px' }
-                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Category:'), ' ', React.createElement('span', { style: { color: greenAccent } }, category || 'N/A')),
-                                        React.createElement('div', {
-                                            style: { marginBottom: '6px' }
-                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Sourcing Type:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (computedValues && computedValues.sourcingType) || item.sourcing_type || 'N/A')),
-                                        (function() {
-                                            var timelineType = null;
-                                            if (category) {
-                                                var categoryLower = category.toLowerCase();
-                                                var sixStepCategories = ['indoor furniture', 'sofas & seating (indoor)', 'chairs & armchairs (indoor)', 'dining tables (indoor)', 'cabinetry / millwork (custom)', 'casegoods (beds, nightstands, desks, consoles)', 'outdoor furniture', 'outdoor seating', 'outdoor dining sets', 'outdoor loungers & daybeds', 'pool furniture'];
-                                                var fourStepCategories = ['lighting'];
-                                                if (sixStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
-                                                    timelineType = '6-Step Timeline';
-                                                } else if (fourStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
-                                                    timelineType = '4-Step Timeline';
-                                                } else if (categoryLower.indexOf('furniture') !== -1 || categoryLower.indexOf('sofa') !== -1 || categoryLower.indexOf('chair') !== -1 || categoryLower.indexOf('table') !== -1 || categoryLower.indexOf('bed') !== -1 || categoryLower.indexOf('cabinet') !== -1) {
-                                                    timelineType = '6-Step Timeline';
-                                                } else {
-                                                    timelineType = '4-Step Timeline';
-                                                }
+                                                setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
                                             }
-                                            return timelineType ? React.createElement('div', {
-                                                style: { marginBottom: '6px' }
-                                            }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Timeline Type:'), ' ', React.createElement('span', { style: { color: greenAccent } }, timelineType)) : null;
-                                        })(),
+                                        },
+                                            React.createElement('img', {
+                                                src: item.imageUrl || item.image_url || item.primary_image_url,
+                                                alt: 'Primary',
+                                                style: {
+                                                    maxWidth: '100%',
+                                                    maxHeight: '300px',
+                                                    objectFit: 'contain',
+                                                    borderRadius: '4px',
+                                                }
+                                            })
+                                        )
+                                    ) : null,
+                                    // Inspiration / References / Sketch Drawings (State A only - editable)
+                                    isEditable && currentState === 'A' ? React.createElement('div', null,
                                         React.createElement('div', {
-                                            style: { marginBottom: '6px' }
-                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Qty:'), ' ', React.createElement('span', { style: { color: greenAccent } }, quantity || 'N/A')),
-                                        formatDimensions() ? React.createElement('div', {
-                                            style: { marginBottom: '6px' }
-                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Dimensions:'), ' ', React.createElement('span', { style: { color: greenAccent } }, formatDimensions())) : null,
+                                            style: { marginBottom: '4px', fontSize: '12px', fontWeight: '600' }
+                                        }, 'Inspiration / References / Sketch Drawings'),
                                         React.createElement('div', {
-                                            style: { marginBottom: '0' }
-                                        }, React.createElement('span', { style: { color: darkText, opacity: 0.7 } }, 'Delivery:'), ' ', React.createElement('span', { style: { color: greenAccent } }, (deliveryCountry || 'N/A') + (deliveryPostal ? ' | ' + deliveryPostal : '')))
+                                            style: { marginBottom: '8px', fontSize: '11px', color: '#999' }
+                                        }, 'These images are helpful when you\'re ready to request a quote. They will be used as reference materials by suppliers to price accurately.'),
+                                        React.createElement('div', {
+                                            style: {
+                                                display: 'flex',
+                                                gap: '8px',
+                                                flexWrap: 'wrap',
+                                                marginBottom: '8px',
+                                            }
+                                        },
+                                            inspiration.map(function(insp, idx) {
+                                                return React.createElement('div', {
+                                                    key: idx,
+                                                    style: {
+                                                        width: '80px',
+                                                        height: '80px',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111111',
+                                                        position: 'relative',
+                                                        overflow: 'hidden',
+                                                        cursor: 'pointer',
+                                                    },
+                                                    onClick: function() {
+                                                        if (insp.url) {
+                                                            if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
+                                                                window.open(insp.url, '_blank');
+                                                            } else {
+                                                                setLightboxImage(insp.url);
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                    insp.url ? (
+                                                        (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                backgroundColor: '#222',
+                                                                borderRadius: '4px',
+                                                                flexDirection: 'column',
+                                                                gap: '4px',
+                                                            }
+                                                        },
+                                                            React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
+                                                            React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
+                                                        ) :
+                                                        React.createElement('img', {
+                                                            src: insp.url,
+                                                            alt: insp.title || 'Reference',
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'cover',
+                                                                borderRadius: '4px',
+                                                            }
+                                                        })
+                                                    ) : React.createElement('div', {
+                                                        style: { fontSize: '10px', color: '#666' }
+                                                    }, '[ img ]'),
+                                                    React.createElement('button', {
+                                                        onClick: function(e) {
+                                                            e.stopPropagation();
+                                                            setInspiration(inspiration.filter(function(_, i) { return i !== idx; }));
+                                                        },
+                                                        style: {
+                                                            position: 'absolute',
+                                                            top: '4px',
+                                                            right: '4px',
+                                                            background: '#ff0000',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '50%',
+                                                            width: '20px',
+                                                            height: '20px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '12px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            padding: 0,
+                                                        }
+                                                    }, '×')
+                                                );
+                                            })
+                                        )
+                                    ) : null,
+                                    // Reference Images (State B only - read-only)
+                                    currentState === 'B' && inspiration && inspiration.length > 0 ? React.createElement('div', null,
+                                        React.createElement('div', {
+                                            style: { marginBottom: '12px', fontSize: '12px', color: darkText, opacity: 0.7 }
+                                        }, 'Reference Images'),
+                                        React.createElement('div', {
+                                            style: {
+                                                display: 'flex',
+                                                gap: '8px',
+                                                flexWrap: 'wrap',
+                                            }
+                                        },
+                                            inspiration.map(function(insp, idx) {
+                                                return React.createElement('div', {
+                                                    key: idx,
+                                                    style: {
+                                                        width: '80px',
+                                                        height: '80px',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111111',
+                                                        position: 'relative',
+                                                        overflow: 'hidden',
+                                                        cursor: 'pointer',
+                                                    },
+                                                    onClick: function() {
+                                                        if (insp.url) {
+                                                            if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
+                                                                window.open(insp.url, '_blank');
+                                                            } else {
+                                                                setLightboxImage(insp.url);
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                    insp.url ? (
+                                                        (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                backgroundColor: '#222',
+                                                                borderRadius: '4px',
+                                                                flexDirection: 'column',
+                                                                gap: '4px',
+                                                            }
+                                                        },
+                                                            React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
+                                                            React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
+                                                        ) :
+                                                        React.createElement('img', {
+                                                            src: insp.url,
+                                                            alt: insp.title || 'Reference',
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'cover',
+                                                                borderRadius: '4px',
+                                                            }
+                                                        })
+                                                    ) : React.createElement('div', {
+                                                        style: { fontSize: '10px', color: '#666' }
+                                                    }, '[ img ]')
+                                                );
+                                            })
+                                        )
                                     ) : null
                                 ),
-                                // System Intelligence (editable when State A, hidden when State B) - Removed "SECTION:" text
-                                (isEditable && currentState !== 'B') ? React.createElement('div', {
-                                    style: { marginBottom: '24px' }
-                                },
+                                // Right Column - Tabs
                                 React.createElement('div', {
                                     style: {
-                                            border: '1px solid ' + darkBorder,
-                                        borderRadius: '4px',
-                                            padding: '12px',
-                                            backgroundColor: '#111111',
-                                        }
-                                    },
-                                        // Commit 2.3.5.3: Field Order - Description above Category
-                                        React.createElement('div', {
-                                            style: { marginBottom: '12px' }
-                                        },
-                                        React.createElement('label', {
-                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                        }, 'Description (tell us what you\'re sourcing)'),
-                                        React.createElement('textarea', {
-                                            value: description,
-                                            onChange: function(e) { setDescription(e.target.value); },
-                                                placeholder: 'Item description',
-                                                rows: 3,
-                                            style: {
-                                                width: '100%',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
-                                                    color: darkText,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                                resize: 'vertical',
-                                            }
-                                        })
-                                        ),
-                                        React.createElement('div', {
-                                            style: { marginBottom: '12px' }
-                                        },
-                                    React.createElement('label', {
-                                                style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                        }, 'Category'),
-                                        React.createElement('select', {
-                                            value: category,
-                                            onChange: function(e) { setCategory(e.target.value); },
-                                            style: {
-                                                width: '100%',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
-                                                    color: darkText,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                            }
-                                        },
-                                                React.createElement('option', { value: '' }, '-- Select Category --'),
-                                                React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
-                                                React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
-                                                React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
-                                                React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
-                                                React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
-                                                React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)'),
-                                                React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
-                                                React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
-                                                React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
-                                                React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
-                                                React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture'),
-                                                React.createElement('option', { value: 'Lighting' }, 'Lighting'),
-                                                React.createElement('option', { value: 'Decorative Lighting' }, 'Decorative Lighting'),
-                                                React.createElement('option', { value: 'Architectural Lighting' }, 'Architectural Lighting'),
-                                                React.createElement('option', { value: 'Electrical / LED Components' }, 'Electrical / LED Components'),
-                                                React.createElement('option', { value: 'Bathroom Fixtures' }, 'Bathroom Fixtures'),
-                                                React.createElement('option', { value: 'Kitchen Fixtures' }, 'Kitchen Fixtures'),
-                                                React.createElement('option', { value: 'Faucets / Hardware (Plumbing)' }, 'Faucets / Hardware (Plumbing)'),
-                                                React.createElement('option', { value: 'Sinks / Basins' }, 'Sinks / Basins'),
-                                                React.createElement('option', { value: 'Shower Systems / Accessories' }, 'Shower Systems / Accessories'),
-                                                React.createElement('option', { value: 'Marble / Stone' }, 'Marble / Stone'),
-                                                React.createElement('option', { value: 'Granite' }, 'Granite'),
-                                                React.createElement('option', { value: 'Quartz' }, 'Quartz'),
-                                                React.createElement('option', { value: 'Porcelain / Ceramic Slabs' }, 'Porcelain / Ceramic Slabs'),
-                                                React.createElement('option', { value: 'Tile (Wall / Floor)' }, 'Tile (Wall / Floor)'),
-                                                React.createElement('option', { value: 'Terrazzo' }, 'Terrazzo'),
-                                                React.createElement('option', { value: 'Rugs / Carpets' }, 'Rugs / Carpets'),
-                                                React.createElement('option', { value: 'Drapery' }, 'Drapery'),
-                                                React.createElement('option', { value: 'Window Treatments / Shades' }, 'Window Treatments / Shades'),
-                                                React.createElement('option', { value: 'Wallcoverings' }, 'Wallcoverings'),
-                                                React.createElement('option', { value: 'Acoustic Panels' }, 'Acoustic Panels'),
-                                                React.createElement('option', { value: 'Mirrors' }, 'Mirrors'),
-                                                React.createElement('option', { value: 'Artwork' }, 'Artwork'),
-                                                React.createElement('option', { value: 'Decorative Accessories' }, 'Decorative Accessories'),
-                                                React.createElement('option', { value: 'Planters' }, 'Planters'),
-                                                React.createElement('option', { value: 'Sculptural Objects' }, 'Sculptural Objects'),
-                                                React.createElement('option', { value: 'Railings' }, 'Railings'),
-                                                React.createElement('option', { value: 'Screens / Louvers' }, 'Screens / Louvers'),
-                                                React.createElement('option', { value: 'Pergola / Shade Components' }, 'Pergola / Shade Components'),
-                                                React.createElement('option', { value: 'Facade Materials' }, 'Facade Materials'),
-                                                React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
-                                                React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample'),
-                                                React.createElement('option', { value: 'Custom Sourcing / Not Listed' }, 'Custom Sourcing / Not Listed')
-                                        )
-                                    )
-                                    )
-                                ) : currentState === 'C' ? (
-                                    // State C: Show description above category (Commit 2.3.5.3)
-                                    React.createElement(React.Fragment, null,
-                                        description ? React.createElement('div', {
-                                            style: { marginBottom: '24px' }
-                                        },
-                                            React.createElement('div', {
-                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Description'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
-                                            }, description)
-                                        ) : null,
-                                        category ? React.createElement('div', {
-                                            style: { marginBottom: '24px' }
-                                        },
-                                            React.createElement('div', {
-                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Category'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '12px', color: darkText }
-                                            }, category)
-                                        ) : null
-                                    )
-                                ) : (
-                                    // State B: Show description above category (Commit 2.3.5.3)
-                                    React.createElement(React.Fragment, null,
-                                        description ? React.createElement('div', {
-                                            style: { marginBottom: '24px' }
-                                        },
-                                            React.createElement('div', {
-                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Description'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
-                                            }, description)
-                                        ) : null,
-                                        category ? React.createElement('div', {
-                                            style: { marginBottom: '24px' }
-                                        },
-                                            React.createElement('div', {
-                                                style: { fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Category'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '12px', color: darkText }
-                                            }, category)
-                                        ) : null
-                                    )
-                                ),
-                                // Removed SECTION: Item Facts - all fields moved to Request Quote box
-                                // IMAGES Section - Removed in State C (images already shown at top)
-                                // Commit 2.3.6: BIDS Section - Read-only Matrix View
-                                itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
-                                    style: { marginBottom: '24px' },
-                                    onClick: function(e) { e.stopPropagation(); }
+                                        width: '50%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                    }
                                 },
+                                    // Tabs Header
                                     React.createElement('div', {
-                                        onClick: function(e) {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            setBidsExpanded(!bidsExpanded);
-                                        },
                                         style: {
                                             display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            cursor: 'pointer',
-                                            marginBottom: bidsExpanded ? '12px' : '0',
+                                            borderBottom: '1px solid ' + darkBorder,
+                                            flexShrink: 0,
                                         }
                                     },
-                                        React.createElement('div', {
-                                            style: { fontSize: '14px', fontWeight: '600' }
-                                        }, 'BIDS'),
-                                        React.createElement('span', {
-                                            style: { fontSize: '12px', color: darkText, cursor: 'pointer' },
-                                            onClick: function(e) {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                setBidsExpanded(!bidsExpanded);
-                                            }
-                                        }, bidsExpanded ? '▼' : '▶')
-                                    ),
-                                    !bidsExpanded ? React.createElement('div', {
-                                        style: { fontSize: '12px', color: darkText, marginTop: '8px' }
-                                    }, itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
-                                    // Commit 2.3.6: Expanded BIDS Matrix View
-                                    bidsExpanded ? React.createElement(React.Fragment, null,
-                                        React.createElement(BidComparisonMatrixInline, {
-                                            bids: itemState.bids,
-                                            darkBorder: darkBorder,
-                                            greenAccent: greenAccent,
-                                            darkText: darkText,
-                                            darkBg: darkBg,
-                                            onImageClick: setLightboxImage,
-                                            smartAlternativesEnabled: smartAlternativesEnabled
-                                        }),
-                                        // Commit 2.3.6: Concierge + Delivery Banner
-                                        React.createElement('div', {
+                                        React.createElement('button', {
+                                            onClick: function() { setActiveTab('details'); },
                                             style: {
-                                                marginTop: '20px',
-                                                padding: '16px',
-                                                backgroundColor: '#1a1a1a',
-                                                border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
+                                                flex: 1,
+                                                padding: '12px 16px',
+                                                background: activeTab === 'details' ? '#111111' : 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'details' ? '2px solid ' + greenAccent : 'none',
+                                                color: activeTab === 'details' ? greenAccent : darkText,
+                                                fontSize: '12px',
+                                                fontWeight: activeTab === 'details' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
                                             }
+                                        }, 'Item Details'),
+                                        React.createElement('button', {
+                                            onClick: function() { setActiveTab('rfq'); },
+                                            style: {
+                                                flex: 1,
+                                                padding: '12px 16px',
+                                                background: activeTab === 'rfq' ? '#111111' : 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'rfq' ? '2px solid ' + greenAccent : 'none',
+                                                color: activeTab === 'rfq' ? greenAccent : darkText,
+                                                fontSize: '12px',
+                                                fontWeight: activeTab === 'rfq' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, 'RFQ Form'),
+                                        React.createElement('button', {
+                                            onClick: function() { setActiveTab('timeline'); },
+                                            style: {
+                                                flex: 1,
+                                                padding: '12px 16px',
+                                                background: activeTab === 'timeline' ? '#111111' : 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'timeline' ? '2px solid ' + greenAccent : 'none',
+                                                color: activeTab === 'timeline' ? greenAccent : darkText,
+                                                fontSize: '12px',
+                                                fontWeight: activeTab === 'timeline' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, '6-Step Timeline'),
+                                        itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('button', {
+                                            onClick: function() { setActiveTab('bids'); },
+                                            style: {
+                                                flex: 1,
+                                                padding: '12px 16px',
+                                                background: activeTab === 'bids' ? '#111111' : 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'bids' ? '2px solid ' + greenAccent : 'none',
+                                                color: activeTab === 'bids' ? greenAccent : darkText,
+                                                fontSize: '12px',
+                                                fontWeight: activeTab === 'bids' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, 'Bids (' + itemState.bids.length + ')') : null
+                                    ),
+                                    // Tab Content
+                                    React.createElement('div', {
+                                        style: {
+                                            flex: 1,
+                                            overflowY: 'auto',
+                                            padding: '20px',
+                                            scrollbarWidth: 'none',
+                                            msOverflowStyle: 'none',
                                         },
+                                        className: 'n88-modal-scroll-content'
+                                    },
+                                        // Tab 1: Item Details
+                                        activeTab === 'details' ? React.createElement('div', null,
+                                            // Item Title
                                             React.createElement('div', {
-                                                style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                            }, 'Bids are in. When you\'re ready to move to prototypes or orders, sourcing agent oversight is available.'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }
-                                            }, 'Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.'),
-                                            React.createElement('button', {
+                                                style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
+                                            }, item.title || item.description || 'Untitled Item'),
+                                            // RFQ Sent Status Indicator (State B Only)
+                                            currentState === 'B' ? React.createElement('div', {
                                                 style: {
-                                                    padding: '8px 16px',
-                                                    backgroundColor: greenAccent,
-                                                    border: 'none',
+                                                    marginBottom: '20px',
+                                                    padding: '12px 16px',
+                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
+                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
                                                     borderRadius: '4px',
-                                                    color: darkBg,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                                    fontWeight: '600',
-                                                    cursor: 'pointer',
-                                                },
-                                                title: 'Sourcing agent support becomes available when you request a prototype or proceed to order. This includes delivery coordination.',
-                                                onClick: function(e) {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    // Commit 2.3.6: Visual only - no action
+                                                    textAlign: 'center',
+                                                    opacity: 0.7,
                                                 }
-                                            }, 'Get Sourcing Agent Help')
-                                        )
-                                    ) : null
-                                ) : null,
-                                // Request Quote Button / RFQ Form (State A only)
-                                currentState === 'A' ? React.createElement('div', {
-                                    style: { marginBottom: '24px' }
-                                },
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '500',
+                                                        color: 'rgba(0, 180, 0, 0.6)',
+                                                        fontFamily: 'monospace',
+                                                    }
+                                                }, 'RFQ request sent — waiting to hear back')
+                                            ) : null,
+                                            // Editable fields section - State A only
+                                            currentState !== 'C' && isEditable && currentState === 'A' ? React.createElement(React.Fragment, null,
+                                                // Description
+                                                React.createElement('div', {
+                                                    style: { marginBottom: '24px' }
+                                                },
+                                                    React.createElement('label', {
+                                                        style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                    }, 'Description (tell us what you\'re sourcing)'),
+                                                    React.createElement('textarea', {
+                                                        value: description,
+                                                        onChange: function(e) { setDescription(e.target.value); },
+                                                        placeholder: 'Item description',
+                                                        rows: 3,
+                                                        style: {
+                                                            width: '100%',
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                            resize: 'vertical',
+                                                        }
+                                                    })
+                                                ),
+                                                // Category
+                                                React.createElement('div', {
+                                                    style: { marginBottom: '24px' }
+                                                },
+                                                    React.createElement('label', {
+                                                        style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                    }, 'Category'),
+                                                    React.createElement('select', {
+                                                        value: category,
+                                                        onChange: function(e) { setCategory(e.target.value); },
+                                                        style: {
+                                                            width: '100%',
+                                                            padding: '8px',
+                                                            backgroundColor: darkBg,
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '12px',
+                                                            fontFamily: 'monospace',
+                                                        }
+                                                    },
+                                                        React.createElement('option', { value: '' }, '-- Select Category --'),
+                                                        React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
+                                                        React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
+                                                        React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
+                                                        React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
+                                                        React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
+                                                        React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)'),
+                                                        React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
+                                                        React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
+                                                        React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
+                                                        React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
+                                                        React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture'),
+                                                        React.createElement('option', { value: 'Lighting' }, 'Lighting'),
+                                                        React.createElement('option', { value: 'Decorative Lighting' }, 'Decorative Lighting'),
+                                                        React.createElement('option', { value: 'Architectural Lighting' }, 'Architectural Lighting'),
+                                                        React.createElement('option', { value: 'Electrical / LED Components' }, 'Electrical / LED Components'),
+                                                        React.createElement('option', { value: 'Bathroom Fixtures' }, 'Bathroom Fixtures'),
+                                                        React.createElement('option', { value: 'Kitchen Fixtures' }, 'Kitchen Fixtures'),
+                                                        React.createElement('option', { value: 'Faucets / Hardware (Plumbing)' }, 'Faucets / Hardware (Plumbing)'),
+                                                        React.createElement('option', { value: 'Sinks / Basins' }, 'Sinks / Basins'),
+                                                        React.createElement('option', { value: 'Shower Systems / Accessories' }, 'Shower Systems / Accessories'),
+                                                        React.createElement('option', { value: 'Marble / Stone' }, 'Marble / Stone'),
+                                                        React.createElement('option', { value: 'Granite' }, 'Granite'),
+                                                        React.createElement('option', { value: 'Quartz' }, 'Quartz'),
+                                                        React.createElement('option', { value: 'Porcelain / Ceramic Slabs' }, 'Porcelain / Ceramic Slabs'),
+                                                        React.createElement('option', { value: 'Tile (Wall / Floor)' }, 'Tile (Wall / Floor)'),
+                                                        React.createElement('option', { value: 'Terrazzo' }, 'Terrazzo'),
+                                                        React.createElement('option', { value: 'Rugs / Carpets' }, 'Rugs / Carpets'),
+                                                        React.createElement('option', { value: 'Drapery' }, 'Drapery'),
+                                                        React.createElement('option', { value: 'Window Treatments / Shades' }, 'Window Treatments / Shades'),
+                                                        React.createElement('option', { value: 'Wallcoverings' }, 'Wallcoverings'),
+                                                        React.createElement('option', { value: 'Acoustic Panels' }, 'Acoustic Panels'),
+                                                        React.createElement('option', { value: 'Mirrors' }, 'Mirrors'),
+                                                        React.createElement('option', { value: 'Artwork' }, 'Artwork'),
+                                                        React.createElement('option', { value: 'Decorative Accessories' }, 'Decorative Accessories'),
+                                                        React.createElement('option', { value: 'Planters' }, 'Planters'),
+                                                        React.createElement('option', { value: 'Sculptural Objects' }, 'Sculptural Objects'),
+                                                        React.createElement('option', { value: 'Railings' }, 'Railings'),
+                                                        React.createElement('option', { value: 'Screens / Louvers' }, 'Screens / Louvers'),
+                                                        React.createElement('option', { value: 'Pergola / Shade Components' }, 'Pergola / Shade Components'),
+                                                        React.createElement('option', { value: 'Facade Materials' }, 'Facade Materials'),
+                                                        React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
+                                                        React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample'),
+                                                        React.createElement('option', { value: 'Custom Sourcing / Not Listed' }, 'Custom Sourcing / Not Listed')
+                                                    )
+                                                )
+                                            ) : (currentState === 'B' || currentState === 'C') ? (
+                                                // State B and C: Show complete Item Details box
+                                                React.createElement(React.Fragment, null,
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            marginBottom: '24px',
+                                                            padding: '16px',
+                                                            backgroundColor: '#111111',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                        }
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '14px',
+                                                                fontWeight: '600',
+                                                                marginBottom: '16px',
+                                                                color: darkText,
+                                                                borderBottom: '1px solid ' + darkBorder,
+                                                                paddingBottom: '8px'
+                                                            }
+                                                        }, 'Item Details'),
+                                                        // Name/Title
+                                                        (item.title || item.description) ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Name:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '13px', color: greenAccent, fontWeight: '500' }
+                                                            }, item.title || item.description || 'Untitled Item')
+                                                        ) : null,
+                                                        // Description
+                                                        description ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Description:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                                            }, description)
+                                                        ) : null,
+                                                        // Category
+                                                        category ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Category:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: greenAccent }
+                                                            }, category)
+                                                        ) : null,
+                                                        // Timeline Type
+                                                        (function() {
+                                                            var timelineType = null;
+                                                            if (category) {
+                                                                var categoryLower = category.toLowerCase();
+                                                                var sixStepCategories = ['indoor furniture', 'sofas & seating (indoor)', 'chairs & armchairs (indoor)', 'dining tables (indoor)', 'cabinetry / millwork (custom)', 'casegoods (beds, nightstands, desks, consoles)', 'outdoor furniture', 'outdoor seating', 'outdoor dining sets', 'outdoor loungers & daybeds', 'pool furniture'];
+                                                                var fourStepCategories = ['lighting'];
+                                                                if (sixStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
+                                                                    timelineType = '6-Step Timeline';
+                                                                } else if (fourStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
+                                                                    timelineType = '4-Step Timeline';
+                                                                } else if (categoryLower.indexOf('furniture') !== -1 || categoryLower.indexOf('sofa') !== -1 || categoryLower.indexOf('chair') !== -1 || categoryLower.indexOf('table') !== -1 || categoryLower.indexOf('bed') !== -1 || categoryLower.indexOf('cabinet') !== -1) {
+                                                                    timelineType = '6-Step Timeline';
+                                                                } else {
+                                                                    timelineType = '4-Step Timeline';
+                                                                }
+                                                            }
+                                                            return timelineType ? React.createElement('div', {
+                                                                style: { marginBottom: '12px' }
+                                                            },
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                                }, 'Timeline Type:'),
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '12px', color: greenAccent }
+                                                                }, timelineType)
+                                                            ) : null;
+                                                        })(),
+                                                        // Quantity
+                                                        quantity ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Quantity:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: greenAccent }
+                                                            }, quantity)
+                                                        ) : null,
+                                                        // Dimensions
+                                                        formatDimensions() ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Dimensions:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: greenAccent }
+                                                            }, formatDimensions())
+                                                        ) : null,
+                                                        // Notes for suppliers
+                                                        smartAlternativesNote ? React.createElement('div', {
+                                                            style: { marginBottom: '0' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 }
+                                                            }, 'Notes for suppliers:'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.6' }
+                                                            }, smartAlternativesNote)
+                                                        ) : null
+                                                    )
+                                                )
+                                            ) : null
+                                        ) : null,
+                                        // Tab 2: RFQ Form
+                                        activeTab === 'rfq' ? React.createElement('div', null,
+                                            // Request Quote Button / RFQ Form (State A only)
+                                            currentState === 'A' ? React.createElement('div', {
+                                                style: { marginBottom: '24px' }
+                                            },
                                     !showRfqForm ? React.createElement('button', {
                                         onClick: function() { setShowRfqForm(true); },
                                             style: {
@@ -9625,11 +9802,12 @@ class N88_RFQ_Admin {
                                         }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
                                     )
                                 ) : null,
-                                // State B and C: Description and editable fields (images shown at top)
+                                // State B and C: Quantity, Dimensions, and Notes for suppliers - Inside RFQ Form tab
                                 (currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
                                     // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
                                     (showWarningBanner && itemState.has_rfq && itemState.has_bids) ? React.createElement('div', {
                                         style: {
+                                            marginTop: '24px',
                                             marginBottom: '16px',
                                             padding: '12px',
                                             backgroundColor: '#330000',
@@ -9642,6 +9820,7 @@ class N88_RFQ_Admin {
                                     // Redirected warning - Show if item is redirected and bids are available
                                     (currentState === 'C' && item.redirected && itemState.bids && itemState.bids.length > 0) ? React.createElement('div', {
                                         style: {
+                                            marginTop: '24px',
                                             marginBottom: '16px',
                                             padding: '12px',
                                             backgroundColor: '#331100',
@@ -9651,16 +9830,15 @@ class N88_RFQ_Admin {
                                             color: '#ff8800',
                                         }
                                     }, '⚠️ This item has been redirected. Existing bids may reflect previous routing.') : null,
-                                    // Commit 2.3.5.4: Removed duplicate Description heading - already shown above in State B/C section
-                                    // Quantity, Dimensions, and Notes for suppliers - Editable in State B
+                                    // Quantity, Dimensions, and Notes for suppliers - Editable in State B/C
                                     React.createElement('div', {
-                                        style: { marginBottom: '24px' }
+                                        style: { marginTop: '24px', marginBottom: '24px' }
                                     },
-                                    React.createElement('div', {
-                                        style: {
+                                        React.createElement('div', {
+                                            style: {
                                                 border: '1px solid ' + darkBorder,
                                                 borderRadius: '4px',
-                                            padding: '12px',
+                                                padding: '12px',
                                                 backgroundColor: '#111111',
                                             }
                                         },
@@ -9682,7 +9860,7 @@ class N88_RFQ_Admin {
                                                         padding: '8px',
                                                         backgroundColor: darkBg,
                                                         border: '1px solid ' + darkBorder,
-                                            borderRadius: '4px',
+                                                        borderRadius: '4px',
                                                         color: darkText,
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
@@ -9772,7 +9950,7 @@ class N88_RFQ_Admin {
                                                 null
                                             ),
                                             // Notes for suppliers
-                            React.createElement('div', {
+                                            React.createElement('div', {
                                                 style: { marginBottom: '0' }
                                             },
                                                 React.createElement('label', {
@@ -9788,7 +9966,7 @@ class N88_RFQ_Admin {
                                                     },
                                                     placeholder: '[ Add notes for suppliers ]',
                                                     maxLength: 240,
-                                style: {
+                                                    style: {
                                                         width: '100%',
                                                         minHeight: '60px',
                                                         padding: '8px',
@@ -9808,6 +9986,414 @@ class N88_RFQ_Admin {
                                         )
                                     )
                                 ) : null
+                            ) : null,
+                                        // Tab 3: Bids
+                                        activeTab === 'bids' ? React.createElement('div', null,
+                                            itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
+                                                style: { marginBottom: '24px' },
+                                                onClick: function(e) { e.stopPropagation(); }
+                                            },
+                                                React.createElement('div', {
+                                                    onClick: function(e) {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setBidsExpanded(!bidsExpanded);
+                                                    },
+                                                    style: {
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        cursor: 'pointer',
+                                                        marginBottom: bidsExpanded ? '12px' : '0',
+                                                    }
+                                                },
+                                                    React.createElement('div', {
+                                                        style: { fontSize: '14px', fontWeight: '600' }
+                                                    }, 'BIDS'),
+                                                    React.createElement('span', {
+                                                        style: { fontSize: '12px', color: darkText, cursor: 'pointer' },
+                                                        onClick: function(e) {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setBidsExpanded(!bidsExpanded);
+                                                        }
+                                                    }, bidsExpanded ? '▼' : '▶')
+                                                ),
+                                                !bidsExpanded ? React.createElement('div', {
+                                                    style: { fontSize: '12px', color: darkText, marginTop: '8px' }
+                                                }, itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
+                                                // Commit 2.3.6: Expanded BIDS Matrix View
+                                                bidsExpanded ? React.createElement(React.Fragment, null,
+                                                    React.createElement(BidComparisonMatrixInline, {
+                                                        bids: itemState.bids,
+                                                        darkBorder: darkBorder,
+                                                        greenAccent: greenAccent,
+                                                        darkText: darkText,
+                                                        darkBg: darkBg,
+                                                        onImageClick: setLightboxImage,
+                                                        smartAlternativesEnabled: smartAlternativesEnabled
+                                                    }),
+                                                    // Commit 2.3.6: Concierge + Delivery Banner
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            marginTop: '20px',
+                                                            padding: '16px',
+                                                            backgroundColor: '#1a1a1a',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                        }
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }
+                                                        }, 'Bids are in. When you\'re ready to move to prototypes or orders, sourcing agent oversight is available.'),
+                                                        React.createElement('div', {
+                                                            style: { fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }
+                                                        }, 'Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.'),
+                                                        React.createElement('button', {
+                                                            style: {
+                                                                padding: '8px 16px',
+                                                                backgroundColor: greenAccent,
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                color: darkBg,
+                                                                fontSize: '12px',
+                                                                fontFamily: 'monospace',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                            },
+                                                            title: 'Sourcing agent support becomes available when you request a prototype or proceed to order. This includes delivery coordination.',
+                                                            onClick: function(e) {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                // Commit 2.3.6: Visual only - no action
+                                                            }
+                                                        }, 'Get Sourcing Agent Help')
+                                                    )
+                                                ) : null
+                                            ) : React.createElement('div', {
+                                                style: { padding: '24px', textAlign: 'center', color: darkText, fontSize: '14px' }
+                                            }, 'No bids received yet.')
+                                        ) : null,
+                                        // Tab 4: 6-Step Timeline (Read-only)
+                                        activeTab === 'timeline' ? React.createElement('div', null,
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '16px',
+                                                    fontWeight: '600',
+                                                    marginBottom: '20px',
+                                                    color: darkText
+                                                }
+                                            }, '6-Step Timeline'),
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'Timeline Type: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, '[ Furniture 6-Step ▼ ]')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'Status: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, '[ Read-only (Phase 2) ]')
+                                                )
+                                            ),
+                                            // Step 1: Design & Specifications
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '1) Design & Specifications'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            ),
+                                            // Step 2: Technical Review & Documentation
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '2) Technical Review & Documentation'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            ),
+                                            // Step 3: Pre-Production Approval
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '3) Pre-Production Approval'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Prototype: [ Not requested ]'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            ),
+                                            // Step 4: Production / Fabrication
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '4) Production / Fabrication'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            ),
+                                            // Step 5: Quality Review & Packing
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '5) Quality Review & Packing'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            ),
+                                            // Step 6: Ready for Delivery
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '16px',
+                                                    padding: '12px',
+                                                    backgroundColor: '#111111',
+                                                    border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        marginBottom: '12px',
+                                                        color: darkText
+                                                    }
+                                                }, '6) Ready for Delivery'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
+                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
+                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        marginBottom: '8px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Evidence: 0'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: darkText,
+                                                        opacity: 0.7
+                                                    }
+                                                }, '(Future) Notes: 0')
+                                            )
+                                        ) : null
+                                    )
+                                )
                             ),
                             // Footer - Update button and Save button (State A, B, and C - dims/qty always editable)
                             (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement('div', {
@@ -9852,79 +10438,96 @@ class N88_RFQ_Admin {
                                         fontWeight: '600',
                                         opacity: (isSaving || isUploadingInspiration) ? 0.6 : 1,
                                     }
-                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save for later'))
+                                }, (isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save for later')))
                             ) : null
-                        ),
-                        // Image Lightbox
-                        lightboxImage ? React.createElement('div', {
-                            onClick: function(e) {
-                                // Only close if clicking the backdrop, not the image
-                                if (e.target === e.currentTarget) {
-                                    setLightboxImage(null);
-                                }
-                            },
-                            style: {
-                                position: 'fixed',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                backgroundColor: 'rgba(0, 0, 0, 0.95)',
-                                zIndex: 1000001,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '20px',
-                            }
-                        },
-                            React.createElement('img', {
-                                src: lightboxImage,
-                                alt: 'Enlarged',
-                                onClick: function(e) { e.stopPropagation(); },
-                                style: {
-                                    maxWidth: '90%',
-                                    maxHeight: '90%',
-                                    objectFit: 'contain',
-                                    pointerEvents: 'auto',
-                                }
-                            }),
-                            React.createElement('button', {
+                        )
+                    ];
+                    
+                    // Add lightbox to children if it exists
+                    if (lightboxImage) {
+                        fragmentChildren.push(
+                            React.createElement('div', {
                                 onClick: function(e) {
-                                    e.stopPropagation();
-                                    setLightboxImage(null);
-                                },
-                                onMouseOver: function(e) {
-                                    e.currentTarget.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
-                                    e.currentTarget.style.transform = 'scale(1.1)';
-                                },
-                                onMouseOut: function(e) {
-                                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-                                    e.currentTarget.style.transform = 'scale(1)';
+                                    // Only close if clicking the backdrop, not the image
+                                    if (e.target === e.currentTarget) {
+                                        setLightboxImage(null);
+                                    }
                                 },
                                 style: {
-                                    position: 'absolute',
-                                    top: '20px',
-                                    right: '20px',
-                                    background: 'rgba(0, 0, 0, 0.7)',
-                                    border: '2px solid #fff',
-                                    borderRadius: '50%',
-                                    color: '#fff',
-                                    fontSize: '28px',
-                                    fontWeight: 'bold',
-                                    cursor: 'pointer',
-                                    padding: '0',
-                                    width: '44px',
-                                    height: '44px',
+                                    position: 'fixed',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                                    zIndex: 10000001,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    lineHeight: '1',
-                                    transition: 'all 0.2s',
-                                    zIndex: 1000002,
+                                    padding: '20px',
                                 }
-                            }, '×')
-                        ) : null
-                    );
+                            },
+                                React.createElement('img', {
+                                    src: lightboxImage,
+                                    alt: 'Enlarged',
+                                    onClick: function(e) { e.stopPropagation(); },
+                                    style: {
+                                        maxWidth: '90%',
+                                        maxHeight: '90%',
+                                        objectFit: 'contain',
+                                        pointerEvents: 'auto',
+                                    }
+                                }),
+                                React.createElement('button', {
+                                    onClick: function(e) {
+                                        e.stopPropagation();
+                                        setLightboxImage(null);
+                                    },
+                                    onMouseOver: function(e) {
+                                        e.currentTarget.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+                                        e.currentTarget.style.transform = 'scale(1.1)';
+                                    },
+                                    onMouseOut: function(e) {
+                                        e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                    },
+                                    style: {
+                                        position: 'absolute',
+                                        top: '20px',
+                                        right: '20px',
+                                        background: 'rgba(0, 0, 0, 0.7)',
+                                        border: '2px solid #fff',
+                                        borderRadius: '50%',
+                                        color: '#fff',
+                                        fontSize: '28px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        padding: '0',
+                                        width: '44px',
+                                        height: '44px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        lineHeight: '1',
+                                        transition: 'all 0.2s',
+                                        zIndex: 10000002,
+                                    }
+                                }, '×')
+                            )
+                        );
+                    }
+                    
+                    // Create Fragment with children
+                    var modalContent = React.createElement.apply(null, [React.Fragment, null].concat(fragmentChildren));
+                    
+                    // Render modal outside canvas container using portal
+                    // Use ReactDOM.createPortal if available, otherwise render normally
+                    if (typeof window !== 'undefined' && window.ReactDOM && window.ReactDOM.createPortal) {
+                        return window.ReactDOM.createPortal(modalContent, document.body);
+                    } else {
+                        // Fallback: render normally if portal not available
+                        return modalContent;
+                    }
                 };
 
                 // Wrap BoardItem to add modal functionality
