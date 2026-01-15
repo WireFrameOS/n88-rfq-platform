@@ -1306,10 +1306,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     // BIDS section expansion state
     const [bidsExpanded, setBidsExpanded] = React.useState(false);
     
-    // Auto-expand bids in State C
+    // Tab state for new layout
+    const [activeTab, setActiveTab] = React.useState('details');
+    
+    // Auto-expand bids in State C and set active tab
     React.useEffect(() => {
         if (currentState === 'C' && itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
             setBidsExpanded(true);
+            setActiveTab('bids'); // Auto-select bids tab in State C
+        } else if (currentState === 'B') {
+            setActiveTab('rfq'); // Auto-select RFQ tab in State B
+        } else {
+            setActiveTab('details'); // Default to details tab in State A
         }
     }, [currentState, itemState.has_bids, itemState.bids]);
     
@@ -2360,23 +2368,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                         }}
                     />
                     
-                    {/* Modal - Full page height from top to bottom */}
+                    {/* Modal - 1300px x 700px centered */}
                     <motion.div
-                        initial={{ x: '100%' }}
-                        animate={{ x: 0 }}
-                        exit={{ x: '100%' }}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                         style={{
                             position: 'fixed',
-                            top: 0,
-                            right: 0,
-                            bottom: 0,
-                            left: 'auto',
-                            width: '600px',
-                            maxWidth: '90vw',
-                            height: '100vh',
-                            minHeight: '100vh',
-                            maxHeight: '100vh',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: '1300px',
+                            height: '700px',
+                            maxWidth: '95vw',
+                            maxHeight: '95vh',
                             backgroundColor: darkBg,
                             color: darkText,
                             fontFamily: 'monospace',
@@ -2384,128 +2390,116 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             display: 'flex',
                             flexDirection: 'column',
                             overflow: 'hidden',
-                            borderLeft: `1px solid ${darkBorder}`,
+                            border: `1px solid ${darkBorder}`,
+                            borderRadius: '8px',
                             margin: 0,
                             padding: 0,
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Scrollable Content - Scrollbar hidden but scrolling enabled */}
-                        <div 
-                            style={{
-                                flex: 1,
-                                overflowY: 'auto',
-                                padding: '20px',
-                                scrollbarWidth: 'none', // Firefox
-                                msOverflowStyle: 'none', // IE/Edge
-                            }}
-                            className="n88-modal-scroll-content"
-                        >
-                            {/* Header with Title and Close Button */}
-                            <div style={{
-                                marginBottom: '24px',
-                            }}>
-                                {/* Header Row: Item Detail (left) and Close Button (right) */}
-                                <div style={{
+                        {/* Header with Close Button (left) and Action Dropdown (right) */}
+                        <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
-                                    marginBottom: '12px',
+                            padding: '16px 20px',
+                            borderBottom: `1px solid ${darkBorder}`,
+                            flexShrink: 0,
                         }}>
-                                    <div style={{ 
-                                        fontSize: '16px', 
-                                        fontWeight: '600',
-                                        color: darkText,
-                                        fontFamily: 'monospace',
-                                    }}>
-                                        Item Detail
-                                    </div>
+                            {/* Close Button - Left */}
                             <button
                                 onClick={onClose}
                                 style={{
                                     background: 'none',
                                     border: 'none',
-                                            color: darkText,
-                                            fontSize: '24px',
+                                    color: darkText,
+                                    fontSize: '24px',
                                     cursor: 'pointer',
                                     padding: '0',
-                                            width: '32px',
-                                            height: '32px',
+                                    width: '32px',
+                                    height: '32px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                            fontFamily: 'monospace',
+                                    fontFamily: 'monospace',
                                 }}
                             >
                                 ×
                             </button>
+                            
+                            {/* Action Dropdown - Right */}
+                            <div style={{ position: 'relative' }}>
+                                <button
+                                    style={{
+                                        background: '#111111',
+                                        border: `1px solid ${darkBorder}`,
+                                        color: darkText,
+                                        fontSize: '12px',
+                                        padding: '8px 16px',
+                                        cursor: 'pointer',
+                                        fontFamily: 'monospace',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                    }}
+                                    disabled
+                                >
+                                    Add to Project
+                                    <span style={{ fontSize: '10px' }}>▼</span>
+                                </button>
+                            </div>
                         </div>
                         
-                                {/* RFQ Sent Status Indicator (State B Only) */}
-                                {currentState === 'B' && (
-                                <div style={{
-                                    marginBottom: '24px',
-                                    padding: '12px 16px',
-                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
-                                    border: '1px solid rgba(0, 128, 0, 0.2)',
-                                    borderRadius: '4px',
-                                    textAlign: 'center',
-                                    opacity: 0.7,
-                                }}>
-                                    <div style={{
-                                        fontSize: '14px',
-                                        fontWeight: '500',
-                                        color: 'rgba(0, 180, 0, 0.6)',
-                                        fontFamily: 'monospace',
-                                    }}>
-                                        RFQ request sent — waiting to hear back
-                                    </div>
-                                </div>
-                                )}
+                        {/* Main Content - Two Columns */}
+                        <div style={{
+                            display: 'flex',
+                            flex: 1,
+                            overflow: 'hidden',
+                        }}>
+                            {/* Left Column - Images */}
+                            <div style={{
+                                width: '50%',
+                                borderRight: `1px solid ${darkBorder}`,
+                                padding: '20px',
+                                overflowY: 'auto',
+                                scrollbarWidth: 'none',
+                                msOverflowStyle: 'none',
+                            }}
+                            className="n88-modal-scroll-content"
+                            >
                         
-                                {/* Commit 2.3.5.3: Field Order - 1. Item Title */}
-                                {/* Item title - Hidden in State C (shown above bid matrix instead) */}
-                                {currentState !== 'C' && (
-                                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '24px' }}>
-                                    {item.title || item.description || 'Untitled Item'}
-                                </div>
-                                )}
-                                
-                                {/* Commit 2.3.5.3: Field Order - 2. Images (Main + Inspiration/References) */}
-                                {/* Images section - Hidden in State C (only bid tab shown) */}
-                                {currentState !== 'C' && (
-                                <div style={{ marginBottom: '24px' }}>
-                                    {/* Main Image */}
-                                    {(item.imageUrl || item.image_url || item.primary_image_url) && (
-                                        <div style={{ marginBottom: '16px' }}>
-                                            <div style={{
-                                                border: `1px solid ${darkBorder}`,
-                                                borderRadius: '4px', 
-                                                padding: '12px',
-                                                backgroundColor: '#111111',
-                                                minHeight: '150px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                cursor: 'pointer',
-                                            }}
-                                            onClick={() => {
-                                                setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
-                                            }}
-                                            >
-                                                <img 
-                                                    src={item.imageUrl || item.image_url || item.primary_image_url} 
-                                                    alt="Primary" 
-                                                    style={{ 
-                                                        maxWidth: '100%',
-                                                        maxHeight: '250px',
-                                                        objectFit: 'contain',
-                                                        borderRadius: '4px',
-                                                    }} 
-                                                />
-                                            </div>
+                                {/* Main Image */}
+                                {(item.imageUrl || item.image_url || item.primary_image_url) && (
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <div style={{
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '4px', 
+                                            padding: '12px',
+                                            backgroundColor: '#111111',
+                                            minHeight: '200px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                        onClick={() => {
+                                            setLightboxImage(item.imageUrl || item.image_url || item.primary_image_url);
+                                        }}
+                                        >
+                                            <img 
+                                                src={item.imageUrl || item.image_url || item.primary_image_url} 
+                                                alt="Primary" 
+                                                style={{ 
+                                                    maxWidth: '100%',
+                                                    maxHeight: '300px',
+                                                    objectFit: 'contain',
+                                                    borderRadius: '4px',
+                                                }} 
+                                            />
                                         </div>
-                                    )}
+                                    </div>
+                                )}
                                     
                                     {/* Inspiration / References / Sketch Drawings */}
                                     {isEditable && currentState === 'A' && (
@@ -2709,12 +2703,117 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         </div>
                                     )}
                                 </div>
-                                )}
-                                
                             </div>
+                            
+                            {/* Right Column - Tabs */}
+                            <div style={{
+                                width: '50%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                overflow: 'hidden',
+                            }}>
+                                {/* Tabs Header */}
+                                <div style={{
+                                    display: 'flex',
+                                    borderBottom: `1px solid ${darkBorder}`,
+                                    flexShrink: 0,
+                                }}>
+                                    <button
+                                        onClick={() => setActiveTab('details')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px 16px',
+                                            background: activeTab === 'details' ? '#111111' : 'transparent',
+                                            border: 'none',
+                                            borderBottom: activeTab === 'details' ? `2px solid ${greenAccent}` : 'none',
+                                            color: activeTab === 'details' ? greenAccent : darkText,
+                                            fontSize: '12px',
+                                            fontWeight: activeTab === 'details' ? '600' : '400',
+                                            cursor: 'pointer',
+                                            fontFamily: 'monospace',
+                                        }}
+                                    >
+                                        Item Details
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('rfq')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px 16px',
+                                            background: activeTab === 'rfq' ? '#111111' : 'transparent',
+                                            border: 'none',
+                                            borderBottom: activeTab === 'rfq' ? `2px solid ${greenAccent}` : 'none',
+                                            color: activeTab === 'rfq' ? greenAccent : darkText,
+                                            fontSize: '12px',
+                                            fontWeight: activeTab === 'rfq' ? '600' : '400',
+                                            cursor: 'pointer',
+                                            fontFamily: 'monospace',
+                                        }}
+                                    >
+                                        RFQ Form
+                                    </button>
+                                    {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
+                                        <button
+                                            onClick={() => setActiveTab('bids')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '12px 16px',
+                                                background: activeTab === 'bids' ? '#111111' : 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'bids' ? `2px solid ${greenAccent}` : 'none',
+                                                color: activeTab === 'bids' ? greenAccent : darkText,
+                                                fontSize: '12px',
+                                                fontWeight: activeTab === 'bids' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                fontFamily: 'monospace',
+                                            }}
+                                        >
+                                            Bids ({itemState.bids.length})
+                                        </button>
+                                    )}
+                                </div>
                                 
-                            {/* Commit 2.3.5.3: Field Order - Editable fields (State A only) */}
-                            {/* Editable fields section - Hidden in State C (only bid tab shown) */}
+                                {/* Tab Content */}
+                                <div style={{
+                                    flex: 1,
+                                    overflowY: 'auto',
+                                    padding: '20px',
+                                    scrollbarWidth: 'none',
+                                    msOverflowStyle: 'none',
+                                }}
+                                className="n88-modal-scroll-content"
+                                >
+                                    {/* Tab 1: Item Details */}
+                                    {activeTab === 'details' && (
+                                        <div>
+                                            {/* Item Title */}
+                                            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '20px' }}>
+                                                {item.title || item.description || 'Untitled Item'}
+                                            </div>
+                                            
+                                            {/* RFQ Sent Status Indicator (State B Only) */}
+                                            {currentState === 'B' && (
+                                                <div style={{
+                                                    marginBottom: '20px',
+                                                    padding: '12px 16px',
+                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
+                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
+                                                    borderRadius: '4px',
+                                                    textAlign: 'center',
+                                                    opacity: 0.7,
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: '500',
+                                                        color: 'rgba(0, 180, 0, 0.6)',
+                                                        fontFamily: 'monospace',
+                                                    }}>
+                                                        RFQ request sent — waiting to hear back
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Editable fields section - State A only */}
                             {currentState !== 'C' && isEditable && currentState === 'A' ? (
                                 <>
                                     {/* 3. Description */}
@@ -2958,133 +3057,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     )}
                                 </>
                             )}
-                            
-                            {/* Removed SECTION: Item Facts - all fields moved to Request Quote box */}
-                                
-                            {/* IMAGES Section - Removed in State C (images already shown at top) */}
-                            
-                            {/* Commit 2.3.6: BIDS Section - Read-only Matrix View */}
-                            {/* In State C, show only bid tab - hide all other content */}
-                            {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
-                            <div 
-                                style={{ marginBottom: '24px' }}
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {/* Item Context Header - Show above matrix in State C */}
-                                {currentState === 'C' && (
-                                    <div style={{ 
-                                        marginBottom: '16px',
-                                        padding: '12px',
-                                        backgroundColor: '#111111',
-                                        border: `1px solid ${darkBorder}`,
-                                        borderRadius: '4px',
-                                    }}>
-                                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                            {item.title || item.description || `Item #${item.id || 'N/A'}`}
                                         </div>
-                                        {category && (
-                                            <div style={{ fontSize: '12px', color: darkText }}>
-                                                Category: {category}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        cursor: 'pointer',
-                                        marginBottom: bidsExpanded ? '12px' : '0',
-                                    }}
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        setBidsExpanded(!bidsExpanded);
-                                    }}
-                                >
-                                    <div style={{ fontSize: '14px', fontWeight: '600' }}>
-                                        BIDS
-                                    </div>
-                                    <span 
-                                        style={{ fontSize: '12px', color: darkText, cursor: 'pointer' }}
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            setBidsExpanded(!bidsExpanded);
-                                        }}
-                                    >
-                                        {bidsExpanded ? '▼' : '▶'}
-                                    </span>
-                                </div>
-                            
-                                {!bidsExpanded && (
-                                    <div style={{ fontSize: '12px', color: darkText, marginTop: '8px' }}>
-                                        {`${itemState.bids.length} bid${itemState.bids.length !== 1 ? 's' : ''} received`}
-                                    </div>
-                                )}
-                                
-                                {/* Commit 2.3.6: Expanded BIDS Matrix View */}
-                                {bidsExpanded && (
-                                    <>
-                                        <BidComparisonMatrix 
-                                            bids={itemState.bids}
-                                            darkBorder={darkBorder}
-                                            greenAccent={greenAccent}
-                                            darkText={darkText}
-                                            darkBg={darkBg}
-                                            onImageClick={setLightboxImage}
-                                            smartAlternativesEnabled={smartAlternativesEnabled}
-                                        />
-                                        
-                                        {/* Commit 2.3.6: Concierge + Delivery Banner */}
-                                        <div style={{
-                                            marginTop: '20px',
-                                            padding: '16px',
-                                            backgroundColor: '#1a1a1a',
-                                            border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                        }}>
-                                            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                                Bids are in. When you're ready to move to prototypes or orders, concierge oversight is available.
-                                            </div>
-                                            <div style={{ fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }}>
-                                                Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.
-                                            </div>
-                                            <button
-                                                style={{
-                                                    padding: '8px 16px',
-                                                    backgroundColor: greenAccent,
-                                                    border: 'none',
-                                                    borderRadius: '4px',
-                                                    color: darkBg,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                                    fontWeight: '600',
-                                                    cursor: 'not-allowed',
-                                                    opacity: 0.5,
-                                                }}
-                                                title="Concierge support activates later when you request a prototype or proceed to order. This feature is currently in development."
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    // Commit 2.3.6: Visual only - no action (non-functional in this commit)
-                                                }}
-                                                disabled
-                                            >
-                                                Get Concierge Help
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                            )}
-                            
-                            {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
-                            {/* Commit 2.3.5.3: Ensure Request Quote is visible without scrolling */}
-                            {/* Request Quote section - Hidden in State C (only bid tab shown) */}
-                            {/* D5: Show Specs Updated panel if revision_changed and has_rfq, otherwise show RFQ form */}
+                                    )}
+                                    
+                                    {/* Tab 2: RFQ Form */}
+                                    {activeTab === 'rfq' && (
+                                        <div>
+                                            {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
                             {currentState === 'A' && (
                                 <div id="request-quote-section" style={{ marginBottom: '24px' }}>
                                     {/* D5: Specs Updated Panel - Show when revision_changed=true and has_rfq=true */}
@@ -3748,12 +3727,82 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 </button>
                                 </div>
                                     )}
+                                        </div>
+                                    )}
+                                    
+                                    {/* Tab 3: Bids */}
+                                    {activeTab === 'bids' && itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
+                                        <div>
+                                            {/* Item Context Header */}
+                                            <div style={{ 
+                                                marginBottom: '16px',
+                                                padding: '12px',
+                                                backgroundColor: '#111111',
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px',
+                                            }}>
+                                                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                    {item.title || item.description || `Item #${item.id || 'N/A'}`}
+                                                </div>
+                                                {category && (
+                                                    <div style={{ fontSize: '12px', color: darkText }}>
+                                                        Category: {category}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Bids Matrix */}
+                                            <BidComparisonMatrix 
+                                                bids={itemState.bids}
+                                                darkBorder={darkBorder}
+                                                greenAccent={greenAccent}
+                                                darkText={darkText}
+                                                darkBg={darkBg}
+                                                onImageClick={setLightboxImage}
+                                                smartAlternativesEnabled={smartAlternativesEnabled}
+                                            />
+                                            
+                                            {/* Concierge + Delivery Banner */}
+                                            <div style={{
+                                                marginTop: '20px',
+                                                padding: '16px',
+                                                backgroundColor: '#1a1a1a',
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px',
+                                            }}>
+                                                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
+                                                    Bids are in. When you're ready to move to prototypes or orders, concierge oversight is available.
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }}>
+                                                    Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.
+                                                </div>
+                                                <button
+                                                    style={{
+                                                        padding: '8px 16px',
+                                                        backgroundColor: greenAccent,
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        color: darkBg,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        fontWeight: '600',
+                                                        cursor: 'not-allowed',
+                                                        opacity: 0.5,
+                                                    }}
+                                                    title="Concierge support activates later when you request a prototype or proceed to order. This feature is currently in development."
+                                                    disabled
+                                                >
+                                                    Get Concierge Help
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            )}
-                            
-                            {/* State B and C: Description and editable fields (images shown at top) */}
-                            {/* State B/C section - Hidden in State C (only bid tab shown) */}
-                            {(currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && (
+                        </div>
+                        
+                        {/* Footer - Save button and Update button - Hidden in State C (when bids exist) */}
+                        {(currentState === 'A' || currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && (
                                 <>
                                     {/* Warning Banner - Show if dims/qty changed after RFQ with bids */}
                                     {showWarningBanner && itemState.has_rfq && itemState.has_bids && (

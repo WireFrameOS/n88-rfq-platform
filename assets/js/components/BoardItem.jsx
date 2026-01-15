@@ -40,26 +40,15 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     // Local state to track if card is expanded (showing details)
     const [isExpanded, setIsExpanded] = React.useState(item.displayMode === 'full');
     
-    // Close menu when clicking outside
-    React.useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (isMenuOpen && !event.target.closest('[data-menu-container]')) {
-                setIsMenuOpen(false);
-            }
-        };
-        if (isMenuOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-            return () => {
-                document.removeEventListener('mousedown', handleClickOutside);
-            };
-        }
-    }, [isMenuOpen]);
     
     // Phase 2.1.1: Local state to track if price was requested (frontend only, no persistence)
     const [priceRequested, setPriceRequested] = React.useState(false);
     
     // Commit 1.3.8: Modal state
     const [isModalOpen, setIsModalOpen] = React.useState(false);
+    
+    // Track if item was dragged (to distinguish click from drag)
+    const [wasDragged, setWasDragged] = React.useState(false);
     
     // Motion values for drag position
     const x = useMotionValue(item.x);
@@ -91,8 +80,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 return size;
             }
         }
-        // Default to D if no match found
-        return 'D';
+        // Default to L if no match found
+        return 'L';
     };
 
     const currentSize = getCurrentSize();
@@ -124,9 +113,6 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     };
 
     const itemStatus = getItemStatus();
-    
-    // State for 3-dot menu
-    const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
     // Handle size preset selection
     const handleSizeChange = (size, e) => {
@@ -162,13 +148,13 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     const handlePointerDown = () => {
         // Bring item to front on pointer down (click or drag start)
         // Compute maxZ accounting for L/XL boost (they get +1000 to calculated z-index)
-        const currentItems = window.N88StudioOS.useBoardStore.getState().items;
+            const currentItems = window.N88StudioOS.useBoardStore.getState().items;
         
         // Calculate max calculated z-index considering L/XL boost
         const maxCalculatedZ = Math.max(...currentItems.map(i => {
             const baseZ = i.z || 0;
             // Determine size for this item (same logic as getCurrentSize)
-            let itemSize = 'D';
+            let itemSize = 'L';
             if (i.sizeKey && CARD_SIZES[i.sizeKey]) {
                 itemSize = i.sizeKey;
             } else {
@@ -228,9 +214,22 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     const handleDragStart = () => {
         // Bring item to front on drag start (redundant but safe)
         handlePointerDown();
+        setWasDragged(false); // Reset drag state
     };
 
     const handleDragEnd = (event, info) => {
+        // Check if item was actually dragged (moved more than a few pixels)
+        const dragDistance = Math.sqrt(Math.pow(info.delta.x, 2) + Math.pow(info.delta.y, 2));
+        if (dragDistance > 5) {
+            setWasDragged(true);
+            // Reset after a short delay to prevent click from firing after drag
+            setTimeout(() => {
+                setWasDragged(false);
+            }, 100);
+        } else {
+            setWasDragged(false);
+        }
+        
         // Get final position from motion values (they track the drag)
         const newX = x.get();
         const newY = y.get();
@@ -258,6 +257,19 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 height: item.height,
                 displayMode: item.displayMode,
             });
+        }
+    };
+    
+    // Handle click on image area only (only if not dragged)
+    const handleImageClick = (e) => {
+        // Don't open modal if clicking on interactive elements (buttons, etc.)
+        if (e.target.closest('button')) {
+            return;
+        }
+        
+        // Only open modal if item wasn't dragged
+        if (!wasDragged) {
+            setIsModalOpen(true);
         }
     };
     
@@ -384,6 +396,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             >
                 {/* Photo Section - 75% of card (100% when photo_only mode) */}
                 <div
+                    onClick={handleImageClick}
                     style={{
                         width: '100%',
                         flex: item.displayMode === 'photo_only' ? '0 0 100%' : '0 0 75%',
@@ -395,6 +408,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         backgroundRepeat: 'no-repeat',
                         position: 'relative',
                         boxSizing: 'border-box',
+                        cursor: 'pointer',
                     }}
                 >
                     {/* Delete button - top right */}
@@ -448,8 +462,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         borderTop: '1px solid #e0e0e0',
                         padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        flexDirection: 'column',
+                        gap: '6px',
                         boxSizing: 'border-box',
                         flexShrink: 0,
                     }}
@@ -460,7 +474,6 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
-                            flex: 1,
                             fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
                             color: '#333',
                         }}
@@ -490,151 +503,44 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         )}
                     </div>
 
-                    {/* 3-Dot Menu */}
-                    <div style={{ position: 'relative' }} data-menu-container>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setIsMenuOpen(!isMenuOpen);
-                            }}
-                            style={{
-                                width: '28px',
-                                height: '28px',
-                                padding: 0,
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '4px',
-                                transition: 'all 0.2s',
-                            }}
-                            onMouseEnter={(e) => {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.target.style.backgroundColor = 'transparent';
-                            }}
-                            title="Menu"
-                        >
-                            <span style={{ fontSize: '16px', color: '#666', lineHeight: '1' }}>⋮</span>
-                        </button>
-
-                        {/* Dropdown Menu */}
-                        {isMenuOpen && (
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    right: 0,
-                                    marginTop: '4px',
-                                    backgroundColor: '#ffffff',
-                                    border: '1px solid #e0e0e0',
-                                    borderRadius: '4px',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                                    zIndex: 1000,
-                                    minWidth: '160px',
-                                    padding: '4px 0',
+                    {/* Sizes Button Row - Show all sizes inline */}
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} data-sizes-container>
+                        {['S', 'D', 'L', 'XL'].map((size) => (
+                            <button
+                                key={size}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    handleSizeChange(size, e);
                                 }}
-                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: currentSize === size ? 'bold' : 'normal',
+                                    cursor: 'pointer',
+                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
+                                    color: currentSize === size ? '#fff' : '#333',
+                                    border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                    minWidth: (currentSize === 'S' || currentSize === 'D') ? '24px' : '28px',
+                                    flex: 1,
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (currentSize !== size) {
+                                        e.target.style.backgroundColor = '#e0e0e0';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (currentSize !== size) {
+                                        e.target.style.backgroundColor = '#f0f0f0';
+                                    }
+                                }}
+                                title={`Set size to ${size}`}
                             >
-                                {/* 1. Open Item Modal */}
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        setIsModalOpen(true);
-                                        setIsMenuOpen(false);
-                                    }}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        textAlign: 'left',
-                                        backgroundColor: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        fontSize: '13px',
-                                        color: '#333',
-                                        transition: 'background-color 0.2s',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.target.style.backgroundColor = '#f5f5f5';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.target.style.backgroundColor = 'transparent';
-                                    }}
-                                >
-                                    Open Item Modal
-                                </button>
-
-                                {/* 2. Resize Card */}
-                                <div
-                                    style={{
-                                        borderTop: '1px solid #e0e0e0',
-                                        padding: '4px 0',
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            padding: '6px 12px',
-                                            fontSize: '11px',
-                                            color: '#999',
-                                            textTransform: 'uppercase',
-                                            fontWeight: 600,
-                                        }}
-                                    >
-                                        Resize Card
-                                    </div>
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            gap: '4px',
-                                            padding: '4px 8px',
-                                        }}
-                                    >
-                                        {['S', 'D', 'L', 'XL'].map((size) => (
-                                            <button
-                                                key={size}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    e.preventDefault();
-                                                    handleSizeChange(size, e);
-                                                    setIsMenuOpen(false);
-                                                }}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '4px 6px',
-                                                    fontSize: '11px',
-                                                    fontWeight: currentSize === size ? 'bold' : 'normal',
-                                                    cursor: 'pointer',
-                                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                                    color: currentSize === size ? '#fff' : '#333',
-                                                    border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
-                                                    borderRadius: '3px',
-                                                    transition: 'all 0.2s',
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    if (currentSize !== size) {
-                                                        e.target.style.backgroundColor = '#e0e0e0';
-                                                    }
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    if (currentSize !== size) {
-                                                        e.target.style.backgroundColor = '#f0f0f0';
-                                                    }
-                                                }}
-                                            >
-                                                {size}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                              
-                            </div>
-                        )}
+                                {size}
+                            </button>
+                        ))}
                     </div>
                 </div>
                 )}

@@ -2574,8 +2574,8 @@ class N88_RFQ_Admin {
                                 <td>
                                     <select id="item-size" name="size" style="width: 100%;">
                                         <option value="S">S (160×200px)</option>
-                                        <option value="D" selected>D (200×250px) - Default</option>
-                                        <option value="L">L (280×350px)</option>
+                                        <option value="D">D (200×250px)</option>
+                                        <option value="L" selected>L (280×350px) - Default</option>
                                         <option value="XL">XL (360×450px)</option>
                                     </select>
                                     <p class="description">Default size when item is added to a board</p>
@@ -3582,7 +3582,7 @@ class N88_RFQ_Admin {
                         );
                     } else {
                         // New item - no layout data yet, use defaults from item meta_json
-                        $default_size = 'D';
+                        $default_size = 'L';
                         // Always try to read meta_json, even if column check might have failed
                         if ( ! empty( $item_meta ) ) {
                             error_log('Item ' . $item_id . ' - Parsed meta_json: ' . print_r( $item_meta, true ));
@@ -5581,8 +5581,8 @@ class N88_RFQ_Admin {
                                 return size;
                             }
                         }
-                        // Default to D if no match found
-                        return 'D';
+                        // Default to L if no match found
+                        return 'L';
                     };
 
                     var currentSize = getCurrentSize();
@@ -5686,25 +5686,10 @@ class N88_RFQ_Admin {
 
                     var itemStatus = getItemStatus();
                     
-                    // State for 3-dot menu
-                    var _menuState = React.useState(false);
-                    var isMenuOpen = _menuState[0];
-                    var setIsMenuOpen = _menuState[1];
-                    
-                    // Close menu when clicking outside
-                    React.useEffect(function() {
-                        var handleClickOutside = function(event) {
-                            if (isMenuOpen && !event.target.closest('[data-menu-container]')) {
-                                setIsMenuOpen(false);
-                            }
-                        };
-                        if (isMenuOpen) {
-                            document.addEventListener('mousedown', handleClickOutside);
-                            return function() {
-                                document.removeEventListener('mousedown', handleClickOutside);
-                            };
-                        }
-                    }, [isMenuOpen]);
+                    // Track if item was dragged (to distinguish click from drag)
+                    var _dragState = React.useState(false);
+                    var wasDragged = _dragState[0];
+                    var setWasDragged = _dragState[1];
 
                     // Handle size preset selection
                     var handleSizeChange = function(size, e) {
@@ -5751,7 +5736,7 @@ class N88_RFQ_Admin {
                         var maxCalculatedZ = Math.max.apply(Math, currentItems.map(function(i) {
                             var baseZ = i.z || 0;
                             // Determine size for this item (same logic as getCurrentSize)
-                            var itemSize = 'D';
+                            var itemSize = 'L';
                             if (i.sizeKey && CARD_SIZES[i.sizeKey]) {
                                 itemSize = i.sizeKey;
                             } else {
@@ -5811,11 +5796,25 @@ class N88_RFQ_Admin {
                         if (e && e.stopPropagation) {
                             e.stopPropagation();
                         }
+                        // Reset drag state
+                        setWasDragged(false);
                         // Bring to front on drag start (same as pointer down)
                         handlePointerDown(e);
                     };
 
                     var handleDragEnd = function(event, info) {
+                        // Check if item was actually dragged (moved more than a few pixels)
+                        var dragDistance = Math.sqrt(Math.pow(info.delta.x, 2) + Math.pow(info.delta.y, 2));
+                        if (dragDistance > 5) {
+                            setWasDragged(true);
+                            // Reset after a short delay to prevent click from firing after drag
+                            setTimeout(function() {
+                                setWasDragged(false);
+                            }, 100);
+                        } else {
+                            setWasDragged(false);
+                        }
+                        
                         var newX = x.get();
                         var newY = y.get();
                         
@@ -5835,6 +5834,23 @@ class N88_RFQ_Admin {
                                 height: item.height, 
                                 displayMode: item.displayMode 
                             });
+                        }
+                    };
+                    
+                    // Handle click on image area only (only if not dragged)
+                    var handleImageClick = function(e) {
+                        // Don't open modal if clicking on interactive elements (buttons, etc.)
+                        if (e.target.closest('button')) {
+                            return;
+                        }
+                        
+                        // Only open modal if item wasn't dragged
+                        if (!wasDragged) {
+                            if (_modalHandlers && _modalHandlers.open) {
+                                _modalHandlers.open();
+                            } else if (typeof setIsModalOpen === 'function') {
+                                setIsModalOpen(true);
+                            }
                         }
                     };
 
@@ -5874,11 +5890,13 @@ class N88_RFQ_Admin {
                             position: 'relative',
                             display: 'flex',
                             flexDirection: 'column',
-                            boxSizing: 'border-box'
+                            boxSizing: 'border-box',
+                            cursor: 'pointer'
                         }
                     }, 
                     // Photo Section - 75% of card
                     React.createElement('div', {
+                        onClick: handleImageClick,
                         style: { 
                             width: '100%', 
                             flex: '0 0 75%',
@@ -5892,7 +5910,8 @@ class N88_RFQ_Admin {
                             boxSizing: 'border-box',
                             overflow: 'hidden',
                             borderTopLeftRadius: '8px',
-                            borderTopRightRadius: '8px'
+                            borderTopRightRadius: '8px',
+                            cursor: 'pointer'
                         }
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
@@ -6022,9 +6041,8 @@ class N88_RFQ_Admin {
                             borderTop: '1px solid #e0e0e0',
                             padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
                             display: 'flex',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
+                            flexDirection: 'column',
+                            gap: '6px',
                             boxSizing: 'border-box',
                             minHeight: 0,
                             overflow: 'visible',
@@ -6033,7 +6051,7 @@ class N88_RFQ_Admin {
                             borderBottomRightRadius: '8px'
                         }
                     },
-                        // Status Text with Dot - on the left
+                        // Status Text with Dot
                         React.createElement('div', {
                             style: {
                                 display: 'flex',
@@ -6041,9 +6059,7 @@ class N88_RFQ_Admin {
                                 alignItems: 'center',
                                 gap: '6px',
                                 fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                color: '#333',
-                                flex: 1,
-                                minWidth: 0
+                                color: '#333'
                             }
                         },
                             React.createElement('span', {
@@ -6077,159 +6093,48 @@ class N88_RFQ_Admin {
                                 title: 'Action Required'
                             }, '⚠') : null
                         ),
-                        // 3-Dot Menu - on the right
+                        // Sizes Button Row - Show all sizes inline
                         React.createElement('div', {
                             style: {
-                                position: 'relative',
-                                flexShrink: 0,
-                                overflow: 'visible',
-                                zIndex: 10001
+                                display: 'flex',
+                                gap: '4px',
+                                alignItems: 'center'
                             },
-                            'data-menu-container': true
-                        },
-                            React.createElement('button', {
+                            'data-sizes-container': true
+                        }, ['S', 'D', 'L', 'XL'].map(function(size) {
+                            return React.createElement('button', {
+                                key: size,
                                 onClick: function(e) {
                                     e.stopPropagation();
                                     e.preventDefault();
-                                    setIsMenuOpen(!isMenuOpen);
+                                    handleSizeChange(size, e);
                                 },
                                 style: {
-                                    width: '28px',
-                                    height: '28px',
-                                    padding: 0,
-                                    backgroundColor: 'transparent',
-                                    border: 'none',
+                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
+                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                    fontWeight: currentSize === size ? 'bold' : 'normal',
                                     cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '4px',
-                                    transition: 'all 0.2s'
+                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
+                                    color: currentSize === size ? '#fff' : '#333',
+                                    border: '1px solid ' + (currentSize === size ? '#0073aa' : '#ccc'),
+                                    borderRadius: '3px',
+                                    transition: 'all 0.2s',
+                                    minWidth: (currentSize === 'S' || currentSize === 'D') ? '24px' : '28px',
+                                    flex: 1
                                 },
                                 onMouseEnter: function(e) {
-                                    e.target.style.backgroundColor = '#f0f0f0';
+                                    if (currentSize !== size) {
+                                        e.target.style.backgroundColor = '#e0e0e0';
+                                    }
                                 },
                                 onMouseLeave: function(e) {
-                                    e.target.style.backgroundColor = 'transparent';
-                                },
-                                title: 'Menu'
-                            }, React.createElement('span', {
-                                style: {
-                                    fontSize: '16px',
-                                    color: '#666',
-                                    lineHeight: '1',
-                                    cursor: 'pointer',
-                                    pointerEvents: 'none'
-                                }
-                            }, '⋮')),
-                            // Dropdown Menu
-                            isMenuOpen ? React.createElement('div', {
-                                style: {
-                                    position: 'absolute',
-                                    top: '100%',
-                                    right: 0,
-                                    marginTop: '4px',
-                                    backgroundColor: '#ffffff',
-                                    border: '1px solid #e0e0e0',
-                                    borderRadius: '4px',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                                    zIndex: 10000,
-                                    minWidth: '160px',
-                                    padding: '4px 0',
-                                    overflow: 'visible'
-                                },
-                                onClick: function(e) {
-                                    e.stopPropagation();
-                                }
-                            },
-                                // 1. Open Item Modal
-                                React.createElement('button', {
-                                    onClick: function(e) {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        if (_modalHandlers && _modalHandlers.open) {
-                                            _modalHandlers.open();
-                                        } else if (typeof setIsModalOpen === 'function') {
-                                            setIsModalOpen(true);
-                                        }
-                                        setIsMenuOpen(false);
-                                    },
-                                    style: {
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        textAlign: 'left',
-                                        backgroundColor: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        fontSize: '13px',
-                                        color: '#333',
-                                        transition: 'background-color 0.2s'
-                                    },
-                                    onMouseEnter: function(e) {
-                                        e.target.style.backgroundColor = '#f5f5f5';
-                                    },
-                                    onMouseLeave: function(e) {
-                                        e.target.style.backgroundColor = 'transparent';
-                                    }
-                                }, 'Open Item Details / Submit RFQ'),
-                                // 2. Resize Card
-                                React.createElement('div', {
-                                    style: {
-                                        borderTop: '1px solid #e0e0e0',
-                                        padding: '4px 0'
+                                    if (currentSize !== size) {
+                                        e.target.style.backgroundColor = '#f0f0f0';
                                     }
                                 },
-                                    React.createElement('div', {
-                                        style: {
-                                            padding: '6px 12px',
-                                            fontSize: '11px',
-                                            color: '#999',
-                                            textTransform: 'uppercase',
-                                            fontWeight: 600
-                                        }
-                                    }, 'Resize Card'),
-                                    React.createElement('div', {
-                                        style: {
-                                            display: 'flex',
-                                            gap: '4px',
-                                            padding: '4px 8px'
-                                        }
-                                    }, ['S', 'D', 'L', 'XL'].map(function(size) {
-                                        return React.createElement('button', {
-                                            key: size,
-                                            onClick: function(e) {
-                                                e.stopPropagation();
-                                                e.preventDefault();
-                                                handleSizeChange(size, e);
-                                                setIsMenuOpen(false);
-                                            },
-                                            style: {
-                                                flex: 1,
-                                                padding: '4px 6px',
-                                                fontSize: '11px',
-                                                fontWeight: currentSize === size ? 'bold' : 'normal',
-                                                cursor: 'pointer',
-                                                backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                                color: currentSize === size ? '#fff' : '#333',
-                                                border: '1px solid ' + (currentSize === size ? '#0073aa' : '#ccc'),
-                                                borderRadius: '3px',
-                                                transition: 'all 0.2s'
-                                            },
-                                            onMouseEnter: function(e) {
-                                                if (currentSize !== size) {
-                                                    e.target.style.backgroundColor = '#e0e0e0';
-                                                }
-                                            },
-                                            onMouseLeave: function(e) {
-                                                if (currentSize !== size) {
-                                                    e.target.style.backgroundColor = '#f0f0f0';
-                                                }
-                                            }
-                                        }, size);
-                                    }))
-                                )
-                            ) : null
-                        )
+                                title: 'Set size to ' + size
+                            }, size);
+                        }))
                     )
                 )
                 );

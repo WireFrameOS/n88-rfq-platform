@@ -17,7 +17,7 @@ class N88_RFQ_Auth {
      * 
      * To change from testing to production, update this constant to 172800
      */
-    const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 3600; // 60 minutes for testing (change to 172800 for 48 hours)
+    const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 120; // 60 minutes for testing (change to 172800 for 48 hours)
 
     public function __construct() {
         // Register shortcodes
@@ -1200,11 +1200,13 @@ class N88_RFQ_Auth {
     }
     
     /**
-     * Commit 2.3.7.1: Check and update expired system_invited routes (lazy evaluation)
+     * Commit 2.3.7.1: Check and update expired routes (lazy evaluation)
      * 
-     * For each system_invited route:
+     * For each system_invited or designer_invited route:
      * - If eligible_after IS NOT NULL
      * - AND NOW() > eligible_after + INTERVAL (N88_SYSTEM_INVITED_EXPIRY_SECONDS)
+     * - OR if eligible_after IS NULL AND routed_at IS NOT NULL
+     * - AND NOW() > routed_at + INTERVAL (N88_SYSTEM_INVITED_EXPIRY_SECONDS)
      * - AND status IN ('queued','sent','viewed')
      * - Then set status = 'expired'
      * 
@@ -1217,8 +1219,8 @@ class N88_RFQ_Auth {
         
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
         
-        // Build WHERE clause
-        $where_conditions = array( "route_type = 'system_invited'" );
+        // Build WHERE clause - include both system_invited and designer_invited routes
+        $where_conditions = array( "route_type IN ('system_invited', 'designer_invited')" );
         $where_conditions[] = "status IN ('queued', 'sent', 'viewed')";
         
         // Calculate expiry timestamp
@@ -1255,7 +1257,7 @@ class N88_RFQ_Auth {
         
         if ( $updated > 0 ) {
             error_log( sprintf( 
-                'N88 RFQ: Updated %d system_invited route(s) to expired status (expiry window: %d seconds)',
+                'N88 RFQ: Updated %d route(s) (system_invited/designer_invited) to expired status (expiry window: %d seconds)',
                 $updated,
                 $expiry_seconds
             ) );
@@ -1291,8 +1293,8 @@ class N88_RFQ_Auth {
             return false; // Route doesn't exist
         }
         
-        // Only system_invited routes can expire
-        if ( $route->route_type !== 'system_invited' ) {
+        // Both system_invited and designer_invited routes can expire
+        if ( ! in_array( $route->route_type, array( 'system_invited', 'designer_invited' ), true ) ) {
             return false;
         }
         
@@ -1339,7 +1341,7 @@ class N88_RFQ_Auth {
                         $categories_table = $wpdb->prefix . 'n88_categories';
                         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
                         
-        // Commit 2.3.7.1: Check and update expired system_invited routes (lazy evaluation)
+        // Commit 2.3.7.1: Check and update expired routes (system_invited and designer_invited) (lazy evaluation)
         $this->check_and_update_expired_routes( null, $current_user->ID );
                         
         // M3: Build query with proper status filtering (include expired when needed)

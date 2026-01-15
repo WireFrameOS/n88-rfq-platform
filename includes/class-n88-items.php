@@ -158,12 +158,12 @@ class N88_Items {
         $description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
         $item_type = isset( $_POST['item_type'] ) ? sanitize_text_field( wp_unslash( $_POST['item_type'] ) ) : 'furniture';
         $status = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'active'; // Default to active
-        $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'D';
+        $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'L';
         
         // Validate size
         $allowed_sizes = array( 'S', 'D', 'L', 'XL' );
         if ( ! in_array( $default_size, $allowed_sizes, true ) ) {
-            $default_size = 'D';
+            $default_size = 'L';
         }
 
         // Validate required fields
