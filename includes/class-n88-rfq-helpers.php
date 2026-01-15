@@ -356,8 +356,12 @@ class N88_RFQ_Helpers {
 
     /**
      * Commit 2.3.7.1: Calculate designer display price from supplier raw price
-     * Applies 65% margin markup (equivalent to 185.714% markup)
-     * Formula: display_price = raw_price / 0.35
+     * Applies margin markup percentage (Profit/Selling Price)
+     * Formula: display_price = raw_price / (1 - margin_percentage)
+     * 
+     * Margin Percentage: Change this value to adjust markup
+     * - Current: 54.55% margin (equivalent to 120% markup)
+     * - Previous: 65% margin (equivalent to 185.714% markup)
      * 
      * @param float|null $raw_price Supplier's raw price (can be null).
      * @return float|null Display price rounded to 2 decimals, or null if input is null.
@@ -372,11 +376,92 @@ class N88_RFQ_Helpers {
             return null;
         }
         
-        // Apply 65% margin markup: display_price = raw_price / (1 - 0.65) = raw_price / 0.35
-        $display_price = $raw_float / 0.35;
+        // Margin percentage: 54.55% (Profit/Selling Price)
+        // Change this value to adjust markup percentage
+        $margin_percentage = 0.5455; // 54.55% margin
+        
+        // Apply margin markup: display_price = raw_price / (1 - margin_percentage)
+        $display_price = $raw_float / (1 - $margin_percentage);
         
         // Round to 2 decimals (standard currency rounding)
         return round( $display_price, 2 );
+    }
+
+    /**
+     * Commit 2.3.8: Calculate duty rate based on supplier profile
+     * 
+     * Logic:
+     * - If duty_rate_override exists and is numeric ≥ 0 → use it
+     * - Else if origin_region IN (ASIA, CANADA) → 25%
+     * - Else → 0%
+     * 
+     * @param string|null $origin_region Supplier's origin region (ASIA, CANADA, USA, etc.)
+     * @param float|null $duty_rate_override Override duty rate if provided
+     * @return float Duty rate (0.00 to 1.00, e.g., 0.25 for 25%)
+     */
+    public static function n88_calculate_duty_rate( $origin_region, $duty_rate_override = null ) {
+        // If override exists and is valid, use it
+        if ( $duty_rate_override !== null && $duty_rate_override !== '' ) {
+            $override_float = floatval( $duty_rate_override );
+            if ( $override_float >= 0 ) {
+                return $override_float / 100; // Convert percentage to decimal (e.g., 25 → 0.25)
+            }
+        }
+        
+        // Check origin region
+        if ( $origin_region && in_array( strtoupper( $origin_region ), array( 'ASIA', 'CANADA' ), true ) ) {
+            return 0.25; // 25% duty
+        }
+        
+        // Default: no duty
+        return 0.00;
+    }
+
+    /**
+     * Commit 2.3.8: Calculate landed cost with duty and margin for designer display
+     * 
+     * Formula:
+     * 1. Duty = raw_price × duty_rate (applied on supplier raw price)
+     * 2. Margin Price = raw_price / (1 - margin_percentage) (applied on supplier raw price)
+     * 3. Designer Display = Margin Price + Duty
+     * 
+     * @param float|null $raw_price Supplier's raw price (can be null)
+     * @param float $duty_rate Duty rate as decimal (e.g., 0.25 for 25%)
+     * @return array|null Returns array with 'display_price', 'duty_est', 'margin_price' or null if invalid
+     */
+    public static function n88_calculate_landed_cost( $raw_price, $duty_rate = 0.00 ) {
+        if ( $raw_price === null || $raw_price === '' ) {
+            return null;
+        }
+        
+        $raw_float = floatval( $raw_price );
+        if ( $raw_float <= 0 ) {
+            return null;
+        }
+        
+        $duty_rate_float = floatval( $duty_rate );
+        if ( $duty_rate_float < 0 ) {
+            $duty_rate_float = 0.00;
+        }
+        
+        // Margin percentage: 54.55% (Profit/Selling Price)
+        $margin_percentage = 0.5455; // 54.55% margin
+        
+        // Step 1: Calculate duty on supplier raw price
+        $duty_est = $raw_float * $duty_rate_float;
+        
+        // Step 2: Calculate margin price on supplier raw price
+        $margin_price = $raw_float / (1 - $margin_percentage);
+        
+        // Step 3: Designer display = margin price + duty
+        $display_price = $margin_price + $duty_est;
+        
+        return array(
+            'display_price' => round( $display_price, 2 ),
+            'duty_est' => round( $duty_est, 2 ),
+            'margin_price' => round( $margin_price, 2 ),
+            'duty_rate_used' => $duty_rate_float,
+        );
     }
 }
 

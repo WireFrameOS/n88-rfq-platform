@@ -17,7 +17,7 @@ class N88_RFQ_Auth {
      * 
      * To change from testing to production, update this constant to 172800
      */
-    const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 120; // 60 minutes for testing (change to 172800 for 48 hours)
+    const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 172800; // 60 minutes for testing (change to 172800 for 48 hours)
 
     public function __construct() {
         // Register shortcodes
@@ -6354,6 +6354,114 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Commit 2.3.8: Map country code to origin_region for duty calculation
+     * 
+     * @param string $country_code 2-letter country code (e.g., 'US', 'CN', 'IN')
+     * @return string|null Origin region: 'USA', 'CANADA', 'ASIA', 'EUROPE', 'MIDDLE_EAST', 'OTHER', or null
+     */
+    private function map_country_to_origin_region( $country_code ) {
+        if ( empty( $country_code ) ) {
+            return null;
+        }
+        
+        $country_code = strtoupper( trim( $country_code ) );
+        
+        // USA
+        if ( $country_code === 'US' ) {
+            return 'USA';
+        }
+        
+        // Canada
+        if ( $country_code === 'CA' ) {
+            return 'CANADA';
+        }
+        
+        // Asia countries
+        $asia_countries = array(
+            'CN', // China
+            'IN', // India
+            'JP', // Japan
+            'KR', // South Korea
+            'SG', // Singapore
+            'MY', // Malaysia
+            'TH', // Thailand
+            'ID', // Indonesia
+            'PH', // Philippines
+            'VN', // Vietnam
+            'TW', // Taiwan
+            'HK', // Hong Kong
+            'BD', // Bangladesh
+            'PK', // Pakistan
+            'LK', // Sri Lanka
+            'MM', // Myanmar
+            'KH', // Cambodia
+            'LA', // Laos
+            'MN', // Mongolia
+            'NP', // Nepal
+        );
+        if ( in_array( $country_code, $asia_countries, true ) ) {
+            return 'ASIA';
+        }
+        
+        // Europe countries
+        $europe_countries = array(
+            'GB', // United Kingdom
+            'DE', // Germany
+            'FR', // France
+            'IT', // Italy
+            'ES', // Spain
+            'NL', // Netherlands
+            'BE', // Belgium
+            'CH', // Switzerland
+            'AT', // Austria
+            'SE', // Sweden
+            'NO', // Norway
+            'DK', // Denmark
+            'FI', // Finland
+            'PL', // Poland
+            'CZ', // Czech Republic
+            'IE', // Ireland
+            'PT', // Portugal
+            'GR', // Greece
+            'RO', // Romania
+            'HU', // Hungary
+            'BG', // Bulgaria
+            'HR', // Croatia
+            'SK', // Slovakia
+            'SI', // Slovenia
+            'LT', // Lithuania
+            'LV', // Latvia
+            'EE', // Estonia
+        );
+        if ( in_array( $country_code, $europe_countries, true ) ) {
+            return 'EUROPE';
+        }
+        
+        // Middle East countries
+        $middle_east_countries = array(
+            'AE', // United Arab Emirates
+            'SA', // Saudi Arabia
+            'IL', // Israel
+            'TR', // Turkey
+            'IQ', // Iraq
+            'IR', // Iran
+            'JO', // Jordan
+            'LB', // Lebanon
+            'KW', // Kuwait
+            'OM', // Oman
+            'QA', // Qatar
+            'BH', // Bahrain
+            'YE', // Yemen
+        );
+        if ( in_array( $country_code, $middle_east_countries, true ) ) {
+            return 'MIDDLE_EAST';
+        }
+        
+        // Default to OTHER for all other countries
+        return 'OTHER';
+    }
+
+    /**
      * Render a styled 403 error page (Commit 2.2.1)
      */
     private static function render_403_error( $title, $message ) {
@@ -6796,6 +6904,10 @@ class N88_RFQ_Auth {
         $qty_max = isset( $_POST['qty_max'] ) ? intval( $_POST['qty_max'] ) : null;
         $lead_time_min_days = isset( $_POST['lead_time_min_days'] ) ? intval( $_POST['lead_time_min_days'] ) : null;
         $lead_time_max_days = isset( $_POST['lead_time_max_days'] ) ? intval( $_POST['lead_time_max_days'] ) : null;
+        
+        // Commit 2.3.8: Get origin_region from country selected during signup
+        $country_code = get_user_meta( $user_id, 'country', true );
+        $origin_region = $this->map_country_to_origin_region( $country_code );
 
         // Validate required fields
         if ( ! $primary_category_id ) {
@@ -6853,6 +6965,7 @@ class N88_RFQ_Auth {
                 'qty_max' => $qty_max ? $qty_max : null,
                 'lead_time_min_days' => $lead_time_min_days ? $lead_time_min_days : null,
                 'lead_time_max_days' => $lead_time_max_days ? $lead_time_max_days : null,
+                'origin_region' => $origin_region, // Commit 2.3.8: Save origin_region for duty calculation
             );
 
             if ( $existing_profile ) {
@@ -6861,7 +6974,7 @@ class N88_RFQ_Auth {
                     $supplier_profiles_table,
                     $profile_data,
                     array( 'supplier_id' => $user_id ),
-                    array( '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ),
+                    array( '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ), // Added %s for origin_region
                     array( '%d' )
                 );
             } else {
@@ -6870,7 +6983,7 @@ class N88_RFQ_Auth {
                 $wpdb->insert(
                     $supplier_profiles_table,
                     $profile_data,
-                    array( '%d', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' )
+                    array( '%d', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ) // Added %s for origin_region
                 );
             }
 
@@ -8679,7 +8792,7 @@ class N88_RFQ_Auth {
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
             
-            $select_fields = "b.bid_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.created_at";
+            $select_fields = "b.bid_id, b.supplier_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.created_at";
             if ( $has_bid_meta_json ) {
                 $select_fields .= ", b.meta_json";
             }
@@ -8765,19 +8878,75 @@ class N88_RFQ_Auth {
                     $bid_revision = intval( $bid['rfq_revision_at_submit'] );
                 }
                 
-                // Commit 2.3.7.1: Apply 65% margin markup for designer display
-                // Store raw prices for reference, but display marked-up prices to designers
+                // Commit 2.3.8: Get supplier profile for duty calculation
+                $supplier_id = isset( $bid['supplier_id'] ) ? intval( $bid['supplier_id'] ) : 0;
+                $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+                $supplier_profile = null;
+                $origin_region = null;
+                $duty_rate_override = null;
+                
+                if ( $supplier_id > 0 ) {
+                    $supplier_profile = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT origin_region, duty_rate_override 
+                        FROM {$supplier_profiles_table} 
+                        WHERE supplier_id = %d",
+                        $supplier_id
+                    ), ARRAY_A );
+                    
+                    if ( $supplier_profile ) {
+                        $origin_region = isset( $supplier_profile['origin_region'] ) ? $supplier_profile['origin_region'] : null;
+                        $duty_rate_override = isset( $supplier_profile['duty_rate_override'] ) ? $supplier_profile['duty_rate_override'] : null;
+                    } else {
+                        // Debug: Log if supplier profile not found
+                        error_log( sprintf( 
+                            'N88 RFQ Commit 2.3.8: Supplier profile not found for supplier_id = %d (bid_id = %d)',
+                            $supplier_id,
+                            $bid['bid_id']
+                        ) );
+                    }
+                } else {
+                    // Debug: Log if supplier_id is missing
+                    error_log( sprintf( 
+                        'N88 RFQ Commit 2.3.8: supplier_id is 0 or missing for bid_id = %d',
+                        $bid['bid_id']
+                    ) );
+                }
+                
+                // Commit 2.3.8: Calculate duty rate
+                $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
+                
+                // Debug: Log duty calculation
+                error_log( sprintf( 
+                    'N88 RFQ Commit 2.3.8: Bid %d - supplier_id=%d, origin_region=%s, duty_rate_override=%s, calculated_duty_rate=%.4f',
+                    $bid['bid_id'],
+                    $supplier_id,
+                    $origin_region ? $origin_region : 'NULL',
+                    $duty_rate_override !== null ? $duty_rate_override : 'NULL',
+                    $duty_rate
+                ) );
+                
+                // Commit 2.3.8: Calculate landed cost with duty and margin
+                // Store raw prices for reference
                 $unit_price_raw = $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null;
                 $prototype_cost_raw = $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null;
                 
+                // Calculate landed cost for unit_price
+                $unit_price_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $unit_price_raw, $duty_rate );
+                
+                // Calculate landed cost for prototype_cost
+                $prototype_cost_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $prototype_cost_raw, $duty_rate );
+                
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
-                    'unit_price' => N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw ), // Designer sees marked-up price
+                    'unit_price' => $unit_price_landed ? $unit_price_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw ), // Designer sees landed cost (margin + duty)
                     'unit_price_raw' => $unit_price_raw, // Keep raw price for reference
+                    'unit_price_duty_est' => $unit_price_landed ? $unit_price_landed['duty_est'] : null, // Duty estimate
+                    'unit_price_duty_rate' => $duty_rate, // Duty rate used
                     'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
                     'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
-                    'prototype_cost' => N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ), // Designer sees marked-up price
+                    'prototype_cost' => $prototype_cost_landed ? $prototype_cost_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ), // Designer sees landed cost (margin + duty)
                     'prototype_cost_raw' => $prototype_cost_raw, // Keep raw price for reference
+                    'prototype_cost_duty_est' => $prototype_cost_landed ? $prototype_cost_landed['duty_est'] : null, // Duty estimate
                     'prototype_commitment' => isset( $bid['prototype_video_yes'] ) && intval( $bid['prototype_video_yes'] ) === 1 ? true : false,
                     'cad_yes' => isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false,
                     'video_links' => array_map( function( $link ) {
