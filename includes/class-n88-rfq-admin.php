@@ -5564,6 +5564,15 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         setIsExpanded(item.displayMode === 'full');
                     }, [item.displayMode]);
+                    
+                    // Cleanup cooldown timer on unmount
+                    React.useEffect(function() {
+                        return function() {
+                            if (dragCooldownTimerRef.current) {
+                                clearTimeout(dragCooldownTimerRef.current);
+                            }
+                        };
+                    }, []);
 
                     // Determine current size preset based on item dimensions
                     // Prefer sizeKey if available (for forward compatibility), otherwise match by dimensions
@@ -5687,10 +5696,16 @@ class N88_RFQ_Admin {
 
                     var itemStatus = getItemStatus();
                     
-                    // Track if item was dragged (to distinguish click from drag)
-                    var _dragState = React.useState(false);
-                    var wasDragged = _dragState[0];
-                    var setWasDragged = _dragState[1];
+                    // HIGH APPROACH: Cooldown period after drag - block clicks for 2 seconds after drag ends
+                    var _isDraggingState = React.useState(false);
+                    var isDragging = _isDraggingState[0];
+                    var setIsDragging = _isDraggingState[1];
+                    
+                    var _cooldownState = React.useState(false);
+                    var dragCooldownActive = _cooldownState[0];
+                    var setDragCooldownActive = _cooldownState[1];
+                    
+                    var dragCooldownTimerRef = React.useRef(null);
 
                     // Handle size preset selection
                     var handleSizeChange = function(size, e) {
@@ -5797,8 +5812,17 @@ class N88_RFQ_Admin {
                         if (e && e.stopPropagation) {
                             e.stopPropagation();
                         }
-                        // Reset drag state
-                        setWasDragged(false);
+                        
+                        // HIGH APPROACH: Mark that drag is in progress - BLOCK ALL CLICKS
+                        setIsDragging(true);
+                        setDragCooldownActive(true); // Start blocking immediately
+                        
+                        // Clear any existing cooldown timer
+                        if (dragCooldownTimerRef.current) {
+                            clearTimeout(dragCooldownTimerRef.current);
+                            dragCooldownTimerRef.current = null;
+                        }
+                        
                         // Bring to front on drag start (same as pointer down)
                         handlePointerDown(e);
                     };
@@ -5806,14 +5830,33 @@ class N88_RFQ_Admin {
                     var handleDragEnd = function(event, info) {
                         // Check if item was actually dragged (moved more than a few pixels)
                         var dragDistance = Math.sqrt(Math.pow(info.delta.x, 2) + Math.pow(info.delta.y, 2));
+                        
+                        // Reset isDragging flag - drag has ended
+                        setIsDragging(false);
+                        
+                        // HIGH APPROACH: If drag distance is significant, start 2-second cooldown period
+                        // During cooldown, ALL clicks are blocked to prevent modal opening
                         if (dragDistance > 5) {
-                            setWasDragged(true);
-                            // Reset after a short delay to prevent click from firing after drag
-                            setTimeout(function() {
-                                setWasDragged(false);
-                            }, 100);
+                            // Significant drag occurred - start 2 second cooldown
+                            setDragCooldownActive(true);
+                            
+                            // Clear any existing timer
+                            if (dragCooldownTimerRef.current) {
+                                clearTimeout(dragCooldownTimerRef.current);
+                            }
+                            
+                            // After 2 seconds, allow clicks again
+                            dragCooldownTimerRef.current = setTimeout(function() {
+                                setDragCooldownActive(false);
+                                dragCooldownTimerRef.current = null;
+                            }, 2000); // 2 seconds cooldown period
                         } else {
-                            setWasDragged(false);
+                            // Very small movement - might be accidental, allow clicks immediately
+                            setDragCooldownActive(false);
+                            if (dragCooldownTimerRef.current) {
+                                clearTimeout(dragCooldownTimerRef.current);
+                                dragCooldownTimerRef.current = null;
+                            }
                         }
                         
                         var newX = x.get();
@@ -5838,21 +5881,35 @@ class N88_RFQ_Admin {
                         }
                     };
                     
-                    // Handle click on image area only (only if not dragged)
+                    // HIGH APPROACH: Handle click on image area - check cooldown period
                     var handleImageClick = function(e) {
                         // Don't open modal if clicking on interactive elements (buttons, etc.)
                         if (e.target.closest('button')) {
                             return;
                         }
                         
-                        // Only open modal if item wasn't dragged
-                        if (!wasDragged) {
-                            if (_modalHandlers && _modalHandlers.open) {
-                                _modalHandlers.open();
-                            } else if (typeof setIsModalOpen === 'function') {
-                                setIsModalOpen(true);
+                        // HIGH APPROACH: If in cooldown period or currently dragging, BLOCK modal completely
+                        if (dragCooldownActive || isDragging) {
+                            if (e && e.preventDefault) {
+                                e.preventDefault();
                             }
+                            if (e && e.stopPropagation) {
+                                e.stopPropagation();
+                            }
+                            return; // Exit immediately - don't allow modal
                         }
+                        
+                        // If not in cooldown and not dragging, allow click to open modal
+                        setTimeout(function() {
+                            // Final check: verify still not in cooldown or dragging
+                            if (!dragCooldownActive && !isDragging) {
+                                if (_modalHandlers && _modalHandlers.open) {
+                                    _modalHandlers.open();
+                                } else if (typeof setIsModalOpen === 'function') {
+                                    setIsModalOpen(true);
+                                }
+                            }
+                        }, 100);
                     };
 
                     return React.createElement(motion.div, {

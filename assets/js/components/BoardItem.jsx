@@ -47,8 +47,10 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     // Commit 1.3.8: Modal state
     const [isModalOpen, setIsModalOpen] = React.useState(false);
     
-    // Track if item was dragged (to distinguish click from drag)
-    const [wasDragged, setWasDragged] = React.useState(false);
+    // HIGH APPROACH: Cooldown period after drag - block clicks for 2 seconds after drag ends
+    const isDraggingRef = React.useRef(false); // Track if currently dragging
+    const dragCooldownActiveRef = React.useRef(false); // Track if in cooldown period (2 seconds after drag)
+    const dragCooldownTimerRef = React.useRef(null); // Timer reference for cooldown
     
     // Motion values for drag position
     const x = useMotionValue(item.x);
@@ -211,24 +213,24 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         }
     };
 
-    const handleDragStart = () => {
-        // Bring item to front on drag start (redundant but safe)
+    const handleDragStart = (event, info) => {
+        // Bring item to front on drag start
         handlePointerDown();
-        setWasDragged(false); // Reset drag state
+        
+        // Mark that drag is in progress - BLOCK ALL CLICKS
+        isDraggingRef.current = true;
+        dragCooldownActiveRef.current = true; // Start blocking immediately
+        
+        // Clear any existing cooldown timer
+        if (dragCooldownTimerRef.current) {
+            clearTimeout(dragCooldownTimerRef.current);
+            dragCooldownTimerRef.current = null;
+        }
     };
 
     const handleDragEnd = (event, info) => {
         // Check if item was actually dragged (moved more than a few pixels)
         const dragDistance = Math.sqrt(Math.pow(info.delta.x, 2) + Math.pow(info.delta.y, 2));
-        if (dragDistance > 5) {
-            setWasDragged(true);
-            // Reset after a short delay to prevent click from firing after drag
-            setTimeout(() => {
-                setWasDragged(false);
-            }, 100);
-        } else {
-            setWasDragged(false);
-        }
         
         // Get final position from motion values (they track the drag)
         const newX = x.get();
@@ -258,19 +260,96 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 displayMode: item.displayMode,
             });
         }
+        
+        // Reset isDragging flag - drag has ended
+        isDraggingRef.current = false;
+        
+        // HIGH APPROACH: If drag distance is significant, start 2-second cooldown period
+        // During cooldown, ALL clicks are blocked to prevent modal opening
+        if (dragDistance > 5) {
+            // Significant drag occurred - start 2 second cooldown
+            dragCooldownActiveRef.current = true;
+            
+            // Clear any existing timer
+            if (dragCooldownTimerRef.current) {
+                clearTimeout(dragCooldownTimerRef.current);
+            }
+            
+            // After 2 seconds, allow clicks again
+            dragCooldownTimerRef.current = setTimeout(() => {
+                dragCooldownActiveRef.current = false;
+                dragCooldownTimerRef.current = null;
+            }, 2000); // 2 seconds cooldown period
+        } else {
+            // Very small movement - might be accidental, allow clicks immediately
+            dragCooldownActiveRef.current = false;
+            if (dragCooldownTimerRef.current) {
+                clearTimeout(dragCooldownTimerRef.current);
+                dragCooldownTimerRef.current = null;
+            }
+        }
     };
     
-    // Handle click on image area only (only if not dragged)
+    // Handle pointer down on image area
+    const handleImagePointerDown = (e) => {
+        // Don't track if clicking on interactive elements (buttons, etc.)
+        if (e.target.closest('button')) {
+            return;
+        }
+        
+        // If in cooldown period or currently dragging, don't allow interaction
+        if (dragCooldownActiveRef.current || isDraggingRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+    };
+    
+    // Handle pointer up on image area - only open modal if not in cooldown period
+    const handleImagePointerUp = (e) => {
+        // Don't open modal if clicking on interactive elements (buttons, etc.)
+        if (e.target.closest('button')) {
+            return;
+        }
+        
+        // HIGH APPROACH: If in cooldown period or currently dragging, BLOCK modal completely
+        if (dragCooldownActiveRef.current || isDraggingRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            return; // Exit immediately - don't allow modal
+        }
+        
+        // If not in cooldown and not dragging, allow click to open modal
+        // Use small delay to ensure drag handlers have finished
+        setTimeout(() => {
+            // Final check: verify still not in cooldown or dragging
+            if (!dragCooldownActiveRef.current && !isDraggingRef.current) {
+                setIsModalOpen(true);
+            }
+        }, 100);
+    };
+    
+    // HIGH APPROACH: Handle click event - check cooldown period
     const handleImageClick = (e) => {
         // Don't open modal if clicking on interactive elements (buttons, etc.)
         if (e.target.closest('button')) {
             return;
         }
         
-        // Only open modal if item wasn't dragged
-        if (!wasDragged) {
-            setIsModalOpen(true);
+        // HIGH APPROACH: If in cooldown period or currently dragging, BLOCK modal completely
+        if (dragCooldownActiveRef.current || isDraggingRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            return; // Exit immediately - don't allow modal
         }
+        
+        // If not in cooldown and not dragging, allow click to open modal
+        setTimeout(() => {
+            // Final check: verify still not in cooldown or dragging
+            if (!dragCooldownActiveRef.current && !isDraggingRef.current) {
+                setIsModalOpen(true);
+            }
+        }, 100);
     };
     
     // Handle delete item
@@ -356,6 +435,23 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         }
     };
 
+    // Block click on motion div if in cooldown or dragging
+    const handleMotionDivClick = (e) => {
+        if (dragCooldownActiveRef.current || isDraggingRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    };
+    
+    // Cleanup timer on unmount
+    React.useEffect(() => {
+        return () => {
+            if (dragCooldownTimerRef.current) {
+                clearTimeout(dragCooldownTimerRef.current);
+            }
+        };
+    }, []);
+
     return (
         <motion.div
             layoutId={`board-item-${item.id}`}
@@ -371,8 +467,9 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             drag={true}
             dragMomentum={false}
             onPointerDown={handlePointerDown}
-            onDragStart={handlePointerDown}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            onClick={handleMotionDivClick}
             whileDrag={{ cursor: 'grabbing', scale: 1.05 }}
             transition={{
                 layout: { duration: 0.3, ease: 'easeOut' },
@@ -396,7 +493,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             >
                 {/* Photo Section - 75% of card (100% when photo_only mode) */}
                 <div
-                    onClick={handleImageClick}
+                    onPointerDown={handleImagePointerDown}
+                    onPointerUp={handleImagePointerUp}
                     style={{
                         width: '100%',
                         flex: item.displayMode === 'photo_only' ? '0 0 100%' : '0 0 75%',
