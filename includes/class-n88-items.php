@@ -133,7 +133,28 @@ class N88_Items {
             require_once( ABSPATH . 'wp-admin/includes/media.php' );
             require_once( ABSPATH . 'wp-admin/includes/image.php' );
             
-            $upload = wp_handle_upload( $_FILES['image_file'], array( 'test_form' => false ) );
+            // Validate file type - allow HEIC images
+            $file_type = wp_check_filetype( $_FILES['image_file']['name'] );
+            $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif' );
+            if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
+                wp_send_json_error( array( 'message' => 'Invalid file type. Only images are allowed (JPG, PNG, GIF, WEBP, HEIC).' ) );
+                return;
+            }
+            
+            // Allow HEIC MIME types in upload
+            $mimes = array(
+                'jpg|jpeg|jpe' => 'image/jpeg',
+                'gif' => 'image/gif',
+                'png' => 'image/png',
+                'webp' => 'image/webp',
+                'heic' => 'image/heic',
+                'heif' => 'image/heif',
+            );
+            
+            $upload = wp_handle_upload( $_FILES['image_file'], array( 
+                'test_form' => false,
+                'mimes' => $mimes,
+            ) );
             if ( ! isset( $upload['error'] ) ) {
                 $attachment = array(
                     'post_mime_type' => $upload['type'],
@@ -1779,13 +1800,14 @@ class N88_Items {
         
         // Commit 2.3.5.3: Verify it's an image or PDF
         $file_type = wp_check_filetype( $_FILES['inspiration_image']['name'] );
-        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf' );
+        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'pdf' );
         if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid file type. Only images and PDFs are allowed (JPG, PNG, GIF, WEBP, PDF).' ) );
+            wp_send_json_error( array( 'message' => 'Invalid file type. Only images and PDFs are allowed (JPG, PNG, GIF, WEBP, HEIC, PDF).' ) );
             return;
         }
         
         $is_pdf = ( strtolower( $file_type['ext'] ) === 'pdf' );
+        $is_heic = ( strtolower( $file_type['ext'] ) === 'heic' );
         
         require_once( ABSPATH . 'wp-admin/includes/file.php' );
         require_once( ABSPATH . 'wp-admin/includes/media.php' );
@@ -1802,11 +1824,14 @@ class N88_Items {
         
         // Use wp_handle_upload first to process the file
         // Commit 2.3.5.3: Allow PDFs in addition to images
+        // Added HEIC support for designer image uploads
         $mimes = array(
             'jpg|jpeg|jpe' => 'image/jpeg',
             'gif' => 'image/gif',
             'png' => 'image/png',
             'webp' => 'image/webp',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
         );
         if ( $is_pdf ) {
             $mimes['pdf'] = 'application/pdf';
@@ -1865,6 +1890,7 @@ class N88_Items {
         
         // Generate attachment metadata (creates thumbnails, etc.)
         // Commit 2.3.5.3: Only generate thumbnails for images, not PDFs
+        // Note: HEIC files may not generate thumbnails in WordPress by default, but file will be uploaded
         if ( ! $is_pdf ) {
             $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
             wp_update_attachment_metadata( $attachment_id, $attach_data );

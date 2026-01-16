@@ -2410,6 +2410,9 @@ class N88_RFQ_Admin {
 
         // Enqueue WordPress media library for image uploader
         wp_enqueue_media();
+        
+        // Enqueue HEIC conversion library for preview support
+        wp_enqueue_script( 'heic2any', 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js', array(), '0.0.4', true );
 
         // Get nonce for AJAX requests
         $nonce = wp_create_nonce( 'n88-rfq-nonce' );
@@ -2560,7 +2563,7 @@ class N88_RFQ_Admin {
                                 <th><label for="item-image-url">Image</label></th>
                                 <td>
                                     <input type="hidden" id="item-image-id" name="image_id" />
-                                    <input type="file" id="item-image-file" accept="image/*" style="margin-bottom: 10px;" />
+                                    <input type="file" id="item-image-file" accept="image/*,.heic,.heif" style="margin-bottom: 10px;" />
                                     <!-- <input type="url" id="item-image-url" name="image_url" placeholder="Or enter image URL (optional)" style="width: 100%; margin-bottom: 10px;" /> -->
                                     <button type="button" id="item-image-remove-btn" class="button" style="display: none;">Remove</button>
                                     <div id="item-image-preview" style="margin-top: 10px; max-width: 200px; display: none;">
@@ -2778,20 +2781,111 @@ class N88_RFQ_Admin {
                 var ajaxurl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
                 
                 // Handle file input for item image - Commit 2.3.5.3: Fix image upload bug
+                // Added HEIC support for preview
                 $('#item-image-file').on('change', function(e) {
                     var file = e.target.files[0];
-                    if (file && file.type.startsWith('image/')) {
-                        // Show preview
-                        var reader = new FileReader();
-                        reader.onload = function(event) {
-                            $('#item-image-preview-img').attr('src', event.target.result);
+                    if (file) {
+                        var fileName = file.name.toLowerCase();
+                        // Check if it's an image (including HEIC) by MIME type or extension
+                        var isImage = file.type.startsWith('image/') || 
+                                     fileName.endsWith('.heic') || 
+                                     fileName.endsWith('.heif');
+                        var isHeic = fileName.endsWith('.heic') || fileName.endsWith('.heif');
+                        
+                        if (isImage) {
+                            // Show preview container immediately
                             $('#item-image-preview').show();
                             $('#item-image-remove-btn').show();
-                        };
-                        reader.readAsDataURL(file);
-                        // Clear any existing image_id or image_url to ensure file is uploaded
-                        $('#item-image-id').val('');
-                        $('#item-image-url').val('');
+                            
+                            // For HEIC files, convert to JPEG for preview using heic2any library
+                            if (isHeic) {
+                                // Show loading message
+                                var loadingHtml = '<div style="padding: 20px; text-align: center; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; max-width: 200px;">' +
+                                    '<div style="font-size: 12px; color: #666;">Converting HEIC image...</div>' +
+                                    '<div style="font-size: 11px; color: #999; margin-top: 4px;">' + file.name + '</div>' +
+                                    '</div>';
+                                $('#item-image-preview').html(loadingHtml);
+                                
+                                // Check if heic2any is available
+                                if (typeof heic2any !== 'undefined') {
+                                    // Convert HEIC to blob
+                                    heic2any({
+                                        blob: file,
+                                        toType: 'image/jpeg',
+                                        quality: 0.92
+                                    }).then(function(conversionResult) {
+                                        // heic2any returns an array, get the first result
+                                        var blob = conversionResult;
+                                        if (Array.isArray(blob)) {
+                                            blob = blob[0];
+                                        }
+                                        
+                                        // Create object URL from converted blob
+                                        var objectUrl = URL.createObjectURL(blob);
+                                        
+                                        // Display the converted image
+                                        // Restore the img element structure with converted image
+                                        var imgElement = '<img id="item-image-preview-img" src="' + objectUrl + '" style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px;" />';
+                                        $('#item-image-preview').html(imgElement);
+                                        
+                                        // Add error handler to the new img element
+                                        var img = $('#item-image-preview-img');
+                                        img.on('load', function() {
+                                            // Clean up object URL after image loads (optional, can keep for preview)
+                                            // URL.revokeObjectURL(objectUrl); // Keep URL for preview display
+                                        });
+                                        img.on('error', function() {
+                                            // If image fails to load, show placeholder
+                                            URL.revokeObjectURL(objectUrl);
+                                            var previewHtml = '<div style="padding: 20px; text-align: center; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; max-width: 200px;">' +
+                                                '<div style="font-size: 12px; color: #666;">HEIC Image Selected</div>' +
+                                                '<div style="font-size: 11px; color: #999; margin-top: 4px; word-break: break-all;">' + file.name + '</div>' +
+                                                '</div>';
+                                            $('#item-image-preview').html(previewHtml);
+                                        });
+                                    }).catch(function(error) {
+                                        console.error('Error converting HEIC:', error);
+                                        // Show placeholder on conversion error
+                                        var previewHtml = '<div style="padding: 20px; text-align: center; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; max-width: 200px;">' +
+                                            '<div style="font-size: 12px; color: #666;">HEIC Image Selected</div>' +
+                                            '<div style="font-size: 11px; color: #999; margin-top: 4px; word-break: break-all;">' + file.name + '</div>' +
+                                            '<div style="font-size: 10px; color: #999; margin-top: 8px;">File will upload correctly</div>' +
+                                            '</div>';
+                                        $('#item-image-preview').html(previewHtml);
+                                    });
+                                } else {
+                                    // heic2any not loaded, show placeholder
+                                    var previewHtml = '<div style="padding: 20px; text-align: center; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; max-width: 200px;">' +
+                                        '<div style="font-size: 12px; color: #666;">HEIC Image Selected</div>' +
+                                        '<div style="font-size: 11px; color: #999; margin-top: 4px; word-break: break-all;">' + file.name + '</div>' +
+                                        '<div style="font-size: 10px; color: #999; margin-top: 8px;">File will upload correctly</div>' +
+                                        '</div>';
+                                    $('#item-image-preview').html(previewHtml);
+                                }
+                            } else {
+                                // For regular images, use FileReader to show preview
+                                var reader = new FileReader();
+                                reader.onload = function(event) {
+                                    var img = $('#item-image-preview-img');
+                                    img.attr('src', event.target.result);
+                                    img.show();
+                                };
+                                reader.onerror = function(error) {
+                                    console.error('Error reading file:', error);
+                                    // Show placeholder on read error
+                                    var previewHtml = '<div style="padding: 20px; text-align: center; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; max-width: 200px;">' +
+                                        '<div style="font-size: 12px; color: #666;">Image Preview</div>' +
+                                        '<div style="font-size: 11px; color: #999; margin-top: 4px; word-break: break-all;">' + file.name + '</div>' +
+                                        '</div>';
+                                    $('#item-image-preview').html(previewHtml);
+                                };
+                                reader.readAsDataURL(file);
+                            }
+                            
+                            // Clear any existing image_id or image_url to ensure file is uploaded
+                            $('#item-image-id').val('');
+                            $('#item-image-url').val('');
+                        }
                     }
                 });
                 
@@ -3978,7 +4072,7 @@ class N88_RFQ_Admin {
             /* Board canvas container - relative positioning with proper scrolling */
             #n88-board-canvas-container {
                 position: relative !important;
-                top: 125px !important;
+                top: 180px !important;
                 left: 0 !important;
                 right: 0 !important;
                 bottom: 0 !important;
@@ -8321,8 +8415,14 @@ class N88_RFQ_Admin {
                         if (!files || files.length === 0) return;
                         
                         // Commit 2.3.5.3: Allow both images and PDFs
+                        // Added HEIC support - check by MIME type or file extension
                         var validFiles = Array.from(files).filter(function(file) {
-                            return file.type.startsWith('image/') || file.type === 'application/pdf';
+                            var fileName = file.name.toLowerCase();
+                            var isImage = file.type.startsWith('image/') || 
+                                        fileName.endsWith('.heic') || 
+                                        fileName.endsWith('.heif');
+                            var isPdf = file.type === 'application/pdf' || fileName.endsWith('.pdf');
+                            return isImage || isPdf;
                         });
                         
                         if (validFiles.length === 0) {
@@ -8331,11 +8431,15 @@ class N88_RFQ_Admin {
                             return;
                         }
                         
+                        // Separate images (including HEIC) and PDFs
                         var imageFiles = validFiles.filter(function(file) {
-                            return file.type.startsWith('image/');
+                            var fileName = file.name.toLowerCase();
+                            return file.type.startsWith('image/') || 
+                                   fileName.endsWith('.heic') || 
+                                   fileName.endsWith('.heif');
                         });
                         var pdfFiles = validFiles.filter(function(file) {
-                            return file.type === 'application/pdf';
+                            return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
                         });
                         
                         // Get AJAX URL and nonce
@@ -9674,7 +9778,7 @@ class N88_RFQ_Admin {
                                     React.createElement('input', {
                                         type: 'file',
                                                 id: 'inspiration-file-input',
-                                        accept: 'image/*,.pdf,application/pdf',
+                                        accept: 'image/*,.pdf,application/pdf,.heic,.heif',
                                         multiple: true,
                                         onChange: handleInspirationFileChange,
                                                 style: { display: 'none' },

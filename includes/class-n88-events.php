@@ -46,6 +46,9 @@ class N88_Events {
         'item_facts_saved',
         // Commit 2.3.5.1: Item facts updated after RFQ
         'item_facts_updated_after_rfq',
+        // Commit 2.3.9.1A: CAD + Prototype request events
+        'cad_prototype_requested',
+        'video_direction_submitted',
     );
 
     /**
@@ -65,6 +68,7 @@ class N88_Events {
         'board',
         'board_layout',
         'designer_profile',
+        'prototype_payment',
     );
 
     /**

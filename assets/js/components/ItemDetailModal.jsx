@@ -1894,17 +1894,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         if (!files || files.length === 0) return;
         
         // Commit 2.3.5.3: Allow both images and PDFs for inspiration section
-        const validFiles = Array.from(files).filter(file => 
-            file.type.startsWith('image/') || file.type === 'application/pdf'
-        );
+        // Added HEIC support - check by MIME type or file extension
+        const validFiles = Array.from(files).filter(file => {
+            const isImage = file.type.startsWith('image/') || 
+                           file.name.toLowerCase().endsWith('.heic') || 
+                           file.name.toLowerCase().endsWith('.heif');
+            const isPdf = file.type === 'application/pdf' || 
+                         file.name.toLowerCase().endsWith('.pdf');
+            return isImage || isPdf;
+        });
         if (validFiles.length === 0) {
             alert('Please select image or PDF files only.');
             e.target.value = '';
             return;
         }
         
-        const imageFiles = validFiles.filter(file => file.type.startsWith('image/'));
-        const pdfFiles = validFiles.filter(file => file.type === 'application/pdf');
+        // Separate images (including HEIC) and PDFs
+        const imageFiles = validFiles.filter(file => {
+            const isImage = file.type.startsWith('image/') || 
+                           file.name.toLowerCase().endsWith('.heic') || 
+                           file.name.toLowerCase().endsWith('.heif');
+            return isImage;
+        });
+        const pdfFiles = validFiles.filter(file => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
         
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
         // Try multiple nonce sources
@@ -2622,7 +2634,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             <input
                                                 type="file"
                                                 id="inspiration-file-input-main"
-                                                accept="image/*,.pdf,application/pdf"
+                                                accept="image/*,.pdf,application/pdf,.heic,.heif"
                                                 multiple
                                                 onChange={handleInspirationFileChange}
                                                 style={{ display: 'none' }}
@@ -3538,7 +3550,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 <input
                                                     type="file"
                                                     id="inspiration-file-input-rfq"
-                                                    accept="image/*,.pdf,application/pdf"
+                                                    accept="image/*,.pdf,application/pdf,.heic,.heif"
                                                     multiple
                                                     onChange={handleInspirationFileChange}
                                                     style={{ display: 'none' }}

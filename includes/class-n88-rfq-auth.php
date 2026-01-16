@@ -72,6 +72,9 @@ class N88_RFQ_Auth {
         // Commit 2.3.4: RFQ submission routing
         add_action( 'wp_ajax_n88_submit_rfq', array( $this, 'ajax_submit_rfq' ) );
 
+        // Commit 2.3.9.1A: CAD + Prototype request endpoint
+        add_action( 'wp_ajax_n88_create_cad_prototype_request', array( $this, 'ajax_create_cad_prototype_request' ) );
+
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
 
@@ -3283,9 +3286,12 @@ class N88_RFQ_Auth {
                     return;
                 }
                 
-                // Validate file types
+                // Validate file types - support HEIC images
                 var imageFiles = Array.from(files).filter(function(file) {
-                    return file.type.startsWith('image/');
+                    var fileName = file.name.toLowerCase();
+                    return file.type.startsWith('image/') || 
+                           fileName.endsWith('.heic') || 
+                           fileName.endsWith('.heif');
                 });
                 
                 if (imageFiles.length !== files.length) {
@@ -4212,9 +4218,12 @@ class N88_RFQ_Auth {
                     return;
                 }
                 
-                // Validate file types
+                // Validate file types - support HEIC images
                 var imageFiles = Array.from(files).filter(function(file) {
-                    return file.type.startsWith('image/');
+                    var fileName = file.name.toLowerCase();
+                    return file.type.startsWith('image/') || 
+                           fileName.endsWith('.heic') || 
+                           fileName.endsWith('.heif');
                 });
                 
                 if (imageFiles.length !== files.length) {
@@ -11025,6 +11034,244 @@ class N88_RFQ_Auth {
                 'message' => 'Failed to create draft: ' . $e->getMessage(),
             ) );
         }
+    }
+
+    /**
+     * AJAX: Create CAD + Prototype Request (Commit 2.3.9.1A)
+     * 
+     * Creates a request for CAD + Prototype video with immutable evidence logging.
+     * Designer-only endpoint.
+     */
+    public function ajax_create_cad_prototype_request() {
+        // Nonce verification
+        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+
+        // Login check
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+            return;
+        }
+
+        // Designer permission check
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+            return;
+        }
+
+        $designer_user_id = get_current_user_id();
+
+        // Get and validate input
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        $selected_keywords = isset( $_POST['selected_keywords'] ) ? $_POST['selected_keywords'] : array();
+        $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+
+        // Validate required fields
+        if ( ! $item_id || ! $bid_id ) {
+            wp_send_json_error( array( 'message' => 'Item ID and Bid ID are required.' ) );
+            return;
+        }
+
+        // Validate keywords array
+        if ( ! is_array( $selected_keywords ) ) {
+            $selected_keywords = array();
+        }
+        
+        // Clean and validate keywords (must be integers)
+        $selected_keywords = array_map( 'absint', $selected_keywords );
+        $selected_keywords = array_filter( $selected_keywords ); // Remove zeros
+        $selected_keywords = array_unique( $selected_keywords ); // Remove duplicates
+
+        // Validate keyword count: 3-7
+        $keyword_count = count( $selected_keywords );
+        if ( $keyword_count < 3 || $keyword_count > 7 ) {
+            wp_send_json_error( array( 'message' => 'Please select between 3 and 7 keywords.' ) );
+            return;
+        }
+
+        // Validate note length: max 240 chars
+        if ( strlen( $note ) > 240 ) {
+            wp_send_json_error( array( 'message' => 'Note must not exceed 240 characters.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+
+        // Validate item exists and belongs to designer
+        $item = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+            $item_id
+        ) );
+
+        if ( ! $item ) {
+            wp_send_json_error( array( 'message' => 'Item not found.' ) );
+            return;
+        }
+
+        if ( intval( $item->owner_user_id ) !== $designer_user_id ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Item does not belong to you.' ) );
+            return;
+        }
+
+        // Validate bid exists and belongs to item
+        $bid = $wpdb->get_row( $wpdb->prepare(
+            "SELECT bid_id, item_id, supplier_id, prototype_cost FROM {$item_bids_table} WHERE bid_id = %d AND item_id = %d",
+            $bid_id,
+            $item_id
+        ) );
+
+        if ( ! $bid ) {
+            wp_send_json_error( array( 'message' => 'Bid not found or does not belong to this item.' ) );
+            return;
+        }
+
+        $supplier_id = intval( $bid->supplier_id );
+        $prototype_video_cost_estimate = $bid->prototype_cost ? floatval( $bid->prototype_cost ) : null;
+
+        // Validate keywords exist (optional check, but good for data integrity)
+        if ( ! empty( $selected_keywords ) ) {
+            $keywords_placeholders = implode( ',', array_fill( 0, count( $selected_keywords ), '%d' ) );
+            $valid_keywords = $wpdb->get_col( $wpdb->prepare(
+                "SELECT keyword_id FROM {$keywords_table} WHERE keyword_id IN ({$keywords_placeholders})",
+                ...$selected_keywords
+            ) );
+
+            if ( count( $valid_keywords ) !== $keyword_count ) {
+                wp_send_json_error( array( 'message' => 'One or more selected keywords are invalid.' ) );
+                return;
+            }
+        }
+
+        // Get category_id from first keyword (for event logging)
+        $category_id = null;
+        if ( ! empty( $selected_keywords ) ) {
+            $first_keyword = $wpdb->get_row( $wpdb->prepare(
+                "SELECT category_id FROM {$keywords_table} WHERE keyword_id = %d",
+                $selected_keywords[0]
+            ) );
+            if ( $first_keyword ) {
+                $category_id = intval( $first_keyword->category_id );
+            }
+        }
+
+        // Calculate costs
+        $cad_fee_usd = 60.00;
+        $cad_revision_rounds_included = 3;
+        $cad_revision_round_fee_usd = 25.00;
+        $cad_revision_rounds_used = 0;
+        $total_due_usd = $cad_fee_usd + ( $prototype_video_cost_estimate ? floatval( $prototype_video_cost_estimate ) : 0.00 );
+
+        // Prepare video_direction_json
+        $video_direction_data = array(
+            'selected_keywords' => $selected_keywords,
+            'note' => $note,
+        );
+        $video_direction_json = wp_json_encode( $video_direction_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+
+        // Payment reference
+        $payment_reference = "Item {$item_id} / Bid {$bid_id}";
+        $payment_instructions_version = 'v1';
+
+        // Insert into n88_prototype_payments
+        $insert_result = $wpdb->insert(
+            $prototype_payments_table,
+            array(
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'designer_user_id' => $designer_user_id,
+                'supplier_id' => $supplier_id,
+                'status' => 'requested',
+                'video_direction_json' => $video_direction_json,
+                'cad_fee_usd' => $cad_fee_usd,
+                'cad_revision_rounds_included' => $cad_revision_rounds_included,
+                'cad_revision_round_fee_usd' => $cad_revision_round_fee_usd,
+                'cad_revision_rounds_used' => $cad_revision_rounds_used,
+                'prototype_video_cost_estimate_usd' => $prototype_video_cost_estimate,
+                'total_due_usd' => $total_due_usd,
+                'payment_reference' => $payment_reference,
+                'payment_instructions_version' => $payment_instructions_version,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%s', '%s', '%f', '%d', '%f', '%d', '%f', '%f', '%s', '%s', '%s' )
+        );
+
+        if ( $insert_result === false ) {
+            error_log( 'CAD Prototype Request: Failed to insert payment record. Error: ' . $wpdb->last_error );
+            wp_send_json_error( array( 'message' => 'Failed to create request. Please try again.' ) );
+            return;
+        }
+
+        $prototype_payment_id = $wpdb->insert_id;
+
+        // Event 1: cad_prototype_requested
+        n88_log_event(
+            'cad_prototype_requested',
+            'prototype_payment',
+            array(
+                'object_id' => $prototype_payment_id,
+                'item_id' => $item_id,
+                'payload_json' => array(
+                    'item_id' => $item_id,
+                    'bid_id' => $bid_id,
+                    'supplier_id' => $supplier_id,
+                    'designer_user_id' => $designer_user_id,
+                    'cad_fee_usd' => $cad_fee_usd,
+                    'cad_rounds_included' => $cad_revision_rounds_included,
+                    'cad_round_fee_usd' => $cad_revision_round_fee_usd,
+                    'prototype_video_cost_estimate_usd' => $prototype_video_cost_estimate,
+                    'total_due_usd' => $total_due_usd,
+                    'keyword_count' => $keyword_count,
+                    'note_present' => ! empty( $note ),
+                ),
+            )
+        );
+
+        // Event 2: video_direction_submitted
+        n88_log_event(
+            'video_direction_submitted',
+            'prototype_payment',
+            array(
+                'object_id' => $prototype_payment_id,
+                'item_id' => $item_id,
+                'payload_json' => array(
+                    'category_id' => $category_id,
+                    'selected_keywords' => $selected_keywords,
+                    'note_present' => ! empty( $note ),
+                ),
+            )
+        );
+
+        // Stub Notifications
+        // Operator notification
+        $operator_message = sprintf(
+            'CAD + Prototype requested — Item %d, Bid %d. Status: requested. Total due: $%.2f',
+            $item_id,
+            $bid_id,
+            $total_due_usd
+        );
+        error_log( 'CAD Prototype Request - Operator Notification: ' . $operator_message );
+
+        // Supplier notification
+        $supplier_message = 'Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.';
+        error_log( 'CAD Prototype Request - Supplier Notification (User ID: ' . $supplier_id . '): ' . $supplier_message );
+
+        // Designer notification (optional)
+        $designer_message = 'Request submitted. Please send payment. CAD drafting begins after payment confirmation.';
+        error_log( 'CAD Prototype Request - Designer Notification (User ID: ' . $designer_user_id . '): ' . $designer_message );
+
+        // Return success
+        wp_send_json_success( array(
+            'message' => 'CAD + Prototype request created successfully.',
+            'prototype_payment_id' => $prototype_payment_id,
+            'total_due_usd' => $total_due_usd,
+        ) );
     }
 }
 

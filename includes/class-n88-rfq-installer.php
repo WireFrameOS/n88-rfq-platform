@@ -305,6 +305,9 @@ class N88_RFQ_Installer {
         // Commit 2.3.1: Create bid tables (DB only, no UI)
         self::create_phase_2_3_1_tables( $charset_collate );
 
+        // Commit 2.3.9.1A: Create prototype payments table
+        self::create_phase_2_3_9_1a_tables( $charset_collate );
+
         self::maybe_upgrade();
     }
 
@@ -1071,6 +1074,9 @@ class N88_RFQ_Installer {
 
         // Commit 2.3.1: Create bid tables (DB only, no UI)
         self::create_phase_2_3_1_tables( $charset_collate );
+
+        // Commit 2.3.9.1A: Create prototype payments table
+        self::create_phase_2_3_9_1a_tables( $charset_collate );
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -2507,6 +2513,110 @@ class N88_RFQ_Installer {
         
         if ( ! $fk_media_files_bid ) {
             self::safe_add_foreign_key( $bid_media_files_table, 'fk_media_files_bid', 'bid_id', $item_bids_table, 'bid_id', 'CASCADE' );
+        }
+    }
+
+    /**
+     * Create Phase 2.3.9.1A tables: Prototype Payments (Commit 2.3.9.1A)
+     * 
+     * Creates n88_prototype_payments table for CAD + Prototype request tracking
+     */
+    private static function create_phase_2_3_9_1a_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table = $wpdb->prefix . 'users';
+
+        // Create n88_prototype_payments table
+        $sql_prototype_payments = "CREATE TABLE {$prototype_payments_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            bid_id BIGINT UNSIGNED NOT NULL,
+            designer_user_id BIGINT UNSIGNED NOT NULL,
+            supplier_id BIGINT UNSIGNED NOT NULL,
+            status ENUM('requested', 'paid_confirmed', 'cad_in_progress', 'cad_sent', 'cad_approved', 'prototype_released', 'prototype_submitted', 'prototype_approved') NOT NULL DEFAULT 'requested',
+            video_direction_json TEXT NULL,
+            cad_fee_usd DECIMAL(10,2) NOT NULL DEFAULT 60.00,
+            cad_revision_rounds_included INT UNSIGNED NOT NULL DEFAULT 3,
+            cad_revision_round_fee_usd DECIMAL(10,2) NOT NULL DEFAULT 25.00,
+            cad_revision_rounds_used INT UNSIGNED NOT NULL DEFAULT 0,
+            prototype_video_cost_estimate_usd DECIMAL(10,2) NULL,
+            total_due_usd DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+            payment_reference VARCHAR(255) NULL,
+            payment_instructions_version VARCHAR(50) NOT NULL DEFAULT 'v1',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_item_id (item_id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_designer_user_id (designer_user_id),
+            KEY idx_supplier_id (supplier_id),
+            KEY idx_status (status),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql_prototype_payments );
+
+        // Add foreign keys separately (dbDelta doesn't handle FKs well)
+        $prototype_payments_table_safe = esc_sql( $prototype_payments_table );
+        $items_table_safe = esc_sql( $items_table );
+        $item_bids_table_safe = esc_sql( $item_bids_table );
+        $users_table_safe = esc_sql( $users_table );
+
+        // Check if foreign keys already exist
+        $fk_prototype_item = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_prototype_item'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+
+        $fk_prototype_bid = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_prototype_bid'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+
+        $fk_prototype_designer = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_prototype_designer'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+
+        $fk_prototype_supplier = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_prototype_supplier'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+
+        // Add foreign keys if they don't exist
+        if ( ! $fk_prototype_item ) {
+            self::safe_add_foreign_key( $prototype_payments_table, 'fk_prototype_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+
+        if ( ! $fk_prototype_bid ) {
+            self::safe_add_foreign_key( $prototype_payments_table, 'fk_prototype_bid', 'bid_id', $item_bids_table, 'bid_id', 'CASCADE' );
+        }
+
+        if ( ! $fk_prototype_designer ) {
+            self::safe_add_foreign_key( $prototype_payments_table, 'fk_prototype_designer', 'designer_user_id', $users_table, 'ID', 'CASCADE' );
+        }
+
+        if ( ! $fk_prototype_supplier ) {
+            self::safe_add_foreign_key( $prototype_payments_table, 'fk_prototype_supplier', 'supplier_id', $users_table, 'ID', 'CASCADE' );
         }
     }
 
