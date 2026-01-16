@@ -30,6 +30,9 @@ class N88_RFQ_Auth {
         add_shortcode( 'n88_supplier_queue', array( $this, 'render_supplier_queue' ) );
         add_shortcode( 'n88_admin_queue', array( $this, 'render_admin_queue' ) );
         
+        // Commit 2.3.9.1C: Operator Queue for CAD + Prototype requests
+        add_shortcode( 'n88_operator_queue', array( $this, 'render_operator_queue' ) );
+        
         // Commit 2.2.7: Supplier onboarding
         add_shortcode( 'n88_supplier_onboarding', array( $this, 'render_supplier_onboarding' ) );
         
@@ -74,6 +77,9 @@ class N88_RFQ_Auth {
 
         // Commit 2.3.9.1A: CAD + Prototype request endpoint
         add_action( 'wp_ajax_n88_create_cad_prototype_request', array( $this, 'ajax_create_cad_prototype_request' ) );
+        
+        // Commit 2.3.9.1C: Operator Queue - Get case details
+        add_action( 'wp_ajax_n88_get_operator_case_details', array( $this, 'ajax_get_operator_case_details' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -637,6 +643,7 @@ class N88_RFQ_Auth {
 
     /**
      * Get redirect URL based on user role (Commit 2.2.1, updated 2.2.7)
+     * Commit 2.3.9.1C: System operators redirect to operator queue
      */
     private function get_role_redirect_url( $user ) {
         if ( ! $user || ! isset( $user->roles ) ) {
@@ -644,8 +651,17 @@ class N88_RFQ_Auth {
         }
 
         // Check roles in priority order
+        // Commit 2.3.9.1C: System operators redirect to operator queue
         if ( in_array( 'n88_system_operator', $user->roles, true ) ) {
-            return home_url( '/admin/queue?scope=global' );
+            $operator_queue_page_id = get_option( 'n88_rfq_operator_queue_page_id' );
+            if ( $operator_queue_page_id ) {
+                $operator_queue_url = get_permalink( $operator_queue_page_id );
+                if ( $operator_queue_url ) {
+                    return $operator_queue_url;
+                }
+            }
+            // Fallback to /operator/queue if page ID not found
+            return home_url( '/operator/queue/' );
         }
         
         if ( in_array( 'n88_supplier_admin', $user->roles, true ) ) {
@@ -694,6 +710,7 @@ class N88_RFQ_Auth {
 
     /**
      * Redirect user after login based on role (Commit 2.2.1)
+     * Commit 2.3.9.1C: Also redirect system operators to operator queue
      */
     public function redirect_designer_after_login( $redirect_to, $requested_redirect_to, $user ) {
         $role_redirect = $this->get_role_redirect_url( $user );
@@ -7070,6 +7087,7 @@ class N88_RFQ_Auth {
 
     /**
      * Static version of get_role_redirect_url for use in error pages (updated Commit 2.2.7)
+     * Commit 2.3.9.1C: System operators redirect to operator queue
      */
     private static function get_role_redirect_url_static( $user ) {
         if ( ! $user || ! isset( $user->roles ) ) {
@@ -7077,8 +7095,17 @@ class N88_RFQ_Auth {
         }
 
         // Check roles in priority order
+        // Commit 2.3.9.1C: System operators redirect to operator queue
         if ( in_array( 'n88_system_operator', $user->roles, true ) ) {
-            return home_url( '/admin/queue?scope=global' );
+            $operator_queue_page_id = get_option( 'n88_rfq_operator_queue_page_id' );
+            if ( $operator_queue_page_id ) {
+                $operator_queue_url = get_permalink( $operator_queue_page_id );
+                if ( $operator_queue_url ) {
+                    return $operator_queue_url;
+                }
+            }
+            // Fallback to /operator/queue if page ID not found
+            return home_url( '/operator/queue/' );
         }
         
         if ( in_array( 'n88_supplier_admin', $user->roles, true ) ) {
@@ -11326,6 +11353,844 @@ class N88_RFQ_Auth {
             'prototype_payment_id' => $prototype_payment_id,
             'total_due_usd' => $total_due_usd,
         ) );
+    }
+
+    /**
+     * Render Operator Queue v1 (Commit 2.3.9.1C)
+     * 
+     * Operator dashboard for viewing CAD + Prototype Video requests
+     * Read-only intake and visibility - no status changes in this commit
+     */
+    public function render_operator_queue( $atts = array() ) {
+        // Check if user is logged in and is a system operator
+        if ( ! is_user_logged_in() ) {
+            wp_redirect( home_url( '/login/' ) );
+            exit;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_system_operator ) {
+            wp_die( 'Access denied. System Operator account required.', 'Access Denied', array( 'response' => 403 ) );
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->prefix . 'users';
+        $events_table = $wpdb->prefix . 'n88_events';
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+
+        // Check if prototype_payments table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+        if ( ! $table_exists ) {
+            return '<div style="padding: 40px; text-align: center; font-family: monospace; color: #fff; background: #000;">
+                <h2 style="color: #ff4444;">Table Not Found</h2>
+                <p>n88_prototype_payments table does not exist. Please run plugin activation/upgrade.</p>
+            </div>';
+        }
+
+        // Get filter values from URL (with defaults)
+        // Default status filter is 'requested' per spec
+        $status_filter = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : 'requested';
+        $supplier_filter = isset( $_GET['supplier'] ) ? sanitize_text_field( wp_unslash( $_GET['supplier'] ) ) : 'all';
+        $designer_filter = isset( $_GET['designer'] ) ? sanitize_text_field( wp_unslash( $_GET['designer'] ) ) : 'all';
+        $category_filter = isset( $_GET['category'] ) ? sanitize_text_field( wp_unslash( $_GET['category'] ) ) : 'all';
+        $time_filter = isset( $_GET['time'] ) ? sanitize_text_field( wp_unslash( $_GET['time'] ) ) : 'all';
+        $needs_attention_filter = isset( $_GET['needs_attention'] ) ? sanitize_text_field( wp_unslash( $_GET['needs_attention'] ) ) : 'all';
+        $search_filter = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
+        
+        // Pagination
+        $page = isset( $_GET['paged'] ) ? max( 1, intval( $_GET['paged'] ) ) : 1;
+        $per_page = 20;
+        $offset = ( $page - 1 ) * $per_page;
+
+        // Build WHERE conditions array - query prototype_payments table
+        $where_conditions = array();
+        
+        // Exclude deleted items (only if item exists)
+        $where_conditions[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+        
+        // Base condition: only show requested or marked_received status
+        if ( $status_filter === 'requested' ) {
+            $where_conditions[] = "pp.status = 'requested'";
+        } elseif ( $status_filter === 'marked_received' ) {
+            $where_conditions[] = "pp.status = 'marked_received'";
+        } elseif ( $status_filter === 'all' ) {
+            $where_conditions[] = "pp.status IN ('requested', 'marked_received')";
+        } else {
+            // Default to requested if invalid
+            $where_conditions[] = "pp.status = 'requested'";
+        }
+        
+        // Time filter
+        if ( $time_filter === '24h' ) {
+            $where_conditions[] = "pp.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+        } elseif ( $time_filter === '7d' ) {
+            $where_conditions[] = "pp.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
+        } elseif ( $time_filter === '30d' ) {
+            $where_conditions[] = "pp.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+        }
+
+        // Search filter (item id / bid id / payment id)
+        if ( ! empty( $search_filter ) ) {
+            $where_conditions[] = $wpdb->prepare(
+                "(pp.item_id = %d OR pp.bid_id = %d OR pp.id = %d)",
+                intval( $search_filter ),
+                intval( $search_filter ),
+                intval( $search_filter )
+            );
+        }
+
+        // Supplier filter
+        if ( $supplier_filter !== 'all' ) {
+            $where_conditions[] = $wpdb->prepare( "pp.supplier_id = %d", intval( $supplier_filter ) );
+        }
+
+        // Designer filter
+        if ( $designer_filter !== 'all' ) {
+            $where_conditions[] = $wpdb->prepare( "pp.designer_user_id = %d", intval( $designer_filter ) );
+        }
+
+        // Category filter
+        if ( $category_filter !== 'all' ) {
+            $where_conditions[] = $wpdb->prepare( "i.item_type = %s", $category_filter );
+        }
+        
+        // Needs Attention filter (items with status = 'requested' need attention)
+        if ( $needs_attention_filter === 'yes' ) {
+            $where_conditions[] = "pp.status = 'requested'";
+        } elseif ( $needs_attention_filter === 'no' ) {
+            $where_conditions[] = "pp.status = 'marked_received'";
+        }
+        
+        // Build WHERE clause
+        $where_clause = ! empty( $where_conditions ) ? 'WHERE ' . implode( ' AND ', $where_conditions ) : '';
+
+        // Build base query - query from prototype_payments table (as per spec)
+        // Use LEFT JOIN for items to ensure we see all prototype payments even if item data is missing
+        $base_query = "
+            FROM {$prototype_payments_table} pp
+            LEFT JOIN {$items_table} i ON pp.item_id = i.id
+            LEFT JOIN {$item_bids_table} b ON pp.bid_id = b.bid_id
+            LEFT JOIN {$users_table} designer ON pp.designer_user_id = designer.ID
+            LEFT JOIN {$users_table} supplier ON pp.supplier_id = supplier.ID
+            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+            {$where_clause}
+        ";
+        
+        // Count total records for pagination
+        $total_count = $wpdb->get_var( "SELECT COUNT(*) {$base_query}" );
+        $total_pages = ceil( $total_count / $per_page );
+
+        // Query prototype payments with all required columns
+        $query = "
+            SELECT 
+                pp.id as payment_id,
+                pp.item_id,
+                pp.bid_id,
+                pp.supplier_id,
+                pp.designer_user_id,
+                pp.status,
+                pp.video_direction_json,
+                pp.cad_fee_usd,
+                pp.cad_revision_rounds_included,
+                pp.cad_revision_round_fee_usd,
+                pp.cad_revision_rounds_used,
+                pp.prototype_video_cost_estimate_usd,
+                pp.total_due_usd,
+                pp.created_at,
+                pp.payment_reference,
+                i.title as item_title,
+                i.primary_image_id,
+                i.item_type,
+                c.name as category_name,
+                b.unit_price as bid_unit_price,
+                designer.display_name as designer_name,
+                designer.user_login as designer_login,
+                supplier.display_name as supplier_name,
+                supplier.user_login as supplier_login
+            {$base_query}
+            ORDER BY pp.created_at DESC
+            LIMIT {$per_page} OFFSET {$offset}
+        ";
+
+        $requests = $wpdb->get_results( $query, ARRAY_A );
+
+        // Get unique suppliers for filter dropdown (from prototype payments)
+        $suppliers_query = "
+            SELECT DISTINCT pp.supplier_id, u.display_name, u.user_login
+            FROM {$prototype_payments_table} pp
+            LEFT JOIN {$users_table} u ON pp.supplier_id = u.ID
+            WHERE pp.status IN ('requested', 'marked_received')
+            AND u.ID IS NOT NULL
+            ORDER BY u.display_name ASC
+        ";
+        $unique_suppliers = $wpdb->get_results( $suppliers_query, ARRAY_A );
+
+        // Get unique designers for filter dropdown (from prototype payments)
+        $designers_query = "
+            SELECT DISTINCT pp.designer_user_id, u.display_name, u.user_login
+            FROM {$prototype_payments_table} pp
+            LEFT JOIN {$users_table} u ON pp.designer_user_id = u.ID
+            WHERE pp.status IN ('requested', 'marked_received')
+            AND u.ID IS NOT NULL
+            ORDER BY u.display_name ASC
+        ";
+        $unique_designers = $wpdb->get_results( $designers_query, ARRAY_A );
+
+        // Get unique categories for filter dropdown (from items in prototype payments)
+        $categories_query = "
+            SELECT DISTINCT i.item_type, c.name as category_name
+            FROM {$prototype_payments_table} pp
+            LEFT JOIN {$items_table} i ON pp.item_id = i.id
+            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+            WHERE pp.status IN ('requested', 'marked_received')
+            AND i.item_type IS NOT NULL
+            ORDER BY COALESCE(c.name, i.item_type) ASC
+        ";
+        $unique_categories = $wpdb->get_results( $categories_query, ARRAY_A );
+
+        ob_start();
+        ?>
+        <div class="n88-operator-queue" style="background-color: #000; color: #fff; font-family: 'Courier New', Courier, monospace; min-height: 100vh; padding: 20px;">
+            <!-- Header Section -->
+            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h1 style="margin: 0; font-size: 18px; font-weight: normal; color: #fff; font-family: 'Courier New', Courier, monospace;">WIRE FRAME OS — OPERATOR CONSOLE</h1>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="font-size: 14px; color: #fff;">System Operator (Operational)</span>
+                        <span style="font-size: 12px; color: #999;">Purpose: Monitor execution states, confirm payments, unblock suppliers</span>
+                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="padding: 4px 8px; border: 1px solid #fff; color: #fff; text-decoration: none; font-size: 12px; font-family: 'Courier New', Courier, monospace;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='transparent';">[ Logout ]</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter Bar Section -->
+            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
+                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">FILTER BAR</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 15px;">
+                    <div>
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Status:</label>
+                        <select id="n88-operator-status-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                            <option value="prototype_requested" <?php selected( $status_filter, 'prototype_requested' ); ?>>Prototype Requested</option>
+                            <option value="payment_requested" <?php selected( $status_filter, 'payment_requested' ); ?>>Payment Requested</option>
+                            <option value="payment_received" <?php selected( $status_filter, 'payment_received' ); ?>>Payment Received</option>
+                            <option value="in_production" <?php selected( $status_filter, 'in_production' ); ?>>In Production (future)</option>
+                            <option value="all" <?php selected( $status_filter, 'all' ); ?>>All</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Supplier:</label>
+                        <select id="n88-operator-supplier-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                            <option value="all" <?php selected( $supplier_filter, 'all' ); ?>>[ All ]</option>
+                            <?php foreach ( $unique_suppliers as $sup ) : ?>
+                                <option value="<?php echo esc_attr( $sup['supplier_id'] ); ?>" <?php selected( $supplier_filter, $sup['supplier_id'] ); ?>>
+                                    <?php echo esc_html( $sup['display_name'] ?: $sup['user_login'] ?: 'Supplier #' . $sup['supplier_id'] ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Category:</label>
+                        <select id="n88-operator-category-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                            <option value="all" <?php selected( $category_filter, 'all' ); ?>>[ All ]</option>
+                            <?php foreach ( $unique_categories as $cat ) : ?>
+                                <?php if ( ! empty( $cat['item_type'] ) ) : ?>
+                                    <option value="<?php echo esc_attr( $cat['item_type'] ); ?>" <?php selected( $category_filter, $cat['item_type'] ); ?>>
+                                        <?php echo esc_html( $cat['item_type'] ); ?>
+                                    </option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Time:</label>
+                        <select id="n88-operator-time-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                            <option value="all" <?php selected( $time_filter, 'all' ); ?>>All</option>
+                            <option value="24h" <?php selected( $time_filter, '24h' ); ?>>24h</option>
+                            <option value="7d" <?php selected( $time_filter, '7d' ); ?>>7d</option>
+                            <option value="30d" <?php selected( $time_filter, '30d' ); ?>>30d</option>
+                        </select>
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Search:</label>
+                        <input type="text" id="n88-operator-search-filter" value="<?php echo esc_attr( $search_filter ); ?>" placeholder="item id / bid id / payment id" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 100%; max-width: 300px;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operator Queue - Item Case Files Section -->
+            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
+                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">OPERATOR QUEUE — ITEM CASE FILES</div>
+                <div style="font-size: 11px; color: #ccc; margin-bottom: 10px;">One row = one item (source of truth)</div>
+
+                <!-- Items Table -->
+                <div style="border: 2px solid #fff; overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-family: 'Courier New', Courier, monospace;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #fff; background-color: #1a1a1a;">
+                                <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">ITEM / PROJECT</th>
+                                <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">DESIGNER</th>
+                                <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">SUPPLIER</th>
+                                <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">STATUS</th>
+                                <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff;">ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ( empty( $requests ) ) : ?>
+                                <tr>
+                                    <td colspan="5" style="padding: 20px; text-align: center; color: #999; font-size: 12px;">No requests found matching the selected filters.</td>
+                                </tr>
+                            <?php else : ?>
+                                <?php foreach ( $requests as $request ) : 
+                                    $item_id = intval( $request['item_id'] );
+                                    $bid_id = intval( $request['bid_id'] );
+                                    $payment_id = intval( $request['payment_id'] );
+                                    
+                                    // Get item thumbnail
+                                    $thumbnail_url = '';
+                                    if ( ! empty( $request['primary_image_id'] ) ) {
+                                        $thumbnail_url = wp_get_attachment_image_url( $request['primary_image_id'], 'thumbnail' );
+                                        if ( ! $thumbnail_url ) {
+                                            $thumbnail_url = wp_get_attachment_url( $request['primary_image_id'] );
+                                        }
+                                    }
+                                    
+                                    $item_label = ! empty( $request['item_title'] ) ? esc_html( $request['item_title'] ) : 'Item #' . $item_id;
+                                    $category = ! empty( $request['category_name'] ) ? esc_html( $request['category_name'] ) : ( ! empty( $request['item_type'] ) ? esc_html( $request['item_type'] ) : 'Uncategorized' );
+                                    
+                                    // Parse video direction JSON
+                                    $video_direction = array();
+                                    $keyword_count = 0;
+                                    $has_note = false;
+                                    $selected_keywords = array();
+                                    if ( ! empty( $request['video_direction_json'] ) ) {
+                                        $video_direction = json_decode( $request['video_direction_json'], true );
+                                        if ( is_array( $video_direction ) && isset( $video_direction['selected_keywords'] ) ) {
+                                            $selected_keywords = $video_direction['selected_keywords'];
+                                            $keyword_count = count( $selected_keywords );
+                                        }
+                                        if ( is_array( $video_direction ) && isset( $video_direction['note'] ) && ! empty( $video_direction['note'] ) ) {
+                                            $has_note = true;
+                                        }
+                                    }
+                                    
+                                    // Format costs for display
+                                    $prototype_estimate_display = $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : '—';
+                                    $cad_fee_display = '$' . number_format( floatval( $request['cad_fee_usd'] ), 2 );
+                                    $total_due_display = '$' . number_format( floatval( $request['total_due_usd'] ), 2 );
+                                    
+                                    // Format dates
+                                    $created_date = ! empty( $request['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $request['created_at'] ) ) : '—';
+                                    
+                                    // Map status to user-friendly display (per wireframe)
+                                    $status_display = 'Payment Requested';
+                                    if ( $request['status'] === 'requested' ) {
+                                        $status_display = 'Payment Requested';
+                                    } elseif ( $request['status'] === 'marked_received' ) {
+                                        $status_display = 'Payment Received';
+                                    }
+                                    
+                                    // Supplier label (per wireframe: "Supplier #482")
+                                    $supplier_label = 'Supplier #' . $request['supplier_id'];
+                                    if ( ! empty( $request['supplier_name'] ) ) {
+                                        $supplier_label = esc_html( $request['supplier_name'] );
+                                    } elseif ( ! empty( $request['supplier_login'] ) ) {
+                                        $supplier_label = esc_html( $request['supplier_login'] );
+                                    }
+                                    
+                                    // Designer label (per wireframe: "Sarah M.")
+                                    $designer_label = ! empty( $request['designer_name'] ) ? esc_html( $request['designer_name'] ) : 'Designer #' . $request['designer_user_id'];
+                                    // Extract first name + last initial if possible
+                                    if ( ! empty( $request['designer_name'] ) ) {
+                                        $name_parts = explode( ' ', $request['designer_name'] );
+                                        if ( count( $name_parts ) > 1 ) {
+                                            $designer_label = $name_parts[0] . ' ' . substr( $name_parts[count( $name_parts ) - 1], 0, 1 ) . '.';
+                                        }
+                                    }
+                                ?>
+                                    <tr style="border-bottom: 1px solid #333;" class="n88-operator-queue-row" data-payment-id="<?php echo esc_attr( $payment_id ); ?>">
+                                        <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <?php if ( $thumbnail_url ) : ?>
+                                                    <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="width: 40px; height: 40px; object-fit: cover; border: 1px solid #fff;">
+                                                <?php endif; ?>
+                                                <div>
+                                                    <div style="font-weight: 600; color: #ff8800;">Item: <?php echo esc_html( $item_label ); ?></div>
+                                                    <div style="font-size: 11px; color: #999;">Project: —</div>
+                                                    <div style="font-size: 11px; color: #999;">Category: <?php echo esc_html( $category ); ?></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
+                                            <div><?php echo esc_html( $designer_label ); ?></div>
+                                            <div style="font-size: 11px; color: #999;">Firm: —</div>
+                                        </td>
+                                        <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
+                                            <div style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $supplier_label ); ?></div>
+                                            <div style="font-size: 11px; color: #999;">(Anonymous)</div>
+                                            <?php if ( ! empty( $request['bid_unit_price'] ) ) : ?>
+                                                <div style="font-size: 11px; color: #ff8800;">Bid: $<?php echo number_format( floatval( $request['bid_unit_price'] ), 2 ); ?>/unit</div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
+                                            <div><?php echo esc_html( $status_display ); ?></div>
+                                            <div style="font-size: 11px; color: #999;">Requested</div>
+                                        </td>
+                                        <td style="padding: 12px; font-size: 12px; color: #fff;">
+                                            <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                ...
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <!-- Expanded Details Row (hidden by default) -->
+                                    <tr class="n88-case-details-row" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; border-bottom: 2px solid #fff;">
+                                        <td colspan="5" style="padding: 20px; background-color: #1a1a1a; border-top: 1px solid #333;">
+                                            <div style="margin-bottom: 16px;">
+                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px;">Prototype Request</div>
+                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                    <li>Video Direction: <?php echo esc_html( $keyword_count ); ?> keywords selected</li>
+                                                    <li>Note: <?php echo $has_note ? 'Present (✔)' : 'No'; ?></li>
+                                                    <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
+                                                </ul>
+                                            </div>
+                                            <div style="margin-bottom: 16px;">
+                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Costs (Read-Only)</div>
+                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                    <li>Prototype Estimate: <?php echo esc_html( $prototype_estimate_display ); ?></li>
+                                                    <li>CAD Fee: <?php echo esc_html( $cad_fee_display ); ?></li>
+                                                    <li>Total Due: <span style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $total_due_display ); ?></span></li>
+                                                </ul>
+                                            </div>
+                                            <div style="margin-bottom: 16px;">
+                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">CAD Revision Policy (Read-Only)</div>
+                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                    <li>Rounds Included: <?php echo esc_html( $request['cad_revision_rounds_included'] ); ?></li>
+                                                    <li>Extra Round Fee: $<?php echo number_format( floatval( $request['cad_revision_round_fee_usd'] ), 2 ); ?> (round 4+)</li>
+                                                    <li>Rounds Used: <?php echo esc_html( $request['cad_revision_rounds_used'] ); ?></li>
+                                                </ul>
+                                            </div>
+                                            <div style="margin-bottom: 16px;">
+                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Direction Summary Badge</div>
+                                                <div style="padding-left: 20px; font-size: 12px; color: #fff;">
+                                                    <div>Direction: <?php echo esc_html( $keyword_count ); ?> keywords</div>
+                                                    <div>Note: <?php echo $has_note ? 'Yes' : 'No'; ?></div>
+                                                </div>
+                                            </div>
+                                            <div style="margin-bottom: 16px;">
+                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
+                                                <div style="padding-left: 20px;">
+                                                    <button class="n88-view-case-full-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                        View Case (Read-Only)
+                                                    </button>
+                                                    <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0; margin-bottom: 4px;">Mark Payment Received (disabled in v1)</div>
+                                                    <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                <?php if ( $total_pages > 1 ) : ?>
+                    <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 15px; border-top: 1px solid #333;">
+                        <div style="font-size: 12px; color: #fff;">
+                            Showing <?php echo ( $offset + 1 ); ?>-<?php echo min( $offset + $per_page, $total_count ); ?> of <?php echo intval( $total_count ); ?> requests
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <?php if ( $page > 1 ) : ?>
+                                <a href="<?php echo esc_url( add_query_arg( 'paged', $page - 1 ) ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; text-decoration: none; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                    ← Previous
+                                </a>
+                            <?php endif; ?>
+                            
+                            <div style="font-size: 12px; color: #fff;">
+                                Page <?php echo esc_html( $page ); ?> of <?php echo esc_html( $total_pages ); ?>
+                            </div>
+                            
+                            <?php if ( $page < $total_pages ) : ?>
+                                <a href="<?php echo esc_url( add_query_arg( 'paged', $page + 1 ) ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; text-decoration: none; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                    Next →
+                                </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- View Case Modal (Read-Only) -->
+        <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow-y: auto;">
+            <div style="max-width: 1200px; margin: 40px auto; padding: 20px; background-color: #000; border: 2px solid #fff; font-family: 'Courier New', Courier, monospace;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #fff; padding-bottom: 10px;">
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #fff;">View Case (Read-Only)</h2>
+                    <button id="n88-close-case-modal" style="padding: 8px 16px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                        Close
+                    </button>
+                </div>
+                <div id="n88-case-modal-content" style="color: #fff; font-size: 12px;">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            // Filter persistence and update
+            function updateOperatorQueueURL() {
+                var status = document.getElementById('n88-operator-status-filter')?.value || 'requested';
+                var supplier = document.getElementById('n88-operator-supplier-filter')?.value || 'all';
+                var designer = document.getElementById('n88-operator-designer-filter')?.value || 'all';
+                var category = document.getElementById('n88-operator-category-filter')?.value || 'all';
+                var time = document.getElementById('n88-operator-time-filter')?.value || 'all';
+                var needsAttention = document.getElementById('n88-operator-needs-attention-filter')?.value || 'all';
+                var search = document.getElementById('n88-operator-search-filter')?.value || '';
+
+                var params = new URLSearchParams();
+                if (status && status !== 'requested') params.set('status', status);
+                if (supplier && supplier !== 'all') params.set('supplier', supplier);
+                if (designer && designer !== 'all') params.set('designer', designer);
+                if (category && category !== 'all') params.set('category', category);
+                if (time && time !== 'all') params.set('time', time);
+                if (needsAttention && needsAttention !== 'all') params.set('needs_attention', needsAttention);
+                if (search) params.set('search', search);
+
+                var newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+                window.history.pushState({}, '', newUrl);
+            }
+
+            // Attach filter change handlers
+            var statusFilter = document.getElementById('n88-operator-status-filter');
+            var supplierFilter = document.getElementById('n88-operator-supplier-filter');
+            var designerFilter = document.getElementById('n88-operator-designer-filter');
+            var categoryFilter = document.getElementById('n88-operator-category-filter');
+            var timeFilter = document.getElementById('n88-operator-time-filter');
+            var needsAttentionFilter = document.getElementById('n88-operator-needs-attention-filter');
+            var searchFilter = document.getElementById('n88-operator-search-filter');
+
+            if (statusFilter) statusFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (supplierFilter) supplierFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (designerFilter) designerFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (categoryFilter) categoryFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (timeFilter) timeFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (needsAttentionFilter) needsAttentionFilter.addEventListener('change', function() { updateOperatorQueueURL(); window.location.reload(); });
+            if (searchFilter) {
+                var searchTimeout;
+                searchFilter.addEventListener('input', function() {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(function() {
+                        updateOperatorQueueURL();
+                        window.location.reload();
+                    }, 500);
+                });
+            }
+
+            // Row expansion toggle
+            var viewCaseBtns = document.querySelectorAll('.n88-view-case-btn');
+            viewCaseBtns.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var detailsRow = document.querySelector('.n88-case-details-row[data-payment-id="' + paymentId + '"]');
+                    if (detailsRow) {
+                        if (detailsRow.style.display === 'none') {
+                            detailsRow.style.display = 'table-row';
+                        } else {
+                            detailsRow.style.display = 'none';
+                        }
+                    }
+                });
+            });
+
+            // View Case Full Modal
+            var viewCaseFullBtns = document.querySelectorAll('.n88-view-case-full-btn');
+            var caseModal = document.getElementById('n88-operator-case-modal');
+            var caseModalContent = document.getElementById('n88-case-modal-content');
+            var closeCaseModal = document.getElementById('n88-close-case-modal');
+
+            viewCaseFullBtns.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var paymentId = this.getAttribute('data-payment-id');
+                    loadCaseDetails(paymentId);
+                });
+            });
+
+            if (closeCaseModal) {
+                closeCaseModal.addEventListener('click', function() {
+                    if (caseModal) caseModal.style.display = 'none';
+                });
+            }
+
+            // Load case details via AJAX
+            function loadCaseDetails(paymentId) {
+                if (!caseModalContent) return;
+
+                caseModalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #999;">Loading case details...</div>';
+                if (caseModal) caseModal.style.display = 'block';
+
+                var formData = new FormData();
+                formData.append('action', 'n88_get_operator_case_details');
+                formData.append('payment_id', paymentId);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_operator_case_details' ) ); ?>');
+
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success && caseModalContent) {
+                        caseModalContent.innerHTML = data.data.html;
+                    } else {
+                        if (caseModalContent) {
+                            caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data.data?.message || 'Unknown error') + '</div>';
+                        }
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error loading case details:', error);
+                    if (caseModalContent) {
+                        caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details. Please try again.</div>';
+                    }
+                });
+            }
+
+            // Auto-refresh every 30 seconds
+            var autoRefreshInterval = setInterval(function() {
+                // Only refresh if no modal is open and no filters are being edited
+                if (!caseModal || caseModal.style.display === 'none') {
+                    // Soft refresh - just reload the page
+                    // In future, could be AJAX-based
+                }
+            }, 30000);
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * AJAX: Get Operator Case Details (Read-Only) - Commit 2.3.9.1C
+     */
+    public function ajax_get_operator_case_details() {
+        check_ajax_referer( 'n88_get_operator_case_details', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. System Operator account required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        if ( ! $payment_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->prefix . 'users';
+        $events_table = $wpdb->prefix . 'n88_events';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+
+        // Get prototype payment details
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT pp.*, i.title as item_title, i.item_type, b.unit_price,
+             designer.display_name as designer_name, supplier.display_name as supplier_name
+             FROM {$prototype_payments_table} pp
+             LEFT JOIN {$items_table} i ON pp.item_id = i.id
+             LEFT JOIN {$item_bids_table} b ON pp.bid_id = b.bid_id
+             LEFT JOIN {$users_table} designer ON pp.designer_user_id = designer.ID
+             LEFT JOIN {$users_table} supplier ON pp.supplier_id = supplier.ID
+             WHERE pp.id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+
+        // Get item thumbnail
+        $thumbnail_url = '';
+        if ( ! empty( $payment['item_id'] ) ) {
+            $item = $wpdb->get_row( $wpdb->prepare(
+                "SELECT primary_image_id FROM {$items_table} WHERE id = %d",
+                $payment['item_id']
+            ), ARRAY_A );
+            if ( $item && ! empty( $item['primary_image_id'] ) ) {
+                $thumbnail_url = wp_get_attachment_image_url( $item['primary_image_id'], 'thumbnail' );
+                if ( ! $thumbnail_url ) {
+                    $thumbnail_url = wp_get_attachment_url( $item['primary_image_id'] );
+                }
+            }
+        }
+
+        // Parse video direction JSON
+        $video_direction = array();
+        $selected_keywords = array();
+        $note = '';
+        $keyword_count = 0;
+        if ( ! empty( $payment['video_direction_json'] ) ) {
+            $video_direction = json_decode( $payment['video_direction_json'], true );
+            if ( is_array( $video_direction ) ) {
+                if ( isset( $video_direction['selected_keywords'] ) && is_array( $video_direction['selected_keywords'] ) ) {
+                    $selected_keywords = $video_direction['selected_keywords'];
+                    $keyword_count = count( $selected_keywords );
+                }
+                if ( isset( $video_direction['note'] ) ) {
+                    $note = sanitize_textarea_field( $video_direction['note'] );
+                }
+            }
+        }
+
+        // Get keyword names
+        $keyword_names = array();
+        if ( ! empty( $selected_keywords ) ) {
+            $keyword_ids = array_map( 'absint', $selected_keywords );
+            $keyword_ids = array_filter( $keyword_ids );
+            if ( ! empty( $keyword_ids ) ) {
+                $placeholders = implode( ',', array_fill( 0, count( $keyword_ids ), '%d' ) );
+                $keywords = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT keyword_id, keyword FROM {$keywords_table} WHERE keyword_id IN ({$placeholders}) ORDER BY keyword",
+                    ...$keyword_ids
+                ), ARRAY_A );
+                foreach ( $keywords as $kw ) {
+                    $keyword_names[] = $kw->keyword;
+                }
+            }
+        }
+
+        // Get category name
+        $category_name = ! empty( $payment['item_type'] ) ? $payment['item_type'] : 'Uncategorized';
+        if ( ! empty( $payment['item_type'] ) ) {
+            $category = $wpdb->get_row( $wpdb->prepare(
+                "SELECT name FROM {$categories_table} WHERE category_id = %d OR name = %s LIMIT 1",
+                intval( $payment['item_type'] ),
+                $payment['item_type']
+            ) );
+            if ( $category ) {
+                $category_name = $category->name;
+            }
+        }
+
+        // Get linked events
+        $events = $wpdb->get_results( $wpdb->prepare(
+            "SELECT event_type, created_at, payload_json 
+             FROM {$events_table}
+             WHERE object_type = 'prototype_payment' 
+             AND object_id = %d
+             AND event_type IN ('cad_prototype_requested', 'video_direction_submitted')
+             ORDER BY created_at ASC",
+            $payment_id
+        ), ARRAY_A );
+
+        // Format dates
+        $created_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
+
+        // Build HTML
+        ob_start();
+        ?>
+        <!-- Case Header -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Case Header</div>
+            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
+                <div><strong>Item ID:</strong> <?php echo esc_html( $payment['item_id'] ); ?></div>
+                <div><strong>Bid ID:</strong> <?php echo esc_html( $payment['bid_id'] ); ?></div>
+                <div><strong>Supplier ID:</strong> <?php echo esc_html( $payment['supplier_id'] ); ?></div>
+                <div><strong>Request Created:</strong> <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></div>
+                <div><strong>Payment Status:</strong> <?php echo esc_html( ucfirst( str_replace( '_', ' ', $payment['status'] ) ) ); ?></div>
+            </div>
+        </div>
+
+        <!-- Cost Block -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Cost Block (Read-Only)</div>
+            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
+                <div><strong>CAD Fee:</strong> $<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></div>
+                <div><strong>Prototype Estimate:</strong> <?php echo $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—'; ?></div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;"><strong>Total Due:</strong> <span style="color: #ff8800; font-weight: 600;">$<?php echo number_format( floatval( $payment['total_due_usd'] ), 2 ); ?></span></div>
+            </div>
+        </div>
+
+        <!-- CAD Policy Block -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">CAD Policy Block</div>
+            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
+                <div><strong>Rounds Included:</strong> <?php echo esc_html( $payment['cad_revision_rounds_included'] ); ?></div>
+                <div><strong>Extra Round Fee:</strong> $<?php echo number_format( floatval( $payment['cad_revision_round_fee_usd'] ), 2 ); ?> (round 4+)</div>
+                <div><strong>Rounds Used:</strong> <?php echo esc_html( $payment['cad_revision_rounds_used'] ); ?></div>
+            </div>
+        </div>
+
+        <!-- Video Direction Block -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Video Direction Block (Read-Only)</div>
+            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
+                <?php if ( ! empty( $keyword_names ) ) : ?>
+                    <div style="margin-bottom: 12px;">
+                        <strong>Selected Keywords (<?php echo esc_html( $keyword_count ); ?>):</strong>
+                        <ul style="margin: 8px 0 0 20px; padding: 0;">
+                            <?php foreach ( $keyword_names as $kw_name ) : ?>
+                                <li><?php echo esc_html( $kw_name ); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php else : ?>
+                    <div style="color: #999;">No keywords selected</div>
+                <?php endif; ?>
+                <?php if ( ! empty( $note ) ) : ?>
+                    <div style="margin-top: 12px;">
+                        <strong>Note:</strong>
+                        <div style="margin-top: 4px; padding: 8px; background-color: #000; border: 1px solid #333; border-radius: 2px; white-space: pre-wrap;"><?php echo esc_html( $note ); ?></div>
+                    </div>
+                <?php else : ?>
+                    <div style="margin-top: 12px; color: #999;">Note: None</div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Evidence Log Preview -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Evidence Log Preview (Read-Only, Minimal)</div>
+            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
+                <?php if ( ! empty( $events ) ) : ?>
+                    <div style="margin-bottom: 8px;"><strong>Linked Events:</strong></div>
+                    <ul style="margin: 0 0 0 20px; padding: 0;">
+                        <?php foreach ( $events as $event ) : ?>
+                            <li style="margin-bottom: 4px;">
+                                <strong><?php echo esc_html( str_replace( '_', ' ', ucfirst( $event['event_type'] ) ) ); ?>:</strong>
+                                <?php echo esc_html( date( 'M d, Y g:i A', strtotime( $event['created_at'] ) ) ); ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php else : ?>
+                    <div style="color: #999;">No events found</div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+        $html = ob_get_clean();
+
+        wp_send_json_success( array( 'html' => $html ) );
     }
 }
 

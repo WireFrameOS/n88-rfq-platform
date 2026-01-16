@@ -543,6 +543,78 @@ class N88_RFQ_Installer {
             update_option( 'n88_rfq_designer_onboarding_page_id', $designer_onboarding_page->ID );
         }
 
+        // Create Operator Queue page (Commit 2.3.9.1C)
+        $operator_queue_page = get_page_by_path( 'operator/queue' );
+        if ( ! $operator_queue_page ) {
+            // Check if operator parent page exists
+            $operator_parent = get_page_by_path( 'operator' );
+            if ( ! $operator_parent ) {
+                $operator_parent_id = wp_insert_post( array(
+                    'post_title'    => 'Operator',
+                    'post_name'     => 'operator',
+                    'post_content'  => '',
+                    'post_status'   => 'publish',
+                    'post_type'     => 'page',
+                    'post_author'   => 1,
+                ) );
+
+                if ( is_wp_error( $operator_parent_id ) ) {
+                    error_log( 'N88 RFQ: Failed to create operator parent page: ' . $operator_parent_id->get_error_message() );
+                    $operator_parent_id = 0;
+                }
+            } else {
+                $operator_parent_id = $operator_parent->ID;
+            }
+
+            // Try to find queue page under operator parent
+            if ( $operator_parent_id > 0 ) {
+                $pages = get_pages( array(
+                    'post_status' => 'publish',
+                    'parent' => $operator_parent_id,
+                ) );
+                foreach ( $pages as $page ) {
+                    if ( $page->post_name === 'queue' ) {
+                        $operator_queue_page = $page;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Create Operator Queue page if it doesn't exist
+        if ( ! $operator_queue_page ) {
+            $operator_parent = get_page_by_path( 'operator' );
+            $operator_parent_id = $operator_parent ? $operator_parent->ID : 0;
+
+            $operator_queue_id = wp_insert_post( array(
+                'post_title'    => 'Operator Queue',
+                'post_name'     => 'queue',
+                'post_content'  => '[n88_operator_queue]',
+                'post_status'   => 'publish',
+                'post_type'     => 'page',
+                'post_author'   => 1,
+                'post_parent'   => $operator_parent_id > 0 ? $operator_parent_id : 0,
+            ) );
+
+            if ( is_wp_error( $operator_queue_id ) ) {
+                error_log( 'N88 RFQ: Failed to create operator queue page: ' . $operator_queue_id->get_error_message() );
+            } else {
+                update_option( 'n88_rfq_operator_queue_page_id', $operator_queue_id );
+            }
+        } else {
+            // Update existing page to ensure it has the shortcode
+            if ( strpos( $operator_queue_page->post_content, '[n88_operator_queue]' ) === false ) {
+                $operator_parent = get_page_by_path( 'operator' );
+                $operator_parent_id = $operator_parent ? $operator_parent->ID : 0;
+                wp_update_post( array(
+                    'ID'           => $operator_queue_page->ID,
+                    'post_content' => '[n88_operator_queue]',
+                    'post_parent' => $operator_parent_id > 0 ? $operator_parent_id : $operator_queue_page->post_parent,
+                ) );
+            }
+            update_option( 'n88_rfq_operator_queue_page_id', $operator_queue_page->ID );
+        }
+
         // Create Admin parent page if it doesn't exist
         $admin_parent = get_page_by_path( 'admin' );
         if ( ! $admin_parent ) {
