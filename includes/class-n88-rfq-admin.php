@@ -3970,12 +3970,13 @@ class N88_RFQ_Admin {
         
         // Localize script for AJAX URL and nonce
         wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
-            'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+            'nonce' => wp_create_nonce( 'n88-rfq-nonce' ), // Commit 2.3.9.1B: Fixed to match endpoint expectation
             'nonce_get_item_rfq_state' => wp_create_nonce( 'n88_get_item_rfq_state' ),
             'nonce_submit_rfq' => wp_create_nonce( 'n88_submit_rfq' ),
             'nonce_submit_supplier_bid' => wp_create_nonce( 'n88_submit_supplier_bid' ),
             'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
             'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
+            'nonce_get_keywords' => wp_create_nonce( 'n88_get_keywords' ), // Commit 2.3.9.1B: For CAD prototype keyword selection
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -7556,6 +7557,43 @@ class N88_RFQ_Admin {
                     var bidsExpanded = _bidsExpandedState[0];
                     var setBidsExpanded = _bidsExpandedState[1];
                     
+                    // CAD Prototype Request form state (Commit 2.3.9.1B)
+                    var _showCadPrototypeFormState = React.useState(false);
+                    var showCadPrototypeForm = _showCadPrototypeFormState[0];
+                    var setShowCadPrototypeForm = _showCadPrototypeFormState[1];
+                    
+                    var _selectedBidIdState = React.useState(null);
+                    var selectedBidId = _selectedBidIdState[0];
+                    var setSelectedBidId = _selectedBidIdState[1];
+                    
+                    var _selectedKeywordsState = React.useState([]);
+                    var selectedKeywords = _selectedKeywordsState[0];
+                    var setSelectedKeywords = _selectedKeywordsState[1];
+                    
+                    var _prototypeNoteState = React.useState('');
+                    var prototypeNote = _prototypeNoteState[0];
+                    var setPrototypeNote = _prototypeNoteState[1];
+                    
+                    var _availableKeywordsState = React.useState([]);
+                    var availableKeywords = _availableKeywordsState[0];
+                    var setAvailableKeywords = _availableKeywordsState[1];
+                    
+                    var _isLoadingKeywordsState = React.useState(false);
+                    var isLoadingKeywords = _isLoadingKeywordsState[0];
+                    var setIsLoadingKeywords = _isLoadingKeywordsState[1];
+                    
+                    var _isSubmittingCadPrototypeState = React.useState(false);
+                    var isSubmittingCadPrototype = _isSubmittingCadPrototypeState[0];
+                    var setIsSubmittingCadPrototype = _isSubmittingCadPrototypeState[1];
+                    
+                    var _cadPrototypeErrorState = React.useState('');
+                    var cadPrototypeError = _cadPrototypeErrorState[0];
+                    var setCadPrototypeError = _cadPrototypeErrorState[1];
+                    
+                    var _cadPrototypeSuccessState = React.useState(false);
+                    var cadPrototypeSuccess = _cadPrototypeSuccessState[0];
+                    var setCadPrototypeSuccess = _cadPrototypeSuccessState[1];
+                    
                     // Image lightbox state
                     var _lightboxImageState = React.useState(null);
                     var lightboxImage = _lightboxImageState[0];
@@ -7608,6 +7646,80 @@ class N88_RFQ_Admin {
                             setActiveTab('details'); // Default to details tab in State A
                         }
                     }, [itemState.has_rfq, itemState.has_bids, itemState.loading]);
+                    
+                    // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
+                    React.useEffect(function() {
+                        if (showCadPrototypeForm && !selectedBidId && itemState.bids && itemState.bids.length === 1) {
+                            setSelectedBidId(itemState.bids[0].bid_id);
+                        }
+                    }, [showCadPrototypeForm, itemState.bids, selectedBidId]);
+                    
+                    // Load keywords when bid is selected (Commit 2.3.9.1B)
+                    React.useEffect(function() {
+                        if (!showCadPrototypeForm || !selectedBidId || !category) {
+                            return;
+                        }
+
+                        var loadKeywordsForCategory = function() {
+                            setIsLoadingKeywords(true);
+                            setAvailableKeywords([]);
+
+                            try {
+                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                // Get nonce for n88_get_keywords action
+                                var nonce = '';
+                                if (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keywords) {
+                                    nonce = window.n88BoardNonce.nonce_get_keywords;
+                                } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                    nonce = window.n88BoardData.nonce;
+                                } else if (window.n88 && window.n88.nonce) {
+                                    nonce = window.n88.nonce;
+                                } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                                    nonce = window.n88BoardNonce.nonce;
+                                }
+                                
+                                if (!nonce) {
+                                    console.error('Nonce not found for n88_get_keywords_by_category');
+                                    setAvailableKeywords([]);
+                                    setIsLoadingKeywords(false);
+                                    return;
+                                }
+                                
+                                // Use category name to fetch keywords (endpoint now accepts category_name)
+                                var formData = new FormData();
+                                formData.append('action', 'n88_get_keywords_by_category');
+                                formData.append('category_name', category);
+                                formData.append('_ajax_nonce', nonce);
+
+                                fetch(ajaxUrl, {
+                                    method: 'POST',
+                                    body: formData,
+                                })
+                                .then(function(response) { return response.json(); })
+                                .then(function(data) {
+                                    if (data.success && data.data && data.data.keywords) {
+                                        setAvailableKeywords(data.data.keywords);
+                                    } else {
+                                        console.error('Failed to load keywords:', data.message);
+                                        setAvailableKeywords([]);
+                                    }
+                                })
+                                .catch(function(error) {
+                                    console.error('Error loading keywords:', error);
+                                    setAvailableKeywords([]);
+                                })
+                                .finally(function() {
+                                    setIsLoadingKeywords(false);
+                                });
+                            } catch (error) {
+                                console.error('Error loading keywords:', error);
+                                setAvailableKeywords([]);
+                                setIsLoadingKeywords(false);
+                            }
+                        };
+
+                        loadKeywordsForCategory();
+                    }, [showCadPrototypeForm, selectedBidId, category]);
                     
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
@@ -10194,6 +10306,434 @@ class N88_RFQ_Admin {
                                                         onImageClick: setLightboxImage,
                                                         smartAlternativesEnabled: smartAlternativesEnabled
                                                     }),
+                                                    // Commit 2.3.9.1B: Request CAD + Prototype Video Button/Form
+                                                    !showCadPrototypeForm ? React.createElement('div', {
+                                                        style: { marginTop: '20px', textAlign: 'center' }
+                                                    },
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                // Auto-select first bid if only one bid exists
+                                                                if (itemState.bids && itemState.bids.length === 1) {
+                                                                    setSelectedBidId(itemState.bids[0].bid_id);
+                                                                }
+                                                                setShowCadPrototypeForm(true);
+                                                                setCadPrototypeError('');
+                                                                setCadPrototypeSuccess(false);
+                                                            },
+                                                            style: {
+                                                                padding: '12px 24px',
+                                                                backgroundColor: '#111111',
+                                                                border: '1px solid ' + darkBorder,
+                                                                borderRadius: '4px',
+                                                                color: darkText,
+                                                                fontSize: '14px',
+                                                                fontFamily: 'monospace',
+                                                                cursor: 'pointer',
+                                                                fontWeight: '600',
+                                                            }
+                                                        }, 'Request CAD + Prototype Video')
+                                                    ) : React.createElement('div', {
+                                                        id: 'cad-prototype-form-container',
+                                                        style: {
+                                                            marginTop: '20px',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            padding: '16px',
+                                                            backgroundColor: '#111111',
+                                                        }
+                                                    },
+                                                        // Header with Close Button
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                display: 'flex',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                marginBottom: '16px',
+                                                            }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '14px', fontWeight: '600', color: darkText }
+                                                            }, 'Request CAD + Prototype Video'),
+                                                            React.createElement('button', {
+                                                                onClick: function() {
+                                                                    setShowCadPrototypeForm(false);
+                                                                    setSelectedBidId(null);
+                                                                    setSelectedKeywords([]);
+                                                                    setPrototypeNote('');
+                                                                    setCadPrototypeError('');
+                                                                    setCadPrototypeSuccess(false);
+                                                                },
+                                                                style: {
+                                                                    background: 'none',
+                                                                    border: 'none',
+                                                                    color: darkText,
+                                                                    fontSize: '20px',
+                                                                    cursor: 'pointer',
+                                                                    padding: '0',
+                                                                    width: '24px',
+                                                                    height: '24px',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                }
+                                                            }, '×')
+                                                        ),
+                                                        // Success Message
+                                                        cadPrototypeSuccess ? React.createElement('div', {
+                                                            style: {
+                                                                marginBottom: '16px',
+                                                                padding: '12px',
+                                                                backgroundColor: '#1a3a1a',
+                                                                border: '1px solid ' + greenAccent,
+                                                                borderRadius: '4px',
+                                                                fontSize: '12px',
+                                                                color: greenAccent,
+                                                                lineHeight: '1.5',
+                                                            }
+                                                        }, 'Request submitted. Please send payment using the instructions above. We\'ll begin CAD drafting once payment is confirmed.') : null,
+                                                        // Error Message
+                                                        cadPrototypeError ? React.createElement('div', {
+                                                            style: {
+                                                                marginBottom: '16px',
+                                                                padding: '12px',
+                                                                backgroundColor: '#3a1a1a',
+                                                                border: '1px solid #ff4444',
+                                                                borderRadius: '4px',
+                                                                fontSize: '12px',
+                                                                color: '#ff4444',
+                                                            }
+                                                        }, cadPrototypeError) : null,
+                                                        // Section A: Video Direction
+                                                        React.createElement('div', {
+                                                            style: { marginBottom: '24px' }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }
+                                                            }, 'Video Direction'),
+                                                            // Bid Selection (if multiple bids)
+                                                            itemState.bids && itemState.bids.length > 1 ? React.createElement('div', {
+                                                                style: { marginBottom: '16px' }
+                                                            },
+                                                                React.createElement('label', {
+                                                                    style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }
+                                                                }, 'Select Bid ', React.createElement('span', { style: { color: '#ff4444' } }, '*')),
+                                                                React.createElement('select', {
+                                                                    value: selectedBidId || '',
+                                                                    onChange: function(e) {
+                                                                        setSelectedBidId(parseInt(e.target.value));
+                                                                        setSelectedKeywords([]);
+                                                                        setAvailableKeywords([]);
+                                                                    },
+                                                                    style: {
+                                                                        width: '100%',
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: '1px solid ' + darkBorder,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }
+                                                                },
+                                                                    React.createElement('option', { value: '' }, '-- Select a bid --'),
+                                                                    itemState.bids.map(function(bid) {
+                                                                        return React.createElement('option', {
+                                                                            key: bid.bid_id,
+                                                                            value: bid.bid_id
+                                                                        }, 'Bid #' + bid.bid_id + ' - ' + (bid.supplier_name || 'Supplier ' + bid.supplier_id));
+                                                                    })
+                                                                )
+                                                            ) : null,
+                                                            // Keyword Selection
+                                                            React.createElement('div', {
+                                                                style: { marginBottom: '16px' }
+                                                            },
+                                                                React.createElement('label', {
+                                                                    style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }
+                                                                }, 'Select Keywords (3-7 required) ', React.createElement('span', { style: { color: '#ff4444' } }, '*')),
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '11px', color: '#999', marginBottom: '8px' }
+                                                                }, 'Select between 3 and 7 keywords that describe what should be shown in the prototype video.'),
+                                                                // Keyword Chips
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        display: 'flex',
+                                                                        flexWrap: 'wrap',
+                                                                        gap: '8px',
+                                                                        minHeight: '60px',
+                                                                        padding: '12px',
+                                                                        border: '1px solid ' + darkBorder,
+                                                                        borderRadius: '4px',
+                                                                        backgroundColor: darkBg,
+                                                                    }
+                                                                },
+                                                                    availableKeywords.length === 0 ? React.createElement('div', {
+                                                                        style: { fontSize: '11px', color: '#999', fontStyle: 'italic' }
+                                                                    }, selectedBidId ? 'Loading keywords...' : 'Please select a bid first') : availableKeywords.map(function(keyword) {
+                                                                        var isSelected = selectedKeywords.indexOf(keyword.keyword_id) !== -1;
+                                                                        return React.createElement('button', {
+                                                                            key: keyword.keyword_id,
+                                                                            type: 'button',
+                                                                            onClick: function() {
+                                                                                if (isSelected) {
+                                                                                    setSelectedKeywords(selectedKeywords.filter(function(id) { return id !== keyword.keyword_id; }));
+                                                                                } else {
+                                                                                    if (selectedKeywords.length < 7) {
+                                                                                        setSelectedKeywords(selectedKeywords.concat([keyword.keyword_id]));
+                                                                                    }
+                                                                                }
+                                                                            },
+                                                                            disabled: !isSelected && selectedKeywords.length >= 7,
+                                                                            style: {
+                                                                                padding: '6px 12px',
+                                                                                backgroundColor: isSelected ? greenAccent : darkBg,
+                                                                                border: '1px solid ' + (isSelected ? greenAccent : darkBorder),
+                                                                                borderRadius: '20px',
+                                                                                color: isSelected ? darkBg : darkText,
+                                                                                fontSize: '11px',
+                                                                                fontFamily: 'monospace',
+                                                                                cursor: (!isSelected && selectedKeywords.length >= 7) ? 'not-allowed' : 'pointer',
+                                                                                opacity: (!isSelected && selectedKeywords.length >= 7) ? 0.5 : 1,
+                                                                            }
+                                                                        }, keyword.keyword);
+                                                                    })
+                                                                ),
+                                                                // Keyword Count Indicator
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        marginTop: '8px',
+                                                                        fontSize: '11px',
+                                                                        color: (selectedKeywords.length >= 3 && selectedKeywords.length <= 7) ? greenAccent : '#ff8800'
+                                                                    }
+                                                                }, selectedKeywords.length + ' of 3-7 keywords selected')
+                                                            ),
+                                                            // Note Field
+                                                            React.createElement('div', {
+                                                                style: { marginBottom: '16px' }
+                                                            },
+                                                                React.createElement('label', {
+                                                                    style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }
+                                                                }, 'Additional Note (Optional, max 240 characters)'),
+                                                                React.createElement('textarea', {
+                                                                    value: prototypeNote,
+                                                                    onChange: function(e) {
+                                                                        if (e.target.value.length <= 240) {
+                                                                            setPrototypeNote(e.target.value);
+                                                                        }
+                                                                    },
+                                                                    placeholder: 'Add any additional instructions for the prototype video...',
+                                                                    style: {
+                                                                        width: '100%',
+                                                                        minHeight: '80px',
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: '1px solid ' + darkBorder,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                        resize: 'vertical',
+                                                                    }
+                                                                }),
+                                                                React.createElement('div', {
+                                                                    style: { marginTop: '4px', fontSize: '11px', color: '#999', textAlign: 'right' }
+                                                                }, prototypeNote.length + '/240 characters')
+                                                            )
+                                                        ),
+                                                        // Section B: Costs & Policy
+                                                        selectedBidId ? (function() {
+                                                            var selectedBid = itemState.bids.find(function(b) { return b.bid_id === selectedBidId; });
+                                                            var prototypeCost = selectedBid && selectedBid.prototype_cost ? selectedBid.prototype_cost : null;
+                                                            var cadFee = 60.00;
+                                                            var totalDue = cadFee + (prototypeCost ? parseFloat(prototypeCost) : 0);
+                                                            
+                                                            return React.createElement('div', {
+                                                                style: {
+                                                                    marginBottom: '24px',
+                                                                    padding: '16px',
+                                                                    backgroundColor: '#1a1a1a',
+                                                                    border: '1px solid ' + darkBorder,
+                                                                    borderRadius: '4px',
+                                                                }
+                                                            },
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }
+                                                                }, 'Costs & Policy'),
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '12px', color: darkText, lineHeight: '1.8' }
+                                                                },
+                                                                    React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                        React.createElement('strong', null, 'CAD Drafting Fee:'), ' $60.00'
+                                                                    ),
+                                                                    React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                        React.createElement('strong', null, 'CAD Revisions Included:'), ' Up to 3 rounds'
+                                                                    ),
+                                                                    React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                        React.createElement('strong', null, 'Additional CAD Revisions:'), ' $25.00 per round (round 4+)'
+                                                                    ),
+                                                                    React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                        React.createElement('strong', null, 'Prototype video cost:'), ' ',
+                                                                        prototypeCost ? '$' + parseFloat(prototypeCost).toFixed(2) : 'Estimate not provided'
+                                                                    ),
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            marginTop: '12px',
+                                                                            paddingTop: '12px',
+                                                                            borderTop: '1px solid ' + darkBorder,
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            color: greenAccent,
+                                                                        }
+                                                                    }, 'Total due now: CAD ($60.00) + Prototype Video (' + (prototypeCost ? '$' + parseFloat(prototypeCost).toFixed(2) : '$0.00') + ') = $' + totalDue.toFixed(2))
+                                                                )
+                                                            );
+                                                        })() : null,
+                                                        // Section C: Payment Instructions
+                                                        selectedBidId ? React.createElement('div', {
+                                                            style: {
+                                                                marginBottom: '24px',
+                                                                padding: '16px',
+                                                                backgroundColor: '#1a1a1a',
+                                                                border: '1px solid ' + darkBorder,
+                                                                borderRadius: '4px',
+                                                            }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }
+                                                            }, 'WireFrameOS Payment Details'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: darkText, lineHeight: '1.8', marginBottom: '12px' }
+                                                            },
+                                                                React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                    React.createElement('strong', null, 'ACH / Wire Instructions:'), React.createElement('br'),
+                                                                    'Bank: [Bank Name]', React.createElement('br'),
+                                                                    'Account Number: [Account Number]', React.createElement('br'),
+                                                                    'Routing Number: [Routing Number]', React.createElement('br'),
+                                                                    'Account Name: WireFrameOS'
+                                                                ),
+                                                                React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                    React.createElement('strong', null, 'Zelle Instructions:'), React.createElement('br'),
+                                                                    'Email: payments@wireframeos.com', React.createElement('br'),
+                                                                    'Phone: [Phone Number]'
+                                                                ),
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        marginTop: '12px',
+                                                                        padding: '8px',
+                                                                        backgroundColor: '#2a2a2a',
+                                                                        borderRadius: '4px',
+                                                                        fontSize: '11px',
+                                                                        fontFamily: 'monospace',
+                                                                        color: greenAccent,
+                                                                    }
+                                                                },
+                                                                    React.createElement('strong', null, 'Required Reference Line:'), ' Item #' + itemId + ' + Bid #' + selectedBidId
+                                                                )
+                                                            )
+                                                        ) : null,
+                                                        // Submit Button
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                // Validation
+                                                                if (!selectedBidId) {
+                                                                    setCadPrototypeError('Please select a bid.');
+                                                                    return;
+                                                                }
+                                                                
+                                                                if (selectedKeywords.length < 3 || selectedKeywords.length > 7) {
+                                                                    setCadPrototypeError('Please select between 3 and 7 keywords.');
+                                                                    return;
+                                                                }
+
+                                                                setIsSubmittingCadPrototype(true);
+                                                                setCadPrototypeError('');
+                                                                setCadPrototypeSuccess(false);
+
+                                                                var formData = new FormData();
+                                                                formData.append('action', 'n88_create_cad_prototype_request');
+                                                                formData.append('item_id', itemId);
+                                                                formData.append('bid_id', selectedBidId);
+                                                                // Send keywords as array
+                                                                selectedKeywords.forEach(function(keywordId) {
+                                                                    formData.append('selected_keywords[]', keywordId);
+                                                                });
+                                                                formData.append('note', prototypeNote);
+                                                                // Get nonce for n88-rfq-nonce action
+                                                                var submitNonce = '';
+                                                                if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                                                                    submitNonce = window.n88BoardNonce.nonce;
+                                                                } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                                    submitNonce = window.n88BoardData.nonce;
+                                                                } else if (window.n88 && window.n88.nonce) {
+                                                                    submitNonce = window.n88.nonce;
+                                                                }
+                                                                
+                                                                if (!submitNonce) {
+                                                                    setCadPrototypeError('Nonce not found. Please refresh the page and try again.');
+                                                                    setIsSubmittingCadPrototype(false);
+                                                                    return;
+                                                                }
+                                                                
+                                                                formData.append('nonce', submitNonce);
+
+                                                                fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php', {
+                                                                    method: 'POST',
+                                                                    body: formData,
+                                                                })
+                                                                .then(function(response) { return response.json(); })
+                                                                .then(function(data) {
+                                                                    if (data.success) {
+                                                                        setCadPrototypeSuccess(true);
+                                                                        setSelectedKeywords([]);
+                                                                        setPrototypeNote('');
+                                                                        // Scroll to top of form to show success message
+                                                                        setTimeout(function() {
+                                                                            var formElement = document.getElementById('cad-prototype-form-container');
+                                                                            if (formElement) {
+                                                                                formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                            }
+                                                                        }, 100);
+                                                                    } else {
+                                                                        setCadPrototypeError((data.data && data.data.message) || 'Failed to create request. Please try again.');
+                                                                        // Scroll to top of form to show error message
+                                                                        setTimeout(function() {
+                                                                            var formElement = document.getElementById('cad-prototype-form-container');
+                                                                            if (formElement) {
+                                                                                formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                            }
+                                                                        }, 100);
+                                                                    }
+                                                                })
+                                                                .catch(function(error) {
+                                                                    setCadPrototypeError('Error submitting request. Please try again.');
+                                                                    console.error('CAD Prototype Request Error:', error);
+                                                                    // Scroll to top of form to show error message
+                                                                    setTimeout(function() {
+                                                                        var formElement = document.getElementById('cad-prototype-form-container');
+                                                                        if (formElement) {
+                                                                            formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                        }
+                                                                    }, 100);
+                                                                })
+                                                                .finally(function() {
+                                                                    setIsSubmittingCadPrototype(false);
+                                                                });
+                                                            },
+                                                            disabled: isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7,
+                                                            style: {
+                                                                width: '100%',
+                                                                padding: '12px',
+                                                                backgroundColor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#333' : greenAccent,
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                color: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#666' : darkBg,
+                                                                fontSize: '14px',
+                                                                fontFamily: 'monospace',
+                                                                fontWeight: '600',
+                                                                cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer',
+                                                            }
+                                                        }, isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request')
+                                                    ),
                                                     // Commit 2.3.6: Concierge + Delivery Banner
                                                     React.createElement('div', {
                                                         style: {
@@ -11355,12 +11895,13 @@ class N88_RFQ_Admin {
         wp_enqueue_script( 'n88-debounced-save', $plugin_url . 'assets/js/hooks/useDebouncedSave.js', array( 'n88-board-store', 'react' ), N88_RFQ_VERSION . '?v=' . time(), true );
 
         wp_localize_script( 'n88-debounced-save', 'n88BoardNonce', array(
-            'nonce' => wp_create_nonce( 'n88_rfq_nonce' ),
+            'nonce' => wp_create_nonce( 'n88-rfq-nonce' ), // Commit 2.3.9.1B: Fixed to match endpoint expectation
             'nonce_get_item_rfq_state' => wp_create_nonce( 'n88_get_item_rfq_state' ),
             'nonce_submit_rfq' => wp_create_nonce( 'n88_submit_rfq' ),
             'nonce_submit_supplier_bid' => wp_create_nonce( 'n88_submit_supplier_bid' ),
             'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
             'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
+            'nonce_get_keywords' => wp_create_nonce( 'n88_get_keywords' ), // Commit 2.3.9.1B: For CAD prototype keyword selection
         ) );
         ?>
         <div class="wrap">

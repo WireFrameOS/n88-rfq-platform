@@ -1306,8 +1306,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     // BIDS section expansion state
     const [bidsExpanded, setBidsExpanded] = React.useState(false);
     
+    // CAD Prototype Request form state (Commit 2.3.9.1B)
+    const [showCadPrototypeForm, setShowCadPrototypeForm] = React.useState(false);
+    const [selectedBidId, setSelectedBidId] = React.useState(null);
+    const [selectedKeywords, setSelectedKeywords] = React.useState([]);
+    const [prototypeNote, setPrototypeNote] = React.useState('');
+    const [availableKeywords, setAvailableKeywords] = React.useState([]);
+    const [isLoadingKeywords, setIsLoadingKeywords] = React.useState(false);
+    const [isSubmittingCadPrototype, setIsSubmittingCadPrototype] = React.useState(false);
+    const [cadPrototypeError, setCadPrototypeError] = React.useState('');
+    const [cadPrototypeSuccess, setCadPrototypeSuccess] = React.useState(false);
+    
     // Tab state for new layout
     const [activeTab, setActiveTab] = React.useState('details');
+    
+    // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
+    React.useEffect(() => {
+        if (showCadPrototypeForm && !selectedBidId && itemState.bids && itemState.bids.length === 1) {
+            setSelectedBidId(itemState.bids[0].bid_id);
+        }
+    }, [showCadPrototypeForm, itemState.bids, selectedBidId]);
     
     // Auto-expand bids in State C and set active tab
     React.useEffect(() => {
@@ -1399,6 +1417,72 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     };
     
+    // Load keywords when bid is selected (Commit 2.3.9.1B)
+    React.useEffect(() => {
+        if (!showCadPrototypeForm || !selectedBidId || !category) {
+            return;
+        }
+
+        // Get category_id from category name - we'll need to fetch it
+        // For now, try to get it from item data or fetch categories
+        const loadKeywordsForCategory = async () => {
+            setIsLoadingKeywords(true);
+            setAvailableKeywords([]);
+
+            try {
+                // First, try to get category_id - we'll need to fetch categories or use a mapping
+                // For now, let's create an endpoint that accepts category name, or fetch category_id
+                // Let me fetch categories first to get the ID
+                const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                // Get nonce for n88_get_keywords action
+                let nonce = '';
+                if (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keywords) {
+                    nonce = window.n88BoardNonce.nonce_get_keywords;
+                } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                    nonce = window.n88BoardData.nonce;
+                } else if (window.n88 && window.n88.nonce) {
+                    nonce = window.n88.nonce;
+                } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                    nonce = window.n88BoardNonce.nonce;
+                }
+                
+                if (!nonce) {
+                    console.error('Nonce not found for n88_get_keywords_by_category');
+                    setAvailableKeywords([]);
+                    setIsLoadingKeywords(false);
+                    return;
+                }
+                
+                // Use category name to fetch keywords (endpoint now accepts category_name)
+                const formData = new FormData();
+                formData.append('action', 'n88_get_keywords_by_category');
+                formData.append('category_name', category);
+                formData.append('_ajax_nonce', nonce);
+
+                const response = await fetch(ajaxUrl, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.data && data.data.keywords) {
+                    setAvailableKeywords(data.data.keywords);
+                } else {
+                    console.error('Failed to load keywords:', data.message);
+                    setAvailableKeywords([]);
+                }
+            } catch (error) {
+                console.error('Error loading keywords:', error);
+                setAvailableKeywords([]);
+            } finally {
+                setIsLoadingKeywords(false);
+            }
+        };
+
+        loadKeywordsForCategory();
+    }, [showCadPrototypeForm, selectedBidId, category]);
+
     // Update inspiration when item changes
     React.useEffect(() => {
         const validInspiration = (item.inspiration || []).filter(validateInspirationItem);
@@ -3775,6 +3859,407 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 smartAlternativesEnabled={smartAlternativesEnabled}
                                             />
                                             
+                                            {/* Request CAD + Prototype Video Button/Form (Commit 2.3.9.1B) */}
+                                            {!showCadPrototypeForm ? (
+                                                <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                                                    <button
+                                                        onClick={() => {
+                                                            // Auto-select first bid if only one bid exists
+                                                            if (itemState.bids && itemState.bids.length === 1) {
+                                                                setSelectedBidId(itemState.bids[0].bid_id);
+                                                            }
+                                                            setShowCadPrototypeForm(true);
+                                                            setCadPrototypeError('');
+                                                            setCadPrototypeSuccess(false);
+                                                        }}
+                                                        style={{
+                                                            padding: '12px 24px',
+                                                            backgroundColor: '#111111',
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            color: darkText,
+                                                            fontSize: '14px',
+                                                            fontFamily: 'monospace',
+                                                            cursor: 'pointer',
+                                                            fontWeight: '600',
+                                                        }}
+                                                    >
+                                                        Request CAD + Prototype Video
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div style={{
+                                                    marginTop: '20px',
+                                                    border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                    padding: '16px',
+                                                    backgroundColor: '#111111',
+                                                }}>
+                                                    {/* Header with Close Button */}
+                                                    <div style={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        marginBottom: '16px',
+                                                    }}>
+                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: darkText }}>
+                                                            Request CAD + Prototype Video
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowCadPrototypeForm(false);
+                                                                setSelectedBidId(null);
+                                                                setSelectedKeywords([]);
+                                                                setPrototypeNote('');
+                                                                setCadPrototypeError('');
+                                                                setCadPrototypeSuccess(false);
+                                                            }}
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: darkText,
+                                                                fontSize: '20px',
+                                                                cursor: 'pointer',
+                                                                padding: '0',
+                                                                width: '24px',
+                                                                height: '24px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                            }}
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Success Message */}
+                                                    {cadPrototypeSuccess && (
+                                                        <div style={{
+                                                            marginBottom: '16px',
+                                                            padding: '12px',
+                                                            backgroundColor: '#1a3a1a',
+                                                            border: `1px solid ${greenAccent}`,
+                                                            borderRadius: '4px',
+                                                            fontSize: '12px',
+                                                            color: greenAccent,
+                                                            lineHeight: '1.5',
+                                                        }}>
+                                                            Request submitted. Please send payment using the instructions above. We'll begin CAD drafting once payment is confirmed.
+                                                        </div>
+                                                    )}
+
+                                                    {/* Error Message */}
+                                                    {cadPrototypeError && (
+                                                        <div style={{
+                                                            marginBottom: '16px',
+                                                            padding: '12px',
+                                                            backgroundColor: '#3a1a1a',
+                                                            border: '1px solid #ff4444',
+                                                            borderRadius: '4px',
+                                                            fontSize: '12px',
+                                                            color: '#ff4444',
+                                                        }}>
+                                                            {cadPrototypeError}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Section A: Video Direction */}
+                                                    <div style={{ marginBottom: '24px' }}>
+                                                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }}>
+                                                            Video Direction
+                                                        </div>
+                                                        
+                                                        {/* Bid Selection (if multiple bids) */}
+                                                        {itemState.bids && itemState.bids.length > 1 && (
+                                                            <div style={{ marginBottom: '16px' }}>
+                                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }}>
+                                                                    Select Bid <span style={{ color: '#ff4444' }}>*</span>
+                                                                </label>
+                                                                <select
+                                                                    value={selectedBidId || ''}
+                                                                    onChange={(e) => {
+                                                                        setSelectedBidId(parseInt(e.target.value));
+                                                                        setSelectedKeywords([]);
+                                                                        setAvailableKeywords([]);
+                                                                    }}
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                >
+                                                                    <option value="">-- Select a bid --</option>
+                                                                    {itemState.bids.map((bid) => (
+                                                                        <option key={bid.bid_id} value={bid.bid_id}>
+                                                                            Bid #{bid.bid_id} - {bid.supplier_name || `Supplier ${bid.supplier_id}`}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Keyword Selection */}
+                                                        <div style={{ marginBottom: '16px' }}>
+                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }}>
+                                                                Select Keywords (3-7 required) <span style={{ color: '#ff4444' }}>*</span>
+                                                            </label>
+                                                            <div style={{ fontSize: '11px', color: '#999', marginBottom: '8px' }}>
+                                                                Select between 3 and 7 keywords that describe what should be shown in the prototype video.
+                                                            </div>
+                                                            
+                                                            {/* Keyword Chips */}
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                flexWrap: 'wrap',
+                                                                gap: '8px',
+                                                                minHeight: '60px',
+                                                                padding: '12px',
+                                                                border: `1px solid ${darkBorder}`,
+                                                                borderRadius: '4px',
+                                                                backgroundColor: darkBg,
+                                                            }}>
+                                                                {availableKeywords.length === 0 ? (
+                                                                    <div style={{ fontSize: '11px', color: '#999', fontStyle: 'italic' }}>
+                                                                        {selectedBidId ? 'Loading keywords...' : 'Please select a bid first'}
+                                                                    </div>
+                                                                ) : (
+                                                                    availableKeywords.map((keyword) => {
+                                                                        const isSelected = selectedKeywords.includes(keyword.keyword_id);
+                                                                        return (
+                                                                            <button
+                                                                                key={keyword.keyword_id}
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (isSelected) {
+                                                                                        setSelectedKeywords(selectedKeywords.filter(id => id !== keyword.keyword_id));
+                                                                                    } else {
+                                                                                        if (selectedKeywords.length < 7) {
+                                                                                            setSelectedKeywords([...selectedKeywords, keyword.keyword_id]);
+                                                                                        }
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!isSelected && selectedKeywords.length >= 7}
+                                                                                style={{
+                                                                                    padding: '6px 12px',
+                                                                                    backgroundColor: isSelected ? greenAccent : darkBg,
+                                                                                    border: `1px solid ${isSelected ? greenAccent : darkBorder}`,
+                                                                                    borderRadius: '20px',
+                                                                                    color: isSelected ? darkBg : darkText,
+                                                                                    fontSize: '11px',
+                                                                                    fontFamily: 'monospace',
+                                                                                    cursor: (!isSelected && selectedKeywords.length >= 7) ? 'not-allowed' : 'pointer',
+                                                                                    opacity: (!isSelected && selectedKeywords.length >= 7) ? 0.5 : 1,
+                                                                                }}
+                                                                            >
+                                                                                {keyword.keyword}
+                                                                            </button>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {/* Keyword Count Indicator */}
+                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: selectedKeywords.length >= 3 && selectedKeywords.length <= 7 ? greenAccent : '#ff8800' }}>
+                                                                {selectedKeywords.length} of 3-7 keywords selected
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Note Field */}
+                                                        <div style={{ marginBottom: '16px' }}>
+                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }}>
+                                                                Additional Note (Optional, max 240 characters)
+                                                            </label>
+                                                            <textarea
+                                                                value={prototypeNote}
+                                                                onChange={(e) => {
+                                                                    if (e.target.value.length <= 240) {
+                                                                        setPrototypeNote(e.target.value);
+                                                                    }
+                                                                }}
+                                                                placeholder="Add any additional instructions for the prototype video..."
+                                                                style={{
+                                                                    width: '100%',
+                                                                    minHeight: '80px',
+                                                                    padding: '8px',
+                                                                    backgroundColor: darkBg,
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    color: darkText,
+                                                                    fontSize: '12px',
+                                                                    fontFamily: 'monospace',
+                                                                    resize: 'vertical',
+                                                                }}
+                                                            />
+                                                            <div style={{ marginTop: '4px', fontSize: '11px', color: '#999', textAlign: 'right' }}>
+                                                                {prototypeNote.length}/240 characters
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Section B: Costs & Policy */}
+                                                    {selectedBidId && (() => {
+                                                        const selectedBid = itemState.bids.find(b => b.bid_id === selectedBidId);
+                                                        const prototypeCost = selectedBid?.prototype_cost || null;
+                                                        const cadFee = 60.00;
+                                                        const totalDue = cadFee + (prototypeCost ? parseFloat(prototypeCost) : 0);
+                                                        
+                                                        return (
+                                                            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: `1px solid ${darkBorder}`, borderRadius: '4px' }}>
+                                                                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }}>
+                                                                    Costs & Policy
+                                                                </div>
+                                                                <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.8' }}>
+                                                                    <div style={{ marginBottom: '8px' }}>
+                                                                        <strong>CAD Drafting Fee:</strong> $60.00
+                                                                    </div>
+                                                                    <div style={{ marginBottom: '8px' }}>
+                                                                        <strong>CAD Revisions Included:</strong> Up to 3 rounds
+                                                                    </div>
+                                                                    <div style={{ marginBottom: '8px' }}>
+                                                                        <strong>Additional CAD Revisions:</strong> $25.00 per round (round 4+)
+                                                                    </div>
+                                                                    <div style={{ marginBottom: '8px' }}>
+                                                                        <strong>Prototype video cost:</strong> {prototypeCost ? `$${parseFloat(prototypeCost).toFixed(2)}` : 'Estimate not provided'}
+                                                                    </div>
+                                                                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}`, fontSize: '13px', fontWeight: '600', color: greenAccent }}>
+                                                                        Total due now: CAD ($60.00) + Prototype Video ({prototypeCost ? `$${parseFloat(prototypeCost).toFixed(2)}` : '$0.00'}) = ${totalDue.toFixed(2)}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Section C: Payment Instructions */}
+                                                    {selectedBidId && (
+                                                        <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: `1px solid ${darkBorder}`, borderRadius: '4px' }}>
+                                                            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }}>
+                                                                WireFrameOS Payment Details
+                                                            </div>
+                                                            <div style={{ fontSize: '12px', color: darkText, lineHeight: '1.8', marginBottom: '12px' }}>
+                                                                <div style={{ marginBottom: '8px' }}>
+                                                                    <strong>ACH / Wire Instructions:</strong><br />
+                                                                    Bank: [Bank Name]<br />
+                                                                    Account Number: [Account Number]<br />
+                                                                    Routing Number: [Routing Number]<br />
+                                                                    Account Name: WireFrameOS
+                                                                </div>
+                                                                <div style={{ marginBottom: '8px' }}>
+                                                                    <strong>Zelle Instructions:</strong><br />
+                                                                    Email: payments@wireframeos.com<br />
+                                                                    Phone: [Phone Number]
+                                                                </div>
+                                                                <div style={{ marginTop: '12px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', color: greenAccent }}>
+                                                                    <strong>Required Reference Line:</strong> Item #{itemId} + Bid #{selectedBidId}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Submit Button */}
+                                                    <button
+                                                        onClick={async () => {
+                                                            // Validation
+                                                            if (!selectedBidId) {
+                                                                setCadPrototypeError('Please select a bid.');
+                                                                return;
+                                                            }
+                                                            
+                                                            if (selectedKeywords.length < 3 || selectedKeywords.length > 7) {
+                                                                setCadPrototypeError('Please select between 3 and 7 keywords.');
+                                                                return;
+                                                            }
+
+                                                            setIsSubmittingCadPrototype(true);
+                                                            setCadPrototypeError('');
+                                                            setCadPrototypeSuccess(false);
+
+                                                            try {
+                                                                const formData = new FormData();
+                                                                formData.append('action', 'n88_create_cad_prototype_request');
+                                                                formData.append('item_id', itemId);
+                                                                formData.append('bid_id', selectedBidId);
+                                                                // Send keywords as array (endpoint expects selected_keywords[])
+                                                                selectedKeywords.forEach(keywordId => {
+                                                                    formData.append('selected_keywords[]', keywordId);
+                                                                });
+                                                                formData.append('note', prototypeNote);
+                                                                // Get nonce for n88-rfq-nonce action
+                                                                let submitNonce = '';
+                                                                if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                                                                    submitNonce = window.n88BoardNonce.nonce;
+                                                                } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                                    submitNonce = window.n88BoardData.nonce;
+                                                                } else if (window.n88 && window.n88.nonce) {
+                                                                    submitNonce = window.n88.nonce;
+                                                                }
+                                                                
+                                                                if (!submitNonce) {
+                                                                    setCadPrototypeError('Nonce not found. Please refresh the page and try again.');
+                                                                    setIsSubmittingCadPrototype(false);
+                                                                    return;
+                                                                }
+                                                                
+                                                                formData.append('nonce', submitNonce);
+
+                                                                const response = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', {
+                                                                    method: 'POST',
+                                                                    body: formData,
+                                                                });
+
+                                                                const data = await response.json();
+
+                                                                if (data.success) {
+                                                                    setCadPrototypeSuccess(true);
+                                                                    setSelectedKeywords([]);
+                                                                    setPrototypeNote('');
+                                                                    // Scroll to top of form to show success message
+                                                                    setTimeout(() => {
+                                                                        const formElement = document.getElementById('cad-prototype-form-container');
+                                                                        if (formElement) {
+                                                                            formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                        }
+                                                                    }, 100);
+                                                                } else {
+                                                                    setCadPrototypeError(data.data?.message || 'Failed to create request. Please try again.');
+                                                                    // Scroll to top of form to show error message
+                                                                    setTimeout(() => {
+                                                                        const formElement = document.getElementById('cad-prototype-form-container');
+                                                                        if (formElement) {
+                                                                            formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                        }
+                                                                    }, 100);
+                                                                }
+                                                            } catch (error) {
+                                                                setCadPrototypeError('Error submitting request. Please try again.');
+                                                                console.error('CAD Prototype Request Error:', error);
+                                                            } finally {
+                                                                setIsSubmittingCadPrototype(false);
+                                                            }
+                                                        }}
+                                                        disabled={isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '12px',
+                                                            backgroundColor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#333' : greenAccent,
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            color: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#666' : darkBg,
+                                                            fontSize: '14px',
+                                                            fontFamily: 'monospace',
+                                                            fontWeight: '600',
+                                                            cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer',
+                                                        }}
+                                                    >
+                                                        {isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request'}
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             {/* Concierge + Delivery Banner */}
                                             <div style={{
                                                 marginTop: '20px',

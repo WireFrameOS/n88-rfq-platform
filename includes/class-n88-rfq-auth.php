@@ -2220,6 +2220,7 @@ class N88_RFQ_Auth {
                             
                             return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
                                 '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid</div>' +
+                                (bid.has_prototype_request ? '<div style="background-color: #1a3a1a; border: 1px solid #00ff00; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #00ff00; line-height: 1.5;">Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div>' : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
@@ -6865,18 +6866,35 @@ class N88_RFQ_Auth {
         }
 
         $current_user = wp_get_current_user();
-        if ( ! in_array( 'n88_supplier_admin', $current_user->roles, true ) ) {
+        // Commit 2.3.9.1B: Allow designers to access keywords for video direction
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_designer ) {
             wp_send_json_error( array( 'message' => 'Access denied.' ) );
         }
 
         $category_id = isset( $_POST['category_id'] ) ? intval( $_POST['category_id'] ) : 0;
-
-        if ( ! $category_id ) {
-            wp_send_json_error( array( 'message' => 'Category ID required.' ) );
-        }
+        $category_name = isset( $_POST['category_name'] ) ? sanitize_text_field( wp_unslash( $_POST['category_name'] ) ) : '';
 
         global $wpdb;
         $keywords_table = $wpdb->prefix . 'n88_keywords';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+
+        // If category_id not provided, try to get it from category_name (Commit 2.3.9.1B)
+        if ( ! $category_id && ! empty( $category_name ) ) {
+            $category = $wpdb->get_row( $wpdb->prepare(
+                "SELECT category_id FROM {$categories_table} WHERE name = %s LIMIT 1",
+                $category_name
+            ) );
+            if ( $category ) {
+                $category_id = intval( $category->category_id );
+            }
+        }
+
+        if ( ! $category_id ) {
+            wp_send_json_error( array( 'message' => 'Category ID or Category Name required.' ) );
+        }
 
         $keywords = $wpdb->get_results( $wpdb->prepare(
             "SELECT keyword_id, keyword FROM {$keywords_table} WHERE category_id = %d AND is_active = 1 ORDER BY keyword",
@@ -8108,6 +8126,25 @@ class N88_RFQ_Auth {
                         }
                     }
                     
+                    // Commit 2.3.9.1B: Check if CAD prototype request exists for this bid
+                    $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+                    $has_prototype_request = false;
+                    $prototype_request_status = null;
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+                        $prototype_request = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT status FROM {$prototype_payments_table}
+                            WHERE bid_id = %d AND item_id = %d
+                            ORDER BY created_at DESC
+                            LIMIT 1",
+                            $bid_id,
+                            $item_id
+                        ) );
+                        if ( $prototype_request ) {
+                            $has_prototype_request = true;
+                            $prototype_request_status = $prototype_request->status;
+                        }
+                    }
+                    
                     $bid_data = array(
                         'unit_price' => $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null,
                         'production_lead_time' => $existing_bid['production_lead_time_text'] ? sanitize_text_field( $existing_bid['production_lead_time_text'] ) : null,
@@ -8120,6 +8157,8 @@ class N88_RFQ_Auth {
                         'bid_photos' => $photo_urls,
                         'created_at' => $bid_created_at,
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
+                        'has_prototype_request' => $has_prototype_request, // Commit 2.3.9.1B: Flag for CAD prototype request
+                        'prototype_request_status' => $prototype_request_status, // Commit 2.3.9.1B: Status of prototype request
                     );
                 } else {
                     // No submitted bid - check for drafts
@@ -11066,7 +11105,21 @@ class N88_RFQ_Auth {
         // Get and validate input
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
-        $selected_keywords = isset( $_POST['selected_keywords'] ) ? $_POST['selected_keywords'] : array();
+        
+        // Handle selected_keywords as array (from FormData with selected_keywords[])
+        $selected_keywords = array();
+        if ( isset( $_POST['selected_keywords'] ) ) {
+            if ( is_array( $_POST['selected_keywords'] ) ) {
+                $selected_keywords = $_POST['selected_keywords'];
+            } elseif ( is_string( $_POST['selected_keywords'] ) ) {
+                // Handle JSON string format (fallback)
+                $decoded = json_decode( wp_unslash( $_POST['selected_keywords'] ), true );
+                if ( is_array( $decoded ) ) {
+                    $selected_keywords = $decoded;
+                }
+            }
+        }
+        
         $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
 
         // Validate required fields
@@ -11136,6 +11189,7 @@ class N88_RFQ_Auth {
         $prototype_video_cost_estimate = $bid->prototype_cost ? floatval( $bid->prototype_cost ) : null;
 
         // Validate keywords exist (optional check, but good for data integrity)
+        // Note: $selected_keywords already cleaned above (lines 11115-11117)
         if ( ! empty( $selected_keywords ) ) {
             $keywords_placeholders = implode( ',', array_fill( 0, count( $selected_keywords ), '%d' ) );
             $valid_keywords = $wpdb->get_col( $wpdb->prepare(
