@@ -12129,7 +12129,7 @@ class N88_RFQ_Auth {
                                                         Message Threads
                                                     </button>
                                                     <?php if ( $request['status'] === 'requested' ) : ?>
-                                                        <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-designer-id="<?php echo esc_attr( $request['designer_user_id'] ); ?>" data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                        <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $request['total_due_usd'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                             Mark Payment Received
                                                         </button>
                                                     <?php else : ?>
@@ -12210,6 +12210,37 @@ class N88_RFQ_Auth {
                         </div>
                     </div>
                 <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Commit 2.3.9.1D: Payment Confirmation Modal -->
+        <div id="n88-payment-confirm-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10001; overflow-y: auto;">
+            <div style="max-width: 500px; margin: 100px auto; padding: 20px; background-color: #000; border: 2px solid #00ff00; font-family: 'Courier New', Courier, monospace;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #00ff00; padding-bottom: 10px;">
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #00ff00;">Confirm Payment Received</h2>
+                    <button id="n88-close-payment-confirm-modal" style="background: none; border: none; color: #00ff00; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+                </div>
+                <div style="color: #fff; font-size: 12px; margin-bottom: 20px;">
+                    <div style="margin-bottom: 12px;">
+                        <span style="color: #00ff00;">Item #</span><span id="n88-confirm-item-id" style="margin-left: 8px;"></span>
+                        <span style="color: #00ff00; margin-left: 16px;">Bid #</span><span id="n88-confirm-bid-id" style="margin-left: 8px;"></span>
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <span style="color: #00ff00;">Total Due:</span>
+                        <span id="n88-confirm-total-due" style="margin-left: 8px; font-weight: 600; font-size: 14px;"></span>
+                    </div>
+                    <div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ff8800; border-radius: 4px; color: #ffaa00; font-size: 11px; line-height: 1.5;">
+                        <strong>Warning:</strong> This confirms offline payment and unlocks the next CAD drafting step (future commit).
+                    </div>
+                </div>
+                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+                    <button id="n88-cancel-payment-confirm" style="padding: 8px 16px; background-color: #333; color: #fff; border: 1px solid #666; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#444';" onmouseout="this.style.backgroundColor='#333';">
+                        Cancel
+                    </button>
+                    <button id="n88-confirm-payment-received" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                        Confirm Payment Received
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -12558,33 +12589,85 @@ class N88_RFQ_Auth {
                 });
             }
 
-            // Commit 2.3.9.1C-a: Mark Payment Received
+            // Commit 2.3.9.1D: Mark Payment Received with Confirmation Modal
+            var paymentConfirmModal = document.getElementById('n88-payment-confirm-modal');
+            var closePaymentConfirmModal = document.getElementById('n88-close-payment-confirm-modal');
+            var cancelPaymentConfirm = document.getElementById('n88-cancel-payment-confirm');
+            var confirmPaymentReceived = document.getElementById('n88-confirm-payment-received');
+            var currentPaymentBtn = null;
+            
+            // Close modal handlers
+            if (closePaymentConfirmModal) {
+                closePaymentConfirmModal.addEventListener('click', function() {
+                    if (paymentConfirmModal) paymentConfirmModal.style.display = 'none';
+                });
+            }
+            
+            if (cancelPaymentConfirm) {
+                cancelPaymentConfirm.addEventListener('click', function() {
+                    if (paymentConfirmModal) paymentConfirmModal.style.display = 'none';
+                });
+            }
+            
+            // Click outside modal to close
+            if (paymentConfirmModal) {
+                paymentConfirmModal.addEventListener('click', function(e) {
+                    if (e.target === paymentConfirmModal) {
+                        paymentConfirmModal.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Mark Payment Received button click
             var markPaymentBtns = document.querySelectorAll('.n88-mark-payment-received-btn');
             markPaymentBtns.forEach(function(btn) {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
                     
-                    if (!confirm('Mark this payment as received? This will update the status and send notifications to the designer and supplier.')) {
-                        return;
-                    }
-                    
                     var paymentId = this.getAttribute('data-payment-id');
                     var itemId = this.getAttribute('data-item-id');
                     var bidId = this.getAttribute('data-bid-id');
-                    var designerId = this.getAttribute('data-designer-id');
-                    var supplierId = this.getAttribute('data-supplier-id');
+                    var totalDue = this.getAttribute('data-total-due');
                     
-                    var originalText = this.textContent;
-                    this.disabled = true;
-                    this.textContent = '[ Processing... ]';
+                    // Populate modal
+                    document.getElementById('n88-confirm-item-id').textContent = itemId;
+                    document.getElementById('n88-confirm-bid-id').textContent = bidId;
+                    document.getElementById('n88-confirm-total-due').textContent = '$' + parseFloat(totalDue).toFixed(2);
+                    
+                    // Store button reference
+                    currentPaymentBtn = this;
+                    currentPaymentBtn.paymentId = paymentId;
+                    currentPaymentBtn.itemId = itemId;
+                    currentPaymentBtn.bidId = bidId;
+                    
+                    // Show modal
+                    if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
+                });
+            });
+            
+            // Confirm Payment Received button in modal
+            if (confirmPaymentReceived) {
+                confirmPaymentReceived.addEventListener('click', function() {
+                    if (!currentPaymentBtn) return;
+                    
+                    var paymentId = currentPaymentBtn.paymentId;
+                    var itemId = currentPaymentBtn.itemId;
+                    var bidId = currentPaymentBtn.bidId;
+                    var btn = currentPaymentBtn;
+                    
+                    // Close modal
+                    if (paymentConfirmModal) paymentConfirmModal.style.display = 'none';
+                    
+                    // Disable button and show processing
+                    var originalText = btn.textContent;
+                    btn.disabled = true;
+                    btn.textContent = '[ Processing... ]';
                     
                     var formData = new FormData();
                     formData.append('action', 'n88_mark_payment_received');
                     formData.append('payment_id', paymentId);
                     formData.append('item_id', itemId);
                     formData.append('bid_id', bidId);
-                    formData.append('designer_id', designerId);
-                    formData.append('supplier_id', supplierId);
                     formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_mark_payment_received' ) ); ?>');
                     
                     fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
@@ -12623,8 +12706,11 @@ class N88_RFQ_Auth {
                         btn.disabled = false;
                         btn.textContent = originalText;
                     });
+                    
+                    // Reset reference
+                    currentPaymentBtn = null;
                 });
-            });
+            }
             
             // Auto-refresh every 30 seconds
             var autoRefreshInterval = setInterval(function() {
@@ -13374,7 +13460,7 @@ class N88_RFQ_Auth {
     }
     
     /**
-     * AJAX handler to mark payment as received (Commit 2.3.9.1C-a)
+     * AJAX handler to mark payment as received (Commit 2.3.9.1D)
      */
     public function ajax_mark_payment_received() {
         check_ajax_referer( 'n88_mark_payment_received', '_ajax_nonce' );
@@ -13395,27 +13481,56 @@ class N88_RFQ_Auth {
         $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
-        $designer_id = isset( $_POST['designer_id'] ) ? absint( $_POST['designer_id'] ) : 0;
-        $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
         
-        if ( ! $payment_id || ! $item_id || ! $designer_id || ! $supplier_id ) {
+        if ( ! $payment_id || ! $item_id ) {
             wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
             return;
         }
 
         global $wpdb;
         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
-        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        
+        // Fetch current payment record to check status and get total_due_usd
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT status, total_due_usd FROM {$prototype_payments_table} WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+        
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+        
+        // Idempotency check: status must be 'requested'
+        if ( $payment['status'] !== 'requested' ) {
+            wp_send_json_error( array( 'message' => 'Payment has already been confirmed or is in an invalid state.' ) );
+            return;
+        }
+        
+        $total_due_usd = floatval( $payment['total_due_usd'] );
+        
+        // Check if updated_at column exists
+        $columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        $has_updated_at = in_array( 'updated_at', $columns, true );
+        
+        // Prepare update data
+        $update_data = array( 
+            'status' => 'marked_received',
+            'received_at' => current_time( 'mysql' )
+        );
+        $update_format = array( '%s', '%s' );
+        
+        if ( $has_updated_at ) {
+            $update_data['updated_at'] = current_time( 'mysql' );
+            $update_format[] = '%s';
+        }
         
         // Update payment status and set received_at timestamp
         $update_result = $wpdb->update(
             $prototype_payments_table,
-            array( 
-                'status' => 'marked_received',
-                'received_at' => current_time( 'mysql' )
-            ),
+            $update_data,
             array( 'id' => $payment_id ),
-            array( '%s', '%s' ),
+            $update_format,
             array( '%d' )
         );
 
@@ -13424,7 +13539,7 @@ class N88_RFQ_Auth {
             return;
         }
 
-        // Log event
+        // Log event (Commit 2.3.9.1D: Exact payload structure)
         n88_log_event(
             'payment_marked_received',
             'prototype_payment',
@@ -13435,86 +13550,17 @@ class N88_RFQ_Auth {
                     'payment_id' => $payment_id,
                     'item_id' => $item_id,
                     'bid_id' => $bid_id,
-                    'operator_id' => $current_user->ID,
+                    'operator_user_id' => $current_user->ID,
+                    'total_due_usd' => $total_due_usd,
                     'timestamp' => current_time( 'mysql' ),
                 ),
             )
         );
 
-        // Send message to Designer
-        $designer_message = "Request submitted. Payment confirmed. CAD drafting in progress.";
-        $wpdb->insert(
-            $messages_table,
-            array(
-                'item_id' => $item_id,
-                'bid_id' => $bid_id,
-                'sender_user_id' => $current_user->ID,
-                'recipient_user_id' => $designer_id,
-                'sender_type' => 'operator',
-                'recipient_type' => 'designer',
-                'thread_type' => 'designer_operator',
-                'message' => $designer_message,
-                'category' => 'Payment Confirmation',
-                'is_read' => 0,
-                'created_at' => current_time( 'mysql' ),
-            ),
-            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
-        );
-        
-        // Log event for designer message
-        n88_log_event(
-            'item_message_sent',
-            'item_message',
-            array(
-                'object_id' => $wpdb->insert_id,
-                'item_id' => $item_id,
-                'payload_json' => array(
-                    'thread_type' => 'designer_operator',
-                    'sender_role' => 'operator',
-                    'recipient_role' => 'designer',
-                    'message_category' => 'Payment Confirmation',
-                ),
-            )
-        );
-
-        // Send message to Supplier
-        $supplier_message = "Prototype requested. Payment confirmed. Awaiting final CAD approval. You will receive approved CAD + direction before filming begins.";
-        $wpdb->insert(
-            $messages_table,
-            array(
-                'item_id' => $item_id,
-                'bid_id' => $bid_id,
-                'sender_user_id' => $current_user->ID,
-                'recipient_user_id' => $supplier_id,
-                'sender_type' => 'operator',
-                'recipient_type' => 'supplier',
-                'thread_type' => 'supplier_operator',
-                'message' => $supplier_message,
-                'category' => 'Payment Confirmation',
-                'is_read' => 0,
-                'created_at' => current_time( 'mysql' ),
-            ),
-            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
-        );
-        
-        // Log event for supplier message
-        n88_log_event(
-            'item_message_sent',
-            'item_message',
-            array(
-                'object_id' => $wpdb->insert_id,
-                'item_id' => $item_id,
-                'payload_json' => array(
-                    'thread_type' => 'supplier_operator',
-                    'sender_role' => 'operator',
-                    'recipient_role' => 'supplier',
-                    'message_category' => 'Payment Confirmation',
-                ),
-            )
-        );
+        // Commit 2.3.9.1D: No notifications in this commit (removed message sending)
 
         wp_send_json_success( array( 
-            'message' => 'Payment marked as received. Notifications sent to designer and supplier.',
+            'message' => 'Payment marked as received successfully.',
             'status' => 'marked_received'
         ) );
     }
