@@ -80,6 +80,20 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.9.1C: Operator Queue - Get case details
         add_action( 'wp_ajax_n88_get_operator_case_details', array( $this, 'ajax_get_operator_case_details' ) );
+        
+        // Commit 2.3.9.1C-a: Item Messages - Get and Send messages
+        add_action( 'wp_ajax_n88_get_item_messages', array( $this, 'ajax_get_item_messages' ) );
+        add_action( 'wp_ajax_n88_send_item_message', array( $this, 'ajax_send_item_message' ) );
+        
+        // Commit 2.3.9.1C-a: Mark payment received
+        add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
+        
+        // Commit 2.3.9.1C-B: RFQ Clarifications
+        add_action( 'wp_ajax_n88_create_clarification', array( $this, 'ajax_create_clarification' ) );
+        add_action( 'wp_ajax_n88_get_clarifications', array( $this, 'ajax_get_clarifications' ) );
+        add_action( 'wp_ajax_n88_reply_to_clarification', array( $this, 'ajax_reply_to_clarification' ) );
+        add_action( 'wp_ajax_n88_forward_clarification_to_designer', array( $this, 'ajax_forward_clarification_to_designer' ) );
+        add_action( 'wp_ajax_n88_close_clarification', array( $this, 'ajax_close_clarification' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -1680,27 +1694,31 @@ class N88_RFQ_Auth {
                                         <?php echo esc_html( $category ); ?>
                                     </td>
                                     <td style="padding: 12px; font-size: 12px;">
-                                        <?php if ( ! $is_expired ) : ?>
-                                            <button class="n88-open-bid-modal" 
-                                                    data-item-id="<?php echo esc_attr( $item_id ); ?>" 
-                                                    data-item-title="<?php echo esc_attr( $item_title ); ?>" 
-                                                    data-category="<?php echo esc_attr( $category ); ?>"
-                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
-                                                    style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer; margin-right: 10px;" 
-                                                    onmouseover="this.style.backgroundColor='#333';" 
-                                                    onmouseout="this.style.backgroundColor='#000';">
-                                                [ <?php echo esc_html( $action_button_text ); ?> ]
-                                        </button>
-                                        <?php else : ?>
-                                            <span style="color: #999; font-size: 11px;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
-                                        <?php endif; ?>
-                                        <span style="color: #fff; font-size: 11px; margin-left: 5px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
-                                        <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
-                                            <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
-                                        <?php endif; ?>
-                                        <?php if ( $item_data['time_remaining'] ) : ?>
-                                            <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
-                                        <?php endif; ?>
+                                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                            <?php if ( ! $is_expired ) : ?>
+                                                <button class="n88-open-bid-modal" 
+                                                        data-item-id="<?php echo esc_attr( $item_id ); ?>" 
+                                                        data-item-title="<?php echo esc_attr( $item_title ); ?>" 
+                                                        data-category="<?php echo esc_attr( $category ); ?>"
+                                                        data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                                        style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer;" 
+                                                        onmouseover="this.style.backgroundColor='#333';" 
+                                                        onmouseout="this.style.backgroundColor='#000';">
+                                                    [ <?php echo esc_html( $action_button_text ); ?> ]
+                                                </button>
+                                            <?php else : ?>
+                                                <span style="color: #999; font-size: 11px;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div style="margin-top: 5px;">
+                                            <span style="color: #fff; font-size: 11px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
+                                            <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
+                                                <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
+                                            <?php endif; ?>
+                                            <?php if ( $item_data['time_remaining'] ) : ?>
+                                                <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
+                                            <?php endif; ?>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -1859,7 +1877,295 @@ class N88_RFQ_Auth {
                     });
                 }
                 
+                // Commit 2.3.9.1C-a: Attach event listeners to Request Clarification buttons
+                var clarificationButtons = document.querySelectorAll('.n88-open-clarification-modal');
+                clarificationButtons.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var itemId = this.getAttribute('data-item-id');
+                        var itemTitle = this.getAttribute('data-item-title') || 'Item #' + itemId;
+                        openSupplierClarificationModal(itemId, itemTitle);
+                    });
+                });
             });
+            
+            // Commit 2.3.9.1C-a: Toggle Supplier Clarification Section
+            function toggleSupplierClarification(itemId) {
+                var formContainer = document.getElementById('n88-supplier-clarification-form-' + itemId);
+                if (!formContainer) return;
+                
+                if (formContainer.style.display === 'none') {
+                    formContainer.style.display = 'block';
+                    loadSupplierMessagesInline(itemId);
+                } else {
+                    formContainer.style.display = 'none';
+                }
+            }
+            
+            // Commit 2.3.9.1C-a: Load Supplier Messages (Inline)
+            function loadSupplierMessagesInline(itemId) {
+                var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
+                if (!messagesContainer) return;
+                
+                messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>';
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_get_item_messages');
+                formData.append('item_id', itemId);
+                formData.append('thread_type', 'supplier_operator');
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_item_messages' ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success && data.data && data.data.messages) {
+                        renderSupplierMessagesInline(data.data.messages, itemId);
+                    } else {
+                        messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No messages yet. Start the conversation!</div>';
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error loading messages:', error);
+                    messagesContainer.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading messages. Please try again.</div>';
+                });
+            }
+            
+            // Commit 2.3.9.1C-a: Render Supplier Messages (Inline)
+            function renderSupplierMessagesInline(messages, itemId) {
+                var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
+                if (!messagesContainer || !messages || messages.length === 0) {
+                    messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No messages yet. Start the conversation!</div>';
+                    return;
+                }
+                
+                var html = '';
+                messages.forEach(function(msg) {
+                    var isSupplier = msg.sender_role === 'supplier';
+                    var senderName = isSupplier ? 'You' : 'Operator';
+                    var alignClass = isSupplier ? 'right' : 'left';
+                    var bgColor = isSupplier ? '#003300' : '#001100';
+                    var borderColor = isSupplier ? '#00ff00' : '#00aa00';
+                    
+                    var date = new Date(msg.created_at);
+                    var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    
+                    html += '<div style="margin-bottom: 15px; text-align: ' + alignClass + ';">';
+                    html += '<div style="display: inline-block; max-width: 70%; padding: 10px 15px; background-color: ' + bgColor + '; border: 1px solid ' + borderColor + '; border-radius: 4px; font-size: 11px; color: #fff;">';
+                    html += '<div style="font-weight: bold; color: #00ff00; margin-bottom: 5px;">' + senderName + (msg.category ? ' [' + msg.category + ']' : '') + '</div>';
+                    html += '<div style="white-space: pre-wrap; word-wrap: break-word;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 10px; color: #666; margin-top: 5px;">' + dateStr + '</div>';
+                    html += '</div>';
+                    html += '</div>';
+                });
+                
+                messagesContainer.innerHTML = html;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+            
+            // Commit 2.3.9.1C-a: Send Supplier Clarification (Inline)
+            function sendSupplierClarificationInline(event, itemId) {
+                event.preventDefault();
+                
+                var messageText = document.getElementById('n88-clarification-message-' + itemId);
+                var category = document.getElementById('n88-clarification-category-' + itemId);
+                
+                if (!messageText || !messageText.value.trim()) {
+                    alert('Please enter a message.');
+                    return false;
+                }
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_send_item_message');
+                formData.append('item_id', itemId);
+                formData.append('thread_type', 'supplier_operator');
+                formData.append('message_text', messageText.value.trim());
+                formData.append('category', category ? category.value : '');
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_send_item_message' ); ?>');
+                
+                // Disable form
+                var submitBtn = event.target.querySelector('button[type="submit"]');
+                var originalText = submitBtn ? submitBtn.textContent : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Sending... ]';
+                }
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        // Clear form
+                        messageText.value = '';
+                        if (category) category.value = '';
+                        
+                        // Reload messages
+                        loadSupplierMessagesInline(itemId);
+                    } else {
+                        alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
+                    }
+                    
+                    // Re-enable form
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error sending message:', error);
+                    alert('An error occurred. Please try again.');
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+                
+                return false;
+            }
+            
+            // Commit 2.3.9.1C-B: Toggle RFQ Clarification Form
+            function toggleRfqClarification(itemId, bidId) {
+                var formContainer = document.getElementById('n88-rfq-clarification-form-' + itemId);
+                if (!formContainer) return;
+                
+                if (formContainer.style.display === 'none') {
+                    formContainer.style.display = 'block';
+                    loadRfqClarifications(itemId, bidId);
+                } else {
+                    formContainer.style.display = 'none';
+                }
+            }
+            
+            // Commit 2.3.9.1C-B: Load RFQ Clarifications
+            function loadRfqClarifications(itemId, bidId) {
+                var container = document.getElementById('n88-rfq-clarifications-list-' + itemId);
+                if (!container) return;
+                
+                container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>';
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_get_clarifications');
+                formData.append('item_id', itemId);
+                if (bidId) formData.append('bid_id', bidId);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_clarifications' ) ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success && data.data && data.data.clarifications) {
+                        renderRfqClarifications(data.data.clarifications, itemId);
+                    } else {
+                        container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No clarifications yet.</div>';
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error loading clarifications:', error);
+                    container.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading clarifications.</div>';
+                });
+            }
+            
+            // Commit 2.3.9.1C-B: Render RFQ Clarifications
+            function renderRfqClarifications(clarifications, itemId) {
+                var container = document.getElementById('n88-rfq-clarifications-list-' + itemId);
+                if (!container || !clarifications || clarifications.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No clarifications yet.</div>';
+                    return;
+                }
+                
+                var html = '';
+                clarifications.forEach(function(clar) {
+                    var statusColor = {
+                        'open': '#ff8800',
+                        'needs_designer': '#ff9800',
+                        'answered': '#00ff00',
+                        'closed': '#999'
+                    }[clar.status] || '#999';
+                    
+                    html += '<div style="margin-bottom: 12px; padding: 12px; background-color: #1a1a1a; border: 1px solid ' + statusColor + '; border-radius: 4px;">';
+                    html += '<div style="font-size: 11px; color: ' + statusColor + '; margin-bottom: 8px; font-weight: 600;">Status: ' + clar.status.toUpperCase() + '</div>';
+                    html += '<div style="font-size: 12px; color: #fff; margin-bottom: 8px; white-space: pre-wrap;">' + (clar.question_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    if (clar.answer_text) {
+                        html += '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">';
+                        html += '<div style="font-size: 10px; color: #00ff00; margin-bottom: 4px;">Answer:</div>';
+                        html += '<div style="font-size: 11px; color: #ccc; white-space: pre-wrap;">' + (clar.answer_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                        html += '</div>';
+                    }
+                    html += '<div style="font-size: 9px; color: #666; margin-top: 8px;">Created: ' + new Date(clar.created_at).toLocaleString() + '</div>';
+                    html += '</div>';
+                });
+                
+                container.innerHTML = html;
+            }
+            
+            // Commit 2.3.9.1C-B: Submit RFQ Clarification
+            function submitRfqClarification(event, itemId, bidId) {
+                event.preventDefault();
+                
+                var questionText = document.getElementById('n88-rfq-clarification-question-' + itemId);
+                var category = document.getElementById('n88-rfq-clarification-category-' + itemId);
+                
+                if (!questionText || !questionText.value.trim()) {
+                    alert('Please enter a question.');
+                    return false;
+                }
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_create_clarification');
+                formData.append('item_id', itemId);
+                if (bidId) formData.append('bid_id', bidId);
+                formData.append('question_text', questionText.value.trim());
+                formData.append('category', category ? category.value : '');
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_create_clarification' ) ); ?>');
+                
+                var submitBtn = event.target.querySelector('button[type="submit"]');
+                var originalText = submitBtn ? submitBtn.textContent : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Submitting... ]';
+                }
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        questionText.value = '';
+                        if (category) category.value = '';
+                        loadRfqClarifications(itemId, bidId);
+                    } else {
+                        alert('Error: ' + (data.data?.message || 'Failed to submit clarification.'));
+                    }
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error submitting clarification:', error);
+                    alert('An error occurred. Please try again.');
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+                
+                return false;
+            }
+            
+            // Make functions globally available
+            window.toggleSupplierClarification = toggleSupplierClarification;
+            window.sendSupplierClarificationInline = sendSupplierClarificationInline;
+            window.toggleRfqClarification = toggleRfqClarification;
+            window.submitRfqClarification = submitRfqClarification;
             
             function openBidModal(itemId) {
                 // Ensure lightbox functions are available before creating modal HTML
@@ -2109,6 +2415,79 @@ class N88_RFQ_Auth {
                         '</div>' +
                         
                         (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '') +
+                        
+                        // Commit 2.3.9.1C-a: Request Clarification Section (Expandable)
+                        '<div style="margin-top: 16px; margin-bottom: 16px;">' +
+                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
+                        'Request Clarification' +
+                        '</button>' +
+                        '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px;">' +
+                        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00;">Request Clarification</div>' +
+                        '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
+                        '</div>' +
+                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="max-height: 300px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #00ff00;">' +
+                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>' +
+                        '</div>' +
+                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');">' +
+                        '<input type="hidden" name="item_id" value="' + itemId + '">' +
+                        '<div style="margin-bottom: 10px;">' +
+                        '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Category (Optional):</label>' +
+                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 6px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px;">' +
+                        '<option value="">-- Select Category --</option>' +
+                        '<option value="Specs">Specs</option>' +
+                        '<option value="Dimensions">Dimensions</option>' +
+                        '<option value="Materials">Materials</option>' +
+                        '<option value="Timeline">Timeline</option>' +
+                        '<option value="Other">Other</option>' +
+                        '</select>' +
+                        '</div>' +
+                        '<div style="margin-bottom: 10px;">' +
+                        '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Message: <span style="color: #ff0000;">*</span></label>' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="4" style="width: 100%; padding: 8px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px; resize: vertical;" placeholder="Type your clarification request here..."></textarea>' +
+                        '</div>' +
+                        '<button type="submit" style="width: 100%; padding: 8px; background-color: #00ff00; color: #000; border: none; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
+                        '[ Send Message ]' +
+                        '</button>' +
+                        '</form>' +
+                        '</div>' +
+                        '</div>' +
+                        
+                        // Commit 2.3.9.1C-B: RFQ Clarification Request Form (Separate from messaging)
+                        '<div style="margin-top: 16px; margin-bottom: 16px;">' +
+                        '<button id="n88-rfq-clarification-toggle-' + itemId + '" onclick="toggleRfqClarification(' + itemId + ', ' + (item.bid_id || 0) + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #ff8800; border-radius: 4px; color: #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#331100\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
+                        'Request RFQ Clarification' +
+                        '</button>' +
+                        '<div id="n88-rfq-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #ff8800; border-radius: 4px;">' +
+                        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #ff8800;">Request RFQ Clarification</div>' +
+                        '<button onclick="toggleRfqClarification(' + itemId + ', ' + (item.bid_id || 0) + ');" style="background: none; border: none; color: #ff8800; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
+                        '</div>' +
+                        '<div id="n88-rfq-clarifications-list-' + itemId + '" style="max-height: 300px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #ff8800;">' +
+                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>' +
+                        '</div>' +
+                        '<form id="n88-rfq-clarification-form-inner-' + itemId + '" onsubmit="return submitRfqClarification(event, ' + itemId + ', ' + (item.bid_id || 0) + ');">' +
+                        '<div style="margin-bottom: 10px;">' +
+                        '<label style="display: block; font-size: 11px; color: #ff8800; margin-bottom: 5px;">Category (Optional):</label>' +
+                        '<select id="n88-rfq-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 6px; background-color: #000; color: #ff8800; border: 1px solid #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 11px;">' +
+                        '<option value="">-- Select Category --</option>' +
+                        '<option value="Specs">Specs</option>' +
+                        '<option value="Dimensions">Dimensions</option>' +
+                        '<option value="Materials">Materials</option>' +
+                        '<option value="Timeline">Timeline</option>' +
+                        '<option value="Other">Other</option>' +
+                        '</select>' +
+                        '</div>' +
+                        '<div style="margin-bottom: 10px;">' +
+                        '<label style="display: block; font-size: 11px; color: #ff8800; margin-bottom: 5px;">Question: <span style="color: #ff0000;">*</span></label>' +
+                        '<textarea id="n88-rfq-clarification-question-' + itemId + '" name="question_text" required rows="4" style="width: 100%; padding: 8px; background-color: #000; color: #fff; border: 1px solid #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 11px; resize: vertical;" placeholder="Type your clarification question here..."></textarea>' +
+                        '</div>' +
+                        '<button type="submit" style="width: 100%; padding: 8px; background-color: #ff8800; color: #000; border: none; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#ff9900\';" onmouseout="this.style.backgroundColor=\'#ff8800\';">' +
+                        '[ Submit Clarification Request ]' +
+                        '</button>' +
+                        '</form>' +
+                        '</div>' +
+                        '</div>' +
                         
                         // Bid Details Box (only shown when bid is submitted)
                         (item.bid_status === 'submitted' && item.bid_data ? (function() {
@@ -6899,11 +7278,148 @@ class N88_RFQ_Auth {
         $categories_table = $wpdb->prefix . 'n88_categories';
 
         // If category_id not provided, try to get it from category_name (Commit 2.3.9.1B)
+        // Use case-insensitive matching and also try partial matches for flexibility
         if ( ! $category_id && ! empty( $category_name ) ) {
-            $category = $wpdb->get_row( $wpdb->prepare(
-                "SELECT category_id FROM {$categories_table} WHERE name = %s LIMIT 1",
-                $category_name
-            ) );
+            // Define category name mappings FIRST (before trying database lookups)
+            // This ensures we map to the correct category that has keywords
+            // Maps ALL dropdown categories to your comprehensive keyword categories
+            $category_mappings = array(
+                // Upholstery keywords
+                'upholstery' => 'Upholstery',
+                'sofas & seating (indoor)' => 'Upholstery',
+                'sofas and seating (indoor)' => 'Upholstery',
+                'chairs & armchairs (indoor)' => 'Upholstery',
+                'chairs and armchairs (indoor)' => 'Upholstery',
+                
+                // Indoor Furniture (Casegoods) keywords
+                'casegoods' => 'Indoor Furniture (Casegoods)',
+                'indoor furniture' => 'Indoor Furniture (Casegoods)',
+                'casegoods (beds, nightstands, desks, consoles)' => 'Indoor Furniture (Casegoods)',
+                'dining tables (indoor)' => 'Indoor Furniture (Casegoods)',
+                
+                // Outdoor Furniture keywords
+                'outdoor furniture' => 'Outdoor Furniture',
+                'outdoor seating' => 'Outdoor Furniture',
+                'outdoor dining sets' => 'Outdoor Furniture',
+                'outdoor loungers & daybeds' => 'Outdoor Furniture',
+                'outdoor loungers and daybeds' => 'Outdoor Furniture',
+                'pool furniture' => 'Outdoor Furniture',
+                
+                // Lighting keywords
+                'lighting' => 'Lighting',
+                'decorative lighting' => 'Lighting',
+                'architectural lighting' => 'Lighting',
+                'electrical / led components' => 'Lighting',
+                'electrical and led components' => 'Lighting',
+                
+                // Stone (Marble / Granite / Quartz) keywords
+                'stone' => 'Stone (Marble / Granite / Quartz)',
+                'marble' => 'Stone (Marble / Granite / Quartz)',
+                'marble / stone' => 'Stone (Marble / Granite / Quartz)',
+                'granite' => 'Stone (Marble / Granite / Quartz)',
+                'quartz' => 'Stone (Marble / Granite / Quartz)',
+                'porcelain / ceramic slabs' => 'Stone (Marble / Granite / Quartz)',
+                'porcelain and ceramic slabs' => 'Stone (Marble / Granite / Quartz)',
+                'tile (wall / floor)' => 'Stone (Marble / Granite / Quartz)',
+                'tile (wall and floor)' => 'Stone (Marble / Granite / Quartz)',
+                'terrazzo' => 'Stone (Marble / Granite / Quartz)',
+                
+                // Metalwork keywords
+                'metalwork' => 'Metalwork',
+                'railings' => 'Metalwork',
+                'screens / louvers' => 'Metalwork',
+                'screens and louvers' => 'Metalwork',
+                
+                // Millwork / Cabinetry keywords
+                'millwork' => 'Millwork / Cabinetry',
+                'cabinetry' => 'Millwork / Cabinetry',
+                'millwork / cabinetry' => 'Millwork / Cabinetry',
+                'cabinetry / millwork (custom)' => 'Millwork / Cabinetry',
+                'cabinetry and millwork (custom)' => 'Millwork / Cabinetry',
+                
+                // Flooring keywords
+                'flooring' => 'Flooring',
+                
+                // Drapery / Window Treatments keywords
+                'drapery' => 'Drapery / Window Treatments',
+                'window treatments' => 'Drapery / Window Treatments',
+                'window treatments / shades' => 'Drapery / Window Treatments',
+                'drapery / window treatments' => 'Drapery / Window Treatments',
+                
+                // Glass / Mirrors keywords
+                'glass' => 'Glass / Mirrors',
+                'mirrors' => 'Glass / Mirrors',
+                'glass / mirrors' => 'Glass / Mirrors',
+                
+                // Hardware / Accessories keywords
+                'hardware' => 'Hardware / Accessories',
+                'accessories' => 'Hardware / Accessories',
+                'hardware / accessories' => 'Hardware / Accessories',
+                'faucets / hardware (plumbing)' => 'Hardware / Accessories',
+                'faucets and hardware (plumbing)' => 'Hardware / Accessories',
+                'bathroom fixtures' => 'Hardware / Accessories',
+                'kitchen fixtures' => 'Hardware / Accessories',
+                'sinks / basins' => 'Hardware / Accessories',
+                'sinks and basins' => 'Hardware / Accessories',
+                'shower systems / accessories' => 'Hardware / Accessories',
+                'shower systems and accessories' => 'Hardware / Accessories',
+                'decorative accessories' => 'Hardware / Accessories',
+                
+                // Rugs / Carpets keywords
+                'rugs' => 'Rugs / Carpets',
+                'carpets' => 'Rugs / Carpets',
+                'rugs / carpets' => 'Rugs / Carpets',
+                
+                // Wallcoverings / Finishes keywords
+                'wallcoverings' => 'Wallcoverings / Finishes',
+                'wallcoverings / finishes' => 'Wallcoverings / Finishes',
+                'acoustic panels' => 'Wallcoverings / Finishes',
+                
+                // Appliances keywords
+                'appliances' => 'Appliances'
+            );
+            
+            $category_name_lower = strtolower( trim( $category_name ) );
+            $mapped_name = null;
+            
+            // Check if we have a direct mapping
+            if ( isset( $category_mappings[ $category_name_lower ] ) ) {
+                $mapped_name = $category_mappings[ $category_name_lower ];
+            } else {
+                // Try partial matching for mappings (e.g., "indoor" should match "indoor furniture")
+                foreach ( $category_mappings as $key => $value ) {
+                    if ( strpos( $category_name_lower, $key ) !== false || strpos( $key, $category_name_lower ) !== false ) {
+                        $mapped_name = $value;
+                        break;
+                    }
+                }
+            }
+            
+            // If we have a mapped name, use it
+            if ( $mapped_name ) {
+                $category = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT category_id FROM {$categories_table} WHERE name = %s LIMIT 1",
+                    $mapped_name
+                ) );
+            }
+            
+            // If no mapping worked, try exact match (case-insensitive)
+            if ( ! $category ) {
+                $category = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT category_id FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                    $category_name
+                ) );
+            }
+            
+            // If still no match, try to find a category that contains the search term
+            if ( ! $category ) {
+                $search_term = '%' . $wpdb->esc_like( $category_name ) . '%';
+                $category = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT category_id FROM {$categories_table} WHERE LOWER(name) LIKE LOWER(%s) LIMIT 1",
+                    $search_term
+                ) );
+            }
+            
             if ( $category ) {
                 $category_id = intval( $category->category_id );
             }
@@ -11787,8 +12303,76 @@ class N88_RFQ_Auth {
                                                     <button class="n88-view-case-full-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                         View Case (Read-Only)
                                                     </button>
-                                                    <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0; margin-bottom: 4px;">Mark Payment Received (disabled in v1)</div>
+                                                    <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                        Message Threads
+                                                    </button>
+                                                    <button class="n88-view-clarifications-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #ff8800; border: 1px solid #ff8800; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#331100';" onmouseout="this.style.backgroundColor='#000';">
+                                                        RFQ Clarifications
+                                                    </button>
+                                                    <?php if ( $request['status'] === 'requested' ) : ?>
+                                                        <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-designer-id="<?php echo esc_attr( $request['designer_user_id'] ); ?>" data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                            Mark Payment Received
+                                                        </button>
+                                                    <?php else : ?>
+                                                        <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
+                                                    <?php endif; ?>
                                                     <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Message Threads Section (hidden by default) -->
+                                            <div class="n88-message-threads-section" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px;">
+                                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #fff;">Message Threads</div>
+                                                    <button class="n88-close-message-threads" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+                                                </div>
+                                                
+                                                <!-- Two Column Layout: Designer ⇄ Operator | Supplier ⇄ Operator -->
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                                                    <!-- Designer ⇄ Operator Thread -->
+                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000;">
+                                                        <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Designer ⇄ Operator</div>
+                                                        <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 300px; overflow-y: auto; padding: 8px; background-color: #111; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333;">
+                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">Loading messages...</div>
+                                                        </div>
+                                                        <form class="n88-send-designer-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="margin-top: 12px;">
+                                                            <textarea name="message_text" required rows="3" placeholder="Type your message to designer..." style="width: 100%; padding: 8px; background-color: #111; color: #fff; border: 1px solid #333; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;"></textarea>
+                                                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                                [ Send to Designer ]
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                    
+                                                    <!-- Supplier ⇄ Operator Thread -->
+                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000;">
+                                                        <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Supplier ⇄ Operator</div>
+                                                        <div id="n88-supplier-thread-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 300px; overflow-y: auto; padding: 8px; background-color: #111; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333;">
+                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">Loading messages...</div>
+                                                        </div>
+                                                        <form class="n88-send-supplier-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="margin-top: 12px;">
+                                                            <textarea name="message_text" required rows="3" placeholder="Type your message to supplier..." style="width: 100%; padding: 8px; background-color: #111; color: #fff; border: 1px solid #333; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;"></textarea>
+                                                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                                [ Send to Supplier ]
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Commit 2.3.9.1C-B: RFQ Clarifications Section (hidden by default) -->
+                                            <div class="n88-clarifications-section" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #ff8800; border-radius: 4px;">
+                                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #ff8800;">RFQ Clarifications</div>
+                                                    <button class="n88-close-clarifications" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="background: none; border: none; color: #ff8800; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+                                                </div>
+                                                
+                                                <div id="n88-clarifications-list-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 400px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #ff8800;">
+                                                    <div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>
+                                                </div>
+                                                
+                                                <!-- Operator Actions for Each Clarification -->
+                                                <div id="n88-clarification-actions-<?php echo esc_attr( $payment_id ); ?>" style="display: none;">
+                                                    <!-- Actions will be populated by JavaScript -->
                                                 </div>
                                             </div>
                                         </td>
@@ -11929,6 +12513,215 @@ class N88_RFQ_Auth {
                 });
             }
 
+            // Commit 2.3.9.1C-a: Message Threads Toggle
+            var messageThreadsBtns = document.querySelectorAll('.n88-message-threads-btn');
+            messageThreadsBtns.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var itemId = this.getAttribute('data-item-id');
+                    var bidId = this.getAttribute('data-bid-id');
+                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]');
+                    
+                    if (threadsSection) {
+                        if (threadsSection.style.display === 'none') {
+                            threadsSection.style.display = 'block';
+                            loadMessageThreads(itemId, bidId, paymentId);
+                        } else {
+                            threadsSection.style.display = 'none';
+                        }
+                    }
+                });
+            });
+            
+            // Close Message Threads
+            var closeMessageThreadsBtns = document.querySelectorAll('.n88-close-message-threads');
+            closeMessageThreadsBtns.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]');
+                    if (threadsSection) {
+                        threadsSection.style.display = 'none';
+                    }
+                });
+            });
+            
+            // Load Message Threads
+            function loadMessageThreads(itemId, bidId, paymentId) {
+                // Load Designer Thread
+                loadThreadMessages(itemId, 'designer_operator', 'n88-designer-thread-' + paymentId);
+                
+                // Load Supplier Thread
+                loadThreadMessages(itemId, 'supplier_operator', 'n88-supplier-thread-' + paymentId);
+            }
+            
+            // Load Thread Messages
+            function loadThreadMessages(itemId, threadType, containerId) {
+                var container = document.getElementById(containerId);
+                if (!container) return;
+                
+                container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">Loading messages...</div>';
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_get_item_messages');
+                formData.append('item_id', itemId);
+                formData.append('thread_type', threadType);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_messages' ) ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success && data.data && data.data.messages) {
+                        renderThreadMessages(data.data.messages, container, threadType);
+                    } else {
+                        container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet.</div>';
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error loading thread messages:', error);
+                    container.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 11px; padding: 20px;">Error loading messages.</div>';
+                });
+            }
+            
+            // Render Thread Messages
+            function renderThreadMessages(messages, container, threadType) {
+                if (!messages || messages.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet.</div>';
+                    return;
+                }
+                
+                var html = '';
+                messages.forEach(function(msg) {
+                    var isOperator = msg.sender_role === 'operator';
+                    var senderName = isOperator ? 'Operator' : (threadType === 'designer_operator' ? 'Designer' : 'Supplier');
+                    var alignClass = isOperator ? 'right' : 'left';
+                    var bgColor = isOperator ? '#003300' : '#001100';
+                    var borderColor = isOperator ? '#00ff00' : '#00aa00';
+                    
+                    var date = new Date(msg.created_at);
+                    var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    
+                    html += '<div style="margin-bottom: 12px; text-align: ' + alignClass + ';">';
+                    html += '<div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: ' + bgColor + '; border: 1px solid ' + borderColor + '; border-radius: 4px; font-size: 11px; color: #fff;">';
+                    html += '<div style="font-weight: bold; color: #00ff00; margin-bottom: 4px; font-size: 10px;">' + senderName + (msg.category ? ' [' + msg.category + ']' : '') + '</div>';
+                    html += '<div style="white-space: pre-wrap; word-wrap: break-word; font-size: 11px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 9px; color: #666; margin-top: 4px;">' + dateStr + '</div>';
+                    html += '</div>';
+                    html += '</div>';
+                });
+                
+                container.innerHTML = html;
+                container.scrollTop = container.scrollHeight;
+            }
+            
+            // Send Message to Designer
+            var sendDesignerMessageForms = document.querySelectorAll('.n88-send-designer-message-form');
+            sendDesignerMessageForms.forEach(function(form) {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    var itemId = this.getAttribute('data-item-id');
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var messageText = this.querySelector('textarea[name="message_text"]').value.trim();
+                    
+                    if (!messageText) {
+                        alert('Please enter a message.');
+                        return;
+                    }
+                    
+                    var submitBtn = this.querySelector('button[type="submit"]');
+                    var originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Sending... ]';
+                    
+                    var formData = new FormData();
+                    formData.append('action', 'n88_send_item_message');
+                    formData.append('item_id', itemId);
+                    formData.append('thread_type', 'designer_operator');
+                    formData.append('message_text', messageText);
+                    formData.append('category', '');
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_send_item_message' ) ); ?>');
+                    
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            this.querySelector('textarea[name="message_text"]').value = '';
+                            loadThreadMessages(itemId, 'designer_operator', 'n88-designer-thread-' + paymentId);
+                        } else {
+                            alert('Error: ' + (data.data?.message || 'Failed to send message.'));
+                        }
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }.bind(this))
+                    .catch(function(error) {
+                        console.error('Error sending message:', error);
+                        alert('An error occurred. Please try again.');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    });
+                });
+            });
+            
+            // Send Message to Supplier
+            var sendSupplierMessageForms = document.querySelectorAll('.n88-send-supplier-message-form');
+            sendSupplierMessageForms.forEach(function(form) {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    var itemId = this.getAttribute('data-item-id');
+                    var bidId = this.getAttribute('data-bid-id');
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var messageText = this.querySelector('textarea[name="message_text"]').value.trim();
+                    
+                    if (!messageText) {
+                        alert('Please enter a message.');
+                        return;
+                    }
+                    
+                    var submitBtn = this.querySelector('button[type="submit"]');
+                    var originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Sending... ]';
+                    
+                    var formData = new FormData();
+                    formData.append('action', 'n88_send_item_message');
+                    formData.append('item_id', itemId);
+                    formData.append('bid_id', bidId);
+                    formData.append('thread_type', 'supplier_operator');
+                    formData.append('message_text', messageText);
+                    formData.append('category', '');
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_send_item_message' ) ); ?>');
+                    
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            this.querySelector('textarea[name="message_text"]').value = '';
+                            loadThreadMessages(itemId, 'supplier_operator', 'n88-supplier-thread-' + paymentId);
+                        } else {
+                            alert('Error: ' + (data.data?.message || 'Failed to send message.'));
+                        }
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }.bind(this))
+                    .catch(function(error) {
+                        console.error('Error sending message:', error);
+                        alert('An error occurred. Please try again.');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    });
+                });
+            });
+            
             // Load case details via AJAX
             function loadCaseDetails(paymentId) {
                 if (!caseModalContent) return;
@@ -11963,6 +12756,74 @@ class N88_RFQ_Auth {
                 });
             }
 
+            // Commit 2.3.9.1C-a: Mark Payment Received
+            var markPaymentBtns = document.querySelectorAll('.n88-mark-payment-received-btn');
+            markPaymentBtns.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    
+                    if (!confirm('Mark this payment as received? This will update the status and send notifications to the designer and supplier.')) {
+                        return;
+                    }
+                    
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var itemId = this.getAttribute('data-item-id');
+                    var bidId = this.getAttribute('data-bid-id');
+                    var designerId = this.getAttribute('data-designer-id');
+                    var supplierId = this.getAttribute('data-supplier-id');
+                    
+                    var originalText = this.textContent;
+                    this.disabled = true;
+                    this.textContent = '[ Processing... ]';
+                    
+                    var formData = new FormData();
+                    formData.append('action', 'n88_mark_payment_received');
+                    formData.append('payment_id', paymentId);
+                    formData.append('item_id', itemId);
+                    formData.append('bid_id', bidId);
+                    formData.append('designer_id', designerId);
+                    formData.append('supplier_id', supplierId);
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_mark_payment_received' ) ); ?>');
+                    
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            // Update button to show confirmation
+                            btn.style.backgroundColor = '#001100';
+                            btn.style.borderColor = '#00ff00';
+                            btn.style.color = '#00ff00';
+                            btn.textContent = '✓ Payment Confirmed';
+                            btn.disabled = true;
+                            
+                            // Update status in the table row
+                            var statusCell = btn.closest('tr').previousElementSibling.querySelector('td:nth-child(4)');
+                            if (statusCell) {
+                                statusCell.innerHTML = '<div>Payment Received</div><div style="font-size: 11px; color: #00ff00;">Confirmed</div>';
+                            }
+                            
+                            // Reload page after 2 seconds to reflect changes
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 2000);
+                        } else {
+                            alert('Error: ' + (data.data?.message || 'Failed to mark payment as received.'));
+                            btn.disabled = false;
+                            btn.textContent = originalText;
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('Error marking payment as received:', error);
+                        alert('An error occurred. Please try again.');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                    });
+                });
+            });
+            
             // Auto-refresh every 30 seconds
             var autoRefreshInterval = setInterval(function() {
                 // Only refresh if no modal is open and no filters are being edited
@@ -11971,6 +12832,149 @@ class N88_RFQ_Auth {
                     // In future, could be AJAX-based
                 }
             }, 30000);
+            
+            // Commit 2.3.9.1C-a: Send Operator Message
+            window.sendOperatorMessage = function(event, threadType, itemId, designerId, bidId, supplierId) {
+                event.preventDefault();
+                
+                var form = event.target;
+                var messageInput = form.querySelector('textarea[name="message_text"]');
+                var messageText = messageInput ? messageInput.value.trim() : '';
+                
+                if (!messageText) {
+                    alert('Please enter a message.');
+                    return false;
+                }
+                
+                var submitBtn = form.querySelector('button[type="submit"]');
+                var originalText = submitBtn ? submitBtn.textContent : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '[ Sending... ]';
+                }
+                
+                var formData = new FormData();
+                formData.append('action', 'n88_send_item_message');
+                formData.append('item_id', itemId);
+                formData.append('thread_type', threadType);
+                formData.append('message_text', messageText);
+                if (designerId) formData.append('designer_id', designerId);
+                if (bidId) formData.append('bid_id', bidId);
+                if (supplierId) formData.append('supplier_id', supplierId);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_send_item_message' ) ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        // Clear form
+                        if (messageInput) messageInput.value = '';
+                        
+                        // Reload case details to show new message
+                        var paymentId = form.getAttribute('data-payment-id');
+                        if (paymentId) {
+                            loadCaseDetails(paymentId);
+                        } else {
+                            // Try to find payment ID from modal
+                            var modalContent = document.getElementById('n88-case-modal-content');
+                            if (modalContent) {
+                                // Extract payment ID from somewhere or reload the modal
+                                location.reload();
+                            }
+                        }
+                    } else {
+                        alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
+                    }
+                    
+                    // Re-enable form
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error sending message:', error);
+                    alert('An error occurred. Please try again.');
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+                
+                return false;
+            };
+            
+            // Commit 2.3.9.1C-a: Copy Message to Other Side
+            window.copyMessageToOtherSide = function(itemId, designerId, bidId, supplierId, paymentId) {
+                // Get the last message from designer thread
+                var designerMessages = document.getElementById('n88-operator-designer-messages');
+                var supplierMessages = document.getElementById('n88-operator-supplier-messages');
+                
+                if (!designerMessages || !supplierMessages) {
+                    alert('Message threads not found.');
+                    return;
+                }
+                
+                // Find last message in designer thread
+                var designerLastMsg = designerMessages.querySelector('div[style*="margin-bottom: 12px"]:last-child');
+                if (!designerLastMsg) {
+                    alert('No messages in designer thread to copy.');
+                    return;
+                }
+                
+                var msgText = designerLastMsg.querySelector('div[style*="white-space: pre-wrap"]');
+                if (!msgText) {
+                    alert('Could not extract message text.');
+                    return;
+                }
+                
+                var textToCopy = msgText.textContent.trim();
+                if (!textToCopy) {
+                    alert('Message text is empty.');
+                    return;
+                }
+                
+                // Confirm action
+                if (!confirm('Copy this message to the supplier thread?\n\n"' + textToCopy.substring(0, 100) + (textToCopy.length > 100 ? '...' : '') + '"')) {
+                    return;
+                }
+                
+                // Send to supplier thread
+                var formData = new FormData();
+                formData.append('action', 'n88_send_item_message');
+                formData.append('item_id', itemId);
+                formData.append('thread_type', 'supplier_operator');
+                formData.append('message_text', textToCopy);
+                formData.append('bid_id', bidId);
+                formData.append('supplier_id', supplierId);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_send_item_message' ) ); ?>');
+                
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        alert('Message copied to supplier thread.');
+                        // Reload case details
+                        if (paymentId) {
+                            loadCaseDetails(paymentId);
+                        } else {
+                            location.reload();
+                        }
+                    } else {
+                        alert('Error: ' + (data.data?.message || 'Failed to copy message.'));
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error copying message:', error);
+                    alert('An error occurred. Please try again.');
+                });
+            };
         })();
         </script>
         <?php
@@ -12074,7 +13078,7 @@ class N88_RFQ_Auth {
                     ...$keyword_ids
                 ), ARRAY_A );
                 foreach ( $keywords as $kw ) {
-                    $keyword_names[] = $kw->keyword;
+                    $keyword_names[] = $kw['keyword'];
                 }
             }
         }
@@ -12102,6 +13106,44 @@ class N88_RFQ_Auth {
              ORDER BY created_at ASC",
             $payment_id
         ), ARRAY_A );
+
+        // Commit 2.3.9.1C-a: Get messages for both threads
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $users_table = $wpdb->prefix . 'users';
+        
+        // Get supplier thread messages
+        $supplier_messages = array();
+        if ( ! empty( $payment['bid_id'] ) && ! empty( $payment['supplier_id'] ) ) {
+            $supplier_messages = $wpdb->get_results( $wpdb->prepare(
+                "SELECT m.*, u.display_name as sender_name
+                 FROM {$messages_table} m
+                 LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+                 WHERE m.item_id = %d 
+                 AND m.thread_type = 'supplier_operator'
+                 AND m.bid_id = %d
+                 AND m.supplier_id = %d
+                 ORDER BY m.created_at ASC",
+                $payment['item_id'],
+                $payment['bid_id'],
+                $payment['supplier_id']
+            ), ARRAY_A );
+        }
+        
+        // Get designer thread messages
+        $designer_messages = array();
+        if ( ! empty( $payment['designer_user_id'] ) ) {
+            $designer_messages = $wpdb->get_results( $wpdb->prepare(
+                "SELECT m.*, u.display_name as sender_name
+                 FROM {$messages_table} m
+                 LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+                 WHERE m.item_id = %d 
+                 AND m.thread_type = 'designer_operator'
+                 AND m.designer_id = %d
+                 ORDER BY m.created_at ASC",
+                $payment['item_id'],
+                $payment['designer_user_id']
+            ), ARRAY_A );
+        }
 
         // Format dates
         $created_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
@@ -12187,10 +13229,822 @@ class N88_RFQ_Auth {
                 <?php endif; ?>
             </div>
         </div>
+
+        <!-- Commit 2.3.9.1C-a: Two-Column Message Threads -->
+        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px;">Message Threads</div>
+            
+            <div style="display: flex; gap: 20px; min-height: 400px;">
+                <!-- Left Column: Designer Thread -->
+                <div style="flex: 1; border: 1px solid #333; border-radius: 2px; background-color: #000; display: flex; flex-direction: column;">
+                    <div style="padding: 12px; border-bottom: 1px solid #333; background-color: #001100;">
+                        <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Designer ⇄ Operator</div>
+                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Item #<?php echo esc_html( $payment['item_id'] ); ?></div>
+                    </div>
+                    <div id="n88-operator-designer-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 350px;">
+                        <?php if ( empty( $designer_messages ) ) : ?>
+                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet</div>
+                        <?php else : ?>
+                            <?php foreach ( $designer_messages as $msg ) : 
+                                $is_designer = $msg['sender_role'] === 'designer';
+                                $sender_name = $is_designer ? ( ! empty( $msg['sender_name'] ) ? esc_html( $msg['sender_name'] ) : 'Designer' ) : 'Operator';
+                                $align_class = $is_designer ? 'right' : 'left';
+                                $bg_color = $is_designer ? '#003300' : '#001100';
+                                $border_color = $is_designer ? '#00ff00' : '#00aa00';
+                                $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                            ?>
+                                <div style="margin-bottom: 12px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                    <div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid <?php echo esc_attr( $border_color ); ?>; border-radius: 4px; font-size: 11px; color: #fff;">
+                                        <div style="font-weight: bold; color: #00ff00; margin-bottom: 4px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' [' . esc_html( $msg['category'] ) . ']' : ''; ?></div>
+                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo esc_html( $msg['message_text'] ); ?></div>
+                                        <div style="font-size: 10px; color: #666; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                    <div style="padding: 12px; border-top: 1px solid #333; background-color: #001100;">
+                        <form id="n88-operator-designer-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, null, null);">
+                            <textarea id="n88-operator-designer-message" name="message_text" required rows="3" style="width: 100%; padding: 6px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;" placeholder="Type your message..."></textarea>
+                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                [ Send to Designer ]
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Right Column: Supplier Thread -->
+                <div style="flex: 1; border: 1px solid #333; border-radius: 2px; background-color: #000; display: flex; flex-direction: column;">
+                    <div style="padding: 12px; border-bottom: 1px solid #333; background-color: #001100;">
+                        <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Supplier ⇄ Operator</div>
+                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> | Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
+                    </div>
+                    <div id="n88-operator-supplier-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 350px;">
+                        <?php if ( empty( $supplier_messages ) ) : ?>
+                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet</div>
+                        <?php else : ?>
+                            <?php foreach ( $supplier_messages as $msg ) : 
+                                $is_supplier = $msg['sender_role'] === 'supplier';
+                                $sender_name = $is_supplier ? 'Supplier' : 'Operator';
+                                $align_class = $is_supplier ? 'right' : 'left';
+                                $bg_color = $is_supplier ? '#003300' : '#001100';
+                                $border_color = $is_supplier ? '#00ff00' : '#00aa00';
+                                $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                            ?>
+                                <div style="margin-bottom: 12px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                    <div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid <?php echo esc_attr( $border_color ); ?>; border-radius: 4px; font-size: 11px; color: #fff;">
+                                        <div style="font-weight: bold; color: #00ff00; margin-bottom: 4px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' [' . esc_html( $msg['category'] ) . ']' : ''; ?></div>
+                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo esc_html( $msg['message_text'] ); ?></div>
+                                        <div style="font-size: 10px; color: #666; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                    <div style="padding: 12px; border-top: 1px solid #333; background-color: #001100;">
+                        <form id="n88-operator-supplier-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo esc_js( $payment['item_id'] ); ?>, null, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>);">
+                            <textarea id="n88-operator-supplier-message" name="message_text" required rows="3" style="width: 100%; padding: 6px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;" placeholder="Type your message..."></textarea>
+                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                [ Send to Supplier ]
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Copy to Other Side Button (Optional Feature) -->
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
+                <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 6px 12px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer;" onmouseover="this.style.backgroundColor='#003300';" onmouseout="this.style.backgroundColor='#000';">
+                    [ Copy to Other Side ]
+                </button>
+                <div style="font-size: 10px; color: #666; margin-top: 4px;">Forwards the last message from one thread to the other</div>
+            </div>
+        </div>
         <?php
         $html = ob_get_clean();
 
         wp_send_json_success( array( 'html' => $html ) );
+    }
+    
+    /**
+     * AJAX handler to get item messages (Commit 2.3.9.1C-a)
+     */
+    public function ajax_get_item_messages() {
+        check_ajax_referer( 'n88_get_item_messages', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ) );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
+        
+        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator' ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table = $wpdb->prefix . 'users';
+
+        // Build WHERE clause based on thread type and user role
+        $where_clauses = array();
+        $where_clauses[] = $wpdb->prepare( 'm.item_id = %d', $item_id );
+        $where_clauses[] = $wpdb->prepare( "m.thread_type = %s", $thread_type );
+
+        // Access control: Users can only see their own thread
+        if ( $thread_type === 'supplier_operator' ) {
+            if ( $is_supplier ) {
+                // Supplier can only see messages for their own bids
+                $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $current_user->ID );
+            } elseif ( $is_operator ) {
+                // Operator can see all supplier threads for this item
+                // No additional restriction needed
+            } else {
+                wp_send_json_error( array( 'message' => 'Access denied. Supplier or Operator only.' ) );
+                return;
+            }
+        } elseif ( $thread_type === 'designer_operator' ) {
+            if ( $is_designer ) {
+                // Designer can only see messages for their own items
+                $item_owner = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+                    $item_id
+                ) );
+                if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You can only view messages for your own items.' ) );
+                    return;
+                }
+                $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', $current_user->ID );
+            } elseif ( $is_operator ) {
+                // Operator can see all designer threads for this item
+                // No additional restriction needed
+            } else {
+                wp_send_json_error( array( 'message' => 'Access denied. Designer or Operator only.' ) );
+                return;
+            }
+        }
+
+        $where_sql = implode( ' AND ', $where_clauses );
+
+        // Get messages with sender names
+        $messages = $wpdb->get_results(
+            "SELECT m.*, u.display_name as sender_name
+             FROM {$messages_table} m
+             LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+             WHERE {$where_sql}
+             ORDER BY m.created_at ASC",
+            ARRAY_A
+        );
+
+        wp_send_json_success( array( 'messages' => $messages ) );
+    }
+    
+    /**
+     * AJAX handler to send item message (Commit 2.3.9.1C-a)
+     */
+    public function ajax_send_item_message() {
+        check_ajax_referer( 'n88_send_item_message', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_supplier && ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ) );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
+        $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
+        $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
+        
+        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator' ), true ) || empty( trim( $message_text ) ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters. Message text is required.' ) );
+            return;
+        }
+
+        // Determine sender role
+        $sender_role = '';
+        if ( $is_operator ) {
+            $sender_role = 'operator';
+        } elseif ( $is_supplier ) {
+            $sender_role = 'supplier';
+        } elseif ( $is_designer ) {
+            $sender_role = 'designer';
+        }
+
+        if ( ! $sender_role ) {
+            wp_send_json_error( array( 'message' => 'Invalid user role.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $events_table = $wpdb->prefix . 'n88_events';
+
+        // Validate item exists
+        $item = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, owner_user_id FROM {$items_table} WHERE id = %d",
+            $item_id
+        ), ARRAY_A );
+
+        if ( ! $item ) {
+            wp_send_json_error( array( 'message' => 'Item not found.' ) );
+            return;
+        }
+
+        $bid_id = null;
+        $supplier_id = null;
+        $designer_id = null;
+
+        // Set thread-specific fields based on thread type
+        if ( $thread_type === 'supplier_operator' ) {
+            if ( $is_supplier ) {
+                $supplier_id = $current_user->ID;
+                // Get the most recent bid for this supplier and item
+                $bid = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT bid_id FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d ORDER BY created_at DESC LIMIT 1",
+                    $item_id,
+                    $current_user->ID
+                ), ARRAY_A );
+                if ( $bid ) {
+                    $bid_id = intval( $bid['bid_id'] );
+                }
+            } elseif ( $is_operator ) {
+                // Operator can specify supplier_id and bid_id when replying
+                $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : null;
+                $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : null;
+            }
+        } elseif ( $thread_type === 'designer_operator' ) {
+            if ( $is_designer ) {
+                // Verify designer owns the item
+                if ( intval( $item['owner_user_id'] ) !== $current_user->ID ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You can only send messages for your own items.' ) );
+                    return;
+                }
+                $designer_id = $current_user->ID;
+            } elseif ( $is_operator ) {
+                // Operator can specify designer_id when replying
+                $designer_id = isset( $_POST['designer_id'] ) ? absint( $_POST['designer_id'] ) : intval( $item['owner_user_id'] );
+            }
+        }
+
+        // Validate required fields for thread type
+        if ( $thread_type === 'supplier_operator' && ! $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Supplier ID is required for supplier_operator thread.' ) );
+            return;
+        }
+        if ( $thread_type === 'designer_operator' && ! $designer_id ) {
+            wp_send_json_error( array( 'message' => 'Designer ID is required for designer_operator thread.' ) );
+            return;
+        }
+
+        // Insert message
+        $insert_result = $wpdb->insert(
+            $messages_table,
+            array(
+                'thread_type' => $thread_type,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'supplier_id' => $supplier_id,
+                'designer_id' => $designer_id,
+                'sender_role' => $sender_role,
+                'sender_user_id' => $current_user->ID,
+                'message_text' => $message_text,
+                'category' => $category ? $category : null,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s' )
+        );
+
+        if ( ! $insert_result ) {
+            wp_send_json_error( array( 'message' => 'Failed to save message.' ) );
+            return;
+        }
+
+        $message_id = $wpdb->insert_id;
+
+        // Log event (Commit 2.3.9.1C-a)
+        require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';
+        N88_Events::insert_event( array(
+            'event_type' => 'item_message_sent',
+            'object_type' => 'item_message',
+            'object_id' => $message_id,
+            'item_id' => $item_id,
+            'payload_json' => array(
+                'message_id' => $message_id,
+                'thread_type' => $thread_type,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'supplier_id' => $supplier_id,
+                'designer_id' => $designer_id,
+                'sender_role' => $sender_role,
+                'sender_user_id' => $current_user->ID,
+                'timestamp' => current_time( 'mysql' ),
+            ),
+        ) );
+
+        wp_send_json_success( array( 'message_id' => $message_id ) );
+    }
+    
+    /**
+     * AJAX handler to mark payment as received (Commit 2.3.9.1C-a)
+     */
+    public function ajax_mark_payment_received() {
+        check_ajax_referer( 'n88_mark_payment_received', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        $designer_id = isset( $_POST['designer_id'] ) ? absint( $_POST['designer_id'] ) : 0;
+        $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+        
+        if ( ! $payment_id || ! $item_id || ! $designer_id || ! $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        
+        // Update payment status and set received_at timestamp
+        $update_result = $wpdb->update(
+            $prototype_payments_table,
+            array( 
+                'status' => 'marked_received',
+                'received_at' => current_time( 'mysql' )
+            ),
+            array( 'id' => $payment_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+
+        if ( $update_result === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to update payment status.' ) );
+            return;
+        }
+
+        // Log event
+        n88_log_event(
+            'payment_marked_received',
+            'prototype_payment',
+            array(
+                'object_id' => $payment_id,
+                'item_id' => $item_id,
+                'payload_json' => array(
+                    'payment_id' => $payment_id,
+                    'item_id' => $item_id,
+                    'bid_id' => $bid_id,
+                    'operator_id' => $current_user->ID,
+                    'timestamp' => current_time( 'mysql' ),
+                ),
+            )
+        );
+
+        // Send message to Designer
+        $designer_message = "Request submitted. Payment confirmed. CAD drafting in progress.";
+        $wpdb->insert(
+            $messages_table,
+            array(
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'sender_user_id' => $current_user->ID,
+                'recipient_user_id' => $designer_id,
+                'sender_type' => 'operator',
+                'recipient_type' => 'designer',
+                'thread_type' => 'designer_operator',
+                'message' => $designer_message,
+                'category' => 'Payment Confirmation',
+                'is_read' => 0,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+        );
+        
+        // Log event for designer message
+        n88_log_event(
+            'item_message_sent',
+            'item_message',
+            array(
+                'object_id' => $wpdb->insert_id,
+                'item_id' => $item_id,
+                'payload_json' => array(
+                    'thread_type' => 'designer_operator',
+                    'sender_role' => 'operator',
+                    'recipient_role' => 'designer',
+                    'message_category' => 'Payment Confirmation',
+                ),
+            )
+        );
+
+        // Send message to Supplier
+        $supplier_message = "Prototype requested. Payment confirmed. Awaiting final CAD approval. You will receive approved CAD + direction before filming begins.";
+        $wpdb->insert(
+            $messages_table,
+            array(
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'sender_user_id' => $current_user->ID,
+                'recipient_user_id' => $supplier_id,
+                'sender_type' => 'operator',
+                'recipient_type' => 'supplier',
+                'thread_type' => 'supplier_operator',
+                'message' => $supplier_message,
+                'category' => 'Payment Confirmation',
+                'is_read' => 0,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+        );
+        
+        // Log event for supplier message
+        n88_log_event(
+            'item_message_sent',
+            'item_message',
+            array(
+                'object_id' => $wpdb->insert_id,
+                'item_id' => $item_id,
+                'payload_json' => array(
+                    'thread_type' => 'supplier_operator',
+                    'sender_role' => 'operator',
+                    'recipient_role' => 'supplier',
+                    'message_category' => 'Payment Confirmation',
+                ),
+            )
+        );
+
+        wp_send_json_success( array( 
+            'message' => 'Payment marked as received. Notifications sent to designer and supplier.',
+            'status' => 'marked_received'
+        ) );
+    }
+    
+    /**
+     * AJAX handler to create clarification request (Commit 2.3.9.1C-B)
+     */
+    public function ajax_create_clarification() {
+        check_ajax_referer( 'n88_create_clarification', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier access required.' ) );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        $question_text = isset( $_POST['question_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['question_text'] ) ) : '';
+        $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
+        
+        if ( ! $item_id || empty( trim( $question_text ) ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters. Question text is required.' ) );
+            return;
+        }
+
+        // Check if payment is marked_received (read-only lock)
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+            $payment_status = $wpdb->get_var( $wpdb->prepare(
+                "SELECT status FROM {$prototype_payments_table}
+                WHERE item_id = %d AND bid_id = %d
+                ORDER BY created_at DESC LIMIT 1",
+                $item_id,
+                $bid_id
+            ) );
+            
+            if ( $payment_status === 'marked_received' ) {
+                wp_send_json_error( array( 'message' => 'Clarifications are read-only after payment is confirmed.' ) );
+                return;
+            }
+        }
+
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        
+        $insert_result = $wpdb->insert(
+            $clarifications_table,
+            array(
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'supplier_id' => $current_user->ID,
+                'question_text' => $question_text,
+                'status' => 'open',
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%s', '%s', '%s' )
+        );
+
+        if ( ! $insert_result ) {
+            wp_send_json_error( array( 'message' => 'Failed to create clarification request.' ) );
+            return;
+        }
+
+        wp_send_json_success( array( 'clarification_id' => $wpdb->insert_id ) );
+    }
+    
+    /**
+     * AJAX handler to get clarifications (Commit 2.3.9.1C-B)
+     */
+    public function ajax_get_clarifications() {
+        check_ajax_referer( 'n88_get_clarifications', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        
+        $where = array( 'item_id = %d' );
+        $where_values = array( $item_id );
+        
+        if ( $bid_id ) {
+            $where[] = 'bid_id = %d';
+            $where_values[] = $bid_id;
+        }
+        
+        // Access control
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        
+        if ( $is_supplier ) {
+            $where[] = 'supplier_id = %d';
+            $where_values[] = $current_user->ID;
+        }
+        
+        $query = "SELECT * FROM {$clarifications_table} WHERE " . implode( ' AND ', $where ) . " ORDER BY created_at DESC";
+        $clarifications = $wpdb->get_results( $wpdb->prepare( $query, $where_values ), ARRAY_A );
+        
+        wp_send_json_success( array( 'clarifications' => $clarifications ) );
+    }
+    
+    /**
+     * AJAX handler to reply to clarification (Commit 2.3.9.1C-B)
+     */
+    public function ajax_reply_to_clarification() {
+        check_ajax_referer( 'n88_reply_to_clarification', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $clarification_id = isset( $_POST['clarification_id'] ) ? absint( $_POST['clarification_id'] ) : 0;
+        $answer_text = isset( $_POST['answer_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['answer_text'] ) ) : '';
+        
+        if ( ! $clarification_id || empty( trim( $answer_text ) ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters. Answer text is required.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        
+        // Check if payment is marked_received (read-only lock)
+        $clarification = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$clarifications_table} WHERE id = %d",
+            $clarification_id
+        ), ARRAY_A );
+        
+        if ( ! $clarification ) {
+            wp_send_json_error( array( 'message' => 'Clarification not found.' ) );
+            return;
+        }
+        
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+            $payment_status = $wpdb->get_var( $wpdb->prepare(
+                "SELECT status FROM {$prototype_payments_table}
+                WHERE item_id = %d AND bid_id = %d
+                ORDER BY created_at DESC LIMIT 1",
+                $clarification['item_id'],
+                $clarification['bid_id']
+            ) );
+            
+            if ( $payment_status === 'marked_received' ) {
+                wp_send_json_error( array( 'message' => 'Clarifications are read-only after payment is confirmed.' ) );
+                return;
+            }
+        }
+        
+        $update_result = $wpdb->update(
+            $clarifications_table,
+            array(
+                'answer_text' => $answer_text,
+                'status' => 'answered',
+                'answered_at' => current_time( 'mysql' ),
+                'operator_user_id' => $current_user->ID,
+            ),
+            array( 'id' => $clarification_id ),
+            array( '%s', '%s', '%s', '%d' ),
+            array( '%d' )
+        );
+
+        if ( $update_result === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to update clarification.' ) );
+            return;
+        }
+
+        wp_send_json_success( array( 'message' => 'Clarification answered successfully.' ) );
+    }
+    
+    /**
+     * AJAX handler to forward clarification to designer (Commit 2.3.9.1C-B)
+     */
+    public function ajax_forward_clarification_to_designer() {
+        check_ajax_referer( 'n88_forward_clarification_to_designer', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $clarification_id = isset( $_POST['clarification_id'] ) ? absint( $_POST['clarification_id'] ) : 0;
+        $rephrased_question = isset( $_POST['rephrased_question'] ) ? sanitize_textarea_field( wp_unslash( $_POST['rephrased_question'] ) ) : '';
+        
+        if ( ! $clarification_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid clarification ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        $items_table = $wpdb->prefix . 'n88_items';
+        
+        $clarification = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$clarifications_table} WHERE id = %d",
+            $clarification_id
+        ), ARRAY_A );
+        
+        if ( ! $clarification ) {
+            wp_send_json_error( array( 'message' => 'Clarification not found.' ) );
+            return;
+        }
+        
+        // Get designer ID from item
+        $designer_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+            $clarification['item_id']
+        ) );
+        
+        if ( ! $designer_id ) {
+            wp_send_json_error( array( 'message' => 'Designer not found for this item.' ) );
+            return;
+        }
+        
+        // Update clarification status
+        $wpdb->update(
+            $clarifications_table,
+            array(
+                'status' => 'needs_designer',
+                'operator_user_id' => $current_user->ID,
+            ),
+            array( 'id' => $clarification_id ),
+            array( '%s', '%d' ),
+            array( '%d' )
+        );
+        
+        // Send message to designer via item_messages
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $question_to_forward = ! empty( $rephrased_question ) ? $rephrased_question : $clarification['question_text'];
+        $designer_message = "Clarification Request:\n\n" . $question_to_forward;
+        
+        $wpdb->insert(
+            $messages_table,
+            array(
+                'item_id' => $clarification['item_id'],
+                'bid_id' => $clarification['bid_id'],
+                'sender_user_id' => $current_user->ID,
+                'recipient_user_id' => $designer_id,
+                'sender_type' => 'operator',
+                'recipient_type' => 'designer',
+                'thread_type' => 'designer_operator',
+                'message' => $designer_message,
+                'category' => 'Clarification Request',
+                'is_read' => 0,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+        );
+
+        wp_send_json_success( array( 'message' => 'Clarification forwarded to designer.' ) );
+    }
+    
+    /**
+     * AJAX handler to close clarification (Commit 2.3.9.1C-B)
+     */
+    public function ajax_close_clarification() {
+        check_ajax_referer( 'n88_close_clarification', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $clarification_id = isset( $_POST['clarification_id'] ) ? absint( $_POST['clarification_id'] ) : 0;
+        
+        if ( ! $clarification_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid clarification ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        
+        $update_result = $wpdb->update(
+            $clarifications_table,
+            array( 'status' => 'closed' ),
+            array( 'id' => $clarification_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        if ( $update_result === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to close clarification.' ) );
+            return;
+        }
+
+        wp_send_json_success( array( 'message' => 'Clarification closed successfully.' ) );
     }
 }
 

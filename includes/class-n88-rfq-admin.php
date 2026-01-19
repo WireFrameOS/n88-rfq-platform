@@ -2410,7 +2410,7 @@ class N88_RFQ_Admin {
 
         // Enqueue WordPress media library for image uploader
         wp_enqueue_media();
-        
+
         // Enqueue HEIC conversion library for preview support
         wp_enqueue_script( 'heic2any', 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js', array(), '0.0.4', true );
 
@@ -2878,13 +2878,13 @@ class N88_RFQ_Admin {
                                         '<div style="font-size: 11px; color: #999; margin-top: 4px; word-break: break-all;">' + file.name + '</div>' +
                                         '</div>';
                                     $('#item-image-preview').html(previewHtml);
-                                };
-                                reader.readAsDataURL(file);
+                        };
+                        reader.readAsDataURL(file);
                             }
                             
-                            // Clear any existing image_id or image_url to ensure file is uploaded
-                            $('#item-image-id').val('');
-                            $('#item-image-url').val('');
+                        // Clear any existing image_id or image_url to ensure file is uploaded
+                        $('#item-image-id').val('');
+                        $('#item-image-url').val('');
                         }
                     }
                 });
@@ -3977,6 +3977,9 @@ class N88_RFQ_Admin {
             'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
             'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
             'nonce_get_keywords' => wp_create_nonce( 'n88_get_keywords' ), // Commit 2.3.9.1B: For CAD prototype keyword selection
+            // Commit 2.3.9.1C-a: Item Messages nonces
+            'nonce_get_item_messages' => wp_create_nonce( 'n88_get_item_messages' ),
+            'nonce_send_item_message' => wp_create_nonce( 'n88_send_item_message' ),
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -7594,6 +7597,42 @@ class N88_RFQ_Admin {
                     var cadPrototypeSuccess = _cadPrototypeSuccessState[0];
                     var setCadPrototypeSuccess = _cadPrototypeSuccessState[1];
                     
+                    // Commit 2.3.9.1C-a: Designer message operator state
+                    var _showDesignerMessageFormState = React.useState(false);
+                    var showDesignerMessageForm = _showDesignerMessageFormState[0];
+                    var setShowDesignerMessageForm = _showDesignerMessageFormState[1];
+                    
+                    var _designerMessagesState = React.useState([]);
+                    var designerMessages = _designerMessagesState[0];
+                    var setDesignerMessages = _designerMessagesState[1];
+                    
+                    var _isLoadingDesignerMessagesState = React.useState(false);
+                    var isLoadingDesignerMessages = _isLoadingDesignerMessagesState[0];
+                    var setIsLoadingDesignerMessages = _isLoadingDesignerMessagesState[1];
+                    
+                    var _designerMessageTextState = React.useState('');
+                    var designerMessageText = _designerMessageTextState[0];
+                    var setDesignerMessageText = _designerMessageTextState[1];
+                    
+                    var _designerMessageCategoryState = React.useState('');
+                    var designerMessageCategory = _designerMessageCategoryState[0];
+                    var setDesignerMessageCategory = _designerMessageCategoryState[1];
+                    
+                    var _isSendingDesignerMessageState = React.useState(false);
+                    var isSendingDesignerMessage = _isSendingDesignerMessageState[0];
+                    var setIsSendingDesignerMessage = _isSendingDesignerMessageState[1];
+                    
+                    // Commit 2.3.9.1C-B: Clarifications state
+                    var _clarificationsState = React.useState([]);
+                    var clarifications = _clarificationsState[0];
+                    var setClarifications = _clarificationsState[1];
+                    var _isLoadingClarificationsState = React.useState(false);
+                    var isLoadingClarifications = _isLoadingClarificationsState[0];
+                    var setIsLoadingClarifications = _isLoadingClarificationsState[1];
+                    var _showClarificationBannerState = React.useState(false);
+                    var showClarificationBanner = _showClarificationBannerState[0];
+                    var setShowClarificationBanner = _showClarificationBannerState[1];
+                    
                     // Image lightbox state
                     var _lightboxImageState = React.useState(null);
                     var lightboxImage = _lightboxImageState[0];
@@ -7720,6 +7759,109 @@ class N88_RFQ_Admin {
 
                         loadKeywordsForCategory();
                     }, [showCadPrototypeForm, selectedBidId, category]);
+                    
+                    // Commit 2.3.9.1C-a: Load Designer Messages
+                    var loadDesignerMessages = React.useCallback(function() {
+                        if (!itemId) return;
+                        
+                        setIsLoadingDesignerMessages(true);
+                        try {
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_messages) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                            
+                            if (!nonce) {
+                                console.error('Nonce not found for n88_get_item_messages');
+                                setIsLoadingDesignerMessages(false);
+                                return;
+                            }
+                            
+                            var formData = new FormData();
+                            formData.append('action', 'n88_get_item_messages');
+                            formData.append('item_id', String(itemId));
+                            formData.append('thread_type', 'designer_operator');
+                            formData.append('_ajax_nonce', nonce);
+                            
+                            fetch(ajaxUrl, {
+                                method: 'POST',
+                                body: formData,
+                            })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (data.success && data.data && data.data.messages) {
+                                    setDesignerMessages(data.data.messages);
+                                } else {
+                                    setDesignerMessages([]);
+                                }
+                            })
+                            .catch(function(error) {
+                                console.error('Error loading designer messages:', error);
+                                setDesignerMessages([]);
+                            })
+                            .finally(function() {
+                                setIsLoadingDesignerMessages(false);
+                            });
+                        } catch (error) {
+                            console.error('Error loading designer messages:', error);
+                            setDesignerMessages([]);
+                            setIsLoadingDesignerMessages(false);
+                        }
+                    }, [itemId]);
+                    
+                    // Commit 2.3.9.1C-a: Send Designer Message
+                    var sendDesignerMessage = React.useCallback(function(e) {
+                        e.preventDefault();
+                        
+                        if (!itemId || !designerMessageText.trim()) {
+                            alert('Please enter a message.');
+                            return;
+                        }
+                        
+                        setIsSendingDesignerMessage(true);
+                        try {
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_send_item_message) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                            
+                            if (!nonce) {
+                                console.error('Nonce not found for n88_send_item_message');
+                                setIsSendingDesignerMessage(false);
+                                return;
+                            }
+                            
+                            var formData = new FormData();
+                            formData.append('action', 'n88_send_item_message');
+                            formData.append('item_id', String(itemId));
+                            formData.append('thread_type', 'designer_operator');
+                            formData.append('message_text', designerMessageText.trim());
+                            formData.append('category', designerMessageCategory || '');
+                            formData.append('_ajax_nonce', nonce);
+                            
+                            fetch(ajaxUrl, {
+                                method: 'POST',
+                                body: formData,
+                            })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (data.success) {
+                                    setDesignerMessageText('');
+                                    setDesignerMessageCategory('');
+                                    loadDesignerMessages();
+                                } else {
+                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send message. Please try again.'));
+                                }
+                            })
+                            .catch(function(error) {
+                                console.error('Error sending designer message:', error);
+                                alert('An error occurred. Please try again.');
+                            })
+                            .finally(function() {
+                                setIsSendingDesignerMessage(false);
+                            });
+                        } catch (error) {
+                            console.error('Error sending designer message:', error);
+                            alert('An error occurred. Please try again.');
+                            setIsSendingDesignerMessage(false);
+                        }
+                    }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages]);
                     
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
@@ -9439,7 +9581,247 @@ class N88_RFQ_Admin {
                                                         ) : null
                                                     )
                                                 )
-                                            ) : null
+                                            ) : null,
+                                            // Commit 2.3.9.1C-a: Message Operator Section (All States)
+                                            React.createElement('div', {
+                                                style: {
+                                                    marginTop: '24px',
+                                                }
+                                            },
+                                                !showDesignerMessageForm ? React.createElement('button', {
+                                                    onClick: function() {
+                                                        setShowDesignerMessageForm(true);
+                                                        loadDesignerMessages();
+                                                    },
+                                                    style: {
+                                                        width: '100%',
+                                                        padding: '12px',
+                                                        backgroundColor: '#111111',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '14px',
+                                                        fontFamily: 'monospace',
+                                                        cursor: 'pointer',
+                                                        fontWeight: '600',
+                                                    },
+                                                    onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
+                                                    onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
+                                                }, 'Message Operator') : React.createElement('div', {
+                                                    style: {
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        padding: '16px',
+                                                        backgroundColor: '#111111',
+                                                    }
+                                                },
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            marginBottom: '16px',
+                                                        }
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '14px',
+                                                                fontWeight: '600',
+                                                                color: darkText,
+                                                            }
+                                                        }, 'Message Operator'),
+                                                        React.createElement('button', {
+                                                            onClick: function() { setShowDesignerMessageForm(false); },
+                                                            style: {
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: darkText,
+                                                                fontSize: '20px',
+                                                                cursor: 'pointer',
+                                                                padding: '0',
+                                                                width: '24px',
+                                                                height: '24px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                            }
+                                                        }, '×')
+                                                    ),
+                                                    // Messages History
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            maxHeight: '300px',
+                                                            overflowY: 'auto',
+                                                            padding: '12px',
+                                                            backgroundColor: '#000',
+                                                            borderRadius: '4px',
+                                                            marginBottom: '16px',
+                                                            border: '1px solid ' + darkBorder,
+                                                        }
+                                                    },
+                                                        isLoadingDesignerMessages ? React.createElement('div', {
+                                                            style: {
+                                                                textAlign: 'center',
+                                                                color: '#666',
+                                                                fontSize: '12px',
+                                                                padding: '20px',
+                                                            }
+                                                        }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', {
+                                                            style: {
+                                                                textAlign: 'center',
+                                                                color: '#666',
+                                                                fontSize: '12px',
+                                                                padding: '20px',
+                                                            }
+                                                        }, 'No messages yet. Start the conversation!') : designerMessages.map(function(msg, idx) {
+                                                            var isDesigner = msg.sender_role === 'designer';
+                                                            var senderName = isDesigner ? 'You' : 'Operator';
+                                                            var alignClass = isDesigner ? 'right' : 'left';
+                                                            var bgColor = isDesigner ? '#003300' : '#001100';
+                                                            var borderColor = isDesigner ? greenAccent : '#00aa00';
+                                                            
+                                                            var date = new Date(msg.created_at);
+                                                            var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                                            
+                                                            return React.createElement('div', {
+                                                                key: idx,
+                                                                style: {
+                                                                    marginBottom: '15px',
+                                                                    textAlign: alignClass,
+                                                                }
+                                                            },
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        display: 'inline-block',
+                                                                        maxWidth: '70%',
+                                                                        padding: '10px 15px',
+                                                                        backgroundColor: bgColor,
+                                                                        border: '1px solid ' + borderColor,
+                                                                        borderRadius: '4px',
+                                                                        fontSize: '11px',
+                                                                        color: '#fff',
+                                                                    }
+                                                                },
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            fontWeight: 'bold',
+                                                                            color: greenAccent,
+                                                                            marginBottom: '5px',
+                                                                        }
+                                                                    }, senderName + (msg.category ? ' [' + msg.category + ']' : '')),
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            whiteSpace: 'pre-wrap',
+                                                                            wordWrap: 'break-word',
+                                                                        }
+                                                                    }, msg.message_text || ''),
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            fontSize: '10px',
+                                                                            color: '#666',
+                                                                            marginTop: '5px',
+                                                                        }
+                                                                    }, dateStr)
+                                                                )
+                                                            );
+                                                        })
+                                                    ),
+                                                    // Message Composer
+                                                    React.createElement('form', {
+                                                        onSubmit: sendDesignerMessage
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: { marginBottom: '10px' }
+                                                        },
+                                                            React.createElement('label', {
+                                                                style: {
+                                                                    display: 'block',
+                                                                    fontSize: '11px',
+                                                                    color: greenAccent,
+                                                                    marginBottom: '5px',
+                                                                }
+                                                            }, 'Category (Optional):'),
+                                                            React.createElement('select', {
+                                                                value: designerMessageCategory,
+                                                                onChange: function(e) { setDesignerMessageCategory(e.target.value); },
+                                                                style: {
+                                                                    width: '100%',
+                                                                    padding: '6px',
+                                                                    backgroundColor: '#000',
+                                                                    color: greenAccent,
+                                                                    border: '1px solid ' + greenAccent,
+                                                                    fontFamily: 'monospace',
+                                                                    fontSize: '11px',
+                                                                }
+                                                            },
+                                                                React.createElement('option', { value: '' }, '-- Select Category --'),
+                                                                React.createElement('option', { value: 'Specs' }, 'Specs'),
+                                                                React.createElement('option', { value: 'Dimensions' }, 'Dimensions'),
+                                                                React.createElement('option', { value: 'Materials' }, 'Materials'),
+                                                                React.createElement('option', { value: 'Timeline' }, 'Timeline'),
+                                                                React.createElement('option', { value: 'Other' }, 'Other')
+                                                            )
+                                                        ),
+                                                        React.createElement('div', {
+                                                            style: { marginBottom: '10px' }
+                                                        },
+                                                            React.createElement('label', {
+                                                                style: {
+                                                                    display: 'block',
+                                                                    fontSize: '11px',
+                                                                    color: greenAccent,
+                                                                    marginBottom: '5px',
+                                                                }
+                                                            },
+                                                                React.createElement(React.Fragment, null, 'Message: ', React.createElement('span', { style: { color: '#ff0000' } }, '*'))
+                                                            ),
+                                                            React.createElement('textarea', {
+                                                                value: designerMessageText,
+                                                                onChange: function(e) { setDesignerMessageText(e.target.value); },
+                                                                required: true,
+                                                                rows: 4,
+                                                                style: {
+                                                                    width: '100%',
+                                                                    padding: '8px',
+                                                                    backgroundColor: '#000',
+                                                                    color: '#fff',
+                                                                    border: '1px solid ' + greenAccent,
+                                                                    fontFamily: 'monospace',
+                                                                    fontSize: '11px',
+                                                                    resize: 'vertical',
+                                                                },
+                                                                placeholder: 'Type your message here...'
+                                                            })
+                                                        ),
+                                                        React.createElement('button', {
+                                                            type: 'submit',
+                                                            disabled: isSendingDesignerMessage,
+                                                            style: {
+                                                                width: '100%',
+                                                                padding: '8px',
+                                                                backgroundColor: isSendingDesignerMessage ? '#003300' : greenAccent,
+                                                                color: '#000',
+                                                                border: 'none',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: '12px',
+                                                                fontWeight: 'bold',
+                                                                cursor: isSendingDesignerMessage ? 'not-allowed' : 'pointer',
+                                                                opacity: isSendingDesignerMessage ? 0.6 : 1,
+                                                            },
+                                                            onMouseOver: function(e) {
+                                                                if (!isSendingDesignerMessage) {
+                                                                    e.target.style.backgroundColor = '#00cc00';
+                                                                }
+                                                            },
+                                                            onMouseOut: function(e) {
+                                                                if (!isSendingDesignerMessage) {
+                                                                    e.target.style.backgroundColor = greenAccent;
+                                                                }
+                                                            }
+                                                        }, isSendingDesignerMessage ? '[ Sending... ]' : '[ Send Message ]')
+                                                    )
+                                                )
+                                            )
                                         ) : null,
                                         // Tab 2: RFQ Form
                                         activeTab === 'rfq' ? React.createElement('div', null,
@@ -11218,6 +11600,7 @@ class N88_RFQ_Admin {
                         );
                     }
                     
+                    
                     // Create Fragment with children
                     var modalContent = React.createElement.apply(null, [React.Fragment, null].concat(fragmentChildren));
                     
@@ -11902,6 +12285,9 @@ class N88_RFQ_Admin {
             'nonce_withdraw_supplier_bid' => wp_create_nonce( 'n88_withdraw_supplier_bid' ),
             'nonce_get_supplier_item_details' => wp_create_nonce( 'n88_get_supplier_item_details' ),
             'nonce_get_keywords' => wp_create_nonce( 'n88_get_keywords' ), // Commit 2.3.9.1B: For CAD prototype keyword selection
+            // Commit 2.3.9.1C-a: Item Messages nonces
+            'nonce_get_item_messages' => wp_create_nonce( 'n88_get_item_messages' ),
+            'nonce_send_item_message' => wp_create_nonce( 'n88_send_item_message' ),
         ) );
         ?>
         <div class="wrap">

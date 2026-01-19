@@ -49,6 +49,8 @@ class N88_Events {
         // Commit 2.3.9.1A: CAD + Prototype request events
         'cad_prototype_requested',
         'video_direction_submitted',
+        // Commit 2.3.9.1C-a: Item message events
+        'item_message_sent',
     );
 
     /**
@@ -69,6 +71,7 @@ class N88_Events {
         'board_layout',
         'designer_profile',
         'prototype_payment',
+        'item_message',
     );
 
     /**
