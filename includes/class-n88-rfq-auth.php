@@ -88,12 +88,6 @@ class N88_RFQ_Auth {
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
         
-        // Commit 2.3.9.1C-B: RFQ Clarifications
-        add_action( 'wp_ajax_n88_create_clarification', array( $this, 'ajax_create_clarification' ) );
-        add_action( 'wp_ajax_n88_get_clarifications', array( $this, 'ajax_get_clarifications' ) );
-        add_action( 'wp_ajax_n88_reply_to_clarification', array( $this, 'ajax_reply_to_clarification' ) );
-        add_action( 'wp_ajax_n88_forward_clarification_to_designer', array( $this, 'ajax_forward_clarification_to_designer' ) );
-        add_action( 'wp_ajax_n88_close_clarification', array( $this, 'ajax_close_clarification' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -2027,145 +2021,9 @@ class N88_RFQ_Auth {
                 return false;
             }
             
-            // Commit 2.3.9.1C-B: Toggle RFQ Clarification Form
-            function toggleRfqClarification(itemId, bidId) {
-                var formContainer = document.getElementById('n88-rfq-clarification-form-' + itemId);
-                if (!formContainer) return;
-                
-                if (formContainer.style.display === 'none') {
-                    formContainer.style.display = 'block';
-                    loadRfqClarifications(itemId, bidId);
-                } else {
-                    formContainer.style.display = 'none';
-                }
-            }
-            
-            // Commit 2.3.9.1C-B: Load RFQ Clarifications
-            function loadRfqClarifications(itemId, bidId) {
-                var container = document.getElementById('n88-rfq-clarifications-list-' + itemId);
-                if (!container) return;
-                
-                container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>';
-                
-                var formData = new FormData();
-                formData.append('action', 'n88_get_clarifications');
-                formData.append('item_id', itemId);
-                if (bidId) formData.append('bid_id', bidId);
-                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_clarifications' ) ); ?>');
-                
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(response) { return response.json(); })
-                .then(function(data) {
-                    if (data.success && data.data && data.data.clarifications) {
-                        renderRfqClarifications(data.data.clarifications, itemId);
-                    } else {
-                        container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No clarifications yet.</div>';
-                    }
-                })
-                .catch(function(error) {
-                    console.error('Error loading clarifications:', error);
-                    container.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading clarifications.</div>';
-                });
-            }
-            
-            // Commit 2.3.9.1C-B: Render RFQ Clarifications
-            function renderRfqClarifications(clarifications, itemId) {
-                var container = document.getElementById('n88-rfq-clarifications-list-' + itemId);
-                if (!container || !clarifications || clarifications.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No clarifications yet.</div>';
-                    return;
-                }
-                
-                var html = '';
-                clarifications.forEach(function(clar) {
-                    var statusColor = {
-                        'open': '#ff8800',
-                        'needs_designer': '#ff9800',
-                        'answered': '#00ff00',
-                        'closed': '#999'
-                    }[clar.status] || '#999';
-                    
-                    html += '<div style="margin-bottom: 12px; padding: 12px; background-color: #1a1a1a; border: 1px solid ' + statusColor + '; border-radius: 4px;">';
-                    html += '<div style="font-size: 11px; color: ' + statusColor + '; margin-bottom: 8px; font-weight: 600;">Status: ' + clar.status.toUpperCase() + '</div>';
-                    html += '<div style="font-size: 12px; color: #fff; margin-bottom: 8px; white-space: pre-wrap;">' + (clar.question_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                    if (clar.answer_text) {
-                        html += '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">';
-                        html += '<div style="font-size: 10px; color: #00ff00; margin-bottom: 4px;">Answer:</div>';
-                        html += '<div style="font-size: 11px; color: #ccc; white-space: pre-wrap;">' + (clar.answer_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                        html += '</div>';
-                    }
-                    html += '<div style="font-size: 9px; color: #666; margin-top: 8px;">Created: ' + new Date(clar.created_at).toLocaleString() + '</div>';
-                    html += '</div>';
-                });
-                
-                container.innerHTML = html;
-            }
-            
-            // Commit 2.3.9.1C-B: Submit RFQ Clarification
-            function submitRfqClarification(event, itemId, bidId) {
-                event.preventDefault();
-                
-                var questionText = document.getElementById('n88-rfq-clarification-question-' + itemId);
-                var category = document.getElementById('n88-rfq-clarification-category-' + itemId);
-                
-                if (!questionText || !questionText.value.trim()) {
-                    alert('Please enter a question.');
-                    return false;
-                }
-                
-                var formData = new FormData();
-                formData.append('action', 'n88_create_clarification');
-                formData.append('item_id', itemId);
-                if (bidId) formData.append('bid_id', bidId);
-                formData.append('question_text', questionText.value.trim());
-                formData.append('category', category ? category.value : '');
-                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_create_clarification' ) ); ?>');
-                
-                var submitBtn = event.target.querySelector('button[type="submit"]');
-                var originalText = submitBtn ? submitBtn.textContent : '';
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = '[ Submitting... ]';
-                }
-                
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(response) { return response.json(); })
-                .then(function(data) {
-                    if (data.success) {
-                        questionText.value = '';
-                        if (category) category.value = '';
-                        loadRfqClarifications(itemId, bidId);
-                    } else {
-                        alert('Error: ' + (data.data?.message || 'Failed to submit clarification.'));
-                    }
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                })
-                .catch(function(error) {
-                    console.error('Error submitting clarification:', error);
-                    alert('An error occurred. Please try again.');
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                });
-                
-                return false;
-            }
-            
             // Make functions globally available
             window.toggleSupplierClarification = toggleSupplierClarification;
             window.sendSupplierClarificationInline = sendSupplierClarificationInline;
-            window.toggleRfqClarification = toggleRfqClarification;
-            window.submitRfqClarification = submitRfqClarification;
             
             function openBidModal(itemId) {
                 // Ensure lightbox functions are available before creating modal HTML
@@ -2448,42 +2306,6 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<button type="submit" style="width: 100%; padding: 8px; background-color: #00ff00; color: #000; border: none; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
                         '[ Send Message ]' +
-                        '</button>' +
-                        '</form>' +
-                        '</div>' +
-                        '</div>' +
-                        
-                        // Commit 2.3.9.1C-B: RFQ Clarification Request Form (Separate from messaging)
-                        '<div style="margin-top: 16px; margin-bottom: 16px;">' +
-                        '<button id="n88-rfq-clarification-toggle-' + itemId + '" onclick="toggleRfqClarification(' + itemId + ', ' + (item.bid_id || 0) + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #ff8800; border-radius: 4px; color: #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#331100\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
-                        'Request RFQ Clarification' +
-                        '</button>' +
-                        '<div id="n88-rfq-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #ff8800; border-radius: 4px;">' +
-                        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #ff8800;">Request RFQ Clarification</div>' +
-                        '<button onclick="toggleRfqClarification(' + itemId + ', ' + (item.bid_id || 0) + ');" style="background: none; border: none; color: #ff8800; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
-                        '</div>' +
-                        '<div id="n88-rfq-clarifications-list-' + itemId + '" style="max-height: 300px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #ff8800;">' +
-                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>' +
-                        '</div>' +
-                        '<form id="n88-rfq-clarification-form-inner-' + itemId + '" onsubmit="return submitRfqClarification(event, ' + itemId + ', ' + (item.bid_id || 0) + ');">' +
-                        '<div style="margin-bottom: 10px;">' +
-                        '<label style="display: block; font-size: 11px; color: #ff8800; margin-bottom: 5px;">Category (Optional):</label>' +
-                        '<select id="n88-rfq-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 6px; background-color: #000; color: #ff8800; border: 1px solid #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 11px;">' +
-                        '<option value="">-- Select Category --</option>' +
-                        '<option value="Specs">Specs</option>' +
-                        '<option value="Dimensions">Dimensions</option>' +
-                        '<option value="Materials">Materials</option>' +
-                        '<option value="Timeline">Timeline</option>' +
-                        '<option value="Other">Other</option>' +
-                        '</select>' +
-                        '</div>' +
-                        '<div style="margin-bottom: 10px;">' +
-                        '<label style="display: block; font-size: 11px; color: #ff8800; margin-bottom: 5px;">Question: <span style="color: #ff0000;">*</span></label>' +
-                        '<textarea id="n88-rfq-clarification-question-' + itemId + '" name="question_text" required rows="4" style="width: 100%; padding: 8px; background-color: #000; color: #fff; border: 1px solid #ff8800; font-family: \'Courier New\', Courier, monospace; font-size: 11px; resize: vertical;" placeholder="Type your clarification question here..."></textarea>' +
-                        '</div>' +
-                        '<button type="submit" style="width: 100%; padding: 8px; background-color: #ff8800; color: #000; border: none; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#ff9900\';" onmouseout="this.style.backgroundColor=\'#ff8800\';">' +
-                        '[ Submit Clarification Request ]' +
                         '</button>' +
                         '</form>' +
                         '</div>' +
@@ -12306,9 +12128,6 @@ class N88_RFQ_Auth {
                                                     <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                         Message Threads
                                                     </button>
-                                                    <button class="n88-view-clarifications-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #ff8800; border: 1px solid #ff8800; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#331100';" onmouseout="this.style.backgroundColor='#000';">
-                                                        RFQ Clarifications
-                                                    </button>
                                                     <?php if ( $request['status'] === 'requested' ) : ?>
                                                         <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-designer-id="<?php echo esc_attr( $request['designer_user_id'] ); ?>" data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                             Mark Payment Received
@@ -12356,23 +12175,6 @@ class N88_RFQ_Auth {
                                                             </button>
                                                         </form>
                                                     </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Commit 2.3.9.1C-B: RFQ Clarifications Section (hidden by default) -->
-                                            <div class="n88-clarifications-section" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #ff8800; border-radius: 4px;">
-                                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                                                    <div style="font-size: 14px; font-weight: 600; color: #ff8800;">RFQ Clarifications</div>
-                                                    <button class="n88-close-clarifications" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="background: none; border: none; color: #ff8800; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
-                                                </div>
-                                                
-                                                <div id="n88-clarifications-list-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 400px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #ff8800;">
-                                                    <div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading clarifications...</div>
-                                                </div>
-                                                
-                                                <!-- Operator Actions for Each Clarification -->
-                                                <div id="n88-clarification-actions-<?php echo esc_attr( $payment_id ); ?>" style="display: none;">
-                                                    <!-- Actions will be populated by JavaScript -->
                                                 </div>
                                             </div>
                                         </td>
