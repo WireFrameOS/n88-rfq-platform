@@ -2493,7 +2493,39 @@ class N88_RFQ_Auth {
                             
                             return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
                                 '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid</div>' +
-                                (bid.has_prototype_request ? '<div style="background-color: #1a3a1a; border: 1px solid #00ff00; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #00ff00; line-height: 1.5;">Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div>' : '') +
+                                (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #1a3a1a; border: 1px solid #00ff00; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #00ff00; line-height: 1.5;">Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div>' : '') +
+                                // Commit 2.3.9.1E: Payment Received Notification
+                                (bid.payment_notification ? (function() {
+                                    var notif = bid.payment_notification;
+                                    var keywordsHTML = '';
+                                    if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
+                                        keywordsHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
+                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Video Direction Keywords:</div>' +
+                                            '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
+                                        notif.keywords.forEach(function(keyword) {
+                                            if (keyword && String(keyword).trim() !== '') {
+                                                keywordsHTML += '<span style="display: inline-block; padding: 4px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 12px; font-size: 11px; color: #00ff00; font-family: monospace;">' + String(keyword).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                                            }
+                                        });
+                                        keywordsHTML += '</div></div>';
+                                    }
+                                    var noteHTML = '';
+                                    if (notif.note && notif.note.trim()) {
+                                        noteHTML = '<div style="margin-top: 12px; padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px;">' +
+                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px; font-weight: 600;">Note:</div>' +
+                                            '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                            '</div>';
+                                    }
+                                    return '<div style="background-color: rgba(255, 255, 255, 0.05); border: 2px solid #00ff00; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
+                                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 8px;">Payment Received — CAD Pending</div>' +
+                                        '<div style="font-size: 12px; color: #00cc00; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div>' +
+                                        '<div style="font-size: 11px; color: #00ff00; margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                                        '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
+                                        '</div>' +
+                                        keywordsHTML +
+                                        noteHTML +
+                                        '</div>';
+                                })() : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
@@ -8550,18 +8582,63 @@ class N88_RFQ_Auth {
                     $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
                     $has_prototype_request = false;
                     $prototype_request_status = null;
+                    $payment_notification = null; // Commit 2.3.9.1E: Payment notification data
                     if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
                         $prototype_request = $wpdb->get_row( $wpdb->prepare(
-                            "SELECT status FROM {$prototype_payments_table}
+                            "SELECT status, video_direction_json, notifications_sent_at FROM {$prototype_payments_table}
                             WHERE bid_id = %d AND item_id = %d
                             ORDER BY created_at DESC
                             LIMIT 1",
                             $bid_id,
                             $item_id
-                        ) );
+                        ), ARRAY_A );
                         if ( $prototype_request ) {
                             $has_prototype_request = true;
-                            $prototype_request_status = $prototype_request->status;
+                            $prototype_request_status = $prototype_request['status'];
+                            
+                            // Commit 2.3.9.1E: If payment is marked_received and notifications sent, include notification data
+                            if ( $prototype_request['status'] === 'marked_received' && ! empty( $prototype_request['notifications_sent_at'] ) ) {
+                                $video_direction_json = $prototype_request['video_direction_json'];
+                                $video_direction = array();
+                                if ( ! empty( $video_direction_json ) ) {
+                                    $video_direction = json_decode( $video_direction_json, true );
+                                }
+                                $selected_keywords = isset( $video_direction['selected_keywords'] ) ? $video_direction['selected_keywords'] : array();
+                                $note = isset( $video_direction['note'] ) ? $video_direction['note'] : '';
+                                
+                                // Get keyword names from keywords table
+                                $keywords_table = $wpdb->prefix . 'n88_keywords';
+                                $keywords_list = array();
+                                if ( ! empty( $selected_keywords ) && is_array( $selected_keywords ) ) {
+                                    $keyword_ids = array_map( 'intval', $selected_keywords );
+                                    $keyword_ids = array_filter( $keyword_ids ); // Remove any zeros or invalid IDs
+                                    if ( ! empty( $keyword_ids ) ) {
+                                        // Use esc_sql for safety with IN clause
+                                        $keyword_ids_safe = array_map( 'intval', $keyword_ids );
+                                        $keyword_ids_string = implode( ',', $keyword_ids_safe );
+                                        
+                                        $keywords_data = $wpdb->get_results(
+                                            "SELECT keyword_id, keyword FROM {$keywords_table} WHERE keyword_id IN ({$keyword_ids_string}) AND is_active = 1",
+                                            ARRAY_A
+                                        );
+                                        
+                                        if ( $keywords_data && is_array( $keywords_data ) ) {
+                                            foreach ( $keywords_data as $kw ) {
+                                                if ( isset( $kw['keyword'] ) && ! empty( $kw['keyword'] ) ) {
+                                                    $keywords_list[] = sanitize_text_field( $kw['keyword'] );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                $payment_notification = array(
+                                    'item_id' => $item_id,
+                                    'bid_id' => $bid_id,
+                                    'keywords' => $keywords_list,
+                                    'note' => $note,
+                                );
+                            }
                         }
                     }
                     
@@ -8579,6 +8656,7 @@ class N88_RFQ_Auth {
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                         'has_prototype_request' => $has_prototype_request, // Commit 2.3.9.1B: Flag for CAD prototype request
                         'prototype_request_status' => $prototype_request_status, // Commit 2.3.9.1B: Status of prototype request
+                        'payment_notification' => $payment_notification, // Commit 2.3.9.1E: Payment notification data
                     );
                 } else {
                     // No submitted bid - check for drafts
@@ -14224,7 +14302,84 @@ class N88_RFQ_Auth {
             )
         );
 
-        // Commit 2.3.9.1D: No notifications in this commit (removed message sending)
+        // Commit 2.3.9.1E: Send notifications (idempotent - only if not already sent)
+        $notifications_sent_at = $wpdb->get_var( $wpdb->prepare(
+            "SELECT notifications_sent_at FROM {$prototype_payments_table} WHERE id = %d",
+            $payment_id
+        ) );
+        
+        if ( empty( $notifications_sent_at ) ) {
+            // Fetch payment details including video direction
+            $payment_details = $wpdb->get_row( $wpdb->prepare(
+                "SELECT supplier_id, designer_user_id, video_direction_json, total_due_usd 
+                FROM {$prototype_payments_table} 
+                WHERE id = %d",
+                $payment_id
+            ), ARRAY_A );
+            
+            if ( $payment_details ) {
+                $supplier_id = intval( $payment_details['supplier_id'] );
+                $designer_user_id = intval( $payment_details['designer_user_id'] );
+                $video_direction_json = $payment_details['video_direction_json'];
+                $total_due_usd = floatval( $payment_details['total_due_usd'] );
+                
+                // Parse video direction to get keywords and note
+                $video_direction = array();
+                if ( ! empty( $video_direction_json ) ) {
+                    $video_direction = json_decode( $video_direction_json, true );
+                }
+                $selected_keywords = isset( $video_direction['selected_keywords'] ) ? $video_direction['selected_keywords'] : array();
+                $note = isset( $video_direction['note'] ) ? $video_direction['note'] : '';
+                
+                // Get keyword names from keywords table
+                $keywords_table = $wpdb->prefix . 'n88_keywords';
+                $keywords_list = array();
+                if ( ! empty( $selected_keywords ) && is_array( $selected_keywords ) ) {
+                    $keyword_ids = array_map( 'intval', $selected_keywords );
+                    $keyword_ids = array_filter( $keyword_ids ); // Remove any zeros or invalid IDs
+                    if ( ! empty( $keyword_ids ) ) {
+                        $keyword_ids_safe = array_map( 'intval', $keyword_ids );
+                        $keyword_ids_string = implode( ',', $keyword_ids_safe );
+                        
+                        $keywords_data = $wpdb->get_results(
+                            "SELECT keyword_id, keyword FROM {$keywords_table} WHERE keyword_id IN ({$keyword_ids_string}) AND is_active = 1",
+                            ARRAY_A
+                        );
+                        
+                        if ( $keywords_data && is_array( $keywords_data ) ) {
+                            foreach ( $keywords_data as $kw ) {
+                                if ( isset( $kw['keyword'] ) && ! empty( $kw['keyword'] ) ) {
+                                    $keywords_list[] = sanitize_text_field( $kw['keyword'] );
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Commit 2.3.9.1E: Notifications are shown in modals (not email)
+                // Store notification data in payment record for frontend to display
+                // This is idempotent - notifications_sent_at will be set after this
+                
+                // Set notifications_sent_at to mark as sent
+                $wpdb->update(
+                    $prototype_payments_table,
+                    array( 'notifications_sent_at' => current_time( 'mysql' ) ),
+                    array( 'id' => $payment_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+                
+                // Log notification sent (for debugging)
+                error_log( sprintf(
+                    'Commit 2.3.9.1E: Payment notifications sent for payment_id=%d, item_id=%d, bid_id=%d, supplier_id=%d, designer_user_id=%d',
+                    $payment_id,
+                    $item_id,
+                    $bid_id,
+                    $supplier_id,
+                    $designer_user_id
+                ) );
+            }
+        }
 
         wp_send_json_success( array( 
             'message' => 'Payment marked as received successfully.',

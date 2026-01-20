@@ -3502,6 +3502,12 @@ class N88_RFQ_Installer {
             // Modify enum to include marked_received
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} MODIFY COLUMN status ENUM('requested', 'marked_received', 'paid_confirmed', 'cad_in_progress', 'cad_sent', 'cad_approved', 'prototype_released', 'prototype_submitted', 'prototype_approved') NOT NULL DEFAULT 'requested'" );
         }
+        
+        // Commit 2.3.9.1E: Add notifications_sent_at column if not exists
+        $columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        if ( ! in_array( 'notifications_sent_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN notifications_sent_at DATETIME NULL AFTER received_at" );
+        }
     }
     
     /**
