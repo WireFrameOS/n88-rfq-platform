@@ -1,5 +1,5 @@
 /**
- * Concierge Overlay Component (K) - Updated terminology to "Your Sourcing Agent"
+ * Concierge Overlay Component (K) - Updated terminology to "Message System Operator"
  * 
  * Milestone 1.3.7: Read-only overlay showing sourcing agent info
  * 
@@ -18,7 +18,7 @@ import React from 'react';
 const ConciergeOverlay = ({ concierge }) => {
     // Default placeholder if sourcing agent data not provided
     const conciergeData = concierge || {
-        name: 'Your Sourcing Agent',
+        name: 'Message System Operator',
         avatarUrl: '',
     };
 

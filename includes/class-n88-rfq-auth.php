@@ -1483,6 +1483,42 @@ class N88_RFQ_Auth {
             $time_remaining = $this->calculate_time_remaining( $item['route_type'], $item['eligible_after'] );
             $item_data['time_remaining'] = $time_remaining;
             
+            // Check for unread operator messages (supplier_operator thread)
+            // Action Required: Show when operator has sent messages that supplier hasn't replied to
+            $messages_table = $wpdb->prefix . 'n88_item_messages';
+            $unread_operator_messages = 0;
+            $has_unread_operator_messages = false;
+            
+            // Check if messages table exists
+            $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+            if ( $messages_table_exists ) {
+                // Count unread operator messages (operator messages with no supplier reply after them)
+                // For supplier_operator thread, we need to check by item_id and supplier_id
+                $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(DISTINCT m.message_id)
+                    FROM {$messages_table} m
+                    WHERE m.item_id = %d
+                    AND m.thread_type = 'supplier_operator'
+                    AND m.sender_role = 'operator'
+                    AND m.supplier_id = %d
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} m2
+                        WHERE m2.item_id = m.item_id
+                        AND m2.thread_type = 'supplier_operator'
+                        AND m2.sender_role = 'supplier'
+                        AND m2.supplier_id = %d
+                        AND m2.created_at > m.created_at
+                    )",
+                    $item_id,
+                    $current_user->ID,
+                    $current_user->ID
+                ) ) );
+                $has_unread_operator_messages = $unread_operator_messages > 0;
+            }
+            
+            $item_data['has_unread_operator_messages'] = $has_unread_operator_messages;
+            $item_data['unread_operator_messages'] = $unread_operator_messages;
+            
             $items_by_id[ $item_id ] = $item_data;
         }
         
@@ -1689,29 +1725,39 @@ class N88_RFQ_Auth {
                                     </td>
                                     <td style="padding: 12px; font-size: 12px;">
                                         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                            <?php if ( ! $is_expired ) : ?>
-                                                <button class="n88-open-bid-modal" 
-                                                        data-item-id="<?php echo esc_attr( $item_id ); ?>" 
-                                                        data-item-title="<?php echo esc_attr( $item_title ); ?>" 
-                                                        data-category="<?php echo esc_attr( $category ); ?>"
-                                                        data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                        <?php if ( ! $is_expired ) : ?>
+                                            <button class="n88-open-bid-modal" 
+                                                    data-item-id="<?php echo esc_attr( $item_id ); ?>" 
+                                                    data-item-title="<?php echo esc_attr( $item_title ); ?>" 
+                                                    data-category="<?php echo esc_attr( $category ); ?>"
+                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
                                                         style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer;" 
-                                                        onmouseover="this.style.backgroundColor='#333';" 
-                                                        onmouseout="this.style.backgroundColor='#000';">
-                                                    [ <?php echo esc_html( $action_button_text ); ?> ]
-                                                </button>
-                                            <?php else : ?>
-                                                <span style="color: #999; font-size: 11px;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
-                                            <?php endif; ?>
+                                                    onmouseover="this.style.backgroundColor='#333';" 
+                                                    onmouseout="this.style.backgroundColor='#000';">
+                                                [ <?php echo esc_html( $action_button_text ); ?> ]
+                                        </button>
+                                        <?php else : ?>
+                                            <span style="color: #999; font-size: 11px;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
+                                        <?php endif; ?>
                                         </div>
                                         <div style="margin-top: 5px;">
                                             <span style="color: #fff; font-size: 11px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
-                                            <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
-                                                <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
-                                            <?php endif; ?>
-                                            <?php if ( $item_data['time_remaining'] ) : ?>
-                                                <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
-                                            <?php endif; ?>
+                                        <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
+                                            <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
+                                        <?php endif; ?>
+                                            <?php if ( ! empty( $item_data['has_unread_operator_messages'] ) && $item_data['has_unread_operator_messages'] ) : 
+                                                $unread_count = ! empty( $item_data['unread_operator_messages'] ) ? intval( $item_data['unread_operator_messages'] ) : 0;
+                                            ?>
+                                                <div style="margin-top: 5px;">
+                                                    <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
+                                                    <div style="color: #ff6666; font-size: 10px; margin-top: 3px;">
+                                                        <?php echo esc_html( $unread_count ); ?> msg<?php echo $unread_count !== 1 ? 's' : ''; ?> from operator
+                                                    </div>
+                                                </div>
+                                        <?php endif; ?>
+                                        <?php if ( $item_data['time_remaining'] ) : ?>
+                                            <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
+                                        <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -1926,36 +1972,43 @@ class N88_RFQ_Auth {
                 });
             }
             
-            // Commit 2.3.9.1C-a: Render Supplier Messages (Inline)
+            // Commit 2.3.9.1C-a: Render Supplier Messages (Inline) - WhatsApp Style
             function renderSupplierMessagesInline(messages, itemId) {
                 var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
-                if (!messagesContainer || !messages || messages.length === 0) {
-                    messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No messages yet. Start the conversation!</div>';
+                if (!messagesContainer) return;
+                
+                if (!messages || messages.length === 0) {
+                    messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">No messages yet. Start the conversation!</div>';
                     return;
                 }
                 
+                // Sort messages chronologically
+                var sortedMessages = messages.slice().sort(function(a, b) {
+                    return new Date(a.created_at) - new Date(b.created_at);
+                });
+                
                 var html = '';
-                messages.forEach(function(msg) {
+                sortedMessages.forEach(function(msg) {
                     var isSupplier = msg.sender_role === 'supplier';
                     var senderName = isSupplier ? 'You' : 'Operator';
-                    var alignClass = isSupplier ? 'right' : 'left';
-                    var bgColor = isSupplier ? '#003300' : '#001100';
-                    var borderColor = isSupplier ? '#00ff00' : '#00aa00';
+                    var categoryDisplay = msg.category ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
-                    var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     
-                    html += '<div style="margin-bottom: 15px; text-align: ' + alignClass + ';">';
-                    html += '<div style="display: inline-block; max-width: 70%; padding: 10px 15px; background-color: ' + bgColor + '; border: 1px solid ' + borderColor + '; border-radius: 4px; font-size: 11px; color: #fff;">';
-                    html += '<div style="font-weight: bold; color: #00ff00; margin-bottom: 5px;">' + senderName + (msg.category ? ' [' + msg.category + ']' : '') + '</div>';
-                    html += '<div style="white-space: pre-wrap; word-wrap: break-word;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                    html += '<div style="font-size: 10px; color: #666; margin-top: 5px;">' + dateStr + '</div>';
+                    html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isSupplier ? 'flex-end' : 'flex-start') + '; width: 100%;">';
+                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isSupplier ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isSupplier ? '#00ff00' : '#333') + '; border-radius: ' + (isSupplier ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
+                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
+                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 9px; color: #666; text-align: right;">' + dateStr + '</div>';
                     html += '</div>';
                     html += '</div>';
                 });
                 
                 messagesContainer.innerHTML = html;
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                setTimeout(function() {
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }, 100);
             }
             
             // Commit 2.3.9.1C-a: Send Supplier Clarification (Inline)
@@ -2284,14 +2337,12 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00;">Request Clarification</div>' +
                         '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
                         '</div>' +
-                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="max-height: 300px; overflow-y: auto; padding: 12px; background-color: #000; border-radius: 4px; margin-bottom: 16px; border: 1px solid #00ff00;">' +
-                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>' +
-                        '</div>' +
+                        // Category Dropdown at Top
                         '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');">' +
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
-                        '<div style="margin-bottom: 10px;">' +
+                        '<div style="margin-bottom: 12px;">' +
                         '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Category (Optional):</label>' +
-                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 6px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px;">' +
+                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 8px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px; border-radius: 4px;">' +
                         '<option value="">-- Select Category --</option>' +
                         '<option value="Specs">Specs</option>' +
                         '<option value="Dimensions">Dimensions</option>' +
@@ -2300,13 +2351,17 @@ class N88_RFQ_Auth {
                         '<option value="Other">Other</option>' +
                         '</select>' +
                         '</div>' +
-                        '<div style="margin-bottom: 10px;">' +
-                        '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Message: <span style="color: #ff0000;">*</span></label>' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="4" style="width: 100%; padding: 8px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px; resize: vertical;" placeholder="Type your clarification request here..."></textarea>' +
+                        // WhatsApp-Style Messages Container
+                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="height: 400px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #00ff00; display: flex; flex-direction: column;">' +
+                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
-                        '<button type="submit" style="width: 100%; padding: 8px; background-color: #00ff00; color: #000; border: none; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
-                        '[ Send Message ]' +
+                        // Message Input at Bottom
+                        '<div style="display: flex; gap: 8px; align-items: flex-end;">' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #00ff00; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Ask Operator for clarification"></textarea>' +
+                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
+                        'Send' +
                         '</button>' +
+                        '</div>' +
                         '</form>' +
                         '</div>' +
                         '</div>' +
@@ -9377,12 +9432,42 @@ class N88_RFQ_Auth {
             }
         }
 
+        // Check for unread operator messages (designer_operator thread)
+        // Action Required: Show when operator has sent messages that designer hasn't replied to
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $unread_operator_messages = 0;
+        $has_unread_operator_messages = false;
+        
+        // Check if messages table exists
+        $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+        if ( $messages_table_exists ) {
+            // Count unread operator messages (operator messages with no designer reply after them)
+            $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(DISTINCT m.message_id)
+                FROM {$messages_table} m
+                WHERE m.item_id = %d
+                AND m.thread_type = 'designer_operator'
+                AND m.sender_role = 'operator'
+                AND NOT EXISTS (
+                    SELECT 1 FROM {$messages_table} m2
+                    WHERE m2.item_id = m.item_id
+                    AND m2.thread_type = 'designer_operator'
+                    AND m2.sender_role = 'designer'
+                    AND m2.created_at > m.created_at
+                )",
+                $item_id
+            ) ) );
+            $has_unread_operator_messages = $unread_operator_messages > 0;
+        }
+
         wp_send_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
             'bids' => $bids,
             'rfq_revision_current' => $rfq_revision_current, // D5: Current revision for Specs Updated panel
             'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
+            'has_unread_operator_messages' => $has_unread_operator_messages, // Action Required: Unread operator messages
+            'unread_operator_messages' => $unread_operator_messages, // Count of unread messages
         ) );
     }
 
@@ -11714,13 +11799,15 @@ class N88_RFQ_Auth {
         }
 
         global $wpdb;
-        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
-        $items_table = $wpdb->prefix . 'n88_items';
-        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
-        $categories_table = $wpdb->prefix . 'n88_categories';
-        $users_table = $wpdb->prefix . 'users';
-        $events_table = $wpdb->prefix . 'n88_events';
-        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $prototype_payments_table   = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table                = $wpdb->prefix . 'n88_items';
+        $item_bids_table            = $wpdb->prefix . 'n88_item_bids';
+        $categories_table           = $wpdb->prefix . 'n88_categories';
+        $users_table                = $wpdb->prefix . 'users';
+        $events_table               = $wpdb->prefix . 'n88_events';
+        $rfq_routes_table           = $wpdb->prefix . 'n88_rfq_routes';
+        $supplier_profiles_table    = $wpdb->prefix . 'n88_supplier_profiles';
+        $messages_table             = $wpdb->prefix . 'n88_item_messages';
 
         // Check if prototype_payments table exists
         $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
@@ -11798,34 +11885,26 @@ class N88_RFQ_Auth {
             $where_conditions[] = $wpdb->prepare( "i.item_type = %s", $category_filter );
         }
         
-        // Needs Attention filter (items with status = 'requested' need attention)
+        // Needs Attention filter (items with status = 'requested' OR clarification_needed need attention)
+        // Note: This filter will be applied after UNION in the combined query
+        $apply_needs_attention_filter = false;
         if ( $needs_attention_filter === 'yes' ) {
+            $apply_needs_attention_filter = true;
+            // For prototype payments, only show 'requested'
             $where_conditions[] = "pp.status = 'requested'";
         } elseif ( $needs_attention_filter === 'no' ) {
+            // For prototype payments, only show 'marked_received'
             $where_conditions[] = "pp.status = 'marked_received'";
+            // For clarifications, exclude them when filter is 'no'
+            $clarification_where[] = "1=0"; // Exclude all clarifications
         }
         
         // Build WHERE clause
         $where_clause = ! empty( $where_conditions ) ? 'WHERE ' . implode( ' AND ', $where_conditions ) : '';
 
-        // Build base query - query from prototype_payments table (as per spec)
-        // Use LEFT JOIN for items to ensure we see all prototype payments even if item data is missing
-        $base_query = "
-            FROM {$prototype_payments_table} pp
-            LEFT JOIN {$items_table} i ON pp.item_id = i.id
-            LEFT JOIN {$item_bids_table} b ON pp.bid_id = b.bid_id
-            LEFT JOIN {$users_table} designer ON pp.designer_user_id = designer.ID
-            LEFT JOIN {$users_table} supplier ON pp.supplier_id = supplier.ID
-            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
-            {$where_clause}
-        ";
-        
-        // Count total records for pagination
-        $total_count = $wpdb->get_var( "SELECT COUNT(*) {$base_query}" );
-        $total_pages = ceil( $total_count / $per_page );
-
-        // Query prototype payments with all required columns
-        $query = "
+        // Queue Surfacing Fix: Build UNION query to include items with supplier clarification messages
+        // Part 1: Items from prototype_payments (existing functionality)
+        $prototype_query = "
             SELECT 
                 pp.id as payment_id,
                 pp.item_id,
@@ -11847,48 +11926,414 @@ class N88_RFQ_Auth {
                 i.item_type,
                 c.name as category_name,
                 b.unit_price as bid_unit_price,
+                b.prototype_cost as bid_prototype_cost,
                 designer.display_name as designer_name,
                 designer.user_login as designer_login,
                 supplier.display_name as supplier_name,
-                supplier.user_login as supplier_login
-            {$base_query}
-            ORDER BY pp.created_at DESC
-            LIMIT {$per_page} OFFSET {$offset}
+                supplier.user_login as supplier_login,
+                CASE WHEN (
+                    (
+                        SELECT COUNT(DISTINCT sm.message_id)
+                        FROM {$messages_table} sm
+                        WHERE sm.thread_type = 'supplier_operator'
+                        AND sm.sender_role = 'supplier'
+                        AND sm.item_id = pp.item_id
+                        AND (sm.bid_id = pp.bid_id OR (sm.bid_id IS NULL AND pp.bid_id IS NULL))
+                        AND sm.supplier_id = pp.supplier_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om
+                            WHERE om.thread_type = 'supplier_operator'
+                            AND om.sender_role = 'operator'
+                            AND om.item_id = sm.item_id
+                            AND (om.bid_id = sm.bid_id OR (om.bid_id IS NULL AND sm.bid_id IS NULL))
+                            AND om.supplier_id = sm.supplier_id
+                            AND om.created_at > sm.created_at
+                        )
+                    )
+                    +
+                    (
+                        SELECT COUNT(DISTINCT dm.message_id)
+                        FROM {$messages_table} dm
+                        WHERE dm.thread_type = 'designer_operator'
+                        AND dm.sender_role = 'designer'
+                        AND dm.item_id = pp.item_id
+                        AND dm.designer_id = pp.designer_user_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om2
+                            WHERE om2.thread_type = 'designer_operator'
+                            AND om2.sender_role = 'operator'
+                            AND om2.item_id = dm.item_id
+                            AND om2.designer_id = dm.designer_id
+                            AND om2.created_at > dm.created_at
+                        )
+                    )
+                ) > 0 THEN 1 ELSE 0 END as has_clarification,
+                (
+                    (
+                        SELECT COUNT(DISTINCT sm.message_id)
+                        FROM {$messages_table} sm
+                        WHERE sm.thread_type = 'supplier_operator'
+                        AND sm.sender_role = 'supplier'
+                        AND sm.item_id = pp.item_id
+                        AND (sm.bid_id = pp.bid_id OR (sm.bid_id IS NULL AND pp.bid_id IS NULL))
+                        AND sm.supplier_id = pp.supplier_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om
+                            WHERE om.thread_type = 'supplier_operator'
+                            AND om.sender_role = 'operator'
+                            AND om.item_id = sm.item_id
+                            AND (om.bid_id = sm.bid_id OR (om.bid_id IS NULL AND sm.bid_id IS NULL))
+                            AND om.supplier_id = sm.supplier_id
+                            AND om.created_at > sm.created_at
+                        )
+                    )
+                    +
+                    (
+                        SELECT COUNT(DISTINCT dm.message_id)
+                        FROM {$messages_table} dm
+                        WHERE dm.thread_type = 'designer_operator'
+                        AND dm.sender_role = 'designer'
+                        AND dm.item_id = pp.item_id
+                        AND dm.designer_id = pp.designer_user_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om2
+                            WHERE om2.thread_type = 'designer_operator'
+                            AND om2.sender_role = 'operator'
+                            AND om2.item_id = dm.item_id
+                            AND om2.designer_id = dm.designer_id
+                            AND om2.created_at > dm.created_at
+                        )
+                    )
+                ) as clarification_count,
+                (
+                    (
+                        SELECT COUNT(DISTINCT sm.message_id)
+                        FROM {$messages_table} sm
+                        WHERE sm.thread_type = 'supplier_operator'
+                        AND sm.sender_role = 'supplier'
+                        AND sm.item_id = pp.item_id
+                        AND (sm.bid_id = pp.bid_id OR (sm.bid_id IS NULL AND pp.bid_id IS NULL))
+                        AND sm.supplier_id = pp.supplier_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om
+                            WHERE om.thread_type = 'supplier_operator'
+                            AND om.sender_role = 'operator'
+                            AND om.item_id = sm.item_id
+                            AND (om.bid_id = sm.bid_id OR (om.bid_id IS NULL AND sm.bid_id IS NULL))
+                            AND om.supplier_id = sm.supplier_id
+                            AND om.created_at > sm.created_at
+                        )
+                    )
+                    +
+                    (
+                        SELECT COUNT(DISTINCT dm.message_id)
+                        FROM {$messages_table} dm
+                        WHERE dm.thread_type = 'designer_operator'
+                        AND dm.sender_role = 'designer'
+                        AND dm.item_id = pp.item_id
+                        AND dm.designer_id = pp.designer_user_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} om2
+                            WHERE om2.thread_type = 'designer_operator'
+                            AND om2.sender_role = 'operator'
+                            AND om2.item_id = dm.item_id
+                            AND om2.designer_id = dm.designer_id
+                            AND om2.created_at > dm.created_at
+                        )
+                    )
+                ) as unread_messages
+            FROM {$prototype_payments_table} pp
+            LEFT JOIN {$items_table} i ON pp.item_id = i.id
+            LEFT JOIN {$item_bids_table} b ON pp.bid_id = b.bid_id
+            LEFT JOIN {$users_table} designer ON pp.designer_user_id = designer.ID
+            LEFT JOIN {$users_table} supplier ON pp.supplier_id = supplier.ID
+            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+            {$where_clause}
+        ";
+        
+        // Part 2: Items with supplier clarification messages (even without prototype payment)
+        // Get items with unread supplier messages that don't have prototype payments
+        $clarification_where = array();
+        $clarification_where[] = "m.thread_type = 'supplier_operator'";
+        $clarification_where[] = "m.sender_role = 'supplier'";
+        $clarification_where[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+        
+        // Apply filters to clarification query
+        if ( $supplier_filter !== 'all' ) {
+            $clarification_where[] = $wpdb->prepare( "m.supplier_id = %d", intval( $supplier_filter ) );
+        }
+        if ( $designer_filter !== 'all' ) {
+            $clarification_where[] = $wpdb->prepare( "i.owner_user_id = %d", intval( $designer_filter ) );
+        }
+        if ( $category_filter !== 'all' ) {
+            $clarification_where[] = $wpdb->prepare( "i.item_type = %s", $category_filter );
+        }
+        if ( ! empty( $search_filter ) ) {
+            $clarification_where[] = $wpdb->prepare(
+                "(m.item_id = %d OR m.bid_id = %d)",
+                intval( $search_filter ),
+                intval( $search_filter )
+            );
+        }
+        
+        // Only show items that don't already have prototype payments (to avoid duplicates)
+        $clarification_where_clause = 'WHERE ' . implode( ' AND ', $clarification_where );
+        
+        $clarification_query = "
+            SELECT 
+                NULL as payment_id,
+                m.item_id,
+                m.bid_id,
+                m.supplier_id,
+                i.owner_user_id as designer_user_id,
+                'clarification_needed' as status,
+                NULL as video_direction_json,
+                NULL as cad_fee_usd,
+                NULL as cad_revision_rounds_included,
+                NULL as cad_revision_round_fee_usd,
+                NULL as cad_revision_rounds_used,
+                NULL as prototype_video_cost_estimate_usd,
+                NULL as total_due_usd,
+                MAX(m.created_at) as created_at,
+                NULL as payment_reference,
+                i.title as item_title,
+                i.primary_image_id,
+                i.item_type,
+                c.name as category_name,
+                b.unit_price as bid_unit_price,
+                b.prototype_cost as bid_prototype_cost,
+                designer.display_name as designer_name,
+                designer.user_login as designer_login,
+                supplier.display_name as supplier_name,
+                supplier.user_login as supplier_login,
+                CASE 
+                    WHEN unread_count.unread_messages > 0 THEN 1 
+                    ELSE 0 
+                END as has_clarification,
+                COALESCE(unread_count.unread_messages, 0) as clarification_count,
+                COALESCE(unread_count.unread_messages, 0) as unread_messages
+            FROM {$messages_table} m
+            LEFT JOIN {$items_table} i ON m.item_id = i.id
+            LEFT JOIN {$item_bids_table} b ON m.bid_id = b.bid_id AND m.item_id = b.item_id
+            LEFT JOIN {$users_table} designer ON i.owner_user_id = designer.ID
+            LEFT JOIN {$users_table} supplier ON m.supplier_id = supplier.ID
+            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+            LEFT JOIN {$prototype_payments_table} pp_check ON m.item_id = pp_check.item_id AND m.bid_id = pp_check.bid_id
+            LEFT JOIN (
+                SELECT 
+                    m2.item_id,
+                    COALESCE(m2.bid_id, 0) as bid_id,
+                    m2.supplier_id,
+                    COUNT(DISTINCT CASE 
+                        WHEN m2.sender_role = 'supplier' AND (
+                            -- Check if there's no operator reply after this supplier message
+                            NOT EXISTS (
+                                SELECT 1 FROM {$messages_table} m3 
+                                WHERE m3.item_id = m2.item_id 
+                                AND (m3.bid_id = m2.bid_id OR (m3.bid_id IS NULL AND m2.bid_id IS NULL))
+                                AND m3.supplier_id = m2.supplier_id
+                                AND m3.thread_type = 'supplier_operator'
+                                AND m3.sender_role = 'operator'
+                                AND m3.created_at > m2.created_at
+                            )
+                        ) THEN m2.message_id
+                    END) as unread_messages
+                FROM {$messages_table} m2
+                WHERE m2.thread_type = 'supplier_operator'
+                GROUP BY m2.item_id, COALESCE(m2.bid_id, 0), m2.supplier_id
+            ) as unread_count ON m.item_id = unread_count.item_id 
+                AND COALESCE(m.bid_id, 0) = unread_count.bid_id
+                AND m.supplier_id = unread_count.supplier_id
+            {$clarification_where_clause}
+            AND pp_check.id IS NULL
+            AND COALESCE(unread_count.unread_messages, 0) > 0
+            GROUP BY m.item_id, COALESCE(m.bid_id, 0), m.supplier_id, i.owner_user_id, i.title, i.primary_image_id, i.item_type, c.name, b.unit_price, b.prototype_cost, designer.display_name, designer.user_login, supplier.display_name, supplier.user_login, unread_count.unread_messages
         ";
 
+        // Part 3: Items with designer → operator messages (even without prototype payment)
+        $designer_where = array();
+        $designer_where[] = "m.thread_type = 'designer_operator'";
+        $designer_where[] = "m.sender_role = 'designer'";
+        $designer_where[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+
+        // If supplier filter is active, designer-only threads have no supplier context → exclude
+        if ( $supplier_filter !== 'all' ) {
+            $designer_where[] = "1=0";
+        }
+        if ( $designer_filter !== 'all' ) {
+            $designer_where[] = $wpdb->prepare( "m.designer_id = %d", intval( $designer_filter ) );
+        }
+        if ( $category_filter !== 'all' ) {
+            $designer_where[] = $wpdb->prepare( "i.item_type = %s", $category_filter );
+        }
+        if ( ! empty( $search_filter ) ) {
+            $designer_where[] = $wpdb->prepare( "m.item_id = %d", intval( $search_filter ) );
+        }
+
+        $designer_where_clause = 'WHERE ' . implode( ' AND ', $designer_where );
+
+        $designer_query = "
+            SELECT
+                NULL as payment_id,
+                m.item_id,
+                m.bid_id,
+                NULL as supplier_id,
+                m.designer_id as designer_user_id,
+                'clarification_needed' as status,
+                NULL as video_direction_json,
+                NULL as cad_fee_usd,
+                NULL as cad_revision_rounds_included,
+                NULL as cad_revision_round_fee_usd,
+                NULL as cad_revision_rounds_used,
+                NULL as prototype_video_cost_estimate_usd,
+                NULL as total_due_usd,
+                MAX(m.created_at) as created_at,
+                NULL as payment_reference,
+                i.title as item_title,
+                i.primary_image_id,
+                i.item_type,
+                c.name as category_name,
+                NULL as bid_unit_price,
+                NULL as bid_prototype_cost,
+                designer.display_name as designer_name,
+                designer.user_login as designer_login,
+                NULL as supplier_name,
+                NULL as supplier_login,
+                CASE
+                    WHEN unread_d.unread_messages > 0 THEN 1
+                    ELSE 0
+                END as has_clarification,
+                COALESCE(unread_d.unread_messages, 0) as clarification_count,
+                COALESCE(unread_d.unread_messages, 0) as unread_messages
+            FROM {$messages_table} m
+            LEFT JOIN {$items_table} i ON m.item_id = i.id
+            LEFT JOIN {$users_table} designer ON m.designer_id = designer.ID
+            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+            LEFT JOIN {$prototype_payments_table} pp_check ON m.item_id = pp_check.item_id
+            LEFT JOIN (
+                SELECT
+                    m2.item_id,
+                    m2.designer_id,
+                    COUNT(DISTINCT CASE
+                        WHEN m2.sender_role = 'designer' AND (
+                            NOT EXISTS (
+                                SELECT 1 FROM {$messages_table} m3
+                                WHERE m3.item_id = m2.item_id
+                                AND m3.thread_type = 'designer_operator'
+                                AND m3.sender_role = 'operator'
+                                AND m3.designer_id = m2.designer_id
+                                AND m3.created_at > m2.created_at
+                            )
+                        ) THEN m2.message_id
+                    END) as unread_messages
+                FROM {$messages_table} m2
+                WHERE m2.thread_type = 'designer_operator'
+                GROUP BY m2.item_id, m2.designer_id
+            ) as unread_d ON m.item_id = unread_d.item_id AND m.designer_id = unread_d.designer_id
+            {$designer_where_clause}
+            AND pp_check.id IS NULL
+            AND COALESCE(unread_d.unread_messages, 0) > 0
+            GROUP BY m.item_id, m.designer_id, i.title, i.primary_image_id, i.item_type, c.name, designer.display_name, designer.user_login, unread_d.unread_messages
+        ";
+        
+        // Combine both queries with UNION
+        $union_query = "({$prototype_query}) UNION ({$clarification_query}) UNION ({$designer_query})";
+        
+        // Apply needs_attention filter after UNION if needed
+        $combined_where = array();
+        if ( $apply_needs_attention_filter ) {
+            // Show only items that need attention (requested payments OR clarifications)
+            $combined_where[] = "(status = 'requested' OR status = 'clarification_needed' OR has_clarification = 1)";
+        }
+        $combined_where_clause = ! empty( $combined_where ) ? 'WHERE ' . implode( ' AND ', $combined_where ) : '';
+        
+        $combined_query = "SELECT * FROM ({$union_query}) as combined_results {$combined_where_clause} ORDER BY created_at DESC";
+        
+        // Count total records for pagination
+        $total_count_query = "
+            SELECT COUNT(*) FROM (
+                {$union_query}
+            ) as combined_results
+            {$combined_where_clause}
+        ";
+        $total_count = $wpdb->get_var( $total_count_query );
+        $total_pages = ceil( $total_count / $per_page );
+        
+        // Apply pagination
+        $query = $combined_query . " LIMIT {$per_page} OFFSET {$offset}";
+        
         $requests = $wpdb->get_results( $query, ARRAY_A );
 
-        // Get unique suppliers for filter dropdown (from prototype payments)
+        // Get unique suppliers for filter dropdown (from prototype payments + clarifications)
         $suppliers_query = "
-            SELECT DISTINCT pp.supplier_id, u.display_name, u.user_login
-            FROM {$prototype_payments_table} pp
-            LEFT JOIN {$users_table} u ON pp.supplier_id = u.ID
-            WHERE pp.status IN ('requested', 'marked_received')
-            AND u.ID IS NOT NULL
-            ORDER BY u.display_name ASC
+            SELECT DISTINCT supplier_id, display_name, user_login FROM (
+                SELECT DISTINCT pp.supplier_id, u.display_name, u.user_login
+                FROM {$prototype_payments_table} pp
+                LEFT JOIN {$users_table} u ON pp.supplier_id = u.ID
+                WHERE pp.status IN ('requested', 'marked_received')
+                AND u.ID IS NOT NULL
+                UNION
+                SELECT DISTINCT m.supplier_id, u.display_name, u.user_login
+                FROM {$messages_table} m
+                LEFT JOIN {$users_table} u ON m.supplier_id = u.ID
+                WHERE m.thread_type = 'supplier_operator' AND m.sender_role = 'supplier'
+                AND u.ID IS NOT NULL
+            ) as combined_suppliers
+            ORDER BY display_name ASC
         ";
         $unique_suppliers = $wpdb->get_results( $suppliers_query, ARRAY_A );
 
-        // Get unique designers for filter dropdown (from prototype payments)
+        // Get unique designers for filter dropdown (from prototype payments + messages)
         $designers_query = "
-            SELECT DISTINCT pp.designer_user_id, u.display_name, u.user_login
-            FROM {$prototype_payments_table} pp
-            LEFT JOIN {$users_table} u ON pp.designer_user_id = u.ID
-            WHERE pp.status IN ('requested', 'marked_received')
-            AND u.ID IS NOT NULL
-            ORDER BY u.display_name ASC
+            SELECT DISTINCT designer_user_id, display_name, user_login FROM (
+                SELECT DISTINCT pp.designer_user_id, u.display_name, u.user_login
+                FROM {$prototype_payments_table} pp
+                LEFT JOIN {$users_table} u ON pp.designer_user_id = u.ID
+                WHERE pp.status IN ('requested', 'marked_received')
+                AND u.ID IS NOT NULL
+                UNION
+                SELECT DISTINCT i.owner_user_id as designer_user_id, u.display_name, u.user_login
+                FROM {$messages_table} m
+                LEFT JOIN {$items_table} i ON m.item_id = i.id
+                LEFT JOIN {$users_table} u ON i.owner_user_id = u.ID
+                WHERE m.thread_type = 'supplier_operator' AND m.sender_role = 'supplier'
+                AND u.ID IS NOT NULL
+                UNION
+                SELECT DISTINCT m.designer_id as designer_user_id, u.display_name, u.user_login
+                FROM {$messages_table} m
+                LEFT JOIN {$users_table} u ON m.designer_id = u.ID
+                WHERE m.thread_type = 'designer_operator' AND m.sender_role = 'designer'
+                AND u.ID IS NOT NULL
+            ) as combined_designers
+            ORDER BY display_name ASC
         ";
         $unique_designers = $wpdb->get_results( $designers_query, ARRAY_A );
 
-        // Get unique categories for filter dropdown (from items in prototype payments)
+        // Get unique categories for filter dropdown (from items in prototype payments + messages)
         $categories_query = "
-            SELECT DISTINCT i.item_type, c.name as category_name
-            FROM {$prototype_payments_table} pp
-            LEFT JOIN {$items_table} i ON pp.item_id = i.id
-            LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
-            WHERE pp.status IN ('requested', 'marked_received')
-            AND i.item_type IS NOT NULL
-            ORDER BY COALESCE(c.name, i.item_type) ASC
+            SELECT DISTINCT item_type, category_name FROM (
+                SELECT DISTINCT i.item_type, COALESCE(c.name, i.item_type) as category_name
+                FROM {$prototype_payments_table} pp
+                LEFT JOIN {$items_table} i ON pp.item_id = i.id
+                LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+                WHERE pp.status IN ('requested', 'marked_received')
+                AND i.item_type IS NOT NULL
+                UNION
+                SELECT DISTINCT i.item_type, COALESCE(c.name, i.item_type) as category_name
+                FROM {$messages_table} m
+                LEFT JOIN {$items_table} i ON m.item_id = i.id
+                LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+                WHERE m.thread_type = 'supplier_operator' AND m.sender_role = 'supplier'
+                AND i.item_type IS NOT NULL
+                UNION
+                SELECT DISTINCT i.item_type, COALESCE(c.name, i.item_type) as category_name
+                FROM {$messages_table} m
+                LEFT JOIN {$items_table} i ON m.item_id = i.id
+                LEFT JOIN {$categories_table} c ON i.item_type = c.category_id OR i.item_type = c.name
+                WHERE m.thread_type = 'designer_operator' AND m.sender_role = 'designer'
+                AND i.item_type IS NOT NULL
+            ) as combined_categories
+            ORDER BY category_name ASC
         ";
         $unique_categories = $wpdb->get_results( $categories_query, ARRAY_A );
 
@@ -11952,6 +12397,14 @@ class N88_RFQ_Auth {
                             <option value="24h" <?php selected( $time_filter, '24h' ); ?>>24h</option>
                             <option value="7d" <?php selected( $time_filter, '7d' ); ?>>7d</option>
                             <option value="30d" <?php selected( $time_filter, '30d' ); ?>>30d</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Needs Attention:</label>
+                        <select id="n88-operator-needs-attention-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                            <option value="all" <?php selected( $needs_attention_filter, 'all' ); ?>>All</option>
+                            <option value="yes" <?php selected( $needs_attention_filter, 'yes' ); ?>>Yes (Clarifications + Payment Requested)</option>
+                            <option value="no" <?php selected( $needs_attention_filter, 'no' ); ?>>No (Payment Received)</option>
                         </select>
                     </div>
                     <div style="flex: 1; min-width: 200px;">
@@ -12022,12 +12475,70 @@ class N88_RFQ_Auth {
                                     $cad_fee_display = '$' . number_format( floatval( $request['cad_fee_usd'] ), 2 );
                                     $total_due_display = '$' . number_format( floatval( $request['total_due_usd'] ), 2 );
                                     
+                                    // Commit 2.3.8 / 2.3.9.1D: Calculate designer-facing (landed) bid prices for operator view
+                                    $bid_unit_price_landed_display      = null;
+                                    $bid_prototype_cost_landed_display  = null;
+                                    
+                                    // Use same margin + duty logic as designer item detail
+                                    if ( isset( $request['bid_unit_price'] ) && $request['bid_unit_price'] !== null && $request['bid_unit_price'] !== '' ) {
+                                        $unit_price_raw      = floatval( $request['bid_unit_price'] );
+                                        $prototype_cost_raw  = isset( $request['bid_prototype_cost'] ) && $request['bid_prototype_cost'] !== null && $request['bid_prototype_cost'] !== ''
+                                            ? floatval( $request['bid_prototype_cost'] )
+                                            : null;
+                                        
+                                        $origin_region      = null;
+                                        $duty_rate_override = null;
+                                        
+                                        if ( ! empty( $request['supplier_id'] ) ) {
+                                            $supplier_profile = $wpdb->get_row(
+                                                $wpdb->prepare(
+                                                    "SELECT origin_region, duty_rate_override FROM {$supplier_profiles_table} WHERE supplier_id = %d",
+                                                    intval( $request['supplier_id'] )
+                                                ),
+                                                ARRAY_A
+                                            );
+                                            
+                                            if ( $supplier_profile ) {
+                                                $origin_region      = isset( $supplier_profile['origin_region'] ) ? $supplier_profile['origin_region'] : null;
+                                                $duty_rate_override = isset( $supplier_profile['duty_rate_override'] ) ? $supplier_profile['duty_rate_override'] : null;
+                                            }
+                                        }
+                                        
+                                        // Duty + margin calculation shared with designer view
+                                        $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
+                                        
+                                        $unit_price_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $unit_price_raw, $duty_rate );
+                                        if ( $unit_price_landed ) {
+                                            $bid_unit_price_landed_display = $unit_price_landed['display_price'];
+                                        } else {
+                                            $bid_unit_price_landed_display = N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw );
+                                        }
+                                        
+                                        if ( $prototype_cost_raw !== null ) {
+                                            $prototype_cost_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $prototype_cost_raw, $duty_rate );
+                                            if ( $prototype_cost_landed ) {
+                                                $bid_prototype_cost_landed_display = $prototype_cost_landed['display_price'];
+                                            } else {
+                                                $bid_prototype_cost_landed_display = N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw );
+                                            }
+                                        }
+                                    }
+                                    
                                     // Format dates
                                     $created_date = ! empty( $request['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $request['created_at'] ) ) : '—';
                                     
                                     // Map status to user-friendly display (per wireframe)
                                     $status_display = 'Payment Requested';
-                                    if ( $request['status'] === 'requested' ) {
+                                    $has_clarification = ! empty( $request['has_clarification'] );
+                                    $clarification_count = ! empty( $request['clarification_count'] ) ? intval( $request['clarification_count'] ) : 0;
+                                    $unread_messages = ! empty( $request['unread_messages'] ) ? intval( $request['unread_messages'] ) : 0;
+                                    
+                                    // Show "Action Required" only if there are unread inbound messages (supplier/designer after operator's last reply)
+                                    $show_action_required = $unread_messages > 0;
+                                    
+                                    if ( $request['status'] === 'clarification_needed' || $has_clarification ) {
+                                        $status_display = 'Clarification Needed';
+                                    } elseif ( $request['status'] === 'requested' ) {
                                         $status_display = 'Payment Requested';
                                     } elseif ( $request['status'] === 'marked_received' ) {
                                         $status_display = 'Payment Received';
@@ -12051,16 +12562,26 @@ class N88_RFQ_Auth {
                                         }
                                     }
                                 ?>
-                                    <tr style="border-bottom: 1px solid #333;" class="n88-operator-queue-row" data-payment-id="<?php echo esc_attr( $payment_id ); ?>">
+                                    <tr style="border-bottom: 1px solid #333;" class="n88-operator-queue-row" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-has-clarification="<?php echo $has_clarification ? '1' : '0'; ?>">
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div style="display: flex; align-items: center; gap: 10px;">
                                                 <?php if ( $thumbnail_url ) : ?>
                                                     <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="width: 40px; height: 40px; object-fit: cover; border: 1px solid #fff;">
                                                 <?php endif; ?>
                                                 <div>
-                                                    <div style="font-weight: 600; color: #ff8800;">Item: <?php echo esc_html( $item_label ); ?></div>
+                                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                                        <div style="font-weight: 600; color: #ff8800;">Item: <?php echo esc_html( $item_label ); ?></div>
+                                                        <?php if ( $show_action_required ) : ?>
+                                                            <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
+                                                        <?php endif; ?>
+                                                    </div>
                                                     <div style="font-size: 11px; color: #999;">Project: —</div>
                                                     <div style="font-size: 11px; color: #999;">Category: <?php echo esc_html( $category ); ?></div>
+                                                    <?php if ( $has_clarification && $clarification_count > 0 ) : ?>
+                                                        <div style="font-size: 11px; color: #00ff00; margin-top: 4px;">
+                                                            <?php echo esc_html( $clarification_count ); ?> clarification message<?php echo $clarification_count > 1 ? 's' : ''; ?>
+                                                        </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                         </td>
@@ -12071,107 +12592,147 @@ class N88_RFQ_Auth {
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $supplier_label ); ?></div>
                                             <div style="font-size: 11px; color: #999;">(Anonymous)</div>
-                                            <?php if ( ! empty( $request['bid_unit_price'] ) ) : ?>
-                                                <div style="font-size: 11px; color: #ff8800;">Bid: $<?php echo number_format( floatval( $request['bid_unit_price'] ), 2 ); ?>/unit</div>
+                                            <?php if ( $bid_unit_price_landed_display !== null ) : ?>
+                                                <div style="font-size: 11px; color: #ff8800;">
+                                                    Bid: $<?php echo number_format( $bid_unit_price_landed_display, 2 ); ?>/unit
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if ( $bid_prototype_cost_landed_display !== null ) : ?>
+                                                <div style="font-size: 11px; color: #ff8800;">
+                                                    Prototype: $<?php echo number_format( $bid_prototype_cost_landed_display, 2 ); ?>
+                                                </div>
                                             <?php endif; ?>
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div><?php echo esc_html( $status_display ); ?></div>
-                                            <div style="font-size: 11px; color: #999;">Requested</div>
+                                            <?php if ( $has_clarification ) : ?>
+                                                <div style="font-size: 11px; color: #00ff00;">Clarification Request</div>
+                                                <?php if ( $show_action_required ) : ?>
+                                                    <div style="font-size: 10px; color: #ff0000; margin-top: 2px;"><?php echo esc_html( $unread_messages ); ?> unread</div>
+                                                <?php endif; ?>
+                                            <?php else : ?>
+                                                <div style="font-size: 11px; color: #999;"><?php echo $request['status'] === 'marked_received' ? 'Received' : 'Requested'; ?></div>
+                                            <?php endif; ?>
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff;">
-                                            <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                            <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                 ...
                                             </button>
                                         </td>
                                     </tr>
                                     <!-- Expanded Details Row (hidden by default) -->
-                                    <tr class="n88-case-details-row" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; border-bottom: 2px solid #fff;">
+                                    <tr class="n88-case-details-row" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="display: none; border-bottom: 2px solid #fff;">
                                         <td colspan="5" style="padding: 20px; background-color: #1a1a1a; border-top: 1px solid #333;">
-                                            <div style="margin-bottom: 16px;">
-                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px;">Prototype Request</div>
-                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
-                                                    <li>Video Direction: <?php echo esc_html( $keyword_count ); ?> keywords selected</li>
-                                                    <li>Note: <?php echo $has_note ? 'Present (✔)' : 'No'; ?></li>
-                                                    <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
-                                                </ul>
-                                            </div>
-                                            <div style="margin-bottom: 16px;">
-                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Costs (Read-Only)</div>
-                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
-                                                    <li>Prototype Estimate: <?php echo esc_html( $prototype_estimate_display ); ?></li>
-                                                    <li>CAD Fee: <?php echo esc_html( $cad_fee_display ); ?></li>
-                                                    <li>Total Due: <span style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $total_due_display ); ?></span></li>
-                                                </ul>
-                                            </div>
-                                            <div style="margin-bottom: 16px;">
-                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">CAD Revision Policy (Read-Only)</div>
-                                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
-                                                    <li>Rounds Included: <?php echo esc_html( $request['cad_revision_rounds_included'] ); ?></li>
-                                                    <li>Extra Round Fee: $<?php echo number_format( floatval( $request['cad_revision_round_fee_usd'] ), 2 ); ?> (round 4+)</li>
-                                                    <li>Rounds Used: <?php echo esc_html( $request['cad_revision_rounds_used'] ); ?></li>
-                                                </ul>
-                                            </div>
-                                            <div style="margin-bottom: 16px;">
-                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Direction Summary Badge</div>
-                                                <div style="padding-left: 20px; font-size: 12px; color: #fff;">
-                                                    <div>Direction: <?php echo esc_html( $keyword_count ); ?> keywords</div>
-                                                    <div>Note: <?php echo $has_note ? 'Yes' : 'No'; ?></div>
+                                            <?php if ( $has_clarification && ! $payment_id ) : ?>
+                                                <!-- Clarification-Only Item Details -->
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">⚠️ Clarification Request</div>
+                                                    <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                        <li>Item: <?php echo esc_html( $item_label ); ?> (ID: <?php echo esc_html( $item_id ); ?>)</li>
+                                                        <?php if ( $bid_id ) : ?>
+                                                            <li>Bid: #<?php echo esc_html( $bid_id ); ?></li>
+                                                        <?php endif; ?>
+                                                        <li>Supplier: <?php echo esc_html( $supplier_label ); ?></li>
+                                                        <li>Designer: <?php echo esc_html( $designer_label ); ?></li>
+                                                        <li>Messages: <?php echo esc_html( $clarification_count ); ?> clarification message<?php echo $clarification_count > 1 ? 's' : ''; ?></li>
+                                                        <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
+                                                    </ul>
                                                 </div>
-                                            </div>
-                                            <div style="margin-bottom: 16px;">
-                                                <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
-                                                <div style="padding-left: 20px;">
-                                                    <button class="n88-view-case-full-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                                        View Case (Read-Only)
-                                                    </button>
-                                                    <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                                        Message Threads
-                                                    </button>
-                                                    <?php if ( $request['status'] === 'requested' ) : ?>
-                                                        <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $request['total_due_usd'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                                                            Mark Payment Received
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
+                                                    <div style="padding-left: 20px;">
+                                                        <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="0" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                            Message Threads
                                                         </button>
-                                                    <?php else : ?>
-                                                        <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
-                                                    <?php endif; ?>
-                                                    <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            <?php else : ?>
+                                                <!-- Prototype Payment Item Details -->
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px;">Prototype Request</div>
+                                                    <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                        <li>Video Direction: <?php echo esc_html( $keyword_count ); ?> keywords selected</li>
+                                                        <li>Note: <?php echo $has_note ? 'Present (✔)' : 'No'; ?></li>
+                                                        <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
+                                                    </ul>
+                                                </div>
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Costs (Read-Only)</div>
+                                                    <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                        <li>Prototype Estimate: <?php echo esc_html( $prototype_estimate_display ); ?></li>
+                                                        <li>CAD Fee: <?php echo esc_html( $cad_fee_display ); ?></li>
+                                                        <li>Total Due: <span style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $total_due_display ); ?></span></li>
+                                                    </ul>
+                                                </div>
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">CAD Revision Policy (Read-Only)</div>
+                                                    <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
+                                                        <li>Rounds Included: <?php echo esc_html( $request['cad_revision_rounds_included'] ); ?></li>
+                                                        <li>Extra Round Fee: $<?php echo number_format( floatval( $request['cad_revision_round_fee_usd'] ), 2 ); ?> (round 4+)</li>
+                                                        <li>Rounds Used: <?php echo esc_html( $request['cad_revision_rounds_used'] ); ?></li>
+                                                    </ul>
+                                                </div>
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">Direction Summary Badge</div>
+                                                    <div style="padding-left: 20px; font-size: 12px; color: #fff;">
+                                                        <div>Direction: <?php echo esc_html( $keyword_count ); ?> keywords</div>
+                                                        <div>Note: <?php echo $has_note ? 'Yes' : 'No'; ?></div>
+                                                    </div>
+                                                </div>
+                                                <div style="margin-bottom: 16px;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
+                                                    <div style="padding-left: 20px;">
+                                                        <button class="n88-view-case-full-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                            View Case (Read-Only)
+                                                        </button>
+                                                        <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                            Message Threads
+                                                        </button>
+                                                        <?php if ( $request['status'] === 'requested' ) : ?>
+                                                            <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $request['total_due_usd'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                                Mark Payment Received
+                                                            </button>
+                                                        <?php else : ?>
+                                                            <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
+                                                        <?php endif; ?>
+                                                        <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
+                                                    </div>
+                                                </div>
+                                            <?php endif; ?>
                                             
                                             <!-- Message Threads Section (hidden by default) -->
-                                            <div class="n88-message-threads-section" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px;">
+                                            <div class="n88-message-threads-section" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px;">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                                                     <div style="font-size: 14px; font-weight: 600; color: #fff;">Message Threads</div>
-                                                    <button class="n88-close-message-threads" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+                                                    <button class="n88-close-message-threads" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
                                                 </div>
                                                 
                                                 <!-- Two Column Layout: Designer ⇄ Operator | Supplier ⇄ Operator -->
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                                                     <!-- Designer ⇄ Operator Thread -->
-                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000;">
+                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
                                                         <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Designer ⇄ Operator</div>
-                                                        <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 300px; overflow-y: auto; padding: 8px; background-color: #111; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333;">
-                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">Loading messages...</div>
+                                                        <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
+                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
-                                                        <form class="n88-send-designer-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="margin-top: 12px;">
-                                                            <textarea name="message_text" required rows="3" placeholder="Type your message to designer..." style="width: 100%; padding: 8px; background-color: #111; color: #fff; border: 1px solid #333; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;"></textarea>
-                                                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
-                                                                [ Send to Designer ]
+                                                        <form class="n88-send-designer-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
+                                                            <textarea name="message_text" required rows="2" placeholder="Type your message to designer..." style="flex: 1; padding: 10px 12px; background-color: #111; color: #fff; border: 1px solid #333; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: none; min-height: 40px; max-height: 100px;"></textarea>
+                                                            <button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                                Send
                                                             </button>
                                                         </form>
                                                     </div>
                                                     
                                                     <!-- Supplier ⇄ Operator Thread -->
-                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000;">
+                                                    <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
                                                         <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Supplier ⇄ Operator</div>
-                                                        <div id="n88-supplier-thread-<?php echo esc_attr( $payment_id ); ?>" style="max-height: 300px; overflow-y: auto; padding: 8px; background-color: #111; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333;">
-                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">Loading messages...</div>
+                                                        <div id="n88-supplier-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
+                                                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
-                                                        <form class="n88-send-supplier-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="margin-top: 12px;">
-                                                            <textarea name="message_text" required rows="3" placeholder="Type your message to supplier..." style="width: 100%; padding: 8px; background-color: #111; color: #fff; border: 1px solid #333; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;"></textarea>
-                                                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
-                                                                [ Send to Supplier ]
+                                                        <form class="n88-send-supplier-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ?: '0' ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
+                                                            <textarea name="message_text" required rows="2" placeholder="Type your message to supplier..." style="flex: 1; padding: 10px 12px; background-color: #111; color: #fff; border: 1px solid #333; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: none; min-height: 40px; max-height: 100px;"></textarea>
+                                                            <button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                                Send
                                                             </button>
                                                         </form>
                                                     </div>
@@ -12316,7 +12877,11 @@ class N88_RFQ_Auth {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
                     var paymentId = this.getAttribute('data-payment-id');
-                    var detailsRow = document.querySelector('.n88-case-details-row[data-payment-id="' + paymentId + '"]');
+                    var row = this.closest('.n88-operator-queue-row');
+                    var itemId = row ? row.getAttribute('data-item-id') : null;
+                    // Try payment_id first, then item_id as fallback for clarification-only items
+                    var detailsRow = document.querySelector('.n88-case-details-row[data-payment-id="' + paymentId + '"]') ||
+                                    (itemId ? document.querySelector('.n88-case-details-row[data-item-id="' + itemId + '"]') : null);
                     if (detailsRow) {
                         if (detailsRow.style.display === 'none') {
                             detailsRow.style.display = 'table-row';
@@ -12354,7 +12919,9 @@ class N88_RFQ_Auth {
                     var paymentId = this.getAttribute('data-payment-id');
                     var itemId = this.getAttribute('data-item-id');
                     var bidId = this.getAttribute('data-bid-id');
-                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]');
+                    // Try payment_id first, then item_id as fallback for clarification-only items
+                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]') || 
+                                        (itemId ? document.querySelector('.n88-message-threads-section[data-item-id="' + itemId + '"]') : null);
                     
                     if (threadsSection) {
                         if (threadsSection.style.display === 'none') {
@@ -12373,7 +12940,10 @@ class N88_RFQ_Auth {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
                     var paymentId = this.getAttribute('data-payment-id');
-                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]');
+                    var itemId = this.getAttribute('data-item-id');
+                    // Try payment_id first, then item_id as fallback for clarification-only items
+                    var threadsSection = document.querySelector('.n88-message-threads-section[data-payment-id="' + paymentId + '"]') || 
+                                        (itemId ? document.querySelector('.n88-message-threads-section[data-item-id="' + itemId + '"]') : null);
                     if (threadsSection) {
                         threadsSection.style.display = 'none';
                     }
@@ -12420,35 +12990,41 @@ class N88_RFQ_Auth {
                 });
             }
             
-            // Render Thread Messages
+            // Render Thread Messages - WhatsApp Style
             function renderThreadMessages(messages, container, threadType) {
                 if (!messages || messages.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet.</div>';
+                    container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">No messages yet.</div>';
                     return;
                 }
                 
+                // Sort messages chronologically
+                var sortedMessages = messages.slice().sort(function(a, b) {
+                    return new Date(a.created_at) - new Date(b.created_at);
+                });
+                
                 var html = '';
-                messages.forEach(function(msg) {
+                sortedMessages.forEach(function(msg) {
                     var isOperator = msg.sender_role === 'operator';
                     var senderName = isOperator ? 'Operator' : (threadType === 'designer_operator' ? 'Designer' : 'Supplier');
-                    var alignClass = isOperator ? 'right' : 'left';
-                    var bgColor = isOperator ? '#003300' : '#001100';
-                    var borderColor = isOperator ? '#00ff00' : '#00aa00';
+                    // Show category for supplier messages only
+                    var categoryDisplay = (!isOperator && threadType === 'supplier_operator' && msg.category) ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
-                    var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     
-                    html += '<div style="margin-bottom: 12px; text-align: ' + alignClass + ';">';
-                    html += '<div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: ' + bgColor + '; border: 1px solid ' + borderColor + '; border-radius: 4px; font-size: 11px; color: #fff;">';
-                    html += '<div style="font-weight: bold; color: #00ff00; margin-bottom: 4px; font-size: 10px;">' + senderName + (msg.category ? ' [' + msg.category + ']' : '') + '</div>';
-                    html += '<div style="white-space: pre-wrap; word-wrap: break-word; font-size: 11px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                    html += '<div style="font-size: 9px; color: #666; margin-top: 4px;">' + dateStr + '</div>';
+                    html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isOperator ? 'flex-end' : 'flex-start') + '; width: 100%;">';
+                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isOperator ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isOperator ? '#00ff00' : '#333') + '; border-radius: ' + (isOperator ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
+                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isOperator ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
+                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 9px; color: #666; text-align: right;">' + dateStr + '</div>';
                     html += '</div>';
                     html += '</div>';
                 });
                 
                 container.innerHTML = html;
-                container.scrollTop = container.scrollHeight;
+                setTimeout(function() {
+                    container.scrollTop = container.scrollHeight;
+                }, 100);
             }
             
             // Send Message to Designer
@@ -12510,11 +13086,26 @@ class N88_RFQ_Auth {
                     var itemId = this.getAttribute('data-item-id');
                     var bidId = this.getAttribute('data-bid-id');
                     var paymentId = this.getAttribute('data-payment-id');
+                    var supplierId = this.getAttribute('data-supplier-id');
                     var messageText = this.querySelector('textarea[name="message_text"]').value.trim();
                     
                     if (!messageText) {
                         alert('Please enter a message.');
                         return;
+                    }
+                    
+                    // If supplier_id not in form, try to get it from the request data or bid
+                    if (!supplierId || supplierId === '0' || supplierId === 'null') {
+                        // Try to get supplier_id from the row data
+                        var row = this.closest('.n88-operator-queue-row');
+                        if (row) {
+                            // Try to extract supplier_id from the row or query it from bid_id
+                            // For now, we'll need to get it from the bid if available
+                            if (bidId && bidId !== '0') {
+                                // We'll need to fetch supplier_id from bid_id via AJAX or include it in the form
+                                // For now, let's check if we can get it from the request data
+                            }
+                        }
                     }
                     
                     var submitBtn = this.querySelector('button[type="submit"]');
@@ -12525,10 +13116,11 @@ class N88_RFQ_Auth {
                     var formData = new FormData();
                     formData.append('action', 'n88_send_item_message');
                     formData.append('item_id', itemId);
-                    formData.append('bid_id', bidId);
                     formData.append('thread_type', 'supplier_operator');
                     formData.append('message_text', messageText);
                     formData.append('category', '');
+                    if (bidId && bidId !== '0') formData.append('bid_id', bidId);
+                    if (supplierId && supplierId !== '0' && supplierId !== 'null') formData.append('supplier_id', supplierId);
                     formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_send_item_message' ) ); ?>');
                     
                     fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
@@ -13386,6 +13978,34 @@ class N88_RFQ_Auth {
                 // Operator can specify supplier_id and bid_id when replying
                 $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : null;
                 $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : null;
+                
+                // If supplier_id not provided, try to get it from bid_id or existing messages
+                if ( ! $supplier_id ) {
+                    if ( $bid_id ) {
+                        // Get supplier_id from bid
+                        $bid = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT supplier_id FROM {$item_bids_table} WHERE bid_id = %d AND item_id = %d LIMIT 1",
+                            $bid_id,
+                            $item_id
+                        ), ARRAY_A );
+                        if ( $bid && ! empty( $bid['supplier_id'] ) ) {
+                            $supplier_id = intval( $bid['supplier_id'] );
+                        }
+                    }
+                    
+                    // If still no supplier_id, get it from existing messages for this item and thread
+                    if ( ! $supplier_id ) {
+                        $existing_message = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT supplier_id FROM {$messages_table} 
+                            WHERE item_id = %d AND thread_type = 'supplier_operator' 
+                            ORDER BY created_at DESC LIMIT 1",
+                            $item_id
+                        ), ARRAY_A );
+                        if ( $existing_message && ! empty( $existing_message['supplier_id'] ) ) {
+                            $supplier_id = intval( $existing_message['supplier_id'] );
+                        }
+                    }
+                }
             }
         } elseif ( $thread_type === 'designer_operator' ) {
             if ( $is_designer ) {
@@ -13435,6 +14055,22 @@ class N88_RFQ_Auth {
         }
 
         $message_id = $wpdb->insert_id;
+
+        // Queue Surfacing Fix: When supplier sends clarification, mark item for operator attention
+        // This ensures items with clarification requests appear in operator queue even if no prototype payment exists
+        if ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) {
+            // Check if this is the first supplier message for this item (to mark as needing attention)
+            $first_message_check = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$messages_table} 
+                WHERE item_id = %d 
+                AND thread_type = 'supplier_operator' 
+                AND sender_role = 'supplier'",
+                $item_id
+            ) );
+            
+            // If this is the first supplier message, the item now needs operator attention
+            // This will be picked up by the operator queue query below
+        }
 
         // Log event (Commit 2.3.9.1C-a)
         require_once plugin_dir_path( __FILE__ ) . 'class-n88-events.php';

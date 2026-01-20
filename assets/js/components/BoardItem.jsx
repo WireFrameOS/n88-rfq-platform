@@ -94,6 +94,12 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
 
     // Calculate item status based on available data
     const getItemStatus = () => {
+        // Priority 1: Action Required (unread operator messages) - highest priority
+        const hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
+        if (hasUnreadOperatorMessages) {
+            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+        }
+        
         // Check if item has award_set (In Production)
         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };

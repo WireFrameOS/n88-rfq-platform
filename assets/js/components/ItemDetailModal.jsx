@@ -4,7 +4,7 @@
  * Designer Item Modal with Three States:
  * - State A: Before RFQ (editable)
  * - State B: RFQ Sent, Awaiting Bids (read-only)
- * - State C: Bids Received (comparison view)
+ * - State C: Proposals Received (comparison view)
  * 
  * Design: Dark theme, green accents, monospace font (matching wireframes)
  */
@@ -113,7 +113,7 @@ const getTimelineTypeFromCategory = (category) => {
     
     const categoryLower = category.toLowerCase();
     
-    // 6-Step Timeline categories
+    // The Workflow categories
     const sixStepCategories = [
         'indoor furniture',
         'sofas & seating (indoor)',
@@ -135,7 +135,7 @@ const getTimelineTypeFromCategory = (category) => {
     
     // Check if category matches 6-step
     if (sixStepCategories.some(cat => categoryLower.includes(cat.toLowerCase()))) {
-        return '6-Step Timeline';
+        return 'The Workflow';
     }
     
     // Check if category matches 4-step
@@ -147,7 +147,7 @@ const getTimelineTypeFromCategory = (category) => {
     if (categoryLower.includes('furniture') || categoryLower.includes('sofa') || 
         categoryLower.includes('chair') || categoryLower.includes('table') ||
         categoryLower.includes('bed') || categoryLower.includes('cabinet')) {
-        return '6-Step Timeline';
+        return 'The Workflow';
     }
     
     // Default to 4-step for sourcing categories
@@ -1241,6 +1241,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         has_bids: false,
         bids: [],
         loading: true,
+        has_unread_operator_messages: false,
+        unread_operator_messages: 0,
     });
     
     // Form state
@@ -1418,6 +1420,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     bids: data.data.bids || [],
                     rfq_revision_current: data.data.rfq_revision_current || null,
                     revision_changed: data.data.revision_changed || false,
+                    has_unread_operator_messages: data.data.has_unread_operator_messages || false,
+                    unread_operator_messages: data.data.unread_operator_messages || 0,
                     loading: false,
                 });
             } else {
@@ -1576,6 +1580,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 setDesignerMessageText('');
                 setDesignerMessageCategory('');
                 await loadDesignerMessages();
+                // Refresh item state to update unread operator messages count
+                await fetchItemState();
             } else {
                 alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
             }
@@ -1586,6 +1592,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             setIsSendingDesignerMessage(false);
         }
     }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages]);
+    
+    // Auto-scroll to bottom when messages load or new message is sent
+    React.useEffect(() => {
+        if (showDesignerMessageForm && designerMessages.length > 0) {
+            const container = document.getElementById('n88-designer-messages-container');
+            if (container) {
+                setTimeout(() => {
+                    container.scrollTop = container.scrollHeight;
+                }, 100);
+            }
+        }
+    }, [showDesignerMessageForm, designerMessages]);
     
     // Update inspiration when item changes
     React.useEffect(() => {
@@ -1893,7 +1911,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         // Use itemState first, fallback to item prop if itemState not loaded yet
         const has_rfq = itemState.has_rfq || item?.has_rfq || false;
         const has_bids = itemState.has_bids || item?.has_bids || false;
-        if (has_bids) return 'C'; // State C: Bids received
+        if (has_bids) return 'C'; // State C: Proposals received
         if (has_rfq) return 'B'; // State B: RFQ sent, no bids
         return 'A'; // State A: Before RFQ
     }, [itemState, item]);
@@ -2932,7 +2950,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        Item Details
+                                        The Mission Spec
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('rfq')}
@@ -2949,7 +2967,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        RFQ Form
+                                        Launch Brief
                                     </button>
                                     {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
                                         <button
@@ -2967,7 +2985,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 fontFamily: 'monospace',
                                             }}
                                         >
-                                            Bids ({itemState.bids.length})
+                                            Proposals Received ({itemState.bids.length})
                                         </button>
                                     )}
                                 </div>
@@ -2982,35 +3000,278 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 }}
                                 className="n88-modal-scroll-content"
                                 >
-                                    {/* Tab 1: Item Details */}
+                                    {/* Tab 1: The Mission Spec */}
                                     {activeTab === 'details' && (
                                         <div>
+                                            {/* Action Required Banner - Show when operator has sent messages */}
+                                            {itemState.has_unread_operator_messages && (
+                                                <div style={{
+                                                    marginBottom: '24px',
+                                                    padding: '16px',
+                                                    backgroundColor: '#330000',
+                                                    border: '2px solid #ff0000',
+                                                    borderRadius: '4px',
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        color: '#ff0000',
+                                                        marginBottom: '8px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                    }}>
+                                                        <span>⚠️</span>
+                                                        <span>Action Required</span>
+                                            </div>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        color: '#ff6666',
+                                                        lineHeight: '1.5',
+                                                    }}>
+                                                        You have {itemState.unread_operator_messages || 0} unread message{itemState.unread_operator_messages !== 1 ? 's' : ''} from the operator. Please review and respond.
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Commit 2.3.9.1C-a: Message Operator Section - Show only when RFQ is sent, before The Mission Spec */}
+                                            {itemState.has_rfq && (
+                                                <div style={{
+                                                    marginBottom: '24px',
+                                                }}>
+                                                    {!showDesignerMessageForm ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowDesignerMessageForm(true);
+                                                                loadDesignerMessages();
+                                                            }}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '12px',
+                                                                backgroundColor: '#111111',
+                                                                border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                                color: darkText,
+                                                                fontSize: '14px',
+                                                                fontFamily: 'monospace',
+                                                                cursor: 'pointer',
+                                                                fontWeight: '600',
+                                                            }}
+                                                            onMouseOver={(e) => e.target.style.backgroundColor = '#1a1a1a'}
+                                                            onMouseOut={(e) => e.target.style.backgroundColor = '#111111'}
+                                                        >
+                                                            Message Operator
+                                                        </button>
+                                                    ) : (
+                                                        <div style={{
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            padding: '16px',
+                                                            backgroundColor: '#111111',
+                                                        }}>
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                marginBottom: '16px',
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                                    fontWeight: '600',
+                                                                    color: darkText,
+                                                    }}>
+                                                                    Message Operator
+                                                    </div>
+                                                                <button
+                                                                    onClick={() => setShowDesignerMessageForm(false)}
+                                                                    style={{
+                                                                        background: 'none',
+                                                                        border: 'none',
+                                                                        color: darkText,
+                                                                        fontSize: '20px',
+                                                                        cursor: 'pointer',
+                                                                        padding: '0',
+                                                                        width: '24px',
+                                                                        height: '24px',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                    }}
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                </div>
+                                            
+                                                            {/* WhatsApp-Style Chat Messages */}
+                                                <div 
+                                                    id="n88-designer-messages-container"
+                                                    style={{
+                                                        height: '400px',
+                                                        overflowY: 'auto',
+                                                        padding: '16px',
+                                                        backgroundColor: '#0a0a0a',
+                                                        borderRadius: '4px',
+                                                        marginBottom: '12px',
+                                                        border: `1px solid ${darkBorder}`,
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                    }}
+                                                >
+                                                    {isLoadingDesignerMessages ? (
+                                                        <div style={{
+                                                            textAlign: 'center',
+                                                            color: '#666',
+                                                            fontSize: '12px',
+                                                            padding: '20px',
+                                                            margin: 'auto',
+                                                        }}>
+                                                            Loading conversation...
+                                                        </div>
+                                                    ) : designerMessages.length === 0 ? (
+                                                        <div style={{
+                                                            textAlign: 'center',
+                                                            color: '#666',
+                                                            fontSize: '12px',
+                                                            padding: '20px',
+                                                            margin: 'auto',
+                                                        }}>
+                                                            No messages yet. Start the conversation!
+                                                        </div>
+                                                    ) : (
+                                                        // Sort messages chronologically by created_at
+                                                        [...designerMessages].sort((a, b) => {
+                                                            return new Date(a.created_at) - new Date(b.created_at);
+                                                        }).map((msg, idx) => {
+                                                            const isDesigner = msg.sender_role === 'designer';
+                                                            const senderName = isDesigner ? 'You' : 'Operator';
+                                                            
+                                                            const date = new Date(msg.created_at);
+                                                            const dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                                            
+                                                            return (
+                                                                <div 
+                                                                    key={idx} 
+                                                                    style={{
+                                                                        marginBottom: '12px',
+                                                                        display: 'flex',
+                                                                        justifyContent: isDesigner ? 'flex-end' : 'flex-start',
+                                                                        width: '100%',
+                                                                    }}
+                                                                >
+                                                                    <div style={{
+                                                                        maxWidth: '75%',
+                                                                        padding: '10px 14px',
+                                                                        backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a',
+                                                                        border: `1px solid ${isDesigner ? greenAccent : '#333'}`,
+                                                                        borderRadius: isDesigner ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                                                                        fontSize: '12px',
+                                                                        color: '#fff',
+                                                                        wordWrap: 'break-word',
+                                                                        whiteSpace: 'pre-wrap',
+                                                                    }}>
+                                                                        <div style={{
+                                                                            fontSize: '10px',
+                                                                            fontWeight: '600',
+                                                                            color: isDesigner ? greenAccent : '#00aa00',
+                                                                            marginBottom: '4px',
+                                                                        }}>
+                                                                            {senderName}
+                                                                        </div>
+                                                                        <div style={{
+                                                                            fontSize: '12px',
+                                                                            lineHeight: '1.4',
+                                                                            marginBottom: '4px',
+                                                                        }}>
+                                                                            {msg.message_text || ''}
+                                                                        </div>
+                                                                        <div style={{
+                                                                            fontSize: '9px',
+                                                                            color: '#666',
+                                                                            textAlign: 'right',
+                                                                        }}>
+                                                                            {dateStr}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                                            
+                                                            {/* Message Input at Bottom */}
+                                                            <form onSubmit={sendDesignerMessage} style={{
+                                                                display: 'flex',
+                                                                gap: '8px',
+                                                                alignItems: 'flex-end',
+                                                            }}>
+                                                                <textarea
+                                                                    value={designerMessageText}
+                                                                    onChange={(e) => setDesignerMessageText(e.target.value)}
+                                                                    required
+                                                                    rows={2}
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        padding: '10px 12px',
+                                                                        backgroundColor: '#000',
+                                                                        color: '#fff',
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '20px',
+                                                                        fontFamily: 'monospace',
+                                                                        fontSize: '12px',
+                                                                        resize: 'none',
+                                                                        minHeight: '40px',
+                                                                        maxHeight: '100px',
+                                                                    }}
+                                                                    placeholder="Type your message here..."
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            if (designerMessageText.trim()) {
+                                                                                sendDesignerMessage(e);
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    type="submit"
+                                                                    disabled={isSendingDesignerMessage || !designerMessageText.trim()}
+                                                                    style={{
+                                                                        padding: '10px 20px',
+                                                                        backgroundColor: isSendingDesignerMessage || !designerMessageText.trim() ? '#333' : greenAccent,
+                                                                        color: isSendingDesignerMessage || !designerMessageText.trim() ? '#666' : '#000',
+                                                                        border: 'none',
+                                                                        borderRadius: '20px',
+                                                                        fontFamily: 'monospace',
+                                                                        fontSize: '12px',
+                                                                        fontWeight: '600',
+                                                                        cursor: isSendingDesignerMessage || !designerMessageText.trim() ? 'not-allowed' : 'pointer',
+                                                                        whiteSpace: 'nowrap',
+                                                                    }}
+                                                                    onMouseOver={(e) => {
+                                                                        if (!isSendingDesignerMessage && designerMessageText.trim()) {
+                                                                            e.target.style.backgroundColor = '#00cc00';
+                                                                        }
+                                                                    }}
+                                                                    onMouseOut={(e) => {
+                                                                        if (!isSendingDesignerMessage && designerMessageText.trim()) {
+                                                                            e.target.style.backgroundColor = greenAccent;
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    {isSendingDesignerMessage ? 'Sending...' : 'Send'}
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            
                                             {/* Item Title */}
                                             <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '20px' }}>
                                                 {item.title || item.description || 'Untitled Item'}
                                             </div>
                                             
-                                            {/* RFQ Sent Status Indicator (State B Only) */}
-                                            {currentState === 'B' && (
-                                                <div style={{
-                                                    marginBottom: '20px',
-                                                    padding: '12px 16px',
-                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
-                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
-                                                    borderRadius: '4px',
-                                                    textAlign: 'center',
-                                                    opacity: 0.7,
-                                                }}>
-                                                    <div style={{
-                                                        fontSize: '14px',
-                                                        fontWeight: '500',
-                                                        color: 'rgba(0, 180, 0, 0.6)',
-                                                        fontFamily: 'monospace',
-                                                    }}>
-                                                        RFQ request sent — waiting to hear back
-                                                    </div>
-                                                </div>
-                                            )}
+                                            {/* RFQ Sent Status Indicator moved to Launch Brief tab */}
                                             
                                             {/* Editable fields section - State A only */}
                             {currentState !== 'C' && isEditable && currentState === 'A' ? (
@@ -3307,253 +3568,158 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         </div>
                                     )}
                                     
-                                    {/* Commit 2.3.9.1C-a: Message Operator Section (All States) */}
-                                    <div style={{
-                                        marginTop: '24px',
-                                    }}>
-                                        {!showDesignerMessageForm ? (
-                                            <button
-                                                onClick={() => {
-                                                    setShowDesignerMessageForm(true);
-                                                    loadDesignerMessages();
-                                                }}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: `1px solid ${darkBorder}`,
-                                                    borderRadius: '4px',
-                                                    color: darkText,
-                                                    fontSize: '14px',
-                                                    fontFamily: 'monospace',
-                                                    cursor: 'pointer',
-                                                    fontWeight: '600',
-                                                }}
-                                                onMouseOver={(e) => e.target.style.backgroundColor = '#1a1a1a'}
-                                                onMouseOut={(e) => e.target.style.backgroundColor = '#111111'}
-                                            >
-                                                Message Operator
-                                            </button>
-                                        ) : (
-                                            <div style={{
-                                                border: `1px solid ${darkBorder}`,
-                                                borderRadius: '4px',
-                                                padding: '16px',
-                                                backgroundColor: '#111111',
-                                            }}>
-                                                <div style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    marginBottom: '16px',
-                                                }}>
-                                                    <div style={{
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        color: darkText,
-                                                    }}>
-                                                        Message Operator
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setShowDesignerMessageForm(false)}
-                                                        style={{
-                                                            background: 'none',
-                                                            border: 'none',
-                                                            color: darkText,
-                                                            fontSize: '20px',
-                                                            cursor: 'pointer',
-                                                            padding: '0',
-                                                            width: '24px',
-                                                            height: '24px',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </div>
-                                                
-                                                {/* Messages History */}
-                                                <div style={{
-                                                    maxHeight: '300px',
-                                                    overflowY: 'auto',
-                                                    padding: '12px',
-                                                    backgroundColor: '#000',
-                                                    borderRadius: '4px',
-                                                    marginBottom: '16px',
-                                                    border: `1px solid ${darkBorder}`,
-                                                }}>
-                                                    {isLoadingDesignerMessages ? (
-                                                        <div style={{
-                                                            textAlign: 'center',
-                                                            color: '#666',
-                                                            fontSize: '12px',
-                                                            padding: '20px',
-                                                        }}>
-                                                            Loading conversation...
-                                                        </div>
-                                                    ) : designerMessages.length === 0 ? (
-                                                        <div style={{
-                                                            textAlign: 'center',
-                                                            color: '#666',
-                                                            fontSize: '12px',
-                                                            padding: '20px',
-                                                        }}>
-                                                            No messages yet. Start the conversation!
-                                                        </div>
-                                                    ) : (
-                                                        designerMessages.map((msg, idx) => {
-                                                            const isDesigner = msg.sender_role === 'designer';
-                                                            const senderName = isDesigner ? 'You' : 'Operator';
-                                                            const alignClass = isDesigner ? 'right' : 'left';
-                                                            const bgColor = isDesigner ? '#003300' : '#001100';
-                                                            const borderColor = isDesigner ? greenAccent : '#00aa00';
-                                                            
-                                                            const date = new Date(msg.created_at);
-                                                            const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                                                            
-                                                            return (
-                                                                <div key={idx} style={{
-                                                                    marginBottom: '15px',
-                                                                    textAlign: alignClass,
-                                                                }}>
-                                                                    <div style={{
-                                                                        display: 'inline-block',
-                                                                        maxWidth: '70%',
-                                                                        padding: '10px 15px',
-                                                                        backgroundColor: bgColor,
-                                                                        border: `1px solid ${borderColor}`,
-                                                                        borderRadius: '4px',
-                                                                        fontSize: '11px',
-                                                                        color: '#fff',
-                                                                    }}>
-                                                                        <div style={{
-                                                                            fontWeight: 'bold',
-                                                                            color: greenAccent,
-                                                                            marginBottom: '5px',
-                                                                        }}>
-                                                                            {senderName}{msg.category ? ' [' + msg.category + ']' : ''}
-                                                                        </div>
-                                                                        <div style={{
-                                                                            whiteSpace: 'pre-wrap',
-                                                                            wordWrap: 'break-word',
-                                                                        }}>
-                                                                            {msg.message_text || ''}
-                                                                        </div>
-                                                                        <div style={{
-                                                                            fontSize: '10px',
-                                                                            color: '#666',
-                                                                            marginTop: '5px',
-                                                                        }}>
-                                                                            {dateStr}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                                
-                                                {/* Message Composer */}
-                                                <form onSubmit={sendDesignerMessage}>
-                                                    <div style={{ marginBottom: '10px' }}>
-                                                        <label style={{
-                                                            display: 'block',
-                                                            fontSize: '11px',
-                                                            color: greenAccent,
-                                                            marginBottom: '5px',
-                                                        }}>
-                                                            Category (Optional):
-                                                        </label>
-                                                        <select
-                                                            value={designerMessageCategory}
-                                                            onChange={(e) => setDesignerMessageCategory(e.target.value)}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '6px',
-                                                                backgroundColor: '#000',
-                                                                color: greenAccent,
-                                                                border: `1px solid ${greenAccent}`,
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '11px',
-                                                            }}
-                                                        >
-                                                            <option value="">-- Select Category --</option>
-                                                            <option value="Specs">Specs</option>
-                                                            <option value="Dimensions">Dimensions</option>
-                                                            <option value="Materials">Materials</option>
-                                                            <option value="Timeline">Timeline</option>
-                                                            <option value="Other">Other</option>
-                                                        </select>
-                                                    </div>
-                                                    <div style={{ marginBottom: '10px' }}>
-                                                        <label style={{
-                                                            display: 'block',
-                                                            fontSize: '11px',
-                                                            color: greenAccent,
-                                                            marginBottom: '5px',
-                                                        }}>
-                                                            Message: <span style={{ color: '#ff0000' }}>*</span>
-                                                        </label>
-                                                        <textarea
-                                                            value={designerMessageText}
-                                                            onChange={(e) => setDesignerMessageText(e.target.value)}
-                                                            required
-                                                            rows={4}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '8px',
-                                                                backgroundColor: '#000',
-                                                                color: '#fff',
-                                                                border: `1px solid ${greenAccent}`,
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '11px',
-                                                                resize: 'vertical',
-                                                            }}
-                                                            placeholder="Type your message here..."
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        type="submit"
-                                                        disabled={isSendingDesignerMessage}
-                                                        style={{
-                                                            width: '100%',
-                                                            padding: '8px',
-                                                            backgroundColor: isSendingDesignerMessage ? '#003300' : greenAccent,
-                                                            color: '#000',
-                                                            border: 'none',
-                                                            fontFamily: 'monospace',
-                                                            fontSize: '12px',
-                                                            fontWeight: 'bold',
-                                                            cursor: isSendingDesignerMessage ? 'not-allowed' : 'pointer',
-                                                            opacity: isSendingDesignerMessage ? 0.6 : 1,
-                                                        }}
-                                                        onMouseOver={(e) => {
-                                                            if (!isSendingDesignerMessage) {
-                                                                e.target.style.backgroundColor = '#00cc00';
-                                                            }
-                                                        }}
-                                                        onMouseOut={(e) => {
-                                                            if (!isSendingDesignerMessage) {
-                                                                e.target.style.backgroundColor = greenAccent;
-                                                            }
-                                                        }}
-                                                    >
-                                                        {isSendingDesignerMessage ? '[ Sending... ]' : '[ Send Message ]'}
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        )}
-                                    </div>
                                 </>
                             )}
                                         </div>
                                     )}
                                     
-                                    {/* Tab 2: RFQ Form */}
+                                    {/* Tab 2: Launch Brief */}
                                     {activeTab === 'rfq' && (
                                         <div>
+                                            {/* RFQ Sent Status Indicator (State B Only) */}
+                                            {currentState === 'B' && (
+                                                <div style={{
+                                                    marginBottom: '20px',
+                                                    padding: '12px 16px',
+                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
+                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
+                                                    borderRadius: '4px',
+                                                    textAlign: 'center',
+                                                    opacity: 0.7,
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: '500',
+                                                        color: 'rgba(0, 180, 0, 0.6)',
+                                                        fontFamily: 'monospace',
+                                                    }}>
+                                                        RFQ request sent — waiting to hear back
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* State B: Editable Dimensions and Quantity */}
+                                            {(currentState === 'B' || currentState === 'C') && (
+                                                <>
+                                                    <div style={{
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        padding: '16px',
+                                                        backgroundColor: '#111111',
+                                                        marginBottom: '24px',
+                                                    }}>
+                                                        {/* Dimensions */}
+                                                        <div style={{ marginBottom: '12px' }}>
+                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                                Dimensions (provide ideal dimensions when applicable)
+                                                            </label>
+                                                            <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
+                                                                <input
+                                                                    type="number"
+                                                                    value={width}
+                                                                    onChange={(e) => setWidth(e.target.value)}
+                                                                    placeholder="W"
+                                                                    step="0.01"
+                                                                    style={{
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                />
+                                                                <input
+                                                                    type="number"
+                                                                    value={depth}
+                                                                    onChange={(e) => setDepth(e.target.value)}
+                                                                    placeholder="D"
+                                                                    step="0.01"
+                                                                    style={{
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                />
+                                                                <input
+                                                                    type="number"
+                                                                    value={height}
+                                                                    onChange={(e) => setHeight(e.target.value)}
+                                                                    placeholder="H"
+                                                                    step="0.01"
+                                                                    style={{
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                />
+                                                                <select
+                                                                    value={unit}
+                                                                    onChange={(e) => setUnit(e.target.value)}
+                                                                    style={{
+                                                                        padding: '8px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontSize: '12px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                >
+                                                                    <option value="in">in</option>
+                                                                    <option value="cm">cm</option>
+                                                                    <option value="mm">mm</option>
+                                                                    <option value="m">m</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Quantity */}
+                                                        <div style={{ marginBottom: '12px' }}>
+                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                                Quantity
+                                                            </label>
+                                                            <input
+                                                                type="number"
+                                                                value={quantity}
+                                                                onChange={(e) => setQuantity(e.target.value)}
+                                                                min="1"
+                                                                style={{
+                                                                    width: '100%',
+                                                                    padding: '8px',
+                                                                    backgroundColor: darkBg,
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    color: darkText,
+                                                                    fontSize: '12px',
+                                                                    fontFamily: 'monospace',
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Instructional microcopy - Outside the box */}
+                                                    <div style={{
+                                                        marginTop: '12px',
+                                                        fontSize: '11px',
+                                                        color: '#999',
+                                                        textAlign: 'center',
+                                                        fontFamily: 'monospace',
+                                                    }}>
+                                                        Edit RFQ details and click Update.
+                                                    </div>
+                                                </>
+                                            )}
+                                            
                                             {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
                             {currentState === 'A' && (
                                 <div id="request-quote-section" style={{ marginBottom: '24px' }}>
@@ -3572,7 +3738,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             
                                             {/* Message */}
                                             <div style={{ fontSize: '12px', color: darkText, marginBottom: '16px', lineHeight: '1.5' }}>
-                                                Suppliers have been notified to update bids to match the new specs.
+                                                Suppliers have been notified to update proposals to match the new specs.
                                             </div>
                                             
                                             {/* Current Dimensions and Quantity (read-only) */}
@@ -3637,7 +3803,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             {currentBids.length > 0 ? (
                                                                 <div style={{ marginBottom: '12px' }}>
                                                                     <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                                                        Current Bids (Revision {currentRevision || 'N/A'})
+                                                                        Current Proposals (Revision {currentRevision || 'N/A'})
                                                                     </div>
                                                                     <BidComparisonMatrix 
                                                                         bids={currentBids}
@@ -3659,11 +3825,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     color: darkText,
                                                                     textAlign: 'center',
                                                                 }}>
-                                                                    Waiting for updated bids (Revision {currentRevision || 'N/A'})
+                                                                    Waiting for updated proposals (Revision {currentRevision || 'N/A'})
                                                                 </div>
                                                             )}
                                                             
-                                                            {/* Outdated Bids */}
+                                                            {/* Outdated Proposals */}
                                                             {outdatedBids.length > 0 && (
                                                                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${darkBorder}` }}>
                                                                     <div style={{ 
@@ -3679,7 +3845,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                         ⚠️ Old bid - waiting for new bid on updated specs
                                                                     </div>
                                                                     <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#999' }}>
-                                                                        Outdated Bids (previous specs)
+                                                                        Outdated Proposals (previous specs)
                                                                     </div>
                                                                     <BidComparisonMatrix 
                                                                         bids={outdatedBids}
@@ -4216,6 +4382,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     >
                                                 {isSubmittingRfq ? 'Submitting...' : 'Submit RFQ'}
                                 </button>
+                                            
+                                            {/* Instructional microcopy */}
+                                            <div style={{
+                                                marginTop: '12px',
+                                                fontSize: '11px',
+                                                color: '#999',
+                                                textAlign: 'center',
+                                                fontFamily: 'monospace',
+                                            }}>
+                                                Edit RFQ details and click Update.
+                                            </div>
                                 </div>
                                     )}
                                         </div>
@@ -4223,7 +4400,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         </div>
                                     )}
                                     
-                                    {/* Tab 3: Bids */}
+                                    {/* Tab 3: Proposals */}
                                     {activeTab === 'bids' && itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
                                         <div>
                                             {/* Item Context Header */}
@@ -4665,7 +4842,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 borderRadius: '4px',
                                             }}>
                                                 <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
-                                                    Bids are in. When you're ready to move to prototypes or orders, concierge oversight is available.
+                                                    Proposals are in. When you're ready to move to prototypes or orders, concierge oversight is available.
                                                 </div>
                                                 <div style={{ fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }}>
                                                     Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.

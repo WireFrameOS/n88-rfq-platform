@@ -3635,6 +3635,34 @@ class N88_RFQ_Admin {
                             $award_set = true;
                         }
                         
+                        // Check for unread operator messages (designer_operator thread)
+                        // Action Required: Show when operator has sent messages that designer hasn't replied to
+                        $messages_table = $wpdb->prefix . 'n88_item_messages';
+                        $unread_operator_messages = 0;
+                        $has_unread_operator_messages = false;
+                        
+                        // Check if messages table exists
+                        $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+                        if ( $messages_table_exists ) {
+                            // Count unread operator messages (operator messages with no designer reply after them)
+                            $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(DISTINCT m.message_id)
+                                FROM {$messages_table} m
+                                WHERE m.item_id = %d
+                                AND m.thread_type = 'designer_operator'
+                                AND m.sender_role = 'operator'
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM {$messages_table} m2
+                                    WHERE m2.item_id = m.item_id
+                                    AND m2.thread_type = 'designer_operator'
+                                    AND m2.sender_role = 'designer'
+                                    AND m2.created_at > m.created_at
+                                )",
+                                $item_id
+                            ) ) );
+                            $has_unread_operator_messages = $unread_operator_messages > 0;
+                        }
+                        
                         $items[] = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
@@ -3671,6 +3699,9 @@ class N88_RFQ_Admin {
                             'revision_changed' => $revision_changed,
                             'has_warning' => $has_warning,
                             'award_set' => $award_set,
+                            // Action Required: Unread operator messages
+                            'has_unread_operator_messages' => $has_unread_operator_messages,
+                            'unread_operator_messages' => $unread_operator_messages,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -3822,6 +3853,34 @@ class N88_RFQ_Admin {
                             $award_set = true;
                         }
                         
+                        // Check for unread operator messages (designer_operator thread)
+                        // Action Required: Show when operator has sent messages that designer hasn't replied to
+                        $messages_table = $wpdb->prefix . 'n88_item_messages';
+                        $unread_operator_messages = 0;
+                        $has_unread_operator_messages = false;
+                        
+                        // Check if messages table exists
+                        $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+                        if ( $messages_table_exists ) {
+                            // Count unread operator messages (operator messages with no designer reply after them)
+                            $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                                "SELECT COUNT(DISTINCT m.message_id)
+                                FROM {$messages_table} m
+                                WHERE m.item_id = %d
+                                AND m.thread_type = 'designer_operator'
+                                AND m.sender_role = 'operator'
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM {$messages_table} m2
+                                    WHERE m2.item_id = m.item_id
+                                    AND m2.thread_type = 'designer_operator'
+                                    AND m2.sender_role = 'designer'
+                                    AND m2.created_at > m.created_at
+                                )",
+                                $item_id
+                            ) ) );
+                            $has_unread_operator_messages = $unread_operator_messages > 0;
+                        }
+                        
                         // Calculate position for new items - arrange in grid side-by-side
                         // Items will be arranged horizontally, wrapping to new rows as needed
                         $item_spacing = 20; // Space between items
@@ -3883,6 +3942,9 @@ class N88_RFQ_Admin {
                             'rfq_revision_current' => $rfq_revision_current,
                             'revision_changed' => $revision_changed,
                             'award_set' => $award_set,
+                            // Action Required: Unread operator messages
+                            'has_unread_operator_messages' => $has_unread_operator_messages,
+                            'unread_operator_messages' => $unread_operator_messages,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -5554,7 +5616,7 @@ class N88_RFQ_Admin {
                     // TODO: Replace with actual concierge data source if available
                     // For now, use placeholder
                     echo wp_json_encode( array(
-                        'name' => 'Your Sourcing Agent',
+                        'name' => 'Message System Operator',
                         'avatarUrl' => '',
                     ) );
                 ?>;
@@ -5701,7 +5763,13 @@ class N88_RFQ_Admin {
 
                     // Calculate item status based on available data
                     var getItemStatus = function() {
-                        // Priority 1: Check if item has award_set (In Production) - This is the ONLY condition
+                        // Priority 1: Action Required (unread operator messages) - highest priority
+                        var hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
+                        if (hasUnreadOperatorMessages) {
+                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                        }
+                        
+                        // Priority 2: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                         }
@@ -5745,13 +5813,13 @@ class N88_RFQ_Admin {
                         // This is more reliable than revision_changed flag
                         var hasStaleBids = item.has_warning === true || item.has_warning === 'true' || item.has_warning === 1;
                         
-                        // Priority 2: If has valid bids for current revision, show "Bids Received"
+                        // Priority 2: If has valid bids for current revision, show "Proposals Received"
                         // This takes priority - if supplier resubmitted, we have valid bids
                         if (hasValidBids) {
-                            return { text: 'Bids Received (' + validBidCount + ')', color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Proposals Received (' + validBidCount + ')', color: '#2196f3', dot: '#2196f3' };
                         }
                         
-                        // Priority 3: If no valid bids but stale bids exist (specs changed after bids received), show Standby
+                        // Priority 3: If no valid bids but stale bids exist (specs changed after proposals received), show Standby
                         // This means specs changed but supplier hasn't resubmitted yet
                         if (hasStaleBids && isRfqActive) {
                             // No valid bids for current revision but old bids exist - show Standby until supplier resubmits
@@ -7470,6 +7538,8 @@ class N88_RFQ_Admin {
                         has_bids: false,
                         bids: [],
                         loading: true,
+                        has_unread_operator_messages: false,
+                        unread_operator_messages: 0,
                     });
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
@@ -7845,6 +7915,8 @@ class N88_RFQ_Admin {
                                     setDesignerMessageText('');
                                     setDesignerMessageCategory('');
                                     loadDesignerMessages();
+                                    // Refresh item state to update unread operator messages count
+                                    fetchItemState();
                                 } else {
                                     alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send message. Please try again.'));
                                 }
@@ -7863,12 +7935,24 @@ class N88_RFQ_Admin {
                         }
                     }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages]);
                     
+                    // Auto-scroll to bottom when messages load or new message is sent
+                    React.useEffect(function() {
+                        if (showDesignerMessageForm && designerMessages.length > 0) {
+                            setTimeout(function() {
+                                var container = document.getElementById('n88-designer-messages-container-admin');
+                                if (container) {
+                                    container.scrollTop = container.scrollHeight;
+                                }
+                            }, 100);
+                        }
+                    }, [showDesignerMessageForm, designerMessages]);
+                    
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
                             });
                             return;
                         }
@@ -7893,7 +7977,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
                             });
                             return;
                         }
@@ -7916,19 +8000,23 @@ class N88_RFQ_Admin {
                                     has_rfq: data.data.has_rfq || false,
                                     has_bids: data.data.has_bids || false,
                                     bids: data.data.bids || [],
+                                    rfq_revision_current: data.data.rfq_revision_current || null,
+                                    revision_changed: data.data.revision_changed || false,
+                                    has_unread_operator_messages: data.data.has_unread_operator_messages || false,
+                                    unread_operator_messages: data.data.unread_operator_messages || 0,
                                     loading: false,
                                 });
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                             setItemState(function(prev) {
-                                return { has_rfq: false, has_bids: false, bids: [], loading: false };
+                                return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
                             });
                         });
                     };
@@ -8018,7 +8106,7 @@ class N88_RFQ_Admin {
                     // Determine current state
                     var currentState = (function() {
                         if (itemState.loading) return 'loading';
-                        if (itemState.has_bids) return 'C'; // State C: Bids received
+                        if (itemState.has_bids) return 'C'; // State C: Proposals received
                         if (itemState.has_rfq) return 'B'; // State B: RFQ sent, no bids
                         return 'A'; // State A: Before RFQ
                     })();
@@ -9284,7 +9372,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'Item Details'),
+                                        }, 'The Mission Spec'),
                                         React.createElement('button', {
                                             onClick: function() { setActiveTab('rfq'); },
                                             style: {
@@ -9299,7 +9387,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'RFQ Form'),
+                                        }, 'Launch Brief'),
                                         React.createElement('button', {
                                             onClick: function() { setActiveTab('timeline'); },
                                             style: {
@@ -9314,7 +9402,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, '6-Step Timeline'),
+                                        }, 'The Workflow'),
                                         itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('button', {
                                             onClick: function() { setActiveTab('bids'); },
                                             style: {
@@ -9329,7 +9417,7 @@ class N88_RFQ_Admin {
                                                 cursor: 'pointer',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'Bids (' + itemState.bids.length + ')') : null
+                                        }, 'Proposals Received (' + itemState.bids.length + ')') : null
                                     ),
                                     // Tab Content
                                     React.createElement('div', {
@@ -9342,33 +9430,269 @@ class N88_RFQ_Admin {
                                         },
                                         className: 'n88-modal-scroll-content'
                                     },
-                                        // Tab 1: Item Details
+                                        // Tab 1: The Mission Spec
                                         activeTab === 'details' ? React.createElement('div', null,
-                                            // Item Title
-                                            React.createElement('div', {
-                                                style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
-                                            }, item.title || item.description || 'Untitled Item'),
-                                            // RFQ Sent Status Indicator (State B Only)
-                                            currentState === 'B' ? React.createElement('div', {
+                                            // Action Required Banner - Show when operator has sent messages
+                                            itemState.has_unread_operator_messages ? React.createElement('div', {
                                                 style: {
-                                                    marginBottom: '20px',
-                                                    padding: '12px 16px',
-                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
-                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
+                                                    marginBottom: '24px',
+                                                    padding: '16px',
+                                                    backgroundColor: '#330000',
+                                                    border: '2px solid #ff0000',
                                                     borderRadius: '4px',
-                                                    textAlign: 'center',
-                                                    opacity: 0.7,
+                                                }
+                                            },
+                                            React.createElement('div', {
+                                                style: {
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        color: '#ff0000',
+                                                        marginBottom: '8px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                    }
+                                                },
+                                                    React.createElement('span', null, '⚠️'),
+                                                    React.createElement('span', null, 'Action Required')
+                                                ),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '12px',
+                                                        color: '#ff6666',
+                                                        lineHeight: '1.5',
+                                                    }
+                                                }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
+                                            ) : null,
+                                            
+                                            // Commit 2.3.9.1C-a: Message Operator Section - Show only when RFQ is sent, before The Mission Spec
+                                            itemState.has_rfq ? React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '24px',
+                                                }
+                                            },
+                                                !showDesignerMessageForm ? React.createElement('button', {
+                                                    onClick: function() {
+                                                        setShowDesignerMessageForm(true);
+                                                        loadDesignerMessages();
+                                                    },
+                                                    style: {
+                                                        width: '100%',
+                                                        padding: '12px',
+                                                        backgroundColor: '#111111',
+                                                        border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '14px',
+                                                        fontFamily: 'monospace',
+                                                        cursor: 'pointer',
+                                                        fontWeight: '600',
+                                                    },
+                                                    onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
+                                                    onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
+                                                }, 'Message Operator') : React.createElement('div', {
+                                                    style: {
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        padding: '16px',
+                                                        backgroundColor: '#111111',
+                                                    }
+                                                },
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            marginBottom: '16px',
                                                 }
                                             },
                                                 React.createElement('div', {
                                                     style: {
                                                         fontSize: '14px',
-                                                        fontWeight: '500',
-                                                        color: 'rgba(0, 180, 0, 0.6)',
+                                                                fontWeight: '600',
+                                                                color: darkText,
+                                                            }
+                                                        }, 'Message Operator'),
+                                                        React.createElement('button', {
+                                                            onClick: function() { setShowDesignerMessageForm(false); },
+                                                            style: {
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: darkText,
+                                                                fontSize: '20px',
+                                                                cursor: 'pointer',
+                                                                padding: '0',
+                                                                width: '24px',
+                                                                height: '24px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                            }
+                                                        }, '×')
+                                                    ),
+                                                    // WhatsApp-Style Chat Messages
+                                                    React.createElement('div', {
+                                                        id: 'n88-designer-messages-container-admin',
+                                                        style: {
+                                                            height: '400px',
+                                                            overflowY: 'auto',
+                                                            padding: '16px',
+                                                            backgroundColor: '#0a0a0a',
+                                                            borderRadius: '4px',
+                                                            marginBottom: '12px',
+                                                            border: '1px solid ' + darkBorder,
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                        }
+                                                    },
+                                                        isLoadingDesignerMessages ? React.createElement('div', {
+                                                            style: {
+                                                                textAlign: 'center',
+                                                                color: '#666',
+                                                                fontSize: '12px',
+                                                                padding: '20px',
+                                                                margin: 'auto',
+                                                            }
+                                                        }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', {
+                                                            style: {
+                                                                textAlign: 'center',
+                                                                color: '#666',
+                                                                fontSize: '12px',
+                                                                padding: '20px',
+                                                                margin: 'auto',
+                                                            }
+                                                        }, 'No messages yet. Start the conversation!') : (function() {
+                                                            // Sort messages chronologically
+                                                            var sortedMessages = designerMessages.slice().sort(function(a, b) {
+                                                                return new Date(a.created_at) - new Date(b.created_at);
+                                                            });
+                                                            return sortedMessages.map(function(msg, idx) {
+                                                                var isDesigner = msg.sender_role === 'designer';
+                                                                var senderName = isDesigner ? 'You' : 'Operator';
+                                                                
+                                                                var date = new Date(msg.created_at);
+                                                                var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                                                
+                                                                return React.createElement('div', {
+                                                                    key: idx,
+                                                                    style: {
+                                                                        marginBottom: '12px',
+                                                                        display: 'flex',
+                                                                        justifyContent: isDesigner ? 'flex-end' : 'flex-start',
+                                                                        width: '100%',
+                                                                    }
+                                                                },
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            maxWidth: '75%',
+                                                                            padding: '10px 14px',
+                                                                            backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a',
+                                                                            border: '1px solid ' + (isDesigner ? greenAccent : '#333'),
+                                                                            borderRadius: isDesigner ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                                                                            fontSize: '12px',
+                                                                            color: '#fff',
+                                                                            wordWrap: 'break-word',
+                                                                            whiteSpace: 'pre-wrap',
+                                                                        }
+                                                                    },
+                                                                        React.createElement('div', {
+                                                                            style: {
+                                                                                fontSize: '10px',
+                                                                                fontWeight: '600',
+                                                                                color: isDesigner ? greenAccent : '#00aa00',
+                                                                                marginBottom: '4px',
+                                                                            }
+                                                                        }, senderName),
+                                                                        React.createElement('div', {
+                                                                            style: {
+                                                                                fontSize: '12px',
+                                                                                lineHeight: '1.4',
+                                                                                marginBottom: '4px',
+                                                                            }
+                                                                        }, msg.message_text || ''),
+                                                                        React.createElement('div', {
+                                                                            style: {
+                                                                                fontSize: '9px',
+                                                                                color: '#666',
+                                                                                textAlign: 'right',
+                                                                            }
+                                                                        }, dateStr)
+                                                                    )
+                                                                );
+                                                            });
+                                                        })()
+                                                    ),
+                                                    // Message Input at Bottom
+                                                    React.createElement('form', {
+                                                        onSubmit: sendDesignerMessage,
+                                                        style: {
+                                                            display: 'flex',
+                                                            gap: '8px',
+                                                            alignItems: 'flex-end',
+                                                        }
+                                                    },
+                                                        React.createElement('textarea', {
+                                                            value: designerMessageText,
+                                                            onChange: function(e) { setDesignerMessageText(e.target.value); },
+                                                            required: true,
+                                                            rows: 2,
+                                                            style: {
+                                                                flex: 1,
+                                                                padding: '10px 12px',
+                                                                backgroundColor: '#000',
+                                                                color: '#fff',
+                                                                border: '1px solid ' + darkBorder,
+                                                                borderRadius: '20px',
                                                         fontFamily: 'monospace',
-                                                    }
-                                                }, 'RFQ request sent — waiting to hear back')
+                                                                fontSize: '12px',
+                                                                resize: 'none',
+                                                                minHeight: '40px',
+                                                                maxHeight: '100px',
+                                                            },
+                                                            placeholder: 'Type your message here...',
+                                                            onKeyDown: function(e) {
+                                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    if (designerMessageText.trim()) {
+                                                                        sendDesignerMessage(e);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }),
+                                                        React.createElement('button', {
+                                                            type: 'submit',
+                                                            disabled: isSendingDesignerMessage || !designerMessageText.trim(),
+                                                            style: {
+                                                                padding: '10px 20px',
+                                                                backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent,
+                                                                color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000',
+                                                                border: 'none',
+                                                                borderRadius: '20px',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: '12px',
+                                                                fontWeight: '600',
+                                                                cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer',
+                                                                whiteSpace: 'nowrap',
+                                                            },
+                                                            onMouseOver: function(e) {
+                                                                if (!isSendingDesignerMessage && designerMessageText.trim()) {
+                                                                    e.target.style.backgroundColor = '#00cc00';
+                                                                }
+                                                            },
+                                                            onMouseOut: function(e) {
+                                                                if (!isSendingDesignerMessage && designerMessageText.trim()) {
+                                                                    e.target.style.backgroundColor = greenAccent;
+                                                                }
+                                                            }
+                                                        }, isSendingDesignerMessage ? 'Sending...' : 'Send')
+                                                    )
+                                                )
                                             ) : null,
+                                            // Item Title
+                                            React.createElement('div', {
+                                                style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
+                                            }, item.title || item.description || 'Untitled Item'),
+                                            // RFQ Sent Status Indicator moved to Launch Brief tab
                                             // Editable fields section - State A only
                                             currentState !== 'C' && isEditable && currentState === 'A' ? React.createElement(React.Fragment, null,
                                                 // Description
@@ -9464,7 +9788,7 @@ class N88_RFQ_Admin {
                                                     )
                                                 )
                                             ) : (currentState === 'B' || currentState === 'C') ? (
-                                                // State B and C: Show complete Item Details box
+                                                // State B and C: Show complete The Mission Spec box
                                                 React.createElement(React.Fragment, null,
                                                     React.createElement('div', {
                                                         style: {
@@ -9484,7 +9808,7 @@ class N88_RFQ_Admin {
                                                                 borderBottom: '1px solid ' + darkBorder,
                                                                 paddingBottom: '8px'
                                                             }
-                                                        }, 'Item Details'),
+                                                        }, 'The Mission Spec'),
                                                         // Name/Title
                                                         (item.title || item.description) ? React.createElement('div', {
                                                             style: { marginBottom: '12px' }
@@ -9526,11 +9850,11 @@ class N88_RFQ_Admin {
                                                                 var sixStepCategories = ['indoor furniture', 'sofas & seating (indoor)', 'chairs & armchairs (indoor)', 'dining tables (indoor)', 'cabinetry / millwork (custom)', 'casegoods (beds, nightstands, desks, consoles)', 'outdoor furniture', 'outdoor seating', 'outdoor dining sets', 'outdoor loungers & daybeds', 'pool furniture'];
                                                                 var fourStepCategories = ['lighting'];
                                                                 if (sixStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
-                                                                    timelineType = '6-Step Timeline';
+                                                                    timelineType = 'The Workflow';
                                                                 } else if (fourStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) {
                                                                     timelineType = '4-Step Timeline';
                                                                 } else if (categoryLower.indexOf('furniture') !== -1 || categoryLower.indexOf('sofa') !== -1 || categoryLower.indexOf('chair') !== -1 || categoryLower.indexOf('table') !== -1 || categoryLower.indexOf('bed') !== -1 || categoryLower.indexOf('cabinet') !== -1) {
-                                                                    timelineType = '6-Step Timeline';
+                                                                    timelineType = 'The Workflow';
                                                                 } else {
                                                                     timelineType = '4-Step Timeline';
                                                                 }
@@ -9581,250 +9905,31 @@ class N88_RFQ_Admin {
                                                         ) : null
                                                     )
                                                 )
-                                            ) : null,
-                                            // Commit 2.3.9.1C-a: Message Operator Section (All States)
-                                            React.createElement('div', {
+                                            ) : null
+                                        ) : null,
+                                        // Tab 2: Launch Brief
+                                        activeTab === 'rfq' ? React.createElement('div', null,
+                                            // RFQ Sent Status Indicator (State B Only)
+                                            currentState === 'B' ? React.createElement('div', {
                                                 style: {
-                                                    marginTop: '24px',
+                                                    marginBottom: '20px',
+                                                    padding: '12px 16px',
+                                                    backgroundColor: 'rgba(0, 128, 0, 0.08)',
+                                                    border: '1px solid rgba(0, 128, 0, 0.2)',
+                                                    borderRadius: '4px',
+                                                    textAlign: 'center',
+                                                    opacity: 0.7,
                                                 }
                                             },
-                                                !showDesignerMessageForm ? React.createElement('button', {
-                                                    onClick: function() {
-                                                        setShowDesignerMessageForm(true);
-                                                        loadDesignerMessages();
-                                                    },
+                                                React.createElement('div', {
                                                     style: {
-                                                        width: '100%',
-                                                        padding: '12px',
-                                                        backgroundColor: '#111111',
-                                                        border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
-                                                        color: darkText,
                                                         fontSize: '14px',
+                                                        fontWeight: '500',
+                                                        color: 'rgba(0, 180, 0, 0.6)',
                                                         fontFamily: 'monospace',
-                                                        cursor: 'pointer',
-                                                        fontWeight: '600',
-                                                    },
-                                                    onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
-                                                    onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
-                                                }, 'Message Operator') : React.createElement('div', {
-                                                    style: {
-                                                        border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
-                                                        padding: '16px',
-                                                        backgroundColor: '#111111',
                                                     }
-                                                },
-                                                    React.createElement('div', {
-                                                        style: {
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center',
-                                                            marginBottom: '16px',
-                                                        }
-                                                    },
-                                                        React.createElement('div', {
-                                                            style: {
-                                                                fontSize: '14px',
-                                                                fontWeight: '600',
-                                                                color: darkText,
-                                                            }
-                                                        }, 'Message Operator'),
-                                                        React.createElement('button', {
-                                                            onClick: function() { setShowDesignerMessageForm(false); },
-                                                            style: {
-                                                                background: 'none',
-                                                                border: 'none',
-                                                                color: darkText,
-                                                                fontSize: '20px',
-                                                                cursor: 'pointer',
-                                                                padding: '0',
-                                                                width: '24px',
-                                                                height: '24px',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                            }
-                                                        }, '×')
-                                                    ),
-                                                    // Messages History
-                                                    React.createElement('div', {
-                                                        style: {
-                                                            maxHeight: '300px',
-                                                            overflowY: 'auto',
-                                                            padding: '12px',
-                                                            backgroundColor: '#000',
-                                                            borderRadius: '4px',
-                                                            marginBottom: '16px',
-                                                            border: '1px solid ' + darkBorder,
-                                                        }
-                                                    },
-                                                        isLoadingDesignerMessages ? React.createElement('div', {
-                                                            style: {
-                                                                textAlign: 'center',
-                                                                color: '#666',
-                                                                fontSize: '12px',
-                                                                padding: '20px',
-                                                            }
-                                                        }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', {
-                                                            style: {
-                                                                textAlign: 'center',
-                                                                color: '#666',
-                                                                fontSize: '12px',
-                                                                padding: '20px',
-                                                            }
-                                                        }, 'No messages yet. Start the conversation!') : designerMessages.map(function(msg, idx) {
-                                                            var isDesigner = msg.sender_role === 'designer';
-                                                            var senderName = isDesigner ? 'You' : 'Operator';
-                                                            var alignClass = isDesigner ? 'right' : 'left';
-                                                            var bgColor = isDesigner ? '#003300' : '#001100';
-                                                            var borderColor = isDesigner ? greenAccent : '#00aa00';
-                                                            
-                                                            var date = new Date(msg.created_at);
-                                                            var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                                                            
-                                                            return React.createElement('div', {
-                                                                key: idx,
-                                                                style: {
-                                                                    marginBottom: '15px',
-                                                                    textAlign: alignClass,
-                                                                }
-                                                            },
-                                                                React.createElement('div', {
-                                                                    style: {
-                                                                        display: 'inline-block',
-                                                                        maxWidth: '70%',
-                                                                        padding: '10px 15px',
-                                                                        backgroundColor: bgColor,
-                                                                        border: '1px solid ' + borderColor,
-                                                                        borderRadius: '4px',
-                                                                        fontSize: '11px',
-                                                                        color: '#fff',
-                                                                    }
-                                                                },
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            fontWeight: 'bold',
-                                                                            color: greenAccent,
-                                                                            marginBottom: '5px',
-                                                                        }
-                                                                    }, senderName + (msg.category ? ' [' + msg.category + ']' : '')),
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            whiteSpace: 'pre-wrap',
-                                                                            wordWrap: 'break-word',
-                                                                        }
-                                                                    }, msg.message_text || ''),
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            fontSize: '10px',
-                                                                            color: '#666',
-                                                                            marginTop: '5px',
-                                                                        }
-                                                                    }, dateStr)
-                                                                )
-                                                            );
-                                                        })
-                                                    ),
-                                                    // Message Composer
-                                                    React.createElement('form', {
-                                                        onSubmit: sendDesignerMessage
-                                                    },
-                                                        React.createElement('div', {
-                                                            style: { marginBottom: '10px' }
-                                                        },
-                                                            React.createElement('label', {
-                                                                style: {
-                                                                    display: 'block',
-                                                                    fontSize: '11px',
-                                                                    color: greenAccent,
-                                                                    marginBottom: '5px',
-                                                                }
-                                                            }, 'Category (Optional):'),
-                                                            React.createElement('select', {
-                                                                value: designerMessageCategory,
-                                                                onChange: function(e) { setDesignerMessageCategory(e.target.value); },
-                                                                style: {
-                                                                    width: '100%',
-                                                                    padding: '6px',
-                                                                    backgroundColor: '#000',
-                                                                    color: greenAccent,
-                                                                    border: '1px solid ' + greenAccent,
-                                                                    fontFamily: 'monospace',
-                                                                    fontSize: '11px',
-                                                                }
-                                                            },
-                                                                React.createElement('option', { value: '' }, '-- Select Category --'),
-                                                                React.createElement('option', { value: 'Specs' }, 'Specs'),
-                                                                React.createElement('option', { value: 'Dimensions' }, 'Dimensions'),
-                                                                React.createElement('option', { value: 'Materials' }, 'Materials'),
-                                                                React.createElement('option', { value: 'Timeline' }, 'Timeline'),
-                                                                React.createElement('option', { value: 'Other' }, 'Other')
-                                                            )
-                                                        ),
-                                                        React.createElement('div', {
-                                                            style: { marginBottom: '10px' }
-                                                        },
-                                                            React.createElement('label', {
-                                                                style: {
-                                                                    display: 'block',
-                                                                    fontSize: '11px',
-                                                                    color: greenAccent,
-                                                                    marginBottom: '5px',
-                                                                }
-                                                            },
-                                                                React.createElement(React.Fragment, null, 'Message: ', React.createElement('span', { style: { color: '#ff0000' } }, '*'))
-                                                            ),
-                                                            React.createElement('textarea', {
-                                                                value: designerMessageText,
-                                                                onChange: function(e) { setDesignerMessageText(e.target.value); },
-                                                                required: true,
-                                                                rows: 4,
-                                                                style: {
-                                                                    width: '100%',
-                                                                    padding: '8px',
-                                                                    backgroundColor: '#000',
-                                                                    color: '#fff',
-                                                                    border: '1px solid ' + greenAccent,
-                                                                    fontFamily: 'monospace',
-                                                                    fontSize: '11px',
-                                                                    resize: 'vertical',
-                                                                },
-                                                                placeholder: 'Type your message here...'
-                                                            })
-                                                        ),
-                                                        React.createElement('button', {
-                                                            type: 'submit',
-                                                            disabled: isSendingDesignerMessage,
-                                                            style: {
-                                                                width: '100%',
-                                                                padding: '8px',
-                                                                backgroundColor: isSendingDesignerMessage ? '#003300' : greenAccent,
-                                                                color: '#000',
-                                                                border: 'none',
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '12px',
-                                                                fontWeight: 'bold',
-                                                                cursor: isSendingDesignerMessage ? 'not-allowed' : 'pointer',
-                                                                opacity: isSendingDesignerMessage ? 0.6 : 1,
-                                                            },
-                                                            onMouseOver: function(e) {
-                                                                if (!isSendingDesignerMessage) {
-                                                                    e.target.style.backgroundColor = '#00cc00';
-                                                                }
-                                                            },
-                                                            onMouseOut: function(e) {
-                                                                if (!isSendingDesignerMessage) {
-                                                                    e.target.style.backgroundColor = greenAccent;
-                                                                }
-                                                            }
-                                                        }, isSendingDesignerMessage ? '[ Sending... ]' : '[ Send Message ]')
-                                                    )
-                                                )
-                                            )
-                                        ) : null,
-                                        // Tab 2: RFQ Form
-                                        activeTab === 'rfq' ? React.createElement('div', null,
+                                                }, 'RFQ request sent — waiting to hear back')
+                                            ) : null,
                                             // Request Quote Button / RFQ Form (State A only)
                                             currentState === 'A' ? React.createElement('div', {
                                                 style: { marginBottom: '24px' }
@@ -10454,10 +10559,20 @@ class N88_RFQ_Admin {
                                                 fontWeight: '600',
                                                 opacity: isSubmittingRfq ? 0.6 : 1,
                                             }
-                                        }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
+                                        }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ'),
+                                        // Instructional microcopy
+                                        React.createElement('div', {
+                                            style: {
+                                                marginTop: '12px',
+                                                fontSize: '11px',
+                                                color: '#999',
+                                                textAlign: 'center',
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, 'Edit RFQ details and click Update.')
                                     )
                                 ) : null,
-                                // State B and C: Quantity, Dimensions, and Notes for suppliers - Inside RFQ Form tab
+                                // State B and C: Quantity, Dimensions, and Notes for suppliers - Inside Launch Brief tab
                                 (currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
                                     // Commit 2.3.5.1: Warning Banner - Show if dims/qty changed after RFQ with bids
                                     (showWarningBanner && itemState.has_rfq && itemState.has_bids) ? React.createElement('div', {
@@ -10638,11 +10753,21 @@ class N88_RFQ_Admin {
                                                     style: { fontSize: '10px', color: '#666', marginTop: '4px' }
                                                 }, '(' + smartAlternativesNote.length + ' chars • filtered)')
                                             )
-                                        )
+                                        ),
+                                        // Instructional microcopy - Outside the box
+                                        React.createElement('div', {
+                                            style: {
+                                                marginTop: '12px',
+                                                fontSize: '11px',
+                                                color: '#999',
+                                                textAlign: 'center',
+                                                fontFamily: 'monospace',
+                                            }
+                                        }, 'Edit RFQ details and click Update.')
                                     )
                                 ) : null
                             ) : null,
-                                        // Tab 3: Bids
+                                        // Tab 3: Proposals
                                         activeTab === 'bids' ? React.createElement('div', null,
                                             itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
                                                 style: { marginBottom: '24px' },
@@ -10664,7 +10789,7 @@ class N88_RFQ_Admin {
                                                 },
                                                     React.createElement('div', {
                                                         style: { fontSize: '14px', fontWeight: '600' }
-                                                    }, 'BIDS'),
+                                                    }, 'Proposals'),
                                                     React.createElement('span', {
                                                         style: { fontSize: '12px', color: darkText, cursor: 'pointer' },
                                                         onClick: function(e) {
@@ -10676,7 +10801,7 @@ class N88_RFQ_Admin {
                                                 ),
                                                 !bidsExpanded ? React.createElement('div', {
                                                     style: { fontSize: '12px', color: darkText, marginTop: '8px' }
-                                                }, itemState.bids.length + ' bid' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
+                                                }, itemState.bids.length + ' Proposal' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
                                                 // Commit 2.3.6: Expanded BIDS Matrix View
                                                 bidsExpanded ? React.createElement(React.Fragment, null,
                                                     React.createElement(BidComparisonMatrixInline, {
@@ -11128,7 +11253,7 @@ class N88_RFQ_Admin {
                                                     },
                                                         React.createElement('div', {
                                                             style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: darkText }
-                                                        }, 'Bids are in. When you\'re ready to move to prototypes or orders, sourcing agent oversight is available.'),
+                                                        }, 'Proposals are in. When you\'re ready to move to prototypes or orders, sourcing agent oversight is available.'),
                                                         React.createElement('div', {
                                                             style: { fontSize: '11px', color: darkText, marginBottom: '12px', lineHeight: '1.5' }
                                                         }, 'Wireframe OS can also coordinate production follow-through and delivery so everything stays under one roof.'),
@@ -11155,9 +11280,9 @@ class N88_RFQ_Admin {
                                                 ) : null
                                             ) : React.createElement('div', {
                                                 style: { padding: '24px', textAlign: 'center', color: darkText, fontSize: '14px' }
-                                            }, 'No bids received yet.')
+                                            }, 'No proposals received yet.')
                                         ) : null,
-                                        // Tab 4: 6-Step Timeline (Read-only)
+                                        // Tab 4: The Workflow (Read-only)
                                         activeTab === 'timeline' ? React.createElement('div', null,
                                             React.createElement('div', {
                                                 style: {
@@ -11166,7 +11291,7 @@ class N88_RFQ_Admin {
                                                     marginBottom: '20px',
                                                     color: darkText
                                                 }
-                                            }, '6-Step Timeline'),
+                                            }, 'The Workflow'),
                                             React.createElement('div', {
                                                 style: {
                                                     marginBottom: '16px',
@@ -11772,7 +11897,7 @@ class N88_RFQ_Admin {
 
                 // ConciergeOverlay Component (inline)
                 const ConciergeOverlay = function({ concierge }) {
-                    var conciergeData = concierge || { name: 'Your Sourcing Agent', avatarUrl: '' };
+                    var conciergeData = concierge || { name: 'Message System Operator', avatarUrl: '' };
                     return React.createElement('div', {
                         style: {
                             position: 'absolute',
@@ -12355,7 +12480,7 @@ class N88_RFQ_Admin {
                 }
                 
                 const conciergeData = {
-                    name: 'Your Sourcing Agent',
+                    name: 'Message System Operator',
                     avatarUrl: ''
                 };
 
