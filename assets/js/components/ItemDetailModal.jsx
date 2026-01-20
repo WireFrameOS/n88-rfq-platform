@@ -1243,7 +1243,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         loading: true,
         has_unread_operator_messages: false,
         unread_operator_messages: 0,
+        has_prototype_payment: false,
+        prototype_payment_status: null,
+        prototype_payment_total_due: null,
     });
+    
+    // Payment Instructions Modal State
+    const [showPaymentInstructions, setShowPaymentInstructions] = React.useState(false);
     
     // Form state
     const [category, setCategory] = React.useState(item.category || item.item_type || '');
@@ -1422,6 +1428,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     revision_changed: data.data.revision_changed || false,
                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                     unread_operator_messages: data.data.unread_operator_messages || 0,
+                    has_prototype_payment: data.data.has_prototype_payment || false,
+                    prototype_payment_status: data.data.prototype_payment_status || null,
+                    prototype_payment_total_due: data.data.prototype_payment_total_due || null,
                     loading: false,
                 });
             } else {
@@ -4401,8 +4410,118 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     )}
                                     
                                     {/* Tab 3: Proposals */}
-                                    {activeTab === 'bids' && itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
+                                    {activeTab === 'bids' && (
                                         <div>
+                                            {/* Commit 2.3.9.1C: Payment Required Banner */}
+                                            {(() => {
+                                                // Debug logging
+                                                if (itemState.has_prototype_payment) {
+                                                    console.log('Payment Banner Debug:', {
+                                                        has_prototype_payment: itemState.has_prototype_payment,
+                                                        prototype_payment_status: itemState.prototype_payment_status,
+                                                        prototype_payment_total_due: itemState.prototype_payment_total_due
+                                                    });
+                                                }
+                                                return null;
+                                            })()}
+                                            {itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (
+                                                <div style={{
+                                                    marginBottom: '24px',
+                                                    padding: '20px',
+                                                    backgroundColor: '#331100',
+                                                    border: '2px solid #ff8800',
+                                                    borderRadius: '4px',
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '16px',
+                                                        fontWeight: '600',
+                                                        color: '#ff8800',
+                                                        marginBottom: '12px',
+                                                    }}>
+                                                        Payment Required — Prototype & CAD Not Started
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '13px',
+                                                        color: '#ffaa66',
+                                                        marginBottom: '16px',
+                                                        lineHeight: '1.5',
+                                                    }}>
+                                                        Your prototype request has been submitted.
+                                                        CAD drafting and prototype work will begin only after payment is received.
+                                                    </div>
+                                                    <div style={{
+                                                        marginBottom: '12px',
+                                                        padding: '12px',
+                                                        backgroundColor: '#1a0a00',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid #ff8800',
+                                                    }}>
+                                                        <div style={{
+                                                            fontSize: '14px',
+                                                            fontWeight: '600',
+                                                            color: '#fff',
+                                                            marginBottom: '8px',
+                                                        }}>
+                                                            Amount Due: ${itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00'}
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: '12px',
+                                                            color: '#ffaa66',
+                                                        }}>
+                                                            Payment Methods: Wire / ACH / Zelle
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setShowPaymentInstructions(true)}
+                                                        style={{
+                                                            padding: '10px 20px',
+                                                            backgroundColor: '#ff8800',
+                                                            color: '#000',
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            fontFamily: 'monospace',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                        onMouseOver={(e) => e.target.style.backgroundColor = '#ff9900'}
+                                                        onMouseOut={(e) => e.target.style.backgroundColor = '#ff8800'}
+                                                    >
+                                                        [ View Payment Instructions ]
+                                                    </button>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Commit 2.3.9.1C: Payment Confirmed Banner */}
+                                            {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
+                                                <div style={{
+                                                    marginBottom: '24px',
+                                                    padding: '20px',
+                                                    backgroundColor: '#003300',
+                                                    border: '2px solid #00ff00',
+                                                    borderRadius: '4px',
+                                                }}>
+                                                    <div style={{
+                                                        fontSize: '16px',
+                                                        fontWeight: '600',
+                                                        color: '#00ff00',
+                                                        marginBottom: '8px',
+                                                    }}>
+                                                        Payment Confirmed
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '13px',
+                                                        color: '#00cc00',
+                                                        lineHeight: '1.5',
+                                                    }}>
+                                                        CAD drafting has begun.
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* Bids Content - Only show if bids exist */}
+                                            {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
+                                                <>
                                             {/* Item Context Header */}
                                             <div style={{ 
                                                 marginBottom: '16px',
@@ -4790,6 +4909,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     setCadPrototypeSuccess(true);
                                                                     setSelectedKeywords([]);
                                                                     setPrototypeNote('');
+                                                                    // Commit 2.3.9.1C: Refresh item state to show payment banner
+                                                                    fetchItemState();
                                                                     // Scroll to top of form to show success message
                                                                     setTimeout(() => {
                                                                         const formElement = document.getElementById('cad-prototype-form-container');
@@ -4866,6 +4987,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                     Get Concierge Help
                                                 </button>
                                             </div>
+                                                </>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -5178,6 +5301,189 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             >
                                 ×
                             </button>
+                        </div>
+                    )}
+                    
+                    {/* Commit 2.3.9.1C: Payment Instructions Modal */}
+                    {showPaymentInstructions && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                zIndex: 1000002,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '20px',
+                            }}
+                            onClick={() => setShowPaymentInstructions(false)}
+                        >
+                            <div
+                                style={{
+                                    maxWidth: '600px',
+                                    width: '100%',
+                                    backgroundColor: darkBg,
+                                    border: `2px solid ${greenAccent}`,
+                                    borderRadius: '8px',
+                                    padding: '24px',
+                                    fontFamily: 'monospace',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '20px',
+                                    borderBottom: `1px solid ${darkBorder}`,
+                                    paddingBottom: '12px',
+                                }}>
+                                    <h2 style={{
+                                        margin: 0,
+                                        fontSize: '18px',
+                                        fontWeight: '600',
+                                        color: greenAccent,
+                                    }}>
+                                        Prototype & CAD Payment Instructions
+                                    </h2>
+                                    <button
+                                        onClick={() => setShowPaymentInstructions(false)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: darkText,
+                                            fontSize: '24px',
+                                            cursor: 'pointer',
+                                            padding: '0',
+                                            width: '32px',
+                                            height: '32px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div style={{
+                                    fontSize: '13px',
+                                    color: darkText,
+                                    lineHeight: '1.6',
+                                }}>
+                                    <div style={{
+                                        marginBottom: '16px',
+                                        padding: '12px',
+                                        backgroundColor: '#111111',
+                                        borderRadius: '4px',
+                                        border: `1px solid ${darkBorder}`,
+                                    }}>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: greenAccent,
+                                            marginBottom: '8px',
+                                        }}>
+                                            Amount Due: ${itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00'}
+                                        </div>
+                                    </div>
+                                    
+                                    <div style={{
+                                        marginBottom: '16px',
+                                    }}>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: greenAccent,
+                                            marginBottom: '8px',
+                                        }}>
+                                            What this covers:
+                                        </div>
+                                        <ul style={{
+                                            margin: 0,
+                                            paddingLeft: '20px',
+                                            color: darkText,
+                                        }}>
+                                            <li>CAD drawings</li>
+                                            <li>Video prototype</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <div style={{
+                                        marginBottom: '16px',
+                                    }}>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: greenAccent,
+                                            marginBottom: '8px',
+                                        }}>
+                                            Payment Methods Accepted:
+                                        </div>
+                                        <ul style={{
+                                            margin: 0,
+                                            paddingLeft: '20px',
+                                            color: darkText,
+                                        }}>
+                                            <li>Wire</li>
+                                            <li>ACH</li>
+                                            <li>Zelle</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <div style={{
+                                        marginBottom: '16px',
+                                        padding: '12px',
+                                        backgroundColor: '#111111',
+                                        borderRadius: '4px',
+                                        border: `1px solid ${darkBorder}`,
+                                    }}>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: greenAccent,
+                                            marginBottom: '8px',
+                                        }}>
+                                            Instructions:
+                                        </div>
+                                        <ol style={{
+                                            margin: 0,
+                                            paddingLeft: '20px',
+                                            color: darkText,
+                                        }}>
+                                            <li>Send payment using one of the methods above</li>
+                                            <li>Include Item #{itemId} in the memo</li>
+                                            <li>Once received, CAD drafting will begin automatically</li>
+                                        </ol>
+                                    </div>
+                                    
+                                    <div style={{
+                                        padding: '12px',
+                                        backgroundColor: '#331100',
+                                        borderRadius: '4px',
+                                        border: '1px solid #ff8800',
+                                    }}>
+                                        <div style={{
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            color: '#ff8800',
+                                        }}>
+                                            Important:
+                                        </div>
+                                        <div style={{
+                                            fontSize: '12px',
+                                            color: '#ffaa66',
+                                            marginTop: '4px',
+                                        }}>
+                                            Work does not begin until payment is confirmed by our team.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </>

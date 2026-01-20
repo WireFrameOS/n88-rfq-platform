@@ -100,6 +100,13 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
         }
         
+        // Priority 2: Awaiting Payment (prototype payment requested) - Commit 2.3.9.1C
+        const hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
+        const prototypePaymentStatus = item.prototype_payment_status || null;
+        if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
+            return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
+        }
+        
         // Check if item has award_set (In Production)
         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };

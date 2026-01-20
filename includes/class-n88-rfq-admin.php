@@ -3663,6 +3663,32 @@ class N88_RFQ_Admin {
                             $has_unread_operator_messages = $unread_operator_messages > 0;
                         }
                         
+                        // Commit 2.3.9.1C: Check for prototype payment status
+                        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+                        $prototype_payment_status = null;
+                        $has_prototype_payment = false;
+                        
+                        // Check if prototype payments table exists
+                        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                        if ( $prototype_payments_table_exists ) {
+                            // Get the most recent prototype payment for this item and designer
+                            $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                                "SELECT status 
+                                FROM {$prototype_payments_table}
+                                WHERE item_id = %d
+                                AND designer_user_id = %d
+                                ORDER BY created_at DESC
+                                LIMIT 1",
+                                $item_id,
+                                $current_user->ID
+                            ), ARRAY_A );
+                            
+                            if ( $prototype_payment ) {
+                                $has_prototype_payment = true;
+                                $prototype_payment_status = $prototype_payment['status'];
+                            }
+                        }
+                        
                         $items[] = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
@@ -3702,6 +3728,9 @@ class N88_RFQ_Admin {
                             // Action Required: Unread operator messages
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
+                            // Commit 2.3.9.1C: Prototype payment status
+                            'has_prototype_payment' => $has_prototype_payment,
+                            'prototype_payment_status' => $prototype_payment_status,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -3881,6 +3910,32 @@ class N88_RFQ_Admin {
                             $has_unread_operator_messages = $unread_operator_messages > 0;
                         }
                         
+                        // Commit 2.3.9.1C: Check for prototype payment status
+                        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+                        $prototype_payment_status = null;
+                        $has_prototype_payment = false;
+                        
+                        // Check if prototype payments table exists
+                        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                        if ( $prototype_payments_table_exists ) {
+                            // Get the most recent prototype payment for this item and designer
+                            $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                                "SELECT status 
+                                FROM {$prototype_payments_table}
+                                WHERE item_id = %d
+                                AND designer_user_id = %d
+                                ORDER BY created_at DESC
+                                LIMIT 1",
+                                $item_id,
+                                $current_user->ID
+                            ), ARRAY_A );
+                            
+                            if ( $prototype_payment ) {
+                                $has_prototype_payment = true;
+                                $prototype_payment_status = $prototype_payment['status'];
+                            }
+                        }
+                        
                         // Calculate position for new items - arrange in grid side-by-side
                         // Items will be arranged horizontally, wrapping to new rows as needed
                         $item_spacing = 20; // Space between items
@@ -3945,6 +4000,9 @@ class N88_RFQ_Admin {
                             // Action Required: Unread operator messages
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
+                            // Commit 2.3.9.1C: Prototype payment status
+                            'has_prototype_payment' => $has_prototype_payment,
+                            'prototype_payment_status' => $prototype_payment_status,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -5769,7 +5827,14 @@ class N88_RFQ_Admin {
                             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
                         }
                         
-                        // Priority 2: Check if item has award_set (In Production)
+                        // Priority 2: Awaiting Payment (prototype payment requested) - Commit 2.3.9.1C
+                        var hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
+                        var prototypePaymentStatus = item.prototype_payment_status || null;
+                        if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
+                            return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
+                        }
+                        
+                        // Priority 3: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                         }
@@ -7540,9 +7605,17 @@ class N88_RFQ_Admin {
                         loading: true,
                         has_unread_operator_messages: false,
                         unread_operator_messages: 0,
+                        has_prototype_payment: false,
+                        prototype_payment_status: null,
+                        prototype_payment_total_due: null,
                     });
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
+                    
+                    // Payment Instructions Modal State
+                    var _showPaymentInstructionsState = React.useState(false);
+                    var showPaymentInstructions = _showPaymentInstructionsState[0];
+                    var setShowPaymentInstructions = _showPaymentInstructionsState[1];
                     
                     // Form state
                     var _categoryState = React.useState(item.item_type || item.category || '');
@@ -7952,7 +8025,7 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
                             });
                             return;
                         }
@@ -7977,7 +8050,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
                             });
                             return;
                         }
@@ -8004,12 +8077,15 @@ class N88_RFQ_Admin {
                                     revision_changed: data.data.revision_changed || false,
                                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                                     unread_operator_messages: data.data.unread_operator_messages || 0,
+                                    has_prototype_payment: data.data.has_prototype_payment || false,
+                                    prototype_payment_status: data.data.prototype_payment_status || null,
+                                    prototype_payment_total_due: data.data.prototype_payment_total_due || null,
                                     loading: false,
                                 });
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
                                 });
                             }
                         })
@@ -10769,6 +10845,100 @@ class N88_RFQ_Admin {
                             ) : null,
                                         // Tab 3: Proposals
                                         activeTab === 'bids' ? React.createElement('div', null,
+                                            // Commit 2.3.9.1C: Payment Required Banner
+                                            itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' ? React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '24px',
+                                                    padding: '20px',
+                                                    backgroundColor: '#331100',
+                                                    border: '2px solid #ff8800',
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '16px',
+                                                        fontWeight: '600',
+                                                        color: '#ff8800',
+                                                        marginBottom: '12px',
+                                                    }
+                                                }, 'Payment Required — Prototype & CAD Not Started'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '13px',
+                                                        color: '#ffaa66',
+                                                        marginBottom: '16px',
+                                                        lineHeight: '1.5',
+                                                    }
+                                                }, 'Your prototype request has been submitted. CAD drafting and prototype work will begin only after payment is received.'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        marginBottom: '12px',
+                                                        padding: '12px',
+                                                        backgroundColor: '#1a0a00',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid #ff8800',
+                                                    }
+                                                },
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '14px',
+                                                            fontWeight: '600',
+                                                            color: '#fff',
+                                                            marginBottom: '8px',
+                                                        }
+                                                    }, 'Amount Due: $' + (itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00')),
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '12px',
+                                                            color: '#ffaa66',
+                                                        }
+                                                    }, 'Payment Methods: Wire / ACH / Zelle')
+                                                ),
+                                                React.createElement('button', {
+                                                    onClick: function() { setShowPaymentInstructions(true); },
+                                                    style: {
+                                                        padding: '10px 20px',
+                                                        backgroundColor: '#ff8800',
+                                                        color: '#000',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        fontFamily: 'monospace',
+                                                        fontSize: '12px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                    },
+                                                    onMouseOver: function(e) { e.target.style.backgroundColor = '#ff9900'; },
+                                                    onMouseOut: function(e) { e.target.style.backgroundColor = '#ff8800'; }
+                                                }, '[ View Payment Instructions ]')
+                                            ) : null,
+                                            // Commit 2.3.9.1C: Payment Confirmed Banner
+                                            itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' ? React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '24px',
+                                                    padding: '20px',
+                                                    backgroundColor: '#003300',
+                                                    border: '2px solid #00ff00',
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '16px',
+                                                        fontWeight: '600',
+                                                        color: '#00ff00',
+                                                        marginBottom: '8px',
+                                                    }
+                                                }, 'Payment Confirmed'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        fontSize: '13px',
+                                                        color: '#00cc00',
+                                                        lineHeight: '1.5',
+                                                    }
+                                                }, 'CAD drafting has begun.')
+                                            ) : null,
+                                            // Bids Content - Only show if bids exist
                                             itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
                                                 style: { marginBottom: '24px' },
                                                 onClick: function(e) { e.stopPropagation(); }
@@ -11193,6 +11363,8 @@ class N88_RFQ_Admin {
                                                                         setCadPrototypeSuccess(true);
                                                                         setSelectedKeywords([]);
                                                                         setPrototypeNote('');
+                                                                        // Commit 2.3.9.1C: Refresh item state to show payment banner
+                                                                        fetchItemState();
                                                                         // Scroll to top of form to show success message
                                                                         setTimeout(function() {
                                                                             var formElement = document.getElementById('cad-prototype-form-container');
@@ -11725,6 +11897,205 @@ class N88_RFQ_Admin {
                         );
                     }
                     
+                    
+                    // Commit 2.3.9.1C: Payment Instructions Modal
+                    if (showPaymentInstructions) {
+                        fragmentChildren.push(
+                            React.createElement('div', {
+                                key: 'payment-instructions-modal',
+                                style: {
+                                    position: 'fixed',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    zIndex: 10000002,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '20px',
+                                },
+                                onClick: function() { setShowPaymentInstructions(false); }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        maxWidth: '600px',
+                                        width: '100%',
+                                        backgroundColor: darkBg,
+                                        border: '2px solid ' + greenAccent,
+                                        borderRadius: '8px',
+                                        padding: '24px',
+                                        fontFamily: 'monospace',
+                                    },
+                                    onClick: function(e) { e.stopPropagation(); }
+                                },
+                                    React.createElement('div', {
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginBottom: '20px',
+                                            borderBottom: '1px solid ' + darkBorder,
+                                            paddingBottom: '12px',
+                                        }
+                                    },
+                                        React.createElement('h2', {
+                                            style: {
+                                                margin: 0,
+                                                fontSize: '18px',
+                                                fontWeight: '600',
+                                                color: greenAccent,
+                                            }
+                                        }, 'Prototype & CAD Payment Instructions'),
+                                        React.createElement('button', {
+                                            onClick: function() { setShowPaymentInstructions(false); },
+                                            style: {
+                                                background: 'none',
+                                                border: 'none',
+                                                color: darkText,
+                                                fontSize: '24px',
+                                                cursor: 'pointer',
+                                                padding: '0',
+                                                width: '32px',
+                                                height: '32px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }
+                                        }, '×')
+                                    ),
+                                    React.createElement('div', {
+                                        style: {
+                                            fontSize: '13px',
+                                            color: darkText,
+                                            lineHeight: '1.6',
+                                        }
+                                    },
+                                        React.createElement('div', {
+                                            style: {
+                                                marginBottom: '16px',
+                                                padding: '12px',
+                                                backgroundColor: '#111111',
+                                                borderRadius: '4px',
+                                                border: '1px solid ' + darkBorder,
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: greenAccent,
+                                                    marginBottom: '8px',
+                                                }
+                                            }, 'Amount Due: $' + (itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00'))
+                                        ),
+                                        React.createElement('div', {
+                                            style: {
+                                                marginBottom: '16px',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: greenAccent,
+                                                    marginBottom: '8px',
+                                                }
+                                            }, 'What this covers:'),
+                                            React.createElement('ul', {
+                                                style: {
+                                                    margin: 0,
+                                                    paddingLeft: '20px',
+                                                    color: darkText,
+                                                }
+                                            },
+                                                React.createElement('li', null, 'CAD drawings'),
+                                                React.createElement('li', null, 'Video prototype')
+                                            )
+                                        ),
+                                        React.createElement('div', {
+                                            style: {
+                                                marginBottom: '16px',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: greenAccent,
+                                                    marginBottom: '8px',
+                                                }
+                                            }, 'Payment Methods Accepted:'),
+                                            React.createElement('ul', {
+                                                style: {
+                                                    margin: 0,
+                                                    paddingLeft: '20px',
+                                                    color: darkText,
+                                                }
+                                            },
+                                                React.createElement('li', null, 'Wire'),
+                                                React.createElement('li', null, 'ACH'),
+                                                React.createElement('li', null, 'Zelle')
+                                            )
+                                        ),
+                                        React.createElement('div', {
+                                            style: {
+                                                marginBottom: '16px',
+                                                padding: '12px',
+                                                backgroundColor: '#111111',
+                                                borderRadius: '4px',
+                                                border: '1px solid ' + darkBorder,
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: greenAccent,
+                                                    marginBottom: '8px',
+                                                }
+                                            }, 'Instructions:'),
+                                            React.createElement('ol', {
+                                                style: {
+                                                    margin: 0,
+                                                    paddingLeft: '20px',
+                                                    color: darkText,
+                                                }
+                                            },
+                                                React.createElement('li', null, 'Send payment using one of the methods above'),
+                                                React.createElement('li', null, 'Include Item #' + itemId + ' in the memo'),
+                                                React.createElement('li', null, 'Once received, CAD drafting will begin automatically')
+                                            )
+                                        ),
+                                        React.createElement('div', {
+                                            style: {
+                                                padding: '12px',
+                                                backgroundColor: '#331100',
+                                                borderRadius: '4px',
+                                                border: '1px solid #ff8800',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '12px',
+                                                    fontWeight: '600',
+                                                    color: '#ff8800',
+                                                }
+                                            }, 'Important:'),
+                                            React.createElement('div', {
+                                                style: {
+                                                    fontSize: '12px',
+                                                    color: '#ffaa66',
+                                                    marginTop: '4px',
+                                                }
+                                            }, 'Work does not begin until payment is confirmed by our team.')
+                                        )
+                                    )
+                                )
+                            )
+                        );
+                    }
                     
                     // Create Fragment with children
                     var modalContent = React.createElement.apply(null, [React.Fragment, null].concat(fragmentChildren));

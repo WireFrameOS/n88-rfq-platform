@@ -9460,6 +9460,34 @@ class N88_RFQ_Auth {
             $has_unread_operator_messages = $unread_operator_messages > 0;
         }
 
+        // Commit 2.3.9.1C: Check for prototype payment status
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $prototype_payment_status = null;
+        $prototype_payment_total_due = null;
+        $has_prototype_payment = false;
+        
+        // Check if prototype payments table exists
+        $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+        if ( $prototype_payments_table_exists ) {
+            // Get the most recent prototype payment for this item
+            $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                "SELECT status, total_due_usd 
+                FROM {$prototype_payments_table}
+                WHERE item_id = %d
+                AND designer_user_id = %d
+                ORDER BY created_at DESC
+                LIMIT 1",
+                $item_id,
+                $current_user->ID
+            ), ARRAY_A );
+            
+            if ( $prototype_payment ) {
+                $has_prototype_payment = true;
+                $prototype_payment_status = $prototype_payment['status'];
+                $prototype_payment_total_due = $prototype_payment['total_due_usd'] ? floatval( $prototype_payment['total_due_usd'] ) : null;
+            }
+        }
+
         wp_send_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
@@ -9468,6 +9496,9 @@ class N88_RFQ_Auth {
             'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
             'has_unread_operator_messages' => $has_unread_operator_messages, // Action Required: Unread operator messages
             'unread_operator_messages' => $unread_operator_messages, // Count of unread messages
+            'has_prototype_payment' => $has_prototype_payment, // Commit 2.3.9.1C: Has prototype payment request
+            'prototype_payment_status' => $prototype_payment_status, // Commit 2.3.9.1C: Payment status (requested, marked_received, etc.)
+            'prototype_payment_total_due' => $prototype_payment_total_due, // Commit 2.3.9.1C: Total amount due
         ) );
     }
 
