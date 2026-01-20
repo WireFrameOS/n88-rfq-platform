@@ -3508,6 +3508,11 @@ class N88_RFQ_Installer {
         if ( ! in_array( 'notifications_sent_at', $columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN notifications_sent_at DATETIME NULL AFTER received_at" );
         }
+        
+        // Commit 2.3.9.1F: Add payment_evidence_logged_at column if not exists
+        if ( ! in_array( 'payment_evidence_logged_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN payment_evidence_logged_at DATETIME NULL AFTER notifications_sent_at" );
+        }
     }
     
     /**

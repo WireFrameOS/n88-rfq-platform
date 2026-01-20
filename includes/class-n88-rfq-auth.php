@@ -14302,6 +14302,83 @@ class N88_RFQ_Auth {
             )
         );
 
+        // Commit 2.3.9.1F: Immutable Evidence Logging (idempotent - only if not already logged)
+        $payment_evidence_logged_at = $wpdb->get_var( $wpdb->prepare(
+            "SELECT payment_evidence_logged_at FROM {$prototype_payments_table} WHERE id = %d",
+            $payment_id
+        ) );
+        
+        if ( empty( $payment_evidence_logged_at ) ) {
+            // Fetch payment details including CAD policy and video direction
+            $payment_details = $wpdb->get_row( $wpdb->prepare(
+                "SELECT cad_fee_usd, cad_revision_rounds_included, cad_revision_round_fee_usd, video_direction_json 
+                FROM {$prototype_payments_table} 
+                WHERE id = %d",
+                $payment_id
+            ), ARRAY_A );
+            
+            if ( $payment_details ) {
+                $cad_fee_usd = isset( $payment_details['cad_fee_usd'] ) ? floatval( $payment_details['cad_fee_usd'] ) : 0.00;
+                $cad_revision_rounds_included = isset( $payment_details['cad_revision_rounds_included'] ) ? intval( $payment_details['cad_revision_rounds_included'] ) : 0;
+                $cad_revision_round_fee_usd = isset( $payment_details['cad_revision_round_fee_usd'] ) ? floatval( $payment_details['cad_revision_round_fee_usd'] ) : 0.00;
+                $video_direction_json = isset( $payment_details['video_direction_json'] ) ? $payment_details['video_direction_json'] : '';
+                
+                // Parse video direction to get keyword count and note presence
+                $video_direction = array();
+                $video_direction_keyword_count = 0;
+                $note_present = false;
+                
+                if ( ! empty( $video_direction_json ) ) {
+                    $video_direction = json_decode( $video_direction_json, true );
+                    if ( is_array( $video_direction ) ) {
+                        $selected_keywords = isset( $video_direction['selected_keywords'] ) ? $video_direction['selected_keywords'] : array();
+                        $video_direction_keyword_count = is_array( $selected_keywords ) ? count( $selected_keywords ) : 0;
+                        $note = isset( $video_direction['note'] ) ? $video_direction['note'] : '';
+                        $note_present = ! empty( $note ) && trim( $note ) !== '';
+                    }
+                }
+                
+                // Get operator_user_id (best effort; else null + source=system)
+                $operator_user_id = $current_user->ID;
+                if ( $operator_user_id === 0 || ! $is_operator ) {
+                    $operator_user_id = null;
+                }
+                
+                // Log immutable evidence event (Commit 2.3.9.1F)
+                $evidence_event_result = n88_log_event(
+                    'prototype_payment_marked_received',
+                    'prototype_payment',
+                    array(
+                        'object_id' => $payment_id,
+                        'item_id' => $item_id,
+                        'payload_json' => array(
+                            'payment_id' => $payment_id,
+                            'item_id' => $item_id,
+                            'bid_id' => $bid_id,
+                            'operator_user_id' => $operator_user_id,
+                            'cad_fee_usd' => $cad_fee_usd,
+                            'cad_revision_rounds_included' => $cad_revision_rounds_included,
+                            'cad_revision_round_fee_usd' => $cad_revision_round_fee_usd,
+                            'video_direction_keyword_count' => $video_direction_keyword_count,
+                            'note_present' => $note_present,
+                            'timestamp' => current_time( 'mysql' ),
+                        ),
+                    )
+                );
+                
+                // Set payment_evidence_logged_at to mark as logged (idempotency)
+                if ( $evidence_event_result !== false ) {
+                    $wpdb->update(
+                        $prototype_payments_table,
+                        array( 'payment_evidence_logged_at' => current_time( 'mysql' ) ),
+                        array( 'id' => $payment_id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+            }
+        }
+
         // Commit 2.3.9.1E: Send notifications (idempotent - only if not already sent)
         $notifications_sent_at = $wpdb->get_var( $wpdb->prepare(
             "SELECT notifications_sent_at FROM {$prototype_payments_table} WHERE id = %d",

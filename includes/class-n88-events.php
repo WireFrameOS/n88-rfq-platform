@@ -51,6 +51,10 @@ class N88_Events {
         'video_direction_submitted',
         // Commit 2.3.9.1C-a: Item message events
         'item_message_sent',
+        // Commit 2.3.9.1D: Payment confirmation events
+        'payment_marked_received',
+        // Commit 2.3.9.1F: Payment evidence closure events
+        'prototype_payment_marked_received',
     );
 
     /**
