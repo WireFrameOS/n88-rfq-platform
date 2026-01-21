@@ -57,7 +57,7 @@ class N88_RFQ_Quotes {
      * Upload a quote for a project
      *
      * @param array $data {
-     *     @type int $project_id Project ID.
+     *     @type int $project_id Project ID
      *     @type int $user_id Admin user ID
      *     @type string $admin_notes Internal notes
      *     @type array $file Quote file (from $_FILES)

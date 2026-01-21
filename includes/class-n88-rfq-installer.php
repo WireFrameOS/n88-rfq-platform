@@ -310,6 +310,9 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.1C-a: Create item messages table
         self::create_phase_2_3_9_1c_a_tables( $charset_collate );
+        
+        // Commit 2.3.9.2B-S: Create prototype video submission tables
+        self::create_phase_2_3_9_2b_tables( $charset_collate );
 
         self::maybe_upgrade();
     }
@@ -1169,6 +1172,9 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.1C-B: Create clarifications table
         self::create_phase_2_3_9_1c_b_tables( $charset_collate );
+        
+        // Commit 2.3.9.2B-S: Create prototype video submission tables
+        self::create_phase_2_3_9_2b_tables( $charset_collate );
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -3657,6 +3663,89 @@ class N88_RFQ_Installer {
 
         if ( ! $fk_clarification_supplier ) {
             self::safe_add_foreign_key( $clarifications_table, 'fk_clarification_supplier', 'supplier_id', $users_table, 'ID', 'CASCADE' );
+        }
+    }
+
+    /**
+     * Commit 2.3.9.2B-S: Create prototype video submission tables
+     */
+    private static function create_phase_2_3_9_2b_tables( $charset_collate ) {
+        global $wpdb;
+        
+        $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+        $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table = $wpdb->prefix . 'users';
+        
+        // Create n88_prototype_video_submissions table
+        $sql_submissions = "CREATE TABLE {$submissions_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            payment_id BIGINT UNSIGNED NOT NULL,
+            item_id BIGINT UNSIGNED NOT NULL,
+            bid_id BIGINT UNSIGNED NOT NULL,
+            supplier_id BIGINT UNSIGNED NOT NULL,
+            version INT UNSIGNED NOT NULL,
+            link_count INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY unique_payment_version (payment_id, version),
+            KEY idx_payment_id (payment_id),
+            KEY idx_supplier_id (supplier_id),
+            KEY idx_item_id (item_id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+        
+        dbDelta( $sql_submissions );
+        
+        // Create n88_prototype_video_links table
+        $sql_links = "CREATE TABLE {$links_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            submission_id BIGINT UNSIGNED NOT NULL,
+            provider ENUM('youtube', 'vimeo', 'loom') NOT NULL,
+            url VARCHAR(500) NOT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_submission_id (submission_id),
+            KEY idx_provider (provider),
+            KEY idx_sort_order (sort_order)
+        ) {$charset_collate};";
+        
+        dbDelta( $sql_links );
+        
+        // Add foreign keys
+        $submissions_table_safe = esc_sql( $submissions_table );
+        $links_table_safe = esc_sql( $links_table );
+        
+        // Check if foreign keys already exist
+        $fk_submission_payment = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_submission_payment'",
+            DB_NAME,
+            $submissions_table_safe
+        ) );
+        
+        $fk_link_submission = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = 'fk_link_submission'",
+            DB_NAME,
+            $links_table_safe
+        ) );
+        
+        // Add foreign keys if they don't exist
+        if ( ! $fk_submission_payment ) {
+            self::safe_add_foreign_key( $submissions_table, 'fk_submission_payment', 'payment_id', $prototype_payments_table, 'id', 'CASCADE' );
+        }
+        
+        if ( ! $fk_link_submission ) {
+            self::safe_add_foreign_key( $links_table, 'fk_link_submission', 'submission_id', $submissions_table, 'id', 'CASCADE' );
         }
     }
 

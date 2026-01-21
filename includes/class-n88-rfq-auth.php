@@ -93,7 +93,8 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_request_cad_revision', array( $this, 'ajax_request_cad_revision' ) );
         add_action( 'wp_ajax_n88_approve_cad', array( $this, 'ajax_approve_cad' ) );
         add_action( 'wp_ajax_n88_release_cad_to_supplier', array( $this, 'ajax_release_cad_to_supplier' ) );
-        
+        // Commit 2.3.9.2B-S: Prototype video submission
+        add_action( 'wp_ajax_n88_submit_prototype_video', array( $this, 'ajax_submit_prototype_video' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -2152,6 +2153,193 @@ class N88_RFQ_Auth {
             window.toggleSupplierClarification = toggleSupplierClarification;
             window.sendSupplierClarificationInline = sendSupplierClarificationInline;
             
+            // Commit 2.3.9.2B-S: Prototype Video Submission Handlers
+            function initPrototypeVideoForms() {
+                // Handle Add Link button
+                document.querySelectorAll('.n88-add-link-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var paymentId = this.getAttribute('id').replace('n88-add-link-btn-', '');
+                        var container = document.getElementById('n88-video-links-container-' + paymentId);
+                        if (!container) return;
+                        
+                        var currentRows = container.querySelectorAll('.n88-video-link-row');
+                        if (currentRows.length >= 3) {
+                            alert('Maximum 3 links allowed per submission.');
+                            return;
+                        }
+                        
+                        var newRow = document.createElement('div');
+                        newRow.className = 'n88-video-link-row';
+                        newRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+                        newRow.innerHTML = 
+                            '<select class="n88-video-provider" style="flex: 0 0 120px; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;">' +
+                            '<option value="youtube">YouTube</option>' +
+                            '<option value="vimeo">Vimeo</option>' +
+                            '<option value="loom">Loom</option>' +
+                            '</select>' +
+                            '<input type="url" class="n88-video-url" placeholder="https://..." style="flex: 1; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;" required />' +
+                            '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer;">Remove</button>';
+                        
+                        container.appendChild(newRow);
+                        
+                        // Show remove buttons if more than 1 row
+                        var allRows = container.querySelectorAll('.n88-video-link-row');
+                        if (allRows.length > 1) {
+                            allRows.forEach(function(row) {
+                                var removeBtn = row.querySelector('.n88-remove-link-btn');
+                                if (removeBtn) removeBtn.style.display = 'block';
+                            });
+                        }
+                        
+                        // Update add button visibility
+                        if (allRows.length >= 3) {
+                            btn.style.display = 'none';
+                        }
+                    });
+                });
+                
+                // Handle Remove Link button
+                document.querySelectorAll('.n88-remove-link-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var row = this.closest('.n88-video-link-row');
+                        var container = row ? row.parentElement : null;
+                        if (row && container) {
+                            row.remove();
+                            
+                            // Hide remove buttons if only 1 row left
+                            var remainingRows = container.querySelectorAll('.n88-video-link-row');
+                            if (remainingRows.length <= 1) {
+                                remainingRows.forEach(function(r) {
+                                    var removeBtn = r.querySelector('.n88-remove-link-btn');
+                                    if (removeBtn) removeBtn.style.display = 'none';
+                                });
+                            }
+                            
+                            // Show add button if less than 3 rows
+                            var paymentId = container.getAttribute('id').replace('n88-video-links-container-', '');
+                            var addBtn = document.getElementById('n88-add-link-btn-' + paymentId);
+                            if (addBtn && remainingRows.length < 3) {
+                                addBtn.style.display = 'block';
+                            }
+                        }
+                    });
+                });
+                
+                // Handle form submission
+                document.querySelectorAll('[id^="n88-submit-prototype-video-form-"]').forEach(function(form) {
+                    form.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        
+                        var paymentId = this.getAttribute('data-payment-id');
+                        var itemId = this.getAttribute('data-item-id');
+                        var bidId = this.getAttribute('data-bid-id');
+                        
+                        if (!paymentId) {
+                            alert('Invalid payment ID.');
+                            return;
+                        }
+                        
+                        var container = document.getElementById('n88-video-links-container-' + paymentId);
+                        if (!container) {
+                            alert('Form container not found.');
+                            return;
+                        }
+                        
+                        var rows = container.querySelectorAll('.n88-video-link-row');
+                        if (rows.length === 0) {
+                            alert('Please add at least one video link.');
+                            return;
+                        }
+                        
+                        var videoLinks = [];
+                        rows.forEach(function(row) {
+                            var provider = row.querySelector('.n88-video-provider');
+                            var url = row.querySelector('.n88-video-url');
+                            if (provider && url && url.value.trim()) {
+                                videoLinks.push({
+                                    provider: provider.value,
+                                    url: url.value.trim()
+                                });
+                            }
+                        });
+                        
+                        if (videoLinks.length === 0) {
+                            alert('Please enter at least one valid video link.');
+                            return;
+                        }
+                        
+                        if (videoLinks.length > 3) {
+                            alert('Maximum 3 links allowed per submission.');
+                            return;
+                        }
+                        
+                        var submitBtn = this.querySelector('button[type="submit"]');
+                        var originalText = submitBtn ? submitBtn.textContent : 'Submit';
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.textContent = 'Submitting...';
+                        }
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_submit_prototype_video');
+                        formData.append('payment_id', paymentId);
+                        formData.append('video_links', JSON.stringify(videoLinks));
+                        formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_submit_prototype_video' ) ); ?>');
+                        
+                        fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) { return response.json(); })
+                        .then(function(data) {
+                            if (data.success) {
+                                // Show success message
+                                alert(data.data.message || 'Prototype video submitted successfully!');
+                                // Reload item details to refresh UI and show submission status
+                                if (typeof openBidModal === 'function') {
+                                    // Close and reopen modal to refresh content
+                                    var modal = document.getElementById('n88-supplier-bid-modal');
+                                    if (modal) {
+                                        modal.style.display = 'none';
+                                        setTimeout(function() {
+                                            openBidModal(itemId);
+                                        }, 300);
+                                    } else {
+                                        window.location.reload();
+                                    }
+                                } else {
+                                    window.location.reload();
+                                }
+                            } else {
+                                alert('Error: ' + (data.data?.message || 'Failed to submit prototype video.'));
+                            }
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = originalText;
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('Error submitting prototype video:', error);
+                            alert('An error occurred. Please try again.');
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = originalText;
+                            }
+                        });
+                    });
+                });
+            }
+            
+            // Initialize on DOM ready and after modal content updates
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initPrototypeVideoForms);
+            } else {
+                initPrototypeVideoForms();
+            }
+            
+            // Re-initialize after modal content is updated (use MutationObserver or call after modal update)
+            window.initPrototypeVideoForms = initPrototypeVideoForms;
+            
             function openBidModal(itemId) {
                 // Ensure lightbox functions are available before creating modal HTML
                 if (typeof window.openSupplierImageLightbox !== 'function') {
@@ -2621,15 +2809,70 @@ class N88_RFQ_Auth {
                                     var statusMessage = isCadApprovedAndReleased ?
                                         'Payment has been confirmed. CAD has been approved and released. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.' :
                                         'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
-                                    return '<div style="background-color: rgba(255, 255, 255, 0.05); border: 2px solid #00ff00; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
-                                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 8px;">' + statusText + '</div>' +
-                                        '<div style="font-size: 12px; color: #00cc00; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
-                                        '<div style="font-size: 11px; color: #00ff00; margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
+                                    return '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
+                                        '<div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">' + statusText + '</div>' +
+                                        '<div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
+                                        '<div style="font-size: 11px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
                                         '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
                                         '</div>' +
                                         cadFilesHTML +
                                         keywordsHTML +
                                         noteHTML +
+                                        '</div>' +
+                                        // Commit 2.3.9.2B-S: Prototype Video Submission Form (only when CAD approved and released)
+                                        (isCadApprovedAndReleased && notif.payment_id ? (function() {
+                                            var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
+                                            
+                                            if (hasSubmission) {
+                                                // Show submission status instead of form
+                                                var submission = notif.prototype_video_submission;
+                                                var submissionDate = submission.created_at ? new Date(submission.created_at).toLocaleDateString() : 'N/A';
+                                                var linksHTML = '';
+                                                if (submission.links && submission.links.length > 0) {
+                                                    linksHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
+                                                        '<div style="font-size: 11px; color: #999; margin-bottom: 8px;">Submitted Links (v' + submission.version + '):</div>' +
+                                                        '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                                                    submission.links.forEach(function(link) {
+                                                        var providerIcon = link.provider === 'youtube' ? '▶️' : (link.provider === 'vimeo' ? '▶️' : '▶️');
+                                                        linksHTML += '<a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; text-decoration: none; color: #fff; font-size: 11px; transition: all 0.2s;" onmouseover="this.style.borderColor=\'#888\';" onmouseout="this.style.borderColor=\'#444\';">' +
+                                                            '<span style="font-size: 14px;">' + providerIcon + '</span>' +
+                                                            '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (link.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                                                            '<span style="font-size: 10px; color: #888;">Open →</span>' +
+                                                            '</a>';
+                                                    });
+                                                    linksHTML += '</div></div>';
+                                                }
+                                                
+                                                return '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
+                                                    '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' +
+                                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — Awaiting designer review</div>' +
+                                                    '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">If designer requests changes, you can submit an updated version.</div>' +
+                                                    linksHTML +
+                                                    '</div>';
+                                            }
+                                            
+                                            // Show submission form if not yet submitted
+                                            var submissionHTML = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
+                                                '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 12px;">Submit Prototype Video</div>' +
+                                                '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submit 1-3 video links (YouTube, Vimeo, or Loom only)</div>' +
+                                                '<form id="n88-submit-prototype-video-form-' + (notif.payment_id || '') + '" data-payment-id="' + (notif.payment_id || '') + '" data-item-id="' + (notif.item_id || '') + '" data-bid-id="' + (notif.bid_id || '') + '" style="display: flex; flex-direction: column; gap: 10px;">' +
+                                                '<div id="n88-video-links-container-' + (notif.payment_id || '') + '">' +
+                                                '<div class="n88-video-link-row" style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+                                                '<select class="n88-video-provider" style="flex: 0 0 120px; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;">' +
+                                                '<option value="youtube">YouTube</option>' +
+                                                '<option value="vimeo">Vimeo</option>' +
+                                                '<option value="loom">Loom</option>' +
+                                                '</select>' +
+                                                '<input type="url" class="n88-video-url" placeholder="https://..." style="flex: 1; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;" required />' +
+                                                '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer; display: none;">Remove</button>' +
+                                                '</div>' +
+                                                '</div>' +
+                                                '<button type="button" id="n88-add-link-btn-' + (notif.payment_id || '') + '" class="n88-add-link-btn" style="padding: 6px 12px; background-color: #000; color: #888; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 10px; cursor: pointer; align-self: flex-start;" onmouseover="this.style.borderColor=\'#aaa\'; this.style.color=\'#aaa\';" onmouseout="this.style.borderColor=\'#888\'; this.style.color=\'#888\';">+ Add Link (max 3)</button>' +
+                                                '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#777\';" onmouseout="this.style.backgroundColor=\'#666\';">Submit Prototype Video</button>' +
+                                                '</form>' +
+                                                '</div>';
+                                            return submissionHTML;
+                                        })() : '') +
                                         '</div>';
                                 })() : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
@@ -2680,6 +2923,13 @@ class N88_RFQ_Auth {
                             modalScrollContainer.scrollTop = 0;
                         }
                     }, 100);
+                    
+                    // Commit 2.3.9.2B-S: Initialize prototype video submission forms
+                    setTimeout(function() {
+                        if (typeof window.initPrototypeVideoForms === 'function') {
+                            window.initPrototypeVideoForms();
+                        }
+                    }, 200);
                     
                     // Store item data for inline bid form
                     window.currentItemData = item;
@@ -8780,7 +9030,46 @@ class N88_RFQ_Auth {
                                     }
                                 }
                                 
+                                // Commit 2.3.9.2B-S: Get payment_id for prototype video submission
+                                $payment_id_for_notification = $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT id FROM {$prototype_payments_table} WHERE bid_id = %d AND item_id = %d ORDER BY created_at DESC LIMIT 1",
+                                    $bid_id,
+                                    $item_id
+                                ) );
+                                
+                                // Commit 2.3.9.2B-S: Get latest prototype video submission if exists
+                                $latest_submission = null;
+                                $submission_links = array();
+                                if ( $payment_id_for_notification ) {
+                                    $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+                                    $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+                                    
+                                    // Check if table exists
+                                    $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table;
+                                    if ( $table_exists ) {
+                                        $latest_submission = $wpdb->get_row( $wpdb->prepare(
+                                            "SELECT id, version, link_count, created_at 
+                                             FROM {$submissions_table} 
+                                             WHERE payment_id = %d 
+                                             ORDER BY version DESC 
+                                             LIMIT 1",
+                                            $payment_id_for_notification
+                                        ), ARRAY_A );
+                                        
+                                        if ( $latest_submission ) {
+                                            $submission_links = $wpdb->get_results( $wpdb->prepare(
+                                                "SELECT provider, url, sort_order 
+                                                 FROM {$links_table} 
+                                                 WHERE submission_id = %d 
+                                                 ORDER BY sort_order ASC",
+                                                $latest_submission['id']
+                                            ), ARRAY_A );
+                                        }
+                                    }
+                                }
+                                
                                 $payment_notification = array(
+                                    'payment_id' => $payment_id_for_notification ? intval( $payment_id_for_notification ) : null,
                                     'item_id' => $item_id,
                                     'bid_id' => $bid_id,
                                     'keywords' => $keywords_list,
@@ -8789,6 +9078,12 @@ class N88_RFQ_Auth {
                                     'cad_approved_version' => $cad_approved_version,
                                     'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
                                     'cad_files' => $cad_files,
+                                    'prototype_video_submission' => $latest_submission ? array(
+                                        'version' => intval( $latest_submission['version'] ),
+                                        'link_count' => intval( $latest_submission['link_count'] ),
+                                        'created_at' => $latest_submission['created_at'],
+                                        'links' => $submission_links,
+                                    ) : null,
                                 );
                             }
                         }
@@ -15612,6 +15907,221 @@ class N88_RFQ_Auth {
 
         wp_send_json_success( array(
             'released_at' => current_time( 'mysql' ),
+        ) );
+    }
+
+    /**
+     * Commit 2.3.9.2B-S: Supplier submits prototype video links (append-only, versioned)
+     */
+    public function ajax_submit_prototype_video() {
+        check_ajax_referer( 'n88_submit_prototype_video', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier access required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $video_links_json = isset( $_POST['video_links'] ) ? wp_unslash( $_POST['video_links'] ) : '';
+        $video_links = array();
+        
+        if ( ! empty( $video_links_json ) ) {
+            $decoded = json_decode( $video_links_json, true );
+            if ( is_array( $decoded ) ) {
+                $video_links = $decoded;
+            }
+        }
+
+        if ( ! $payment_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
+            return;
+        }
+
+        if ( ! is_array( $video_links ) || empty( $video_links ) ) {
+            wp_send_json_error( array( 'message' => 'At least one video link is required.' ) );
+            return;
+        }
+
+        if ( count( $video_links ) > 3 ) {
+            wp_send_json_error( array( 'message' => 'Maximum 3 video links allowed per submission.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+        $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+
+        // Check preconditions: payment marked_received + CAD approved
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, item_id, bid_id, supplier_id, status, received_at, cad_status, cad_approved_at
+             FROM {$prototype_payments_table}
+             WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+
+        if ( $payment['status'] !== 'marked_received' || empty( $payment['received_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Payment must be marked as received before submitting prototype video.' ) );
+            return;
+        }
+
+        if ( $payment['cad_status'] !== 'approved' || empty( $payment['cad_approved_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'CAD must be approved before submitting prototype video.' ) );
+            return;
+        }
+
+        // Verify supplier owns this payment
+        if ( intval( $payment['supplier_id'] ) !== $current_user->ID ) {
+            wp_send_json_error( array( 'message' => 'Access denied. You can only submit videos for your own payments.' ) );
+            return;
+        }
+
+        $item_id = absint( $payment['item_id'] );
+        $bid_id = absint( $payment['bid_id'] );
+        $supplier_id = absint( $payment['supplier_id'] );
+
+        // Validate and parse video links
+        $validated_links = array();
+        $allowed_providers = array( 'youtube', 'vimeo', 'loom' );
+        
+        foreach ( $video_links as $index => $link_data ) {
+            if ( ! is_array( $link_data ) || ! isset( $link_data['provider'] ) || ! isset( $link_data['url'] ) ) {
+                continue;
+            }
+
+            $provider = sanitize_text_field( $link_data['provider'] );
+            $url = esc_url_raw( trim( $link_data['url'] ) );
+
+            if ( ! in_array( $provider, $allowed_providers, true ) ) {
+                wp_send_json_error( array( 'message' => 'Invalid provider. Only YouTube, Vimeo, and Loom are allowed.' ) );
+                return;
+            }
+
+            if ( empty( $url ) ) {
+                continue; // Skip empty URLs
+            }
+
+            // Validate URL format for each provider
+            $is_valid = false;
+            if ( $provider === 'youtube' ) {
+                // YouTube: youtube.com/watch?v=, youtu.be/, youtube.com/embed/
+                $is_valid = ( preg_match( '/youtube\.com\/(watch\?v=|embed\/)/', $url ) || preg_match( '/youtu\.be\//', $url ) );
+            } elseif ( $provider === 'vimeo' ) {
+                // Vimeo: vimeo.com/
+                $is_valid = preg_match( '/vimeo\.com\//', $url );
+            } elseif ( $provider === 'loom' ) {
+                // Loom: loom.com/share/
+                $is_valid = preg_match( '/loom\.com\/share\//', $url );
+            }
+
+            if ( ! $is_valid ) {
+                wp_send_json_error( array( 'message' => 'Invalid ' . ucfirst( $provider ) . ' URL format. Please check the URL.' ) );
+                return;
+            }
+
+            $validated_links[] = array(
+                'provider' => $provider,
+                'url' => $url,
+                'sort_order' => $index,
+            );
+        }
+
+        if ( empty( $validated_links ) ) {
+            wp_send_json_error( array( 'message' => 'No valid video links provided.' ) );
+            return;
+        }
+
+        // Get next version number (append-only)
+        $max_version = $wpdb->get_var( $wpdb->prepare(
+            "SELECT MAX(version) FROM {$submissions_table} WHERE payment_id = %d",
+            $payment_id
+        ) );
+        $next_version = $max_version ? ( intval( $max_version ) + 1 ) : 1;
+        $link_count = count( $validated_links );
+
+        // Insert submission record
+        $submission_result = $wpdb->insert(
+            $submissions_table,
+            array(
+                'payment_id' => $payment_id,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'supplier_id' => $supplier_id,
+                'version' => $next_version,
+                'link_count' => $link_count,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%d', '%d', '%s' )
+        );
+
+        if ( ! $submission_result ) {
+            wp_send_json_error( array( 'message' => 'Failed to create submission record.' ) );
+            return;
+        }
+
+        $submission_id = $wpdb->insert_id;
+
+        // Insert link records
+        foreach ( $validated_links as $link ) {
+            $link_result = $wpdb->insert(
+                $links_table,
+                array(
+                    'submission_id' => $submission_id,
+                    'provider' => $link['provider'],
+                    'url' => $link['url'],
+                    'sort_order' => $link['sort_order'],
+                    'created_at' => current_time( 'mysql' ),
+                ),
+                array( '%d', '%s', '%s', '%d', '%s' )
+            );
+
+            if ( ! $link_result ) {
+                // Rollback: delete submission if links fail
+                $wpdb->delete( $submissions_table, array( 'id' => $submission_id ), array( '%d' ) );
+                wp_send_json_error( array( 'message' => 'Failed to save video links.' ) );
+                return;
+            }
+        }
+
+        // Immutable event: prototype_video_submitted
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'prototype_video_submitted',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'payment_id'  => $payment_id,
+                        'item_id'     => $item_id,
+                        'bid_id'      => $bid_id,
+                        'supplier_id' => $supplier_id,
+                        'version'     => $next_version,
+                        'link_count'  => $link_count,
+                        'timestamp'   => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'submission_id' => $submission_id,
+            'version' => $next_version,
+            'link_count' => $link_count,
+            'message' => 'Prototype video submitted successfully (v' . $next_version . ').',
         ) );
     }
     
