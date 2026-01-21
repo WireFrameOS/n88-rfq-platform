@@ -929,6 +929,11 @@ class N88_RFQ_Installer {
             file_id BIGINT UNSIGNED NOT NULL,
             attached_by_user_id BIGINT UNSIGNED NOT NULL,
             attachment_type VARCHAR(50) NOT NULL DEFAULT 'general',
+            payment_id BIGINT UNSIGNED NULL,
+            bid_id BIGINT UNSIGNED NULL,
+            cad_version INT UNSIGNED NULL,
+            file_name VARCHAR(255) NULL,
+            mime_type VARCHAR(100) NULL,
             display_order INT UNSIGNED NOT NULL DEFAULT 0,
             attached_at DATETIME NOT NULL,
             detached_at DATETIME NULL,
@@ -1158,6 +1163,9 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.1C-a: Migrate prototype_payments table (add marked_received status and received_at column)
         self::migrate_prototype_payments_table();
+
+        // Commit 2.3.9.2A: Migrate item_files table for CAD metadata
+        self::migrate_item_files_table_for_cad();
         
         // Commit 2.3.9.1C-B: Create clarifications table
         self::create_phase_2_3_9_1c_b_tables( $charset_collate );
@@ -3283,17 +3291,22 @@ class N88_RFQ_Installer {
             designer_user_id BIGINT UNSIGNED NOT NULL,
             supplier_id BIGINT UNSIGNED NOT NULL,
             status ENUM('requested', 'marked_received', 'paid_confirmed', 'cad_in_progress', 'cad_sent', 'cad_approved', 'prototype_released', 'prototype_submitted', 'prototype_approved') NOT NULL DEFAULT 'requested',
+            cad_status ENUM('not_started', 'uploaded', 'revision_requested', 'approved') NOT NULL DEFAULT 'not_started',
             video_direction_json TEXT NULL,
             cad_fee_usd DECIMAL(10,2) NOT NULL DEFAULT 60.00,
             cad_revision_rounds_included INT UNSIGNED NOT NULL DEFAULT 3,
             cad_revision_round_fee_usd DECIMAL(10,2) NOT NULL DEFAULT 25.00,
             cad_revision_rounds_used INT UNSIGNED NOT NULL DEFAULT 0,
+            cad_approved_at DATETIME NULL,
+            cad_approved_version INT UNSIGNED NULL,
+            cad_released_to_supplier_at DATETIME NULL,
             prototype_video_cost_estimate_usd DECIMAL(10,2) NULL,
             total_due_usd DECIMAL(10,2) NOT NULL DEFAULT 0.00,
             payment_reference VARCHAR(255) NULL,
             payment_instructions_version VARCHAR(50) NOT NULL DEFAULT 'v1',
             received_at DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
             PRIMARY KEY (id),
             KEY idx_item_id (item_id),
             KEY idx_bid_id (bid_id),
@@ -3512,6 +3525,55 @@ class N88_RFQ_Installer {
         // Commit 2.3.9.1F: Add payment_evidence_logged_at column if not exists
         if ( ! in_array( 'payment_evidence_logged_at', $columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN payment_evidence_logged_at DATETIME NULL AFTER notifications_sent_at" );
+        }
+
+        // Commit 2.3.9.2A: Add CAD workflow fields if not exists
+        $columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        if ( ! in_array( 'cad_status', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN cad_status ENUM('not_started', 'uploaded', 'revision_requested', 'approved') NOT NULL DEFAULT 'not_started' AFTER status" );
+        }
+        if ( ! in_array( 'cad_approved_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN cad_approved_at DATETIME NULL AFTER cad_revision_rounds_used" );
+        }
+        if ( ! in_array( 'cad_approved_version', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN cad_approved_version INT UNSIGNED NULL AFTER cad_approved_at" );
+        }
+        if ( ! in_array( 'cad_released_to_supplier_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN cad_released_to_supplier_at DATETIME NULL AFTER cad_approved_version" );
+        }
+        if ( ! in_array( 'updated_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} ADD COLUMN updated_at DATETIME NULL AFTER created_at" );
+        }
+    }
+
+    /**
+     * Commit 2.3.9.2A: Migrate n88_item_files table to support CAD artifact metadata.
+     */
+    private static function migrate_item_files_table_for_cad() {
+        global $wpdb;
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+        
+        // Check if table exists
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) !== $item_files_table ) {
+            return;
+        }
+        
+        $columns = $wpdb->get_col( "DESCRIBE {$item_files_table}" );
+        
+        if ( ! in_array( 'payment_id', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_files_table} ADD COLUMN payment_id BIGINT UNSIGNED NULL AFTER attachment_type" );
+        }
+        if ( ! in_array( 'bid_id', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_files_table} ADD COLUMN bid_id BIGINT UNSIGNED NULL AFTER payment_id" );
+        }
+        if ( ! in_array( 'cad_version', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_files_table} ADD COLUMN cad_version INT UNSIGNED NULL AFTER bid_id" );
+        }
+        if ( ! in_array( 'file_name', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_files_table} ADD COLUMN file_name VARCHAR(255) NULL AFTER cad_version" );
+        }
+        if ( ! in_array( 'mime_type', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_files_table} ADD COLUMN mime_type VARCHAR(100) NULL AFTER file_name" );
         }
     }
     

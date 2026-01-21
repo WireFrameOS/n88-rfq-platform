@@ -1244,8 +1244,19 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         has_unread_operator_messages: false,
         unread_operator_messages: 0,
         has_prototype_payment: false,
+        prototype_payment_id: null,
+        prototype_payment_bid_id: null,
+        prototype_payment_supplier_id: null,
         prototype_payment_status: null,
         prototype_payment_total_due: null,
+        // Commit 2.3.9.2A: CAD workflow state
+        cad_status: null,
+        cad_revision_rounds_included: null,
+        cad_revision_rounds_used: null,
+        cad_approved_at: null,
+        cad_approved_version: null,
+        cad_released_to_supplier_at: null,
+        cad_current_version: null,
     });
     
     // Payment Instructions Modal State
@@ -1332,6 +1343,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     const [designerMessageText, setDesignerMessageText] = React.useState('');
     const [designerMessageCategory, setDesignerMessageCategory] = React.useState('');
     const [isSendingDesignerMessage, setIsSendingDesignerMessage] = React.useState(false);
+    // Commit 2.3.9.2A: CAD workflow actions
+    const [isCadActionBusy, setIsCadActionBusy] = React.useState(false);
+    const [revisionFiles, setRevisionFiles] = React.useState([]);
+    const [showRevisionUpload, setShowRevisionUpload] = React.useState(false);
     
     // Commit 2.3.9.1C-B: Clarifications state
     const [clarifications, setClarifications] = React.useState([]);
@@ -1429,8 +1444,19 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                     unread_operator_messages: data.data.unread_operator_messages || 0,
                     has_prototype_payment: data.data.has_prototype_payment || false,
+                    prototype_payment_id: data.data.prototype_payment_id || null,
+                    prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
+                    prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
                     prototype_payment_status: data.data.prototype_payment_status || null,
                     prototype_payment_total_due: data.data.prototype_payment_total_due || null,
+                    // Commit 2.3.9.2A: CAD workflow state
+                    cad_status: data.data.cad_status || null,
+                    cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
+                    cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
+                    cad_approved_at: data.data.cad_approved_at || null,
+                    cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
+                    cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
+                    cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
                     loading: false,
                 });
             } else {
@@ -1601,6 +1627,89 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             setIsSendingDesignerMessage(false);
         }
     }, [itemId, designerMessageText, designerMessageCategory, loadDesignerMessages]);
+
+    // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD)
+    const requestCadRevision = React.useCallback(async (files = []) => {
+        if (!itemId || !itemState.prototype_payment_id) return;
+        if (files.length === 0) {
+            alert('Please upload at least one file for the revision request.');
+            return;
+        }
+        if (!window.confirm('Request a CAD revision with ' + files.length + ' file(s)? This will increment the revision round counter.')) return;
+
+        setIsCadActionBusy(true);
+        try {
+            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+            const nonce = window.n88BoardNonce?.nonce_request_cad_revision || '';
+            if (!nonce) {
+                alert('Nonce missing for CAD revision request.');
+                setIsCadActionBusy(false);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'n88_request_cad_revision');
+            formData.append('payment_id', String(itemState.prototype_payment_id));
+            formData.append('item_id', String(itemId));
+            formData.append('_ajax_nonce', nonce);
+            
+            // Append files
+            files.forEach((file) => {
+                formData.append('revision_files[]', file);
+            });
+
+            const response = await fetch(ajaxUrl, { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                setShowRevisionUpload(false);
+                setRevisionFiles([]);
+                await loadDesignerMessages();
+                await fetchItemState();
+            } else {
+                alert('Error: ' + (data.data?.message || 'Failed to request revision.'));
+            }
+        } catch (err) {
+            console.error('Error requesting CAD revision:', err);
+            alert('An error occurred. Please try again.');
+        } finally {
+            setIsCadActionBusy(false);
+        }
+    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages, fetchItemState]);
+
+    const approveCad = React.useCallback(async () => {
+        if (!itemId || !itemState.prototype_payment_id) return;
+        if (!window.confirm('Approve the current CAD version? This will lock the approved version for release.')) return;
+
+        setIsCadActionBusy(true);
+        try {
+            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+            const nonce = window.n88BoardNonce?.nonce_approve_cad || '';
+            if (!nonce) {
+                alert('Nonce missing for CAD approval.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'n88_approve_cad');
+            formData.append('payment_id', String(itemState.prototype_payment_id));
+            formData.append('item_id', String(itemId));
+            formData.append('_ajax_nonce', nonce);
+
+            const response = await fetch(ajaxUrl, { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                await loadDesignerMessages();
+                await fetchItemState();
+            } else {
+                alert('Error: ' + (data.data?.message || 'Failed to approve CAD.'));
+            }
+        } catch (err) {
+            console.error('Error approving CAD:', err);
+            alert('An error occurred. Please try again.');
+        } finally {
+            setIsCadActionBusy(false);
+        }
+    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
     
     // Auto-scroll to bottom when messages load or new message is sent
     React.useEffect(() => {
@@ -3042,10 +3151,217 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                     </div>
                                                 </div>
                                             )}
-                                            
-                                            {/* Commit 2.3.9.1C-a: Message Operator Section - Show only when RFQ is sent, before The Mission Spec */}
-                                            {itemState.has_rfq && (
+
+                                            {/* Commit 2.3.9.2A: CAD Review Actions (Designer) - always show when CAD exists */}
+                                            {itemState.has_prototype_payment &&
+                                                itemState.prototype_payment_status === 'marked_received' &&
+                                                itemState.cad_current_version &&
+                                                Number(itemState.cad_current_version) > 0 &&
+                                                (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') && (
                                                 <div style={{
+                                                    marginBottom: '24px',
+                                                    padding: '16px',
+                                                    backgroundColor: '#0a0a14',
+                                                    border: '1px solid #333',
+                                                    borderRadius: '4px',
+                                                }}>
+                                                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' }}>
+                                                        CAD Review
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' }}>
+                                                        Current CAD: <span style={{ color: '#fff', fontWeight: 700 }}>v{itemState.cad_current_version}</span>
+                                                        {itemState.cad_status === 'approved' && itemState.cad_approved_version ? (
+                                                            <span style={{ marginLeft: '10px', color: '#00ff00' }}>
+                                                                ✓ Approved (v{itemState.cad_approved_version})
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: '#ccc', marginBottom: '12px' }}>
+                                                        Rounds Used: <span style={{ color: '#fff' }}>{itemState.cad_revision_rounds_used ?? 0}</span>
+                                                        {' '}of{' '}
+                                                        <span style={{ color: '#fff' }}>{itemState.cad_revision_rounds_included ?? 0}</span>
+                                                        {((itemState.cad_revision_rounds_included ?? 0) > 0 && (itemState.cad_revision_rounds_used ?? 0) >= (itemState.cad_revision_rounds_included ?? 0)) ? (
+                                                            <span style={{ marginLeft: '10px', color: '#ffaa00' }}>
+                                                                Additional fee required (future commit)
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+
+                                                    {itemState.cad_status !== 'approved' && (
+                                                        <div>
+                                                            {!showRevisionUpload ? (
+                                                                <div style={{ display: 'flex', gap: '10px' }}>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setShowRevisionUpload(true)}
+                                                                        disabled={isCadActionBusy}
+                                                                        style={{
+                                                                            flex: 1,
+                                                                            padding: '10px 12px',
+                                                                            backgroundColor: '#111111',
+                                                                            border: '1px solid #666',
+                                                                            borderRadius: '4px',
+                                                                            color: '#fff',
+                                                                            fontFamily: 'monospace',
+                                                                            fontSize: '12px',
+                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                            opacity: isCadActionBusy ? 0.6 : 1,
+                                                                        }}
+                                                                    >
+                                                                        Request Revision
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={approveCad}
+                                                                        disabled={isCadActionBusy}
+                                                                        style={{
+                                                                            flex: 1,
+                                                                            padding: '10px 12px',
+                                                                            backgroundColor: '#003300',
+                                                                            border: '1px solid #00ff00',
+                                                                            borderRadius: '4px',
+                                                                            color: '#00ff00',
+                                                                            fontFamily: 'monospace',
+                                                                            fontSize: '12px',
+                                                                            fontWeight: 700,
+                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                            opacity: isCadActionBusy ? 0.6 : 1,
+                                                                        }}
+                                                                    >
+                                                                        Approve CAD
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{
+                                                                    padding: '12px',
+                                                                    backgroundColor: '#0a0a0a',
+                                                                    border: '1px solid #333',
+                                                                    borderRadius: '4px',
+                                                                }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' }}>
+                                                                        Upload Files for Revision Request
+                                                                    </div>
+                                                                    <div
+                                                                        onDrop={(e) => {
+                                                                            e.preventDefault();
+                                                                            const files = Array.from(e.dataTransfer.files).filter(f => 
+                                                                                f.type === 'application/pdf' || 
+                                                                                f.type.startsWith('image/')
+                                                                            );
+                                                                            setRevisionFiles(prev => [...prev, ...files]);
+                                                                        }}
+                                                                        onDragOver={(e) => e.preventDefault()}
+                                                                        style={{
+                                                                            border: '2px dashed #666',
+                                                                            padding: '20px',
+                                                                            textAlign: 'center',
+                                                                            marginBottom: '12px',
+                                                                            cursor: 'pointer',
+                                                                            color: '#999',
+                                                                            fontSize: '11px',
+                                                                        }}
+                                                                        onClick={() => {
+                                                                            const input = document.createElement('input');
+                                                                            input.type = 'file';
+                                                                            input.multiple = true;
+                                                                            input.accept = '.pdf,.jpg,.jpeg,.png';
+                                                                            input.onchange = (e) => {
+                                                                                const files = Array.from(e.target.files || []).filter(f => 
+                                                                                    f.type === 'application/pdf' || 
+                                                                                    f.type.startsWith('image/')
+                                                                                );
+                                                                                setRevisionFiles(prev => [...prev, ...files]);
+                                                                            };
+                                                                            input.click();
+                                                                        }}
+                                                                    >
+                                                                        Drag & Drop Files (PDF, JPG, PNG) or Click to Upload
+                                                                    </div>
+                                                                    {revisionFiles.length > 0 && (
+                                                                        <div style={{ marginBottom: '12px' }}>
+                                                                            {revisionFiles.map((file, idx) => (
+                                                                                <div key={idx} style={{
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    justifyContent: 'space-between',
+                                                                                    padding: '6px 10px',
+                                                                                    backgroundColor: '#1a1a1a',
+                                                                                    border: '1px solid #333',
+                                                                                    borderRadius: '4px',
+                                                                                    marginBottom: '6px',
+                                                                                    fontSize: '11px',
+                                                                                    color: '#fff',
+                                                                                }}>
+                                                                                    <span>{file.name}</span>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setRevisionFiles(prev => prev.filter((_, i) => i !== idx))}
+                                                                                        style={{
+                                                                                            background: 'none',
+                                                                                            border: 'none',
+                                                                                            color: '#ff6666',
+                                                                                            cursor: 'pointer',
+                                                                                            fontSize: '14px',
+                                                                                            padding: '0 4px',
+                                                                                        }}
+                                                                                    >
+                                                                                        ×
+                                                                                    </button>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setShowRevisionUpload(false);
+                                                                                setRevisionFiles([]);
+                                                                            }}
+                                                                            style={{
+                                                                                flex: 1,
+                                                                                padding: '8px 12px',
+                                                                                backgroundColor: '#333',
+                                                                                border: '1px solid #666',
+                                                                                borderRadius: '4px',
+                                                                                color: '#fff',
+                                                                                fontFamily: 'monospace',
+                                                                                fontSize: '11px',
+                                                                                cursor: 'pointer',
+                                                                            }}
+                                                                        >
+                                                                            Cancel
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => requestCadRevision(revisionFiles)}
+                                                                            disabled={isCadActionBusy || revisionFiles.length === 0}
+                                                                            style={{
+                                                                                flex: 1,
+                                                                                padding: '8px 12px',
+                                                                                backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111',
+                                                                                border: '1px solid #666',
+                                                                                borderRadius: '4px',
+                                                                                color: '#fff',
+                                                                                fontFamily: 'monospace',
+                                                                                fontSize: '11px',
+                                                                                cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
+                                                                                opacity: revisionFiles.length === 0 ? 0.5 : 1,
+                                                                            }}
+                                                                        >
+                                                                            {isCadActionBusy ? 'Requesting...' : 'Request Revision'}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            
+                                            {/* Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too */}
+                                            {(itemState.has_rfq || itemState.has_prototype_payment) && (
+                                                    <div style={{
                                                     marginBottom: '24px',
                                                 }}>
                                                     {!showDesignerMessageForm ? (
@@ -3061,8 +3377,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                 border: `1px solid ${darkBorder}`,
                                                     borderRadius: '4px',
                                                                 color: darkText,
-                                                                fontSize: '14px',
-                                                                fontFamily: 'monospace',
+                                                        fontSize: '14px',
+                                                        fontFamily: 'monospace',
                                                                 cursor: 'pointer',
                                                                 fontWeight: '600',
                                                             }}
@@ -3110,7 +3426,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     ×
                                                                 </button>
                                                 </div>
-                                            
+
                                                             {/* WhatsApp-Style Chat Messages */}
                                                 <div 
                                                     id="n88-designer-messages-container"
@@ -3135,7 +3451,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             margin: 'auto',
                                                         }}>
                                                             Loading conversation...
-                                                        </div>
+                                                    </div>
                                                     ) : designerMessages.length === 0 ? (
                                                         <div style={{
                                                             textAlign: 'center',
@@ -3145,7 +3461,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             margin: 'auto',
                                                         }}>
                                                             No messages yet. Start the conversation!
-                                                        </div>
+                                                </div>
                                                     ) : (
                                                         // Sort messages chronologically by created_at
                                                         [...designerMessages].sort((a, b) => {
@@ -3156,6 +3472,32 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             
                                                             const date = new Date(msg.created_at);
                                                             const dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                                            
+                                                            // Parse CAD upload messages and revision request messages to extract files
+                                                            const isCadUploadMessage = !isDesigner && msg.message_text && msg.message_text.includes('CAD v') && msg.message_text.includes('uploaded');
+                                                            const isRevisionRequestMessage = isDesigner && msg.message_text && msg.message_text.includes('Revision requested') && msg.message_text.includes('Files:');
+                                                            let cadFiles = [];
+                                                            let messageText = msg.message_text || '';
+                                                            
+                                                            if (isCadUploadMessage || isRevisionRequestMessage) {
+                                                                // Parse format: "CAD v1 uploaded\nFiles:\n- filename.pdf: https://url.com/file.pdf"
+                                                                const lines = messageText.split('\n');
+                                                                const filesStartIndex = lines.findIndex(line => line.trim() === 'Files:');
+                                                                if (filesStartIndex >= 0) {
+                                                                    const headerText = lines.slice(0, filesStartIndex).join('\n');
+                                                                    messageText = headerText;
+                                                                    const fileLines = lines.slice(filesStartIndex + 1);
+                                                                    fileLines.forEach(line => {
+                                                                        const match = line.match(/^-\s*(.+?):\s*(https?:\/\/.+)$/);
+                                                                        if (match) {
+                                                                            const fileName = match[1].trim();
+                                                                            const fileUrl = match[2].trim();
+                                                                            const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+                                                                            cadFiles.push({ name: fileName, url: fileUrl, ext: fileExt });
+                                                                        }
+                                                                    });
+                                                                }
+                                                            }
                                                             
                                                             return (
                                                                 <div 
@@ -3191,8 +3533,88 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                             lineHeight: '1.4',
                                                                             marginBottom: '4px',
                                                                         }}>
-                                                                            {msg.message_text || ''}
+                                                                            {messageText}
                                                                         </div>
+                                                                        {(isCadUploadMessage || isRevisionRequestMessage) && cadFiles.length > 0 && (
+                                                                            <div style={{
+                                                                                marginTop: '12px',
+                                                                                paddingTop: '12px',
+                                                                                borderTop: '1px solid #333',
+                                                                                display: 'flex',
+                                                                                flexDirection: 'column',
+                                                                                gap: '8px',
+                                                                            }}>
+                                                                                {cadFiles.map((file, fileIdx) => {
+                                                                                    const isPdf = file.ext === 'pdf';
+                                                                                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(file.ext);
+                                                                                    return (
+                                                                                        <a
+                                                                                            key={fileIdx}
+                                                                                            href={file.url}
+                                                                                            target="_blank"
+                                                                                            rel="noopener noreferrer"
+                                                                                            style={{
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                gap: '10px',
+                                                                                                padding: '8px 12px',
+                                                                                                backgroundColor: '#1a1a1a',
+                                                                                                border: '1px solid #333',
+                                                                                                borderRadius: '4px',
+                                                                                                textDecoration: 'none',
+                                                                                                color: '#fff',
+                                                                                                cursor: 'pointer',
+                                                                                                transition: 'all 0.2s',
+                                                                                            }}
+                                                                                            onMouseOver={(e) => {
+                                                                                                e.currentTarget.style.backgroundColor = '#222';
+                                                                                                e.currentTarget.style.borderColor = greenAccent;
+                                                                                            }}
+                                                                                            onMouseOut={(e) => {
+                                                                                                e.currentTarget.style.backgroundColor = '#1a1a1a';
+                                                                                                e.currentTarget.style.borderColor = '#333';
+                                                                                            }}
+                                                                                        >
+                                                                                            <div style={{
+                                                                                                width: '32px',
+                                                                                                height: '32px',
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                backgroundColor: '#000',
+                                                                                                borderRadius: '4px',
+                                                                                                flexShrink: 0,
+                                                                                            }}>
+                                                                                                {isPdf ? (
+                                                                                                    <span style={{ fontSize: '20px' }}>📄</span>
+                                                                                                ) : isImage ? (
+                                                                                                    <span style={{ fontSize: '20px' }}>🖼️</span>
+                                                                                                ) : (
+                                                                                                    <span style={{ fontSize: '20px' }}>📎</span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <div style={{
+                                                                                                flex: 1,
+                                                                                                minWidth: 0,
+                                                                                                overflow: 'hidden',
+                                                                                                textOverflow: 'ellipsis',
+                                                                                                whiteSpace: 'nowrap',
+                                                                                                fontSize: '11px',
+                                                                                            }}>
+                                                                                                {file.name}
+                                                                                            </div>
+                                                                                            <div style={{
+                                                                                                fontSize: '10px',
+                                                                                                color: greenAccent,
+                                                                                                flexShrink: 0,
+                                                                                            }}>
+                                                                                                Open →
+                                                                                            </div>
+                                                                                        </a>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        )}
                                                                         <div style={{
                                                                             fontSize: '9px',
                                                                             color: '#666',
