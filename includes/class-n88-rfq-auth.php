@@ -87,6 +87,12 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
+
+        // Commit 2.3.9.2A: CAD workflow v1
+        add_action( 'wp_ajax_n88_upload_cad_files', array( $this, 'ajax_upload_cad_files' ) );
+        add_action( 'wp_ajax_n88_request_cad_revision', array( $this, 'ajax_request_cad_revision' ) );
+        add_action( 'wp_ajax_n88_approve_cad', array( $this, 'ajax_approve_cad' ) );
+        add_action( 'wp_ajax_n88_release_cad_to_supplier', array( $this, 'ajax_release_cad_to_supplier' ) );
         
 
         // Create custom roles on activation
@@ -1996,10 +2002,78 @@ class N88_RFQ_Auth {
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     
+                    var rawText = msg.message_text || '';
+                    
+                    // Commit 2.3.9.2A: Detect "Approved CAD Released" message and parse files
+                    var isCadReleasedMessage = !isSupplier &&
+                        rawText.indexOf('Approved CAD Released') !== -1 &&
+                        rawText.indexOf('CAD Files:') !== -1;
+                    
+                    var renderedText = rawText;
+                    var cadFiles = [];
+                    
+                    if (isCadReleasedMessage) {
+                        var lines = rawText.split('\n');
+                        var filesStartIndex = -1;
+                        for (var li = 0; li < lines.length; li++) {
+                            if ((lines[li] || '').trim() === 'CAD Files:' || (lines[li] || '').trim() === 'Files:') {
+                                filesStartIndex = li;
+                                break;
+                            }
+                        }
+                        if (filesStartIndex >= 0) {
+                            // Find where files section ends (before "Direction Keywords" or end of message)
+                            var filesEndIndex = filesStartIndex + 1;
+                            for (var li = filesStartIndex + 1; li < lines.length; li++) {
+                                if ((lines[li] || '').trim().indexOf('Direction Keywords') === 0 || (lines[li] || '').trim() === '') {
+                                    filesEndIndex = li;
+                                    break;
+                                }
+                            }
+                            renderedText = lines.slice(0, filesStartIndex).join('\n');
+                            var fileLines = lines.slice(filesStartIndex + 1, filesEndIndex);
+                            for (var fi = 0; fi < fileLines.length; fi++) {
+                                var line = (fileLines[fi] || '').trim();
+                                if (line.indexOf('- ') === 0) {
+                                    var withoutDash = line.slice(2);
+                                    var sepIdx = withoutDash.indexOf(': ');
+                                    if (sepIdx > 0) {
+                                        var fileName = withoutDash.slice(0, sepIdx).trim();
+                                        var fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                        if (fileUrl.indexOf('http://') === 0 || fileUrl.indexOf('https://') === 0) {
+                                            var ext = '';
+                                            if (fileName.indexOf('.') !== -1) {
+                                                ext = fileName.split('.').pop().toLowerCase();
+                                            }
+                                            cadFiles.push({ name: fileName, url: fileUrl, ext: ext });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isSupplier ? 'flex-end' : 'flex-start') + '; width: 100%;">';
                     html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isSupplier ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isSupplier ? '#00ff00' : '#333') + '; border-radius: ' + (isSupplier ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
                     html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
-                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    
+                    // Commit 2.3.9.2A: Render CAD file cards for "Approved CAD Released" messages
+                    if (isCadReleasedMessage && cadFiles.length > 0) {
+                        html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; flex-direction: column; gap: 8px;">';
+                        cadFiles.forEach(function(file) {
+                            var isPdf = file.ext === 'pdf';
+                            var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
+                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
+                            html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
+                            html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            html += '<div style="font-size: 10px; color: #00ff00; flex-shrink: 0;">Open →</div>';
+                            html += '</a>';
+                        });
+                        html += '</div>';
+                    }
+                    
                     html += '<div style="font-size: 9px; color: #666; text-align: right;">' + dateStr + '</div>';
                     html += '</div>';
                     html += '</div>';
@@ -2516,12 +2590,44 @@ class N88_RFQ_Auth {
                                             '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                             '</div>';
                                     }
+                                    var cadFilesHTML = '';
+                                    // Show CAD files if CAD is approved and files exist (regardless of release status)
+                                    if (notif.cad_status === 'approved' && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
+                                        cadFilesHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
+                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
+                                            '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                                        notif.cad_files.forEach(function(file) {
+                                            var isPdf = file.ext === 'pdf';
+                                            var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
+                                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                                            cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
+                                                '<span style="font-size: 16px;">' + icon + '</span>' +
+                                                '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (file.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                                                '<span style="font-size: 9px; color: #00ff00;">Open →</span>' +
+                                                '</a>';
+                                        });
+                                        cadFilesHTML += '</div></div>';
+                                    }
+                                    // Check if CAD is approved and released (show approved status)
+                                    var isCadApprovedAndReleased = notif.cad_status === 'approved' && 
+                                                                   notif.cad_released_to_supplier_at && 
+                                                                   notif.cad_released_to_supplier_at.trim() !== '' &&
+                                                                   notif.cad_files && 
+                                                                   notif.cad_files.length > 0;
+                                    
+                                    var statusText = isCadApprovedAndReleased ? 
+                                        'Payment Received — CAD Approved' : 
+                                        'Payment Received — CAD Pending';
+                                    var statusMessage = isCadApprovedAndReleased ?
+                                        'Payment has been confirmed. CAD has been approved and released. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.' :
+                                        'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
                                     return '<div style="background-color: rgba(255, 255, 255, 0.05); border: 2px solid #00ff00; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
-                                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 8px;">Payment Received — CAD Pending</div>' +
-                                        '<div style="font-size: 12px; color: #00cc00; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div>' +
+                                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 8px;">' + statusText + '</div>' +
+                                        '<div style="font-size: 12px; color: #00cc00; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
                                         '<div style="font-size: 11px; color: #00ff00; margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
                                         '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
                                         '</div>' +
+                                        cadFilesHTML +
                                         keywordsHTML +
                                         noteHTML +
                                         '</div>';
@@ -8585,7 +8691,7 @@ class N88_RFQ_Auth {
                     $payment_notification = null; // Commit 2.3.9.1E: Payment notification data
                     if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
                         $prototype_request = $wpdb->get_row( $wpdb->prepare(
-                            "SELECT status, video_direction_json, notifications_sent_at FROM {$prototype_payments_table}
+                            "SELECT status, video_direction_json, notifications_sent_at, cad_status, cad_approved_version, cad_released_to_supplier_at FROM {$prototype_payments_table}
                             WHERE bid_id = %d AND item_id = %d
                             ORDER BY created_at DESC
                             LIMIT 1",
@@ -8632,11 +8738,57 @@ class N88_RFQ_Auth {
                                     }
                                 }
                                 
+                                // Commit 2.3.9.2A: Get CAD approved files if CAD is approved (fetch files when approved, regardless of release status)
+                                $cad_files = array();
+                                $cad_status = isset( $prototype_request['cad_status'] ) ? $prototype_request['cad_status'] : null;
+                                $cad_approved_version = isset( $prototype_request['cad_approved_version'] ) ? intval( $prototype_request['cad_approved_version'] ) : null;
+                                $cad_released_to_supplier_at = isset( $prototype_request['cad_released_to_supplier_at'] ) ? $prototype_request['cad_released_to_supplier_at'] : null;
+                                
+                                // Fetch CAD files if CAD is approved (even if not yet released to supplier)
+                                if ( $cad_status === 'approved' && $cad_approved_version && $cad_approved_version > 0 ) {
+                                    $item_files_table = $wpdb->prefix . 'n88_item_files';
+                                    $payment_id = $wpdb->get_var( $wpdb->prepare(
+                                        "SELECT id FROM {$prototype_payments_table} WHERE bid_id = %d AND item_id = %d ORDER BY created_at DESC LIMIT 1",
+                                        $bid_id,
+                                        $item_id
+                                    ) );
+                                    
+                                    if ( $payment_id ) {
+                                        $cad_file_records = $wpdb->get_results( $wpdb->prepare(
+                                            "SELECT f.file_id, f.attachment_type, a.guid, a.post_title
+                                            FROM {$item_files_table} f
+                                            INNER JOIN {$wpdb->posts} a ON f.file_id = a.ID
+                                            WHERE f.item_id = %d AND f.payment_id = %d AND f.attachment_type = 'cad' AND f.cad_version = %d AND f.detached_at IS NULL
+                                            ORDER BY f.id ASC",
+                                            $item_id,
+                                            $payment_id,
+                                            $cad_approved_version
+                                        ), ARRAY_A );
+                                        
+                                        foreach ( $cad_file_records as $file_record ) {
+                                            $file_url = isset( $file_record['guid'] ) ? esc_url_raw( $file_record['guid'] ) : '';
+                                            $file_name = isset( $file_record['post_title'] ) ? sanitize_file_name( $file_record['post_title'] ) : '';
+                                            if ( $file_url && $file_name ) {
+                                                $file_ext = pathinfo( $file_name, PATHINFO_EXTENSION );
+                                                $cad_files[] = array(
+                                                    'name' => $file_name,
+                                                    'url' => $file_url,
+                                                    'ext' => strtolower( $file_ext ),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                
                                 $payment_notification = array(
                                     'item_id' => $item_id,
                                     'bid_id' => $bid_id,
                                     'keywords' => $keywords_list,
                                     'note' => $note,
+                                    'cad_status' => $cad_status,
+                                    'cad_approved_version' => $cad_approved_version,
+                                    'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
+                                    'cad_files' => $cad_files,
                                 );
                             }
                         }
@@ -9543,13 +9695,40 @@ class N88_RFQ_Auth {
         $prototype_payment_status = null;
         $prototype_payment_total_due = null;
         $has_prototype_payment = false;
+        $prototype_payment_id = null;
+        $prototype_payment_bid_id = null;
+        $prototype_payment_supplier_id = null;
+        // Commit 2.3.9.2A: CAD workflow state
+        $cad_status = null;
+        $cad_revision_rounds_included = null;
+        $cad_revision_rounds_used = null;
+        $cad_approved_at = null;
+        $cad_approved_version = null;
+        $cad_released_to_supplier_at = null;
+        $cad_current_version = null;
         
         // Check if prototype payments table exists
         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
         if ( $prototype_payments_table_exists ) {
+            $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+            $has_cad_status = in_array( 'cad_status', $pp_columns, true );
+            $has_cad_approved_at = in_array( 'cad_approved_at', $pp_columns, true );
+            $has_cad_approved_version = in_array( 'cad_approved_version', $pp_columns, true );
+            $has_cad_released_to_supplier_at = in_array( 'cad_released_to_supplier_at', $pp_columns, true );
+            $has_cad_revision_rounds_included = in_array( 'cad_revision_rounds_included', $pp_columns, true );
+            $has_cad_revision_rounds_used = in_array( 'cad_revision_rounds_used', $pp_columns, true );
+
             // Get the most recent prototype payment for this item
+            $select_fields = "id, bid_id, supplier_id, status, total_due_usd";
+            $select_fields .= $has_cad_status ? ", cad_status" : ", NULL as cad_status";
+            $select_fields .= $has_cad_revision_rounds_included ? ", cad_revision_rounds_included" : ", NULL as cad_revision_rounds_included";
+            $select_fields .= $has_cad_revision_rounds_used ? ", cad_revision_rounds_used" : ", NULL as cad_revision_rounds_used";
+            $select_fields .= $has_cad_approved_at ? ", cad_approved_at" : ", NULL as cad_approved_at";
+            $select_fields .= $has_cad_approved_version ? ", cad_approved_version" : ", NULL as cad_approved_version";
+            $select_fields .= $has_cad_released_to_supplier_at ? ", cad_released_to_supplier_at" : ", NULL as cad_released_to_supplier_at";
+
             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                "SELECT status, total_due_usd 
+                "SELECT {$select_fields}
                 FROM {$prototype_payments_table}
                 WHERE item_id = %d
                 AND designer_user_id = %d
@@ -9561,8 +9740,37 @@ class N88_RFQ_Auth {
             
             if ( $prototype_payment ) {
                 $has_prototype_payment = true;
+                $prototype_payment_id = isset( $prototype_payment['id'] ) ? absint( $prototype_payment['id'] ) : null;
+                $prototype_payment_bid_id = isset( $prototype_payment['bid_id'] ) ? absint( $prototype_payment['bid_id'] ) : null;
+                $prototype_payment_supplier_id = isset( $prototype_payment['supplier_id'] ) ? absint( $prototype_payment['supplier_id'] ) : null;
                 $prototype_payment_status = $prototype_payment['status'];
                 $prototype_payment_total_due = $prototype_payment['total_due_usd'] ? floatval( $prototype_payment['total_due_usd'] ) : null;
+
+                // Commit 2.3.9.2A: CAD workflow state
+                $cad_status = isset( $prototype_payment['cad_status'] ) ? $prototype_payment['cad_status'] : null;
+                $cad_revision_rounds_included = isset( $prototype_payment['cad_revision_rounds_included'] ) ? intval( $prototype_payment['cad_revision_rounds_included'] ) : null;
+                $cad_revision_rounds_used = isset( $prototype_payment['cad_revision_rounds_used'] ) ? intval( $prototype_payment['cad_revision_rounds_used'] ) : null;
+                $cad_approved_at = isset( $prototype_payment['cad_approved_at'] ) ? $prototype_payment['cad_approved_at'] : null;
+                $cad_approved_version = isset( $prototype_payment['cad_approved_version'] ) ? ( $prototype_payment['cad_approved_version'] !== null ? intval( $prototype_payment['cad_approved_version'] ) : null ) : null;
+                $cad_released_to_supplier_at = isset( $prototype_payment['cad_released_to_supplier_at'] ) ? $prototype_payment['cad_released_to_supplier_at'] : null;
+
+                // Determine current CAD version (max cad_version for this payment)
+                $item_files_table = $wpdb->prefix . 'n88_item_files';
+                $item_files_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table;
+                if ( $item_files_table_exists && $prototype_payment_id ) {
+                    $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT MAX(cad_version) FROM {$item_files_table}
+                        WHERE item_id = %d
+                        AND payment_id = %d
+                        AND attachment_type = 'cad'
+                        AND detached_at IS NULL",
+                        $item_id,
+                        $prototype_payment_id
+                    ) );
+                    if ( $cad_current_version_raw !== null ) {
+                        $cad_current_version = intval( $cad_current_version_raw );
+                    }
+                }
             }
         }
 
@@ -9575,8 +9783,19 @@ class N88_RFQ_Auth {
             'has_unread_operator_messages' => $has_unread_operator_messages, // Action Required: Unread operator messages
             'unread_operator_messages' => $unread_operator_messages, // Count of unread messages
             'has_prototype_payment' => $has_prototype_payment, // Commit 2.3.9.1C: Has prototype payment request
+            'prototype_payment_id' => $prototype_payment_id, // Commit 2.3.9.2A: Payment record id for CAD actions
+            'prototype_payment_bid_id' => $prototype_payment_bid_id, // Commit 2.3.9.2A
+            'prototype_payment_supplier_id' => $prototype_payment_supplier_id, // Commit 2.3.9.2A
             'prototype_payment_status' => $prototype_payment_status, // Commit 2.3.9.1C: Payment status (requested, marked_received, etc.)
             'prototype_payment_total_due' => $prototype_payment_total_due, // Commit 2.3.9.1C: Total amount due
+            // Commit 2.3.9.2A: CAD workflow state
+            'cad_status' => $cad_status,
+            'cad_revision_rounds_included' => $cad_revision_rounds_included,
+            'cad_revision_rounds_used' => $cad_revision_rounds_used,
+            'cad_approved_at' => $cad_approved_at,
+            'cad_approved_version' => $cad_approved_version,
+            'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
+            'cad_current_version' => $cad_current_version,
         ) );
     }
 
@@ -12026,6 +12245,9 @@ class N88_RFQ_Auth {
                 pp.cad_revision_rounds_included,
                 pp.cad_revision_round_fee_usd,
                 pp.cad_revision_rounds_used,
+                pp.cad_status,
+                pp.cad_approved_version,
+                pp.cad_released_to_supplier_at,
                 pp.prototype_video_cost_estimate_usd,
                 pp.total_due_usd,
                 pp.created_at,
@@ -12201,6 +12423,9 @@ class N88_RFQ_Auth {
                 NULL as cad_revision_rounds_included,
                 NULL as cad_revision_round_fee_usd,
                 NULL as cad_revision_rounds_used,
+                NULL as cad_status,
+                NULL as cad_approved_version,
+                NULL as cad_released_to_supplier_at,
                 NULL as prototype_video_cost_estimate_usd,
                 NULL as total_due_usd,
                 MAX(m.created_at) as created_at,
@@ -12294,6 +12519,9 @@ class N88_RFQ_Auth {
                 NULL as cad_revision_rounds_included,
                 NULL as cad_revision_round_fee_usd,
                 NULL as cad_revision_rounds_used,
+                NULL as cad_status,
+                NULL as cad_approved_version,
+                NULL as cad_released_to_supplier_at,
                 NULL as prototype_video_cost_estimate_usd,
                 NULL as total_due_usd,
                 MAX(m.created_at) as created_at,
@@ -12550,6 +12778,47 @@ class N88_RFQ_Auth {
                                     $item_id = intval( $request['item_id'] );
                                     $bid_id = intval( $request['bid_id'] );
                                     $payment_id = intval( $request['payment_id'] );
+
+                                    // Commit 2.3.9.2A: Fetch CAD workflow fields (always fetch from DB for accuracy)
+                                    // Initialize with query values first
+                                    $cad_status = isset( $request['cad_status'] ) ? $request['cad_status'] : null;
+                                    $cad_approved_version = isset( $request['cad_approved_version'] ) && $request['cad_approved_version'] !== null ? intval( $request['cad_approved_version'] ) : null;
+                                    $cad_released_to_supplier_at = isset( $request['cad_released_to_supplier_at'] ) ? $request['cad_released_to_supplier_at'] : null;
+                                    
+                                    // Always fetch from database to ensure we have latest values (especially after designer approval)
+                                    if ( $payment_id ) {
+                                        if ( ! isset( $n88_pp_columns_for_cad ) ) {
+                                            $n88_pp_columns_for_cad = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                                            $n88_pp_has_cad_status = in_array( 'cad_status', $n88_pp_columns_for_cad, true );
+                                            $n88_pp_has_cad_approved_version = in_array( 'cad_approved_version', $n88_pp_columns_for_cad, true );
+                                            $n88_pp_has_cad_released_to_supplier_at = in_array( 'cad_released_to_supplier_at', $n88_pp_columns_for_cad, true );
+                                        }
+
+                                        $select_fields = "id";
+                                        $select_fields .= $n88_pp_has_cad_status ? ", cad_status" : ", NULL as cad_status";
+                                        $select_fields .= $n88_pp_has_cad_approved_version ? ", cad_approved_version" : ", NULL as cad_approved_version";
+                                        $select_fields .= $n88_pp_has_cad_released_to_supplier_at ? ", cad_released_to_supplier_at" : ", NULL as cad_released_to_supplier_at";
+
+                                        $cad_row = $wpdb->get_row( $wpdb->prepare(
+                                            "SELECT {$select_fields} FROM {$prototype_payments_table} WHERE id = %d LIMIT 1",
+                                            $payment_id
+                                        ), ARRAY_A );
+                                        if ( $cad_row ) {
+                                            // Always use database values (they are the source of truth)
+                                            // Force override - always use DB value even if it's empty string
+                                            if ( isset( $cad_row['cad_status'] ) ) {
+                                                $cad_status = $cad_row['cad_status'];
+                                            }
+                                            if ( isset( $cad_row['cad_approved_version'] ) && $cad_row['cad_approved_version'] !== null ) {
+                                                $cad_approved_version = intval( $cad_row['cad_approved_version'] );
+                                            }
+                                            if ( isset( $cad_row['cad_released_to_supplier_at'] ) ) {
+                                                $cad_released_to_supplier_at = ( $cad_row['cad_released_to_supplier_at'] !== null && $cad_row['cad_released_to_supplier_at'] !== '' ) ? $cad_row['cad_released_to_supplier_at'] : null;
+                                            } else {
+                                                $cad_released_to_supplier_at = null;
+                                            }
+                                        }
+                                    }
                                     
                                     // Get item thumbnail
                                     $thumbnail_url = '';
@@ -12804,6 +13073,35 @@ class N88_RFQ_Auth {
                                                         <?php else : ?>
                                                             <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
                                                         <?php endif; ?>
+                                                        <?php
+                                                            // Commit 2.3.9.2A: Release Approved CAD to Supplier (Operator-only)
+                                                            // Button shows when: payment is marked_received, CAD is approved, and not yet released
+                                                            
+                                                            // Normalize CAD status (handle string/null cases)
+                                                            $cad_status_normalized = ( $cad_status === 'approved' || $cad_status === 'approved' ) ? 'approved' : '';
+                                                            $is_released = ! empty( $cad_released_to_supplier_at ) && trim( $cad_released_to_supplier_at ) !== '';
+                                                            
+                                                            // Button visibility check
+                                                            $show_release_cad_btn = ( ! empty( $payment_id ) && 
+                                                                                     $request['status'] === 'marked_received' && 
+                                                                                     $cad_status_normalized === 'approved' && 
+                                                                                     ! $is_released );
+                                                            
+                                                        ?>
+                                                        <?php if ( $show_release_cad_btn ) : ?>
+                                                            <button class="n88-release-cad-btn"
+                                                                data-payment-id="<?php echo esc_attr( $payment_id ); ?>"
+                                                                data-item-id="<?php echo esc_attr( $item_id ); ?>"
+                                                                data-bid-id="<?php echo esc_attr( $bid_id ); ?>"
+                                                                data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ); ?>"
+                                                                data-approved-version="<?php echo esc_attr( $cad_approved_version ? $cad_approved_version : 0 ); ?>"
+                                                                style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000033; color: #66aaff; border: 1px solid #66aaff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;"
+                                                                onmouseover="this.style.backgroundColor='#000055';"
+                                                                onmouseout="this.style.backgroundColor='#000033';"
+                                                            >
+                                                                Final Approved and Sent to Supplier
+                                                            </button>
+                                                        <?php endif; ?>
                                                         <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
                                                     </div>
                                                 </div>
@@ -12824,6 +13122,30 @@ class N88_RFQ_Auth {
                                                         <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
                                                             <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
+                                                        <?php 
+                                                            // Commit 2.3.9.2A: Show CAD upload only when payment is marked_received AND CAD is not yet approved
+                                                            $show_cad_upload = ( $payment_id && 
+                                                                                $request['status'] === 'marked_received' && 
+                                                                                $cad_status !== 'approved' );
+                                                        ?>
+                                                        <?php if ( $show_cad_upload ) : ?>
+                                                            <!-- Commit 2.3.9.2A: CAD Upload (Operator-only) -->
+                                                            <form class="n88-upload-cad-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" style="margin-bottom: 10px;">
+                                                                <div class="n88-cad-dropzone" style="padding: 10px; border: 1px dashed #66aaff; border-radius: 6px; background: #05050a; color: #fff; font-size: 11px; text-align: center; margin-bottom: 8px; cursor: pointer;">
+                                                                    Drag & drop CAD files here (PDF/JPG/PNG) or click to choose
+                                                                </div>
+                                                                <input type="file" name="cad_files[]" accept="application/pdf,image/jpeg,image/png" multiple style="display:none;" />
+                                                                <button type="submit" style="width: 100%; padding: 8px 12px; background-color: #66aaff; color: #000; border: none; border-radius: 6px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 700; cursor: pointer;" onmouseover="this.style.backgroundColor='#4e94ff';" onmouseout="this.style.backgroundColor='#66aaff';">
+                                                                    Upload CAD (New Version)
+                                                                </button>
+                                                            </form>
+                                                        <?php elseif ( $payment_id && $request['status'] === 'marked_received' && $cad_status === 'approved' ) : ?>
+                                                            <div style="font-size: 11px; color: #00ff00; padding: 8px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; margin-bottom: 10px; text-align: center;">
+                                                                ✓ CAD Approved - No further uploads needed
+                                                            </div>
+                                                        <?php else : ?>
+                                                            <div style="font-size: 10px; color: #666; margin-bottom: 10px;">CAD upload available after payment is marked received.</div>
+                                                        <?php endif; ?>
                                                         <form class="n88-send-designer-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
                                                             <textarea name="message_text" required rows="2" placeholder="Type your message to designer..." style="flex: 1; padding: 10px 12px; background-color: #111; color: #fff; border: 1px solid #333; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: none; min-height: 40px; max-height: 100px;"></textarea>
                                                             <button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
@@ -12909,6 +13231,38 @@ class N88_RFQ_Auth {
                     </button>
                     <button id="n88-confirm-payment-received" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                         Confirm Payment Received
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Commit 2.3.9.2A: Release Approved CAD to Supplier Modal -->
+        <div id="n88-release-cad-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10002; overflow-y: auto;">
+            <div style="max-width: 650px; margin: 80px auto; padding: 20px; background-color: #000; border: 2px solid #66aaff; font-family: 'Courier New', Courier, monospace;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #66aaff; padding-bottom: 10px;">
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #66aaff;">Release Approved CAD to Supplier</h2>
+                    <button id="n88-close-release-cad-modal" style="background: none; border: none; color: #66aaff; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+                </div>
+                <div style="color: #fff; font-size: 12px; margin-bottom: 14px;">
+                    <div style="margin-bottom: 10px;">
+                        <span style="color: #66aaff;">Item #</span><span id="n88-release-item-id" style="margin-left: 8px;"></span>
+                        <span style="color: #66aaff; margin-left: 16px;">Bid #</span><span id="n88-release-bid-id" style="margin-left: 8px;"></span>
+                        <span style="color: #66aaff; margin-left: 16px;">Supplier #</span><span id="n88-release-supplier-id" style="margin-left: 8px;"></span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <span style="color: #66aaff;">Approved Version:</span>
+                        <span id="n88-release-approved-version" style="margin-left: 8px; font-weight: 700;"></span>
+                    </div>
+                    <div style="padding: 12px; background-color: #0a0a14; border: 1px solid #ff8800; border-radius: 4px; color: #ffaa00; font-size: 11px; line-height: 1.5;">
+                        <strong>Warning:</strong> This will release approved drawings to supplier and trigger action required.
+                    </div>
+                </div>
+                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px;">
+                    <button id="n88-cancel-release-cad" style="padding: 8px 16px; background-color: #333; color: #fff; border: 1px solid #666; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#444';" onmouseout="this.style.backgroundColor='#333';">
+                        Cancel
+                    </button>
+                    <button id="n88-confirm-release-cad" style="padding: 8px 16px; background-color: #000033; color: #66aaff; border: 1px solid #66aaff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; font-weight: 700;" onmouseover="this.style.backgroundColor='#000055';" onmouseout="this.style.backgroundColor='#000033';">
+                        Confirm Release
                     </button>
                 </div>
             </div>
@@ -13121,10 +13475,85 @@ class N88_RFQ_Auth {
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     
+                    var rawText = msg.message_text || '';
+                    
+                    // Commit 2.3.9.2A: Render CAD upload messages with clickable file cards
+                    // Also render revision request messages and "Approved CAD Released" messages with files
+                    var isCadUploadMessage = isOperator &&
+                        rawText.indexOf('CAD v') !== -1 &&
+                        rawText.indexOf('uploaded') !== -1 &&
+                        rawText.indexOf('Files:') !== -1;
+                    
+                    var isRevisionRequestMessage = !isOperator &&
+                        rawText.indexOf('Revision requested') !== -1 &&
+                        rawText.indexOf('Files:') !== -1;
+                    
+                    // Detect "Approved CAD Released" message (operator to supplier)
+                    var isCadReleasedMessage = isOperator &&
+                        rawText.indexOf('Approved CAD Released') !== -1 &&
+                        rawText.indexOf('CAD Files:') !== -1;
+                    
+                    var renderedText = rawText;
+                    var cadFiles = [];
+                    
+                    if (isCadUploadMessage || isRevisionRequestMessage || isCadReleasedMessage) {
+                        var lines = rawText.split('\n');
+                        var filesStartIndex = -1;
+                        // Look for "Files:" or "CAD Files:" depending on message type
+                        var filesLabel = isCadReleasedMessage ? 'CAD Files:' : 'Files:';
+                        for (var li = 0; li < lines.length; li++) {
+                            if ((lines[li] || '').trim() === filesLabel || (lines[li] || '').trim() === 'Files:') {
+                                filesStartIndex = li;
+                                break;
+                            }
+                        }
+                        if (filesStartIndex >= 0) {
+                            renderedText = lines.slice(0, filesStartIndex).join('\n');
+                            var fileLines = lines.slice(filesStartIndex + 1);
+                            for (var fi = 0; fi < fileLines.length; fi++) {
+                                var line = (fileLines[fi] || '').trim();
+                                // Parse: "- filename.ext: https://..."
+                                if (line.indexOf('- ') === 0) {
+                                    var withoutDash = line.slice(2);
+                                    var sepIdx = withoutDash.indexOf(': ');
+                                    if (sepIdx > 0) {
+                                        var fileName = withoutDash.slice(0, sepIdx).trim();
+                                        var fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                        if (fileUrl.indexOf('http://') === 0 || fileUrl.indexOf('https://') === 0) {
+                                            var ext = '';
+                                            if (fileName.indexOf('.') !== -1) {
+                                                ext = fileName.split('.').pop().toLowerCase();
+                                            }
+                                            cadFiles.push({ name: fileName, url: fileUrl, ext: ext });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isOperator ? 'flex-end' : 'flex-start') + '; width: 100%;">';
                     html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isOperator ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isOperator ? '#00ff00' : '#333') + '; border-radius: ' + (isOperator ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
                     html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isOperator ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
-                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + (msg.message_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    
+                    // Commit 2.3.9.2A: Render CAD file cards (for CAD uploads, revision requests, and CAD released messages)
+                    if ((isCadUploadMessage || isRevisionRequestMessage || isCadReleasedMessage) && cadFiles.length > 0) {
+                        html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; flex-direction: column; gap: 8px;">';
+                        cadFiles.forEach(function(file) {
+                            var isPdf = file.ext === 'pdf';
+                            var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
+                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                            
+                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
+                            html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
+                            html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            html += '<div style="font-size: 10px; color: #00ff00; flex-shrink: 0;">Open →</div>';
+                            html += '</a>';
+                        });
+                        html += '</div>';
+                    }
+                    
                     html += '<div style="font-size: 9px; color: #666; text-align: right;">' + dateStr + '</div>';
                     html += '</div>';
                     html += '</div>';
@@ -13255,6 +13684,115 @@ class N88_RFQ_Auth {
                     });
                 });
             });
+
+            // Commit 2.3.9.2A: CAD Upload (Operator-only) inside Designer ⇄ Operator thread
+            var uploadCadForms = document.querySelectorAll('.n88-upload-cad-form');
+            uploadCadForms.forEach(function(form) {
+                var dropzone = form.querySelector('.n88-cad-dropzone');
+                var fileInput = form.querySelector('input[type="file"]');
+                var submitBtn = form.querySelector('button[type="submit"]');
+
+                var resetDropzoneText = function() {
+                    if (dropzone) dropzone.textContent = 'Drag & drop CAD files here (PDF/JPG/PNG) or click to choose';
+                };
+
+                if (dropzone && fileInput) {
+                    resetDropzoneText();
+
+                    dropzone.addEventListener('click', function() {
+                        fileInput.click();
+                    });
+
+                    dropzone.addEventListener('dragover', function(e) {
+                        e.preventDefault();
+                        dropzone.style.backgroundColor = '#0a0a20';
+                    });
+
+                    dropzone.addEventListener('dragleave', function() {
+                        dropzone.style.backgroundColor = '#05050a';
+                    });
+
+                    dropzone.addEventListener('drop', function(e) {
+                        e.preventDefault();
+                        dropzone.style.backgroundColor = '#05050a';
+                        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                            form._cadFiles = e.dataTransfer.files;
+                            dropzone.textContent = e.dataTransfer.files.length + ' file(s) selected';
+                        }
+                    });
+
+                    fileInput.addEventListener('change', function() {
+                        if (fileInput.files && fileInput.files.length) {
+                            form._cadFiles = fileInput.files;
+                            dropzone.textContent = fileInput.files.length + ' file(s) selected';
+                        } else {
+                            resetDropzoneText();
+                        }
+                    });
+                }
+
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+
+                    var paymentId = form.getAttribute('data-payment-id');
+                    var itemId = form.getAttribute('data-item-id');
+                    var bidId = form.getAttribute('data-bid-id');
+                    var files = form._cadFiles || (fileInput ? fileInput.files : null);
+
+                    if (!files || !files.length) {
+                        alert('Please select at least one CAD file (PDF/JPG/PNG).');
+                        return;
+                    }
+
+                    var originalText = submitBtn ? submitBtn.textContent : '';
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Uploading...';
+                    }
+
+                    var formData = new FormData();
+                    formData.append('action', 'n88_upload_cad_files');
+                    formData.append('payment_id', paymentId);
+                    formData.append('item_id', itemId);
+                    formData.append('bid_id', bidId);
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_upload_cad_files' ) ); ?>');
+
+                    for (var i = 0; i < files.length; i++) {
+                        formData.append('cad_files[]', files[i]);
+                    }
+
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            alert('CAD uploaded as v' + (data.data?.cad_version || '?') + ' (' + (data.data?.file_count || 0) + ' file(s))');
+                            // Reset selection UI
+                            form._cadFiles = null;
+                            if (fileInput) fileInput.value = '';
+                            resetDropzoneText();
+                            // Reload designer thread messages
+                            loadThreadMessages(itemId, 'designer_operator', 'n88-designer-thread-' + paymentId);
+                        } else {
+                            alert('Error: ' + (data.data?.message || 'Failed to upload CAD.'));
+                        }
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('Error uploading CAD:', error);
+                        alert('An error occurred. Please try again.');
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }
+                    });
+                });
+            });
             
             // Load case details via AJAX
             function loadCaseDetails(paymentId) {
@@ -13345,6 +13883,94 @@ class N88_RFQ_Auth {
                     if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
                 });
             });
+
+            // Commit 2.3.9.2A: Release Approved CAD to Supplier Modal
+            var releaseCadModal = document.getElementById('n88-release-cad-modal');
+            var closeReleaseCadModal = document.getElementById('n88-close-release-cad-modal');
+            var cancelReleaseCad = document.getElementById('n88-cancel-release-cad');
+            var confirmReleaseCad = document.getElementById('n88-confirm-release-cad');
+            var currentReleaseBtn = null;
+
+            if (closeReleaseCadModal) {
+                closeReleaseCadModal.addEventListener('click', function() {
+                    if (releaseCadModal) releaseCadModal.style.display = 'none';
+                });
+            }
+            if (cancelReleaseCad) {
+                cancelReleaseCad.addEventListener('click', function() {
+                    if (releaseCadModal) releaseCadModal.style.display = 'none';
+                });
+            }
+            if (releaseCadModal) {
+                releaseCadModal.addEventListener('click', function(e) {
+                    if (e.target === releaseCadModal) {
+                        releaseCadModal.style.display = 'none';
+                    }
+                });
+            }
+
+            var releaseCadBtns = document.querySelectorAll('.n88-release-cad-btn');
+            releaseCadBtns.forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    currentReleaseBtn = this;
+                    var paymentId = this.getAttribute('data-payment-id');
+                    var itemId = this.getAttribute('data-item-id');
+                    var bidId = this.getAttribute('data-bid-id');
+                    var supplierId = this.getAttribute('data-supplier-id');
+                    var approvedVersion = this.getAttribute('data-approved-version');
+
+                    document.getElementById('n88-release-item-id').textContent = itemId || '';
+                    document.getElementById('n88-release-bid-id').textContent = bidId || '';
+                    document.getElementById('n88-release-supplier-id').textContent = supplierId || '';
+                    document.getElementById('n88-release-approved-version').textContent = 'v' + (approvedVersion || '?');
+
+                    currentReleaseBtn.paymentId = paymentId;
+
+                    if (releaseCadModal) releaseCadModal.style.display = 'block';
+                });
+            });
+
+            if (confirmReleaseCad) {
+                confirmReleaseCad.addEventListener('click', function() {
+                    if (!currentReleaseBtn) return;
+
+                    var paymentId = currentReleaseBtn.paymentId;
+
+                    confirmReleaseCad.disabled = true;
+                    var originalText = confirmReleaseCad.textContent;
+                    confirmReleaseCad.textContent = 'Releasing...';
+
+                    var formData = new FormData();
+                    formData.append('action', 'n88_release_cad_to_supplier');
+                    formData.append('payment_id', paymentId);
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_release_cad_to_supplier' ) ); ?>');
+
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            if (releaseCadModal) releaseCadModal.style.display = 'none';
+                            alert('Approved CAD released to supplier.');
+                            // Refresh page to update button visibility and counts
+                            window.location.reload();
+                        } else {
+                            alert('Error: ' + (data.data?.message || 'Failed to release CAD.'));
+                        }
+                        confirmReleaseCad.disabled = false;
+                        confirmReleaseCad.textContent = originalText;
+                    })
+                    .catch(function(error) {
+                        console.error('Error releasing CAD:', error);
+                        alert('An error occurred. Please try again.');
+                        confirmReleaseCad.disabled = false;
+                        confirmReleaseCad.textContent = originalText;
+                    });
+                });
+            }
             
             // Confirm Payment Received button in modal
             if (confirmPaymentReceived) {
@@ -14202,6 +14828,791 @@ class N88_RFQ_Auth {
         ) );
 
         wp_send_json_success( array( 'message_id' => $message_id ) );
+    }
+
+    /**
+     * Commit 2.3.9.2A: Helper to insert an item message (system/operator/designer/supplier).
+     *
+     * @return int|false Inserted message_id or false on failure
+     */
+    private function n88_insert_item_message( $thread_type, $item_id, $sender_role, $sender_user_id, $message_text, $category = null, $bid_id = null, $supplier_id = null, $designer_id = null ) {
+        global $wpdb;
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+
+        $insert_result = $wpdb->insert(
+            $messages_table,
+            array(
+                'thread_type'    => $thread_type,
+                'item_id'        => $item_id,
+                'bid_id'         => $bid_id,
+                'supplier_id'    => $supplier_id,
+                'designer_id'    => $designer_id,
+                'sender_role'    => $sender_role,
+                'sender_user_id' => $sender_user_id,
+                'message_text'   => $message_text,
+                'category'       => $category ? $category : null,
+                'created_at'     => current_time( 'mysql' ),
+            ),
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s' )
+        );
+
+        if ( ! $insert_result ) {
+            return false;
+        }
+
+        return $wpdb->insert_id;
+    }
+
+    /**
+     * Commit 2.3.9.2A: Operator uploads versioned CAD files into Designer↔Operator thread.
+     * Accepts: PDF, JPG, PNG.
+     */
+    public function ajax_upload_cad_files() {
+        check_ajax_referer( 'n88_upload_cad_files', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+
+        if ( ! $payment_id || ! $item_id || ! $bid_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+
+        if ( empty( $_FILES['cad_files'] ) ) {
+            wp_send_json_error( array( 'message' => 'No CAD files uploaded.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+
+        // Validate payment preconditions (paid-gated)
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, item_id, bid_id, designer_user_id, supplier_id, status, received_at, cad_status
+             FROM {$prototype_payments_table}
+             WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment || intval( $payment['item_id'] ) !== $item_id || intval( $payment['bid_id'] ) !== $bid_id ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found or mismatched.' ) );
+            return;
+        }
+
+        if ( $payment['status'] !== 'marked_received' || empty( $payment['received_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Payment is not in marked_received state.' ) );
+            return;
+        }
+
+        // Determine next CAD version (append-only)
+        $max_version = $wpdb->get_var( $wpdb->prepare(
+            "SELECT MAX(cad_version) FROM {$item_files_table}
+             WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+            $item_id,
+            $payment_id
+        ) );
+        $next_version = $max_version ? ( intval( $max_version ) + 1 ) : 1;
+
+        // Normalize multi-file array
+        $files = $_FILES['cad_files'];
+        $file_count = 0;
+        $uploaded_files_lines = array();
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $allowed_mimes = array(
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+        );
+
+        // Support both single and multi upload forms
+        $is_multi = is_array( $files['name'] );
+        $total = $is_multi ? count( $files['name'] ) : 1;
+
+        for ( $i = 0; $i < $total; $i++ ) {
+            $file = array(
+                'name'     => $is_multi ? $files['name'][ $i ] : $files['name'],
+                'type'     => $is_multi ? $files['type'][ $i ] : $files['type'],
+                'tmp_name' => $is_multi ? $files['tmp_name'][ $i ] : $files['tmp_name'],
+                'error'    => $is_multi ? $files['error'][ $i ] : $files['error'],
+                'size'     => $is_multi ? $files['size'][ $i ] : $files['size'],
+            );
+
+            if ( ! empty( $file['error'] ) ) {
+                continue;
+            }
+
+            $mime = isset( $file['type'] ) ? sanitize_text_field( $file['type'] ) : '';
+            if ( ! in_array( $mime, $allowed_mimes, true ) ) {
+                continue;
+            }
+
+            $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+            if ( empty( $upload['file'] ) || empty( $upload['url'] ) ) {
+                continue;
+            }
+
+            $attachment = array(
+                'post_mime_type' => $upload['type'],
+                'post_title'     => sanitize_file_name( wp_basename( $upload['file'] ) ),
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            );
+            $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+            if ( ! $attach_id ) {
+                continue;
+            }
+
+            $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+            if ( ! is_wp_error( $attach_data ) ) {
+                wp_update_attachment_metadata( $attach_id, $attach_data );
+            }
+
+            // Insert CAD artifact record (append-only, versioned)
+            $inserted = $wpdb->insert(
+                $item_files_table,
+                array(
+                    'item_id'            => $item_id,
+                    'file_id'            => $attach_id,
+                    'attached_by_user_id'=> $current_user->ID,
+                    'attachment_type'    => 'cad',
+                    'payment_id'         => $payment_id,
+                    'bid_id'             => $bid_id,
+                    'cad_version'        => $next_version,
+                    'file_name'          => sanitize_text_field( wp_basename( $upload['file'] ) ),
+                    'mime_type'          => sanitize_text_field( $upload['type'] ),
+                    'display_order'      => 0,
+                    'attached_at'        => current_time( 'mysql' ),
+                    'detached_at'        => null,
+                ),
+                array( '%d', '%d', '%d', '%s', '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%s' )
+            );
+
+            if ( ! $inserted ) {
+                continue;
+            }
+
+            $file_count++;
+            $file_url = wp_get_attachment_url( $attach_id );
+            if ( ! $file_url ) {
+                $file_url = $upload['url'];
+            }
+            $uploaded_files_lines[] = '- ' . sanitize_text_field( wp_basename( $upload['file'] ) ) . ': ' . esc_url_raw( $file_url );
+        }
+
+        if ( $file_count < 1 ) {
+            wp_send_json_error( array( 'message' => 'No valid CAD files uploaded. Please upload PDF/JPG/PNG.' ) );
+            return;
+        }
+
+        // Update payment CAD state
+        $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        $update_data = array(
+            'cad_status' => 'uploaded',
+        );
+        $update_format = array( '%s' );
+        if ( in_array( 'updated_at', $pp_columns, true ) ) {
+            $update_data['updated_at'] = current_time( 'mysql' );
+            $update_format[] = '%s';
+        }
+
+        $wpdb->update(
+            $prototype_payments_table,
+            $update_data,
+            array( 'id' => $payment_id ),
+            $update_format,
+            array( '%d' )
+        );
+
+        // Post system message into Designer↔Operator thread
+        $message_text = "CAD v{$next_version} uploaded\nFiles:\n" . implode( "\n", $uploaded_files_lines );
+        $this->n88_insert_item_message(
+            'designer_operator',
+            $item_id,
+            'operator',
+            $current_user->ID,
+            $message_text,
+            'CAD',
+            null,
+            null,
+            absint( $payment['designer_user_id'] )
+        );
+
+        // Immutable event: cad_uploaded
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'cad_uploaded',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'payment_id'        => $payment_id,
+                        'item_id'           => $item_id,
+                        'bid_id'            => $bid_id,
+                        'operator_user_id'  => $current_user->ID,
+                        'cad_version'       => $next_version,
+                        'file_count'        => $file_count,
+                        'timestamp'         => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'cad_version' => $next_version,
+            'file_count'  => $file_count,
+        ) );
+    }
+
+    /**
+     * Commit 2.3.9.2A: Designer requests CAD revision.
+     */
+    public function ajax_request_cad_revision() {
+        check_ajax_referer( 'n88_request_cad_revision', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+
+        if ( ! $payment_id || ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, item_id, bid_id, designer_user_id, status, received_at, cad_revision_rounds_included, cad_revision_rounds_used
+             FROM {$prototype_payments_table}
+             WHERE id = %d AND item_id = %d AND designer_user_id = %d",
+            $payment_id,
+            $item_id,
+            $current_user->ID
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+
+        if ( $payment['status'] !== 'marked_received' || empty( $payment['received_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Payment is not in marked_received state.' ) );
+            return;
+        }
+
+        $current_version = $wpdb->get_var( $wpdb->prepare(
+            "SELECT MAX(cad_version) FROM {$item_files_table}
+             WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+            $item_id,
+            $payment_id
+        ) );
+        $current_version = $current_version ? intval( $current_version ) : 0;
+        if ( $current_version < 1 ) {
+            wp_send_json_error( array( 'message' => 'No CAD uploaded yet.' ) );
+            return;
+        }
+
+        $rounds_included = isset( $payment['cad_revision_rounds_included'] ) ? intval( $payment['cad_revision_rounds_included'] ) : 0;
+        $rounds_used = isset( $payment['cad_revision_rounds_used'] ) ? intval( $payment['cad_revision_rounds_used'] ) : 0;
+        $rounds_used_new = $rounds_used + 1;
+
+        // Handle file uploads for revision request
+        $uploaded_files_lines = array();
+        if ( ! empty( $_FILES['revision_files'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+
+            $allowed_mimes = array(
+                'application/pdf',
+                'image/jpeg',
+                'image/png',
+            );
+
+            $files = $_FILES['revision_files'];
+            $is_multi = is_array( $files['name'] );
+            $total = $is_multi ? count( $files['name'] ) : 1;
+
+            for ( $i = 0; $i < $total; $i++ ) {
+                $file = array(
+                    'name'     => $is_multi ? $files['name'][ $i ] : $files['name'],
+                    'type'     => $is_multi ? $files['type'][ $i ] : $files['type'],
+                    'tmp_name' => $is_multi ? $files['tmp_name'][ $i ] : $files['tmp_name'],
+                    'error'    => $is_multi ? $files['error'][ $i ] : $files['error'],
+                    'size'     => $is_multi ? $files['size'][ $i ] : $files['size'],
+                );
+
+                if ( ! empty( $file['error'] ) ) {
+                    continue;
+                }
+
+                $mime = isset( $file['type'] ) ? sanitize_text_field( $file['type'] ) : '';
+                if ( ! in_array( $mime, $allowed_mimes, true ) ) {
+                    continue;
+                }
+
+                $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+                if ( empty( $upload['file'] ) || empty( $upload['url'] ) ) {
+                    continue;
+                }
+
+                $attachment = array(
+                    'post_mime_type' => $upload['type'],
+                    'post_title'     => sanitize_file_name( wp_basename( $upload['file'] ) ),
+                    'post_content'   => '',
+                    'post_status'    => 'inherit',
+                );
+                $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                if ( ! $attach_id ) {
+                    continue;
+                }
+
+                $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                if ( ! is_wp_error( $attach_data ) ) {
+                    wp_update_attachment_metadata( $attach_id, $attach_data );
+                }
+
+                // Store file reference (not as CAD version, but as revision request attachment)
+                $wpdb->insert(
+                    $item_files_table,
+                    array(
+                        'item_id'            => $item_id,
+                        'file_id'            => $attach_id,
+                        'attached_by_user_id' => $current_user->ID,
+                        'attachment_type'    => 'general', // Not CAD version, just attachment
+                        'display_order'      => 0,
+                        'attached_at'        => current_time( 'mysql' ),
+                        'payment_id'         => $payment_id,
+                        'bid_id'             => isset( $payment['bid_id'] ) ? absint( $payment['bid_id'] ) : null,
+                    ),
+                    array( '%d', '%d', '%d', '%s', '%d', '%s', '%d', '%d' )
+                );
+
+                $uploaded_files_lines[] = '- ' . sanitize_file_name( wp_basename( $upload['file'] ) ) . ': ' . esc_url( $upload['url'] );
+            }
+        }
+
+        $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        $update_data = array(
+            'cad_status' => 'revision_requested',
+            'cad_revision_rounds_used' => $rounds_used_new,
+        );
+        $update_format = array( '%s', '%d' );
+        if ( in_array( 'updated_at', $pp_columns, true ) ) {
+            $update_data['updated_at'] = current_time( 'mysql' );
+            $update_format[] = '%s';
+        }
+
+        $wpdb->update(
+            $prototype_payments_table,
+            $update_data,
+            array( 'id' => $payment_id ),
+            $update_format,
+            array( '%d' )
+        );
+
+        $msg = "Revision requested (Round {$rounds_used_new} of {$rounds_included})";
+        if ( $rounds_included > 0 && $rounds_used_new >= $rounds_included ) {
+            $msg .= "\nAdditional fee required (future commit)";
+        }
+        if ( ! empty( $uploaded_files_lines ) ) {
+            $msg .= "\nFiles:\n" . implode( "\n", $uploaded_files_lines );
+        }
+
+        $this->n88_insert_item_message(
+            'designer_operator',
+            $item_id,
+            'designer',
+            $current_user->ID,
+            $msg,
+            'CAD',
+            null,
+            null,
+            $current_user->ID
+        );
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'cad_revision_requested',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'payment_id'      => $payment_id,
+                        'item_id'         => $item_id,
+                        'bid_id'          => isset( $payment['bid_id'] ) ? absint( $payment['bid_id'] ) : null,
+                        'designer_user_id'=> $current_user->ID,
+                        'rounds_used'     => $rounds_used_new,
+                        'timestamp'       => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'rounds_used' => $rounds_used_new,
+        ) );
+    }
+
+    /**
+     * Commit 2.3.9.2A: Designer approves current CAD version.
+     */
+    public function ajax_approve_cad() {
+        check_ajax_referer( 'n88_approve_cad', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+
+        if ( ! $payment_id || ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, item_id, bid_id, designer_user_id, status, received_at
+             FROM {$prototype_payments_table}
+             WHERE id = %d AND item_id = %d AND designer_user_id = %d",
+            $payment_id,
+            $item_id,
+            $current_user->ID
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+
+        if ( $payment['status'] !== 'marked_received' || empty( $payment['received_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Payment is not in marked_received state.' ) );
+            return;
+        }
+
+        $current_version = $wpdb->get_var( $wpdb->prepare(
+            "SELECT MAX(cad_version) FROM {$item_files_table}
+             WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+            $item_id,
+            $payment_id
+        ) );
+        $current_version = $current_version ? intval( $current_version ) : 0;
+        if ( $current_version < 1 ) {
+            wp_send_json_error( array( 'message' => 'No CAD uploaded yet.' ) );
+            return;
+        }
+
+        $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        $update_data = array(
+            'cad_status' => 'approved',
+            'cad_approved_at' => current_time( 'mysql' ),
+            'cad_approved_version' => $current_version,
+        );
+        $update_format = array( '%s', '%s', '%d' );
+        if ( in_array( 'updated_at', $pp_columns, true ) ) {
+            $update_data['updated_at'] = current_time( 'mysql' );
+            $update_format[] = '%s';
+        }
+
+        $wpdb->update(
+            $prototype_payments_table,
+            $update_data,
+            array( 'id' => $payment_id ),
+            $update_format,
+            array( '%d' )
+        );
+
+        $this->n88_insert_item_message(
+            'designer_operator',
+            $item_id,
+            'designer',
+            $current_user->ID,
+            "CAD approved (v{$current_version})",
+            'CAD',
+            null,
+            null,
+            $current_user->ID
+        );
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'cad_approved',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'payment_id'       => $payment_id,
+                        'item_id'          => $item_id,
+                        'bid_id'           => isset( $payment['bid_id'] ) ? absint( $payment['bid_id'] ) : null,
+                        'designer_user_id' => $current_user->ID,
+                        'approved_version' => $current_version,
+                        'timestamp'        => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'approved_version' => $current_version,
+        ) );
+    }
+
+    /**
+     * Commit 2.3.9.2A: Operator releases approved CAD package to supplier (one-time handoff).
+     */
+    public function ajax_release_cad_to_supplier() {
+        check_ajax_referer( 'n88_release_cad_to_supplier', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+
+        if ( ! $payment_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, item_id, bid_id, supplier_id, status, received_at, cad_status, cad_approved_version, cad_released_to_supplier_at, video_direction_json
+             FROM {$prototype_payments_table}
+             WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment record not found.' ) );
+            return;
+        }
+
+        if ( $payment['status'] !== 'marked_received' || empty( $payment['received_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Payment is not in marked_received state.' ) );
+            return;
+        }
+
+        if ( isset( $payment['cad_status'] ) && $payment['cad_status'] !== 'approved' ) {
+            wp_send_json_error( array( 'message' => 'CAD is not approved yet.' ) );
+            return;
+        }
+
+        if ( ! empty( $payment['cad_released_to_supplier_at'] ) ) {
+            wp_send_json_error( array( 'message' => 'Approved CAD has already been released to supplier.' ) );
+            return;
+        }
+
+        $approved_version = isset( $payment['cad_approved_version'] ) ? intval( $payment['cad_approved_version'] ) : 0;
+        if ( $approved_version < 1 ) {
+            wp_send_json_error( array( 'message' => 'Approved CAD version not found.' ) );
+            return;
+        }
+
+        $item_id = absint( $payment['item_id'] );
+        $bid_id = absint( $payment['bid_id'] );
+        $supplier_id = absint( $payment['supplier_id'] );
+
+        // Fetch CAD files for approved version
+        $cad_files = $wpdb->get_results( $wpdb->prepare(
+            "SELECT file_id, file_name, mime_type
+             FROM {$item_files_table}
+             WHERE item_id = %d
+             AND payment_id = %d
+             AND bid_id = %d
+             AND attachment_type = 'cad'
+             AND cad_version = %d
+             AND detached_at IS NULL
+             ORDER BY id ASC",
+            $item_id,
+            $payment_id,
+            $bid_id,
+            $approved_version
+        ), ARRAY_A );
+
+        if ( empty( $cad_files ) ) {
+            wp_send_json_error( array( 'message' => 'No CAD files found for approved version.' ) );
+            return;
+        }
+
+        $file_lines = array();
+        foreach ( $cad_files as $f ) {
+            $url = wp_get_attachment_url( absint( $f['file_id'] ) );
+            $name = ! empty( $f['file_name'] ) ? $f['file_name'] : ( $url ? wp_basename( $url ) : 'CAD File' );
+            $file_lines[] = '- ' . sanitize_text_field( $name ) . ': ' . ( $url ? esc_url_raw( $url ) : '' );
+        }
+
+        // Parse video direction for keyword count + note presence + keyword names
+        $video_direction = array();
+        $selected_keywords = array();
+        $direction_note = '';
+        if ( ! empty( $payment['video_direction_json'] ) ) {
+            $video_direction = json_decode( $payment['video_direction_json'], true );
+            if ( is_array( $video_direction ) ) {
+                if ( isset( $video_direction['selected_keywords'] ) && is_array( $video_direction['selected_keywords'] ) ) {
+                    $selected_keywords = array_filter( array_map( 'absint', $video_direction['selected_keywords'] ) );
+                }
+                if ( isset( $video_direction['note'] ) ) {
+                    $direction_note = sanitize_textarea_field( $video_direction['note'] );
+                }
+            }
+        }
+        $direction_keyword_count = is_array( $selected_keywords ) ? count( $selected_keywords ) : 0;
+        $note_present = ! empty( $direction_note ) && trim( $direction_note ) !== '';
+
+        $keyword_names = array();
+        if ( ! empty( $selected_keywords ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $selected_keywords ), '%d' ) );
+            $keywords = $wpdb->get_results( $wpdb->prepare(
+                "SELECT keyword FROM {$keywords_table} WHERE keyword_id IN ({$placeholders}) AND is_active = 1 ORDER BY keyword",
+                ...$selected_keywords
+            ), ARRAY_A );
+            foreach ( $keywords as $kw ) {
+                if ( isset( $kw['keyword'] ) ) {
+                    $keyword_names[] = sanitize_text_field( $kw['keyword'] );
+                }
+            }
+        }
+
+        // Compose supplier handoff message (queue-level, thread-only)
+        $msg_lines = array();
+        $msg_lines[] = "Approved CAD Released";
+        $msg_lines[] = "Item #{$item_id} / Bid #{$bid_id}";
+        $msg_lines[] = "CAD Version: v{$approved_version}";
+        $msg_lines[] = "";
+        $msg_lines[] = "CAD Files:";
+        $msg_lines = array_merge( $msg_lines, $file_lines );
+        $msg_lines[] = "";
+        $msg_lines[] = "Direction Keywords (" . intval( $direction_keyword_count ) . "):";
+        if ( ! empty( $keyword_names ) ) {
+            foreach ( $keyword_names as $kw_name ) {
+                $msg_lines[] = '- ' . $kw_name;
+            }
+        } else {
+            $msg_lines[] = '- (none)';
+        }
+        if ( $note_present ) {
+            $msg_lines[] = "";
+            $msg_lines[] = "Direction Note:";
+            $msg_lines[] = $direction_note;
+        }
+
+        $message_text = implode( "\n", $msg_lines );
+
+        $this->n88_insert_item_message(
+            'supplier_operator',
+            $item_id,
+            'operator',
+            $current_user->ID,
+            $message_text,
+            'CAD',
+            $bid_id,
+            $supplier_id,
+            null
+        );
+
+        // Update payment release marker (idempotency guard)
+        $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        $update_data = array(
+            'cad_released_to_supplier_at' => current_time( 'mysql' ),
+        );
+        $update_format = array( '%s' );
+        if ( in_array( 'updated_at', $pp_columns, true ) ) {
+            $update_data['updated_at'] = current_time( 'mysql' );
+            $update_format[] = '%s';
+        }
+
+        $wpdb->update(
+            $prototype_payments_table,
+            $update_data,
+            array( 'id' => $payment_id ),
+            $update_format,
+            array( '%d' )
+        );
+
+        // Immutable event: cad_released_to_supplier (once per payment_id by released_at guard)
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'cad_released_to_supplier',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id'   => $item_id,
+                    'payload_json' => array(
+                        'payment_id'             => $payment_id,
+                        'item_id'                => $item_id,
+                        'bid_id'                 => $bid_id,
+                        'supplier_id'            => $supplier_id,
+                        'operator_user_id'       => $current_user->ID,
+                        'approved_version'       => $approved_version,
+                        'direction_keyword_count'=> $direction_keyword_count,
+                        'note_present'           => $note_present,
+                        'timestamp'              => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+
+        wp_send_json_success( array(
+            'released_at' => current_time( 'mysql' ),
+        ) );
     }
     
     /**

@@ -4100,6 +4100,9 @@ class N88_RFQ_Admin {
             // Commit 2.3.9.1C-a: Item Messages nonces
             'nonce_get_item_messages' => wp_create_nonce( 'n88_get_item_messages' ),
             'nonce_send_item_message' => wp_create_nonce( 'n88_send_item_message' ),
+            // Commit 2.3.9.2A: CAD workflow v1 nonces (designer actions)
+            'nonce_request_cad_revision' => wp_create_nonce( 'n88_request_cad_revision' ),
+            'nonce_approve_cad' => wp_create_nonce( 'n88_approve_cad' ),
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -8020,12 +8023,23 @@ class N88_RFQ_Admin {
                         }
                     }, [showDesignerMessageForm, designerMessages]);
                     
+                    // Commit 2.3.9.2A: CAD workflow actions state
+                    var _isCadActionBusyState = React.useState(false);
+                    var isCadActionBusy = _isCadActionBusyState[0];
+                    var setIsCadActionBusy = _isCadActionBusyState[1];
+                    var _revisionFilesState = React.useState([]);
+                    var revisionFiles = _revisionFilesState[0];
+                    var setRevisionFiles = _revisionFilesState[1];
+                    var _showRevisionUploadState = React.useState(false);
+                    var showRevisionUpload = _showRevisionUploadState[0];
+                    var setShowRevisionUpload = _showRevisionUploadState[1];
+                    
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
                             });
                             return;
                         }
@@ -8050,7 +8064,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
                             });
                             return;
                         }
@@ -8078,21 +8092,31 @@ class N88_RFQ_Admin {
                                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                                     unread_operator_messages: data.data.unread_operator_messages || 0,
                                     has_prototype_payment: data.data.has_prototype_payment || false,
+                                    prototype_payment_id: data.data.prototype_payment_id || null,
+                                    prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
+                                    prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
                                     prototype_payment_status: data.data.prototype_payment_status || null,
                                     prototype_payment_total_due: data.data.prototype_payment_total_due || null,
+                                    cad_status: data.data.cad_status || null,
+                                    cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
+                                    cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
+                                    cad_approved_at: data.data.cad_approved_at || null,
+                                    cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
+                                    cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
+                                    cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
                                     loading: false,
                                 });
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_status: null, prototype_payment_total_due: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
-                            setItemState(function(prev) {
-                                return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0 };
+                                setItemState(function(prev) {
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
                             });
                         });
                     };
@@ -8103,6 +8127,107 @@ class N88_RFQ_Admin {
                             fetchItemState();
                         }
                     }, [isOpen, itemId]);
+                    
+                    // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD) - defined after fetchItemState
+                    var requestCadRevision = React.useCallback(function(files) {
+                        if (!itemId || !itemState.prototype_payment_id) return;
+                        files = files || [];
+                        if (files.length === 0) {
+                            alert('Please upload at least one file for the revision request.');
+                            return;
+                        }
+                        if (!window.confirm('Request a CAD revision with ' + files.length + ' file(s)? This will increment the revision round counter.')) return;
+                        
+                        setIsCadActionBusy(true);
+                        try {
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_request_cad_revision) || '';
+                            if (!nonce) {
+                                alert('Nonce missing for CAD revision request.');
+                                setIsCadActionBusy(false);
+                                return;
+                            }
+                            
+                            var formData = new FormData();
+                            formData.append('action', 'n88_request_cad_revision');
+                            formData.append('payment_id', String(itemState.prototype_payment_id));
+                            formData.append('item_id', String(itemId));
+                            formData.append('_ajax_nonce', nonce);
+                            
+                            // Append files
+                            files.forEach(function(file) {
+                                formData.append('revision_files[]', file);
+                            });
+                            
+                            fetch(ajaxUrl, { method: 'POST', body: formData })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (data.success) {
+                                    setShowRevisionUpload(false);
+                                    setRevisionFiles([]);
+                                    if (loadDesignerMessages) loadDesignerMessages();
+                                    fetchItemState();
+                                } else {
+                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to request revision.'));
+                                }
+                            })
+                            .catch(function(err) {
+                                console.error('Error requesting CAD revision:', err);
+                                alert('An error occurred. Please try again.');
+                            })
+                            .finally(function() {
+                                setIsCadActionBusy(false);
+                            });
+                        } catch (err) {
+                            console.error('Error requesting CAD revision:', err);
+                            alert('An error occurred. Please try again.');
+                            setIsCadActionBusy(false);
+                        }
+                    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages, fetchItemState]);
+                    
+                    var approveCad = React.useCallback(function() {
+                        if (!itemId || !itemState.prototype_payment_id) return;
+                        if (!window.confirm('Approve the current CAD version? This will lock the approved version for release.')) return;
+                        
+                        setIsCadActionBusy(true);
+                        try {
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_cad) || '';
+                            if (!nonce) {
+                                alert('Nonce missing for CAD approval.');
+                                setIsCadActionBusy(false);
+                                return;
+                            }
+                            
+                            var formData = new FormData();
+                            formData.append('action', 'n88_approve_cad');
+                            formData.append('payment_id', String(itemState.prototype_payment_id));
+                            formData.append('item_id', String(itemId));
+                            formData.append('_ajax_nonce', nonce);
+                            
+                            fetch(ajaxUrl, { method: 'POST', body: formData })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (data.success) {
+                                    if (loadDesignerMessages) loadDesignerMessages();
+                                    fetchItemState();
+                                } else {
+                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to approve CAD.'));
+                                }
+                            })
+                            .catch(function(err) {
+                                console.error('Error approving CAD:', err);
+                                alert('An error occurred. Please try again.');
+                            })
+                            .finally(function() {
+                                setIsCadActionBusy(false);
+                            });
+                        } catch (err) {
+                            console.error('Error approving CAD:', err);
+                            alert('An error occurred. Please try again.');
+                            setIsCadActionBusy(false);
+                        }
+                    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
                     
                     // Update inspiration when item changes (if modal is reopened with different item)
                     React.useEffect(function() {
@@ -9541,8 +9666,207 @@ class N88_RFQ_Admin {
                                                 }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
                                             ) : null,
                                             
-                                            // Commit 2.3.9.1C-a: Message Operator Section - Show only when RFQ is sent, before The Mission Spec
-                                            itemState.has_rfq ? React.createElement('div', {
+                                            // Commit 2.3.9.2A: CAD Review Actions (Designer) - always show when CAD exists
+                                            itemState.has_prototype_payment &&
+                                                itemState.prototype_payment_status === 'marked_received' &&
+                                                itemState.cad_current_version &&
+                                                Number(itemState.cad_current_version) > 0 &&
+                                                (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
+                                                style: {
+                                                    marginBottom: '24px',
+                                                    padding: '16px',
+                                                    backgroundColor: '#0a0a14',
+                                                    border: '1px solid #333',
+                                                    borderRadius: '4px',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' }
+                                                }, 'CAD Review'),
+                                                React.createElement('div', {
+                                                    style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' }
+                                                },
+                                                    React.createElement('span', null, 'Current CAD: '),
+                                                    React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
+                                                    itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', {
+                                                        style: { marginLeft: '10px', color: '#00ff00' }
+                                                    }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
+                                                ),
+                                                React.createElement('div', {
+                                                    style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' }
+                                                },
+                                                    React.createElement('span', null, 'Rounds Used: '),
+                                                    React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
+                                                    React.createElement('span', null, ' of '),
+                                                    React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
+                                                    ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', {
+                                                        style: { marginLeft: '10px', color: '#ffaa00' }
+                                                    }, 'Additional fee required (future commit)') : null
+                                                ),
+                                                itemState.cad_status !== 'approved' ? (
+                                                    !showRevisionUpload ? React.createElement('div', {
+                                                        style: { display: 'flex', gap: '10px' }
+                                                    },
+                                                        React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: function() { setShowRevisionUpload(true); },
+                                                            disabled: isCadActionBusy,
+                                                            style: {
+                                                                flex: 1,
+                                                                padding: '10px 12px',
+                                                                backgroundColor: '#111111',
+                                                                border: '1px solid #666',
+                                                                borderRadius: '4px',
+                                                                color: '#fff',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: '12px',
+                                                                cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                opacity: isCadActionBusy ? 0.6 : 1,
+                                                            }
+                                                        }, 'Request Revision'),
+                                                        React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: approveCad,
+                                                            disabled: isCadActionBusy,
+                                                            style: {
+                                                                flex: 1,
+                                                                padding: '10px 12px',
+                                                                backgroundColor: '#003300',
+                                                                border: '1px solid #00ff00',
+                                                                borderRadius: '4px',
+                                                                color: '#00ff00',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: '12px',
+                                                                fontWeight: 700,
+                                                                cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                opacity: isCadActionBusy ? 0.6 : 1,
+                                                            }
+                                                        }, 'Approve CAD')
+                                                    ) : React.createElement('div', {
+                                                        style: {
+                                                            padding: '12px',
+                                                            backgroundColor: '#0a0a0a',
+                                                            border: '1px solid #333',
+                                                            borderRadius: '4px',
+                                                        }
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' }
+                                                        }, 'Upload Files for Revision Request'),
+                                                        React.createElement('div', {
+                                                            onDrop: function(e) {
+                                                                e.preventDefault();
+                                                                var files = Array.from(e.dataTransfer.files).filter(function(f) {
+                                                                    return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
+                                                                });
+                                                                setRevisionFiles(function(prev) { return prev.concat(files); });
+                                                            },
+                                                            onDragOver: function(e) { e.preventDefault(); },
+                                                            onClick: function() {
+                                                                var input = document.createElement('input');
+                                                                input.type = 'file';
+                                                                input.multiple = true;
+                                                                input.accept = '.pdf,.jpg,.jpeg,.png';
+                                                                input.onchange = function(e) {
+                                                                    var files = Array.from(e.target.files || []).filter(function(f) {
+                                                                        return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
+                                                                    });
+                                                                    setRevisionFiles(function(prev) { return prev.concat(files); });
+                                                                };
+                                                                input.click();
+                                                            },
+                                                            style: {
+                                                                border: '2px dashed #666',
+                                                                padding: '20px',
+                                                                textAlign: 'center',
+                                                                marginBottom: '12px',
+                                                                cursor: 'pointer',
+                                                                color: '#999',
+                                                                fontSize: '11px',
+                                                            }
+                                                        }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
+                                                        revisionFiles.length > 0 ? React.createElement('div', {
+                                                            style: { marginBottom: '12px' }
+                                                        }, revisionFiles.map(function(file, idx) {
+                                                            return React.createElement('div', {
+                                                                key: idx,
+                                                                style: {
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    padding: '6px 10px',
+                                                                    backgroundColor: '#1a1a1a',
+                                                                    border: '1px solid #333',
+                                                                    borderRadius: '4px',
+                                                                    marginBottom: '6px',
+                                                                    fontSize: '11px',
+                                                                    color: '#fff',
+                                                                }
+                                                            },
+                                                                React.createElement('span', null, file.name),
+                                                                React.createElement('button', {
+                                                                    type: 'button',
+                                                                    onClick: function() {
+                                                                        setRevisionFiles(function(prev) {
+                                                                            return prev.filter(function(_, i) { return i !== idx; });
+                                                                        });
+                                                                    },
+                                                                    style: {
+                                                                        background: 'none',
+                                                                        border: 'none',
+                                                                        color: '#ff6666',
+                                                                        cursor: 'pointer',
+                                                                        fontSize: '14px',
+                                                                        padding: '0 4px',
+                                                                    }
+                                                                }, '×')
+                                                            );
+                                                        })) : null,
+                                                        React.createElement('div', {
+                                                            style: { display: 'flex', gap: '8px' }
+                                                        },
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() {
+                                                                    setShowRevisionUpload(false);
+                                                                    setRevisionFiles([]);
+                                                                },
+                                                                style: {
+                                                                    flex: 1,
+                                                                    padding: '8px 12px',
+                                                                    backgroundColor: '#333',
+                                                                    border: '1px solid #666',
+                                                                    borderRadius: '4px',
+                                                                    color: '#fff',
+                                                                    fontFamily: 'monospace',
+                                                                    fontSize: '11px',
+                                                                    cursor: 'pointer',
+                                                                }
+                                                            }, 'Cancel'),
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() { requestCadRevision(revisionFiles); },
+                                                                disabled: isCadActionBusy || revisionFiles.length === 0,
+                                                                style: {
+                                                                    flex: 1,
+                                                                    padding: '8px 12px',
+                                                                    backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111',
+                                                                    border: '1px solid #666',
+                                                                    borderRadius: '4px',
+                                                                    color: '#fff',
+                                                                    fontFamily: 'monospace',
+                                                                    fontSize: '11px',
+                                                                    cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
+                                                                    opacity: revisionFiles.length === 0 ? 0.5 : 1,
+                                                                }
+                                                            }, isCadActionBusy ? 'Requesting...' : 'Request Revision')
+                                                        )
+                                                    )
+                                                ) : null
+                                            ) : null,
+                                            
+                                            // Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too
+                                            (itemState.has_rfq || itemState.has_prototype_payment) ? React.createElement('div', {
                                                 style: {
                                                     marginBottom: '24px',
                                                 }
@@ -9648,6 +9972,54 @@ class N88_RFQ_Admin {
                                                                 
                                                                 var date = new Date(msg.created_at);
                                                                 var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                                                var rawText = msg.message_text || '';
+
+                                                                // Commit 2.3.9.2A: Render CAD upload messages and revision request messages with clickable file cards
+                                                                var isCadUploadMessage = !isDesigner &&
+                                                                    rawText.indexOf('CAD v') !== -1 &&
+                                                                    rawText.indexOf('uploaded') !== -1 &&
+                                                                    rawText.indexOf('Files:') !== -1;
+                                                                
+                                                                var isRevisionRequestMessage = isDesigner &&
+                                                                    rawText.indexOf('Revision requested') !== -1 &&
+                                                                    rawText.indexOf('Files:') !== -1;
+
+                                                                var renderedText = rawText;
+                                                                var cadFiles = [];
+
+                                                                if (isCadUploadMessage || isRevisionRequestMessage) {
+                                                                    var lines = rawText.split('\n');
+                                                                    var filesStartIndex = -1;
+                                                                    for (var li = 0; li < lines.length; li++) {
+                                                                        if ((lines[li] || '').trim() === 'Files:') {
+                                                                            filesStartIndex = li;
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    if (filesStartIndex >= 0) {
+                                                                        renderedText = lines.slice(0, filesStartIndex).join('\n');
+                                                                        var fileLines = lines.slice(filesStartIndex + 1);
+                                                                        for (var fi = 0; fi < fileLines.length; fi++) {
+                                                                            var line = (fileLines[fi] || '').trim();
+                                                                            // Parse: "- filename.ext: https://..."
+                                                                            if (line.indexOf('- ') === 0) {
+                                                                                var withoutDash = line.slice(2);
+                                                                                var sepIdx = withoutDash.indexOf(': ');
+                                                                                if (sepIdx > 0) {
+                                                                                    var fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                    var fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                    if (fileUrl.indexOf('http://') === 0 || fileUrl.indexOf('https://') === 0) {
+                                                                                        var ext = '';
+                                                                                        if (fileName.indexOf('.') !== -1) {
+                                                                                            ext = fileName.split('.').pop().toLowerCase();
+                                                                                        }
+                                                                                        cadFiles.push({ name: fileName, url: fileUrl, ext: ext });
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
                                                                 
                                                                 return React.createElement('div', {
                                                                     key: idx,
@@ -9685,7 +10057,46 @@ class N88_RFQ_Admin {
                                                                                 lineHeight: '1.4',
                                                                                 marginBottom: '4px',
                                                                             }
-                                                                        }, msg.message_text || ''),
+                                                                        },
+                                                                            React.createElement('div', null, renderedText),
+                                                                            ((isCadUploadMessage || isRevisionRequestMessage) && cadFiles.length > 0) ? React.createElement('div', {
+                                                                                style: {
+                                                                                    marginTop: '12px',
+                                                                                    paddingTop: '12px',
+                                                                                    borderTop: '1px solid #333',
+                                                                                    display: 'flex',
+                                                                                    flexDirection: 'column',
+                                                                                    gap: '8px',
+                                                                                }
+                                                                            }, cadFiles.map(function(file, fidx) {
+                                                                                var isPdf = file.ext === 'pdf';
+                                                                                var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
+                                                                                var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+
+                                                                                return React.createElement('a', {
+                                                                                    key: fidx,
+                                                                                    href: file.url,
+                                                                                    target: '_blank',
+                                                                                    rel: 'noopener noreferrer',
+                                                                                    style: {
+                                                                                        display: 'flex',
+                                                                                        alignItems: 'center',
+                                                                                        gap: '10px',
+                                                                                        padding: '8px 12px',
+                                                                                        backgroundColor: '#1a1a1a',
+                                                                                        border: '1px solid #333',
+                                                                                        borderRadius: '4px',
+                                                                                        textDecoration: 'none',
+                                                                                        color: '#fff',
+                                                                                        cursor: 'pointer',
+                                                                                    }
+                                                                                }, 
+                                                                                    React.createElement('span', { style: { fontSize: '18px', width: '24px', textAlign: 'center' } }, icon),
+                                                                                    React.createElement('span', { style: { flex: 1, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, file.name),
+                                                                                    React.createElement('span', { style: { fontSize: '10px', color: greenAccent } }, 'Open →')
+                                                                                );
+                                                                            })) : null
+                                                                        ),
                                                                         React.createElement('div', {
                                                                             style: {
                                                                                 fontSize: '9px',
@@ -12784,6 +13195,9 @@ class N88_RFQ_Admin {
             // Commit 2.3.9.1C-a: Item Messages nonces
             'nonce_get_item_messages' => wp_create_nonce( 'n88_get_item_messages' ),
             'nonce_send_item_message' => wp_create_nonce( 'n88_send_item_message' ),
+            // Commit 2.3.9.2A: CAD workflow nonces
+            'nonce_request_cad_revision' => wp_create_nonce( 'n88_request_cad_revision' ),
+            'nonce_approve_cad' => wp_create_nonce( 'n88_approve_cad' ),
         ) );
         ?>
         <div class="wrap">

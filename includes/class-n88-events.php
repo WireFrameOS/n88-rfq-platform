@@ -55,6 +55,11 @@ class N88_Events {
         'payment_marked_received',
         // Commit 2.3.9.1F: Payment evidence closure events
         'prototype_payment_marked_received',
+        // Commit 2.3.9.2A: CAD workflow events
+        'cad_uploaded',
+        'cad_revision_requested',
+        'cad_approved',
+        'cad_released_to_supplier',
     );
 
     /**
