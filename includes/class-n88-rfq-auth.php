@@ -95,6 +95,11 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_release_cad_to_supplier', array( $this, 'ajax_release_cad_to_supplier' ) );
         // Commit 2.3.9.2B-S: Prototype video submission
         add_action( 'wp_ajax_n88_submit_prototype_video', array( $this, 'ajax_submit_prototype_video' ) );
+        
+        // Commit 2.3.9.2B-D: Designer prototype review AJAX handlers
+        add_action( 'wp_ajax_n88_approve_prototype', array( $this, 'ajax_approve_prototype' ) );
+        add_action( 'wp_ajax_n88_request_prototype_changes', array( $this, 'ajax_request_prototype_changes' ) );
+        add_action( 'wp_ajax_n88_get_keyword_phrases', array( $this, 'ajax_get_keyword_phrases' ) );
 
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
@@ -2843,11 +2848,40 @@ class N88_RFQ_Auth {
                                                     linksHTML += '</div></div>';
                                                 }
                                                 
+                                                var statusBadge = '';
+                                                var viewChangesBtn = '';
+                                                var statusMessage = 'Awaiting designer review';
+                                                var helpMessage = '';
+                                                
+                                                // Check if changes were requested
+                                                if (notif.prototype_status === 'changes_requested' && notif.prototype_feedback && notif.prototype_feedback.keywords) {
+                                                    statusBadge = '<div style="font-size: 11px; color: #ff8800; margin-bottom: 8px; padding: 6px 10px; background-color: #331100; border: 1px solid #ff8800; border-radius: 4px; display: inline-block;">⚠️ Changes Requested</div>';
+                                                    statusMessage = 'Designer has requested changes. Please review feedback and submit an updated version.';
+                                                    helpMessage = '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">Review the feedback and submit an updated version.</div>';
+                                                    // Store feedback data in a data attribute and use a unique ID
+                                                    var feedbackId = 'feedback_' + (notif.payment_id || '') + '_' + Date.now();
+                                                    if (typeof window.prototypeFeedbackData === 'undefined') {
+                                                        window.prototypeFeedbackData = {};
+                                                    }
+                                                    window.prototypeFeedbackData[feedbackId] = notif.prototype_feedback;
+                                                    // Store payment info for resubmission
+                                                    window.prototypeFeedbackData[feedbackId].payment_id = notif.payment_id;
+                                                    window.prototypeFeedbackData[feedbackId].item_id = notif.item_id;
+                                                    window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
+                                                    viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">View Changes</button>';
+                                                } else if (notif.prototype_status === 'approved') {
+                                                    statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ Prototype Approved</div>';
+                                                    statusMessage = 'Prototype video has been approved by the designer.';
+                                                    helpMessage = ''; // No help message when approved
+                                                }
+                                                
                                                 return '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
                                                     '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' +
-                                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — Awaiting designer review</div>' +
-                                                    '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">If designer requests changes, you can submit an updated version.</div>' +
+                                                    statusBadge +
+                                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — ' + statusMessage + '</div>' +
+                                                    helpMessage +
                                                     linksHTML +
+                                                    viewChangesBtn +
                                                     '</div>';
                                             }
                                             
@@ -2930,6 +2964,241 @@ class N88_RFQ_Auth {
                             window.initPrototypeVideoForms();
                         }
                     }, 200);
+                    
+                    // Commit 2.3.9.2B-D: Initialize prototype feedback modal function
+                    if (typeof window.showPrototypeFeedbackModal === 'undefined') {
+                        window.showPrototypeFeedbackModal = function(feedbackData, showResubmit) {
+                            if (!feedbackData || !feedbackData.keywords) {
+                                alert('No feedback data available.');
+                                return;
+                            }
+                            
+                            // Create modal overlay
+                            var modalOverlay = document.createElement('div');
+                            modalOverlay.id = 'n88-prototype-feedback-modal';
+                            modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.9); z-index: 20000; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;';
+                            
+                            // Build feedback content
+                            var feedbackHTML = '<div style="background-color: #111; border: 2px solid #ff8800; border-radius: 8px; max-width: 800px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 24px; font-family: monospace;">';
+                            feedbackHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #333;">';
+                            feedbackHTML += '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #ff8800;">Designer Feedback (v' + (feedbackData.submission_version || '?') + ')</h2>';
+                            feedbackHTML += '<button onclick="document.getElementById(\'n88-prototype-feedback-modal\').remove(); document.body.style.overflow=\'\';" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #ff8800; line-height: 1;">×</button>';
+                            feedbackHTML += '</div>';
+                            
+                            feedbackHTML += '<div style="font-size: 11px; color: #888; margin-bottom: 20px; padding: 10px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #333;">';
+                            feedbackHTML += 'Feedback provided on ' + (feedbackData.created_at ? new Date(feedbackData.created_at).toLocaleString() : 'N/A');
+                            feedbackHTML += '</div>';
+                            
+                            // Display each keyword with its status and phrases
+                            feedbackData.keywords.forEach(function(keywordFeedback, index) {
+                                var statusIcon = keywordFeedback.keyword_status === 'satisfied' ? '✅' : 
+                                                keywordFeedback.keyword_status === 'needs_adjustment' ? '⚠️' : '❌';
+                                var statusText = keywordFeedback.keyword_status === 'satisfied' ? 'Satisfied' : 
+                                                keywordFeedback.keyword_status === 'needs_adjustment' ? 'Needs Adjustment' : 'Not Addressed';
+                                var statusColor = keywordFeedback.keyword_status === 'satisfied' ? '#00ff00' : 
+                                                 keywordFeedback.keyword_status === 'needs_adjustment' ? '#ff8800' : '#ff4444';
+                                var severityText = keywordFeedback.severity ? 
+                                    (keywordFeedback.severity === 'must_fix' ? ' (Must Fix)' : 
+                                     keywordFeedback.severity === 'should_fix' ? ' (Should Fix)' : ' (Optional)') : '';
+                                
+                                feedbackHTML += '<div style="margin-bottom: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px;">';
+                                feedbackHTML += '<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">';
+                                feedbackHTML += '<span style="font-size: 18px;">' + statusIcon + '</span>';
+                                feedbackHTML += '<div style="flex: 1;">';
+                                feedbackHTML += '<div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px;">' + (keywordFeedback.keyword_name || 'Keyword') + '</div>';
+                                feedbackHTML += '<div style="font-size: 12px; color: ' + statusColor + ';">' + statusText + severityText + '</div>';
+                                feedbackHTML += '</div>';
+                                feedbackHTML += '</div>';
+                                
+                                // Show phrases if any
+                                if (keywordFeedback.phrases && keywordFeedback.phrases.length > 0) {
+                                    feedbackHTML += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">';
+                                    feedbackHTML += '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">Selected Phrases:</div>';
+                                    feedbackHTML += '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                                    keywordFeedback.phrases.forEach(function(phrase) {
+                                        feedbackHTML += '<div style="padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; font-size: 11px; color: #ccc; line-height: 1.4;">';
+                                        feedbackHTML += '• ' + (phrase.phrase_text || '');
+                                        feedbackHTML += '</div>';
+                                    });
+                                    feedbackHTML += '</div>';
+                                    feedbackHTML += '</div>';
+                                }
+                                
+                                feedbackHTML += '</div>';
+                            });
+                            
+                            // Add Resubmit Video section if showResubmit is true
+                            var resubmitSection = '';
+                            if (showResubmit && feedbackData.payment_id && feedbackData.item_id && feedbackData.bid_id) {
+                                resubmitSection = '<div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid #ff8800;">' +
+                                    '<div style="font-size: 13px; font-weight: 600; color: #ff8800; margin-bottom: 12px;">Resubmit Video</div>' +
+                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 16px; padding: 10px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #333;">After reviewing the feedback above, submit an updated video that addresses the requested changes.</div>' +
+                                    '<div id="n88-resubmit-video-form-container-' + feedbackData.payment_id + '" style="display: none; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; margin-bottom: 16px;">' +
+                                    '<form id="n88-resubmit-prototype-video-form-' + feedbackData.payment_id + '" data-payment-id="' + feedbackData.payment_id + '" data-item-id="' + feedbackData.item_id + '" data-bid-id="' + feedbackData.bid_id + '" style="display: flex; flex-direction: column; gap: 10px;">' +
+                                    '<div id="n88-resubmit-video-links-container-' + feedbackData.payment_id + '">' +
+                                    '<div class="n88-video-link-row" style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+                                    '<select class="n88-video-provider" style="flex: 0 0 120px; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;">' +
+                                    '<option value="youtube">YouTube</option>' +
+                                    '<option value="vimeo">Vimeo</option>' +
+                                    '<option value="loom">Loom</option>' +
+                                    '</select>' +
+                                    '<input type="url" class="n88-video-url" placeholder="https://..." style="flex: 1; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;" required />' +
+                                    '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer; display: none;">Remove</button>' +
+                                    '</div>' +
+                                    '</div>' +
+                                    '<button type="button" id="n88-resubmit-add-link-btn-' + feedbackData.payment_id + '" class="n88-add-link-btn" style="padding: 6px 12px; background-color: #000; color: #888; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 10px; cursor: pointer; align-self: flex-start;" onmouseover="this.style.borderColor=\'#aaa\'; this.style.color=\'#aaa\';" onmouseout="this.style.borderColor=\'#888\'; this.style.color=\'#888\';">+ Add Link (max 3)</button>' +
+                                    '<button type="submit" style="padding: 10px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">Resubmit Video</button>' +
+                                    '</form>' +
+                                    '</div>' +
+                                    '<button onclick="var container = document.getElementById(\'n88-resubmit-video-form-container-' + feedbackData.payment_id + '\'); if(container.style.display === \'none\'){container.style.display=\'block\'; this.textContent=\'Hide Resubmit Form\';}else{container.style.display=\'none\'; this.textContent=\'Resubmit Video\';}" style="padding: 10px 20px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; width: 100%;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">Resubmit Video</button>' +
+                                    '</div>';
+                            }
+                            
+                            feedbackHTML += '<div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #333; text-align: center; display: flex; flex-direction: column; gap: 12px;">';
+                            if (showResubmit && feedbackData.payment_id) {
+                                feedbackHTML += resubmitSection;
+                            }
+                            feedbackHTML += '<button onclick="document.getElementById(\'n88-prototype-feedback-modal\').remove(); document.body.style.overflow=\'\';" style="padding: 10px 24px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">Close</button>';
+                            feedbackHTML += '</div>';
+                            feedbackHTML += '</div>';
+                            
+                            modalOverlay.innerHTML = feedbackHTML;
+                            document.body.appendChild(modalOverlay);
+                            document.body.style.overflow = 'hidden';
+                            
+                            // Initialize resubmit form if shown
+                            if (showResubmit && feedbackData.payment_id) {
+                                setTimeout(function() {
+                                    // Initialize add/remove link buttons for resubmit form
+                                    var addBtn = document.getElementById('n88-resubmit-add-link-btn-' + feedbackData.payment_id);
+                                    var container = document.getElementById('n88-resubmit-video-links-container-' + feedbackData.payment_id);
+                                    var form = document.getElementById('n88-resubmit-prototype-video-form-' + feedbackData.payment_id);
+                                    
+                                    if (addBtn && container) {
+                                        addBtn.addEventListener('click', function() {
+                                            var rows = container.querySelectorAll('.n88-video-link-row');
+                                            if (rows.length >= 3) {
+                                                alert('Maximum 3 links allowed.');
+                                                return;
+                                            }
+                                            var newRow = rows[0].cloneNode(true);
+                                            var urlInput = newRow.querySelector('.n88-video-url');
+                                            var removeBtn = newRow.querySelector('.n88-remove-link-btn');
+                                            if (urlInput) urlInput.value = '';
+                                            if (removeBtn) removeBtn.style.display = rows.length > 0 ? 'block' : 'none';
+                                            container.appendChild(newRow);
+                                            
+                                            // Update remove buttons visibility
+                                            container.querySelectorAll('.n88-remove-link-btn').forEach(function(btn, idx) {
+                                                btn.style.display = container.querySelectorAll('.n88-video-link-row').length > 1 ? 'block' : 'none';
+                                                btn.onclick = function() {
+                                                    if (container.querySelectorAll('.n88-video-link-row').length > 1) {
+                                                        this.closest('.n88-video-link-row').remove();
+                                                        container.querySelectorAll('.n88-remove-link-btn').forEach(function(b) {
+                                                            b.style.display = container.querySelectorAll('.n88-video-link-row').length > 1 ? 'block' : 'none';
+                                                        });
+                                                    }
+                                                };
+                                            });
+                                        });
+                                    }
+                                    
+                                    // Handle form submission
+                                    if (form) {
+                                        form.addEventListener('submit', function(e) {
+                                            e.preventDefault();
+                                            var paymentId = this.getAttribute('data-payment-id');
+                                            var itemId = this.getAttribute('data-item-id');
+                                            var bidId = this.getAttribute('data-bid-id');
+                                            var linkRows = container.querySelectorAll('.n88-video-link-row');
+                                            var videoLinks = [];
+                                            
+                                            linkRows.forEach(function(row) {
+                                                var provider = row.querySelector('.n88-video-provider').value;
+                                                var url = row.querySelector('.n88-video-url').value.trim();
+                                                if (url) {
+                                                    videoLinks.push({ provider: provider, url: url });
+                                                }
+                                            });
+                                            
+                                            if (videoLinks.length === 0) {
+                                                alert('Please provide at least one video link.');
+                                                return;
+                                            }
+                                            
+                                            if (videoLinks.length > 3) {
+                                                alert('Maximum 3 links allowed.');
+                                                return;
+                                            }
+                                            
+                                            var submitBtn = this.querySelector('button[type="submit"]');
+                                            var originalText = submitBtn ? submitBtn.textContent : 'Resubmit Video';
+                                            if (submitBtn) {
+                                                submitBtn.disabled = true;
+                                                submitBtn.textContent = 'Submitting...';
+                                            }
+                                            
+                                            var formData = new FormData();
+                                            formData.append('action', 'n88_submit_prototype_video');
+                                            formData.append('payment_id', paymentId);
+                                            formData.append('video_links', JSON.stringify(videoLinks));
+                                            formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_submit_prototype_video' ) ); ?>');
+                                            
+                                            fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                                                method: 'POST',
+                                                body: formData
+                                            })
+                                            .then(function(response) { return response.json(); })
+                                            .then(function(data) {
+                                                if (data.success) {
+                                                    alert('Video resubmitted successfully! Version ' + (data.data?.version || '?') + ' has been submitted.');
+                                                    // Close modal and reload
+                                                    document.getElementById('n88-prototype-feedback-modal').remove();
+                                                    document.body.style.overflow = '';
+                                                    // Reload item details
+                                                    if (typeof openBidModal === 'function') {
+                                                        var modal = document.getElementById('n88-supplier-bid-modal');
+                                                        if (modal) {
+                                                            modal.style.display = 'none';
+                                                            setTimeout(function() {
+                                                                openBidModal(itemId);
+                                                            }, 300);
+                                                        } else {
+                                                            window.location.reload();
+                                                        }
+                                                    } else {
+                                                        window.location.reload();
+                                                    }
+                                                } else {
+                                                    alert('Error: ' + (data.data?.message || 'Failed to resubmit video.'));
+                                                    if (submitBtn) {
+                                                        submitBtn.disabled = false;
+                                                        submitBtn.textContent = originalText;
+                                                    }
+                                                }
+                                            })
+                                            .catch(function(error) {
+                                                console.error('Error resubmitting video:', error);
+                                                alert('An error occurred. Please try again.');
+                                                if (submitBtn) {
+                                                    submitBtn.disabled = false;
+                                                    submitBtn.textContent = originalText;
+                                                }
+                                            });
+                                        });
+                                    }
+                                }, 100);
+                            }
+                            
+                            // Close on overlay click (but not on content click)
+                            modalOverlay.addEventListener('click', function(e) {
+                                if (e.target === modalOverlay) {
+                                    modalOverlay.remove();
+                                    document.body.style.overflow = '';
+                                }
+                            });
+                        };
+                    }
                     
                     // Store item data for inline bid form
                     window.currentItemData = item;
@@ -9068,6 +9337,97 @@ class N88_RFQ_Auth {
                                     }
                                 }
                                 
+                                // Commit 2.3.9.2B-D: Get prototype status and feedback packet if changes requested
+                                $prototype_status = null;
+                                $prototype_feedback = null;
+                                $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                                $has_prototype_status = in_array( 'prototype_status', $pp_columns, true );
+                                
+                                if ( $has_prototype_status && $payment_id_for_notification ) {
+                                    $prototype_data = $wpdb->get_row( $wpdb->prepare(
+                                        "SELECT prototype_status FROM {$prototype_payments_table} WHERE id = %d",
+                                        $payment_id_for_notification
+                                    ), ARRAY_A );
+                                    
+                                    if ( $prototype_data ) {
+                                        $prototype_status = $prototype_data['prototype_status'];
+                                        
+                                        // If changes requested, fetch feedback packet
+                                        if ( $prototype_status === 'changes_requested' ) {
+                                            $feedback_packets_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+                                            $feedback_packet_lines_table = $wpdb->prefix . 'n88_prototype_feedback_packet_lines';
+                                            $keyword_phrases_table = $wpdb->prefix . 'n88_keyword_phrases';
+                                            $keywords_table = $wpdb->prefix . 'n88_keywords';
+                                            
+                                            $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$feedback_packets_table}'" ) === $feedback_packets_table;
+                                            if ( $table_exists ) {
+                                                // Get latest feedback packet for this payment
+                                                $feedback_packet = $wpdb->get_row( $wpdb->prepare(
+                                                    "SELECT id, submission_version, created_at 
+                                                    FROM {$feedback_packets_table} 
+                                                    WHERE payment_id = %d 
+                                                    ORDER BY created_at DESC 
+                                                    LIMIT 1",
+                                                    $payment_id_for_notification
+                                                ), ARRAY_A );
+                                                
+                                                if ( $feedback_packet ) {
+                                                    // Get feedback lines with keyword info and phrases
+                                                    $feedback_lines = $wpdb->get_results( $wpdb->prepare(
+                                                        "SELECT fpl.keyword_id, fpl.keyword_status, fpl.severity, fpl.selected_phrase_ids,
+                                                        k.keyword as keyword_name
+                                                        FROM {$feedback_packet_lines_table} fpl
+                                                        LEFT JOIN {$keywords_table} k ON fpl.keyword_id = k.keyword_id
+                                                        WHERE fpl.feedback_packet_id = %d
+                                                        ORDER BY fpl.id ASC",
+                                                        $feedback_packet['id']
+                                                    ), ARRAY_A );
+                                                    
+                                                    $feedback_data = array();
+                                                    foreach ( $feedback_lines as $line ) {
+                                                        $phrase_ids_json = $line['selected_phrase_ids'];
+                                                        $phrase_ids = json_decode( $phrase_ids_json, true );
+                                                        $phrases = array();
+                                                        
+                                                        if ( ! empty( $phrase_ids ) && is_array( $phrase_ids ) ) {
+                                                            $phrase_ids_safe = array_map( 'intval', $phrase_ids );
+                                                            $phrase_ids_string = implode( ',', $phrase_ids_safe );
+                                                            $phrases_data = $wpdb->get_results(
+                                                                "SELECT phrase_id, phrase_text 
+                                                                FROM {$keyword_phrases_table} 
+                                                                WHERE phrase_id IN ({$phrase_ids_string}) 
+                                                                AND is_active = 1
+                                                                ORDER BY FIELD(phrase_id, {$phrase_ids_string})",
+                                                                ARRAY_A
+                                                            );
+                                                            foreach ( $phrases_data as $p ) {
+                                                                $phrases[] = array(
+                                                                    'phrase_id' => intval( $p['phrase_id'] ),
+                                                                    'phrase_text' => $p['phrase_text'],
+                                                                );
+                                                            }
+                                                        }
+                                                        
+                                                        $feedback_data[] = array(
+                                                            'keyword_id' => intval( $line['keyword_id'] ),
+                                                            'keyword_name' => $line['keyword_name'] ? sanitize_text_field( $line['keyword_name'] ) : 'Keyword ID: ' . $line['keyword_id'],
+                                                            'keyword_status' => $line['keyword_status'],
+                                                            'severity' => $line['severity'],
+                                                            'phrases' => $phrases,
+                                                        );
+                                                    }
+                                                    
+                                                    $prototype_feedback = array(
+                                                        'submission_version' => intval( $feedback_packet['submission_version'] ),
+                                                        'created_at' => $feedback_packet['created_at'],
+                                                        'keywords' => $feedback_data,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
                                 $payment_notification = array(
                                     'payment_id' => $payment_id_for_notification ? intval( $payment_id_for_notification ) : null,
                                     'item_id' => $item_id,
@@ -9078,6 +9438,8 @@ class N88_RFQ_Auth {
                                     'cad_approved_version' => $cad_approved_version,
                                     'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
                                     'cad_files' => $cad_files,
+                                    'prototype_status' => $prototype_status, // Commit 2.3.9.2B-D
+                                    'prototype_feedback' => $prototype_feedback, // Commit 2.3.9.2B-D
                                     'prototype_video_submission' => $latest_submission ? array(
                                         'version' => intval( $latest_submission['version'] ),
                                         'link_count' => intval( $latest_submission['link_count'] ),
@@ -10001,6 +10363,12 @@ class N88_RFQ_Auth {
         $cad_approved_version = null;
         $cad_released_to_supplier_at = null;
         $cad_current_version = null;
+        // Commit 2.3.9.2B-D: Prototype review state
+        $prototype_status = null;
+        $prototype_current_version = null;
+        $prototype_approved_version = null;
+        $prototype_submission = null;
+        $direction_keyword_ids = null;
         
         // Check if prototype payments table exists
         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
@@ -10066,6 +10434,95 @@ class N88_RFQ_Auth {
                         $cad_current_version = intval( $cad_current_version_raw );
                     }
                 }
+                
+                // Commit 2.3.9.2B-D: Get prototype status and submission data
+                $has_prototype_status = in_array( 'prototype_status', $pp_columns, true );
+                $has_prototype_current_version = in_array( 'prototype_current_version', $pp_columns, true );
+                $has_prototype_approved_version = in_array( 'prototype_approved_version', $pp_columns, true );
+                $has_direction_keyword_ids = in_array( 'direction_keyword_ids', $pp_columns, true );
+                
+                $prototype_status = null;
+                $prototype_current_version = null;
+                $prototype_approved_version = null;
+                $direction_keyword_ids = null;
+                
+                if ( $has_prototype_status || $has_prototype_current_version || $has_prototype_approved_version || $has_direction_keyword_ids ) {
+                    $select_prototype_fields = '';
+                    if ( $has_prototype_status ) {
+                        $select_prototype_fields .= ', prototype_status';
+                    }
+                    if ( $has_prototype_current_version ) {
+                        $select_prototype_fields .= ', prototype_current_version';
+                    }
+                    if ( $has_prototype_approved_version ) {
+                        $select_prototype_fields .= ', prototype_approved_version';
+                    }
+                    if ( $has_direction_keyword_ids ) {
+                        $select_prototype_fields .= ', direction_keyword_ids';
+                    }
+                    
+                    $prototype_data = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id{$select_prototype_fields}
+                        FROM {$prototype_payments_table}
+                        WHERE id = %d
+                        LIMIT 1",
+                        $prototype_payment_id
+                    ), ARRAY_A );
+                    
+                    if ( $prototype_data ) {
+                        $prototype_status = isset( $prototype_data['prototype_status'] ) ? $prototype_data['prototype_status'] : null;
+                        $prototype_current_version = isset( $prototype_data['prototype_current_version'] ) ? ( $prototype_data['prototype_current_version'] !== null ? intval( $prototype_data['prototype_current_version'] ) : null ) : null;
+                        $prototype_approved_version = isset( $prototype_data['prototype_approved_version'] ) ? ( $prototype_data['prototype_approved_version'] !== null ? intval( $prototype_data['prototype_approved_version'] ) : null ) : null;
+                        $direction_keyword_ids_json = isset( $prototype_data['direction_keyword_ids'] ) ? $prototype_data['direction_keyword_ids'] : null;
+                        if ( $direction_keyword_ids_json ) {
+                            $direction_keyword_ids_decoded = json_decode( $direction_keyword_ids_json, true );
+                            $direction_keyword_ids = is_array( $direction_keyword_ids_decoded ) ? $direction_keyword_ids_decoded : null;
+                        }
+                    }
+                }
+                
+                // Get latest prototype video submission
+                $prototype_submission = null;
+                $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+                $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+                $submissions_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table;
+                
+                if ( $submissions_table_exists && $prototype_payment_id && $prototype_current_version ) {
+                    $submission = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT version, created_at
+                        FROM {$submissions_table}
+                        WHERE payment_id = %d
+                        AND version = %d
+                        LIMIT 1",
+                        $prototype_payment_id,
+                        $prototype_current_version
+                    ), ARRAY_A );
+                    
+                    if ( $submission ) {
+                        $links = $wpdb->get_results( $wpdb->prepare(
+                            "SELECT provider, url
+                            FROM {$links_table}
+                            WHERE submission_id IN (
+                                SELECT id FROM {$submissions_table}
+                                WHERE payment_id = %d AND version = %d
+                            )
+                            ORDER BY sort_order ASC",
+                            $prototype_payment_id,
+                            $prototype_current_version
+                        ), ARRAY_A );
+                        
+                        $prototype_submission = array(
+                            'version' => intval( $submission['version'] ),
+                            'created_at' => $submission['created_at'],
+                            'links' => array_map( function( $link ) {
+                                return array(
+                                    'provider' => $link['provider'],
+                                    'url' => esc_url_raw( $link['url'] ),
+                                );
+                            }, $links ),
+                        );
+                    }
+                }
             }
         }
 
@@ -10091,6 +10548,12 @@ class N88_RFQ_Auth {
             'cad_approved_version' => $cad_approved_version,
             'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
             'cad_current_version' => $cad_current_version,
+            // Commit 2.3.9.2B-D: Prototype review state
+            'prototype_status' => $prototype_status,
+            'prototype_current_version' => $prototype_current_version,
+            'prototype_approved_version' => $prototype_approved_version,
+            'prototype_submission' => $prototype_submission,
+            'direction_keyword_ids' => $direction_keyword_ids,
         ) );
     }
 
@@ -12301,6 +12764,9 @@ class N88_RFQ_Auth {
             'note' => $note,
         );
         $video_direction_json = wp_json_encode( $video_direction_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+        
+        // Commit 2.3.9.2B-D: Store direction_keyword_ids as JSON array
+        $direction_keyword_ids_json = wp_json_encode( $selected_keywords, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 
         // Payment reference
         $payment_reference = "Item {$item_id} / Bid {$bid_id}";
@@ -12316,6 +12782,7 @@ class N88_RFQ_Auth {
                 'supplier_id' => $supplier_id,
                 'status' => 'requested',
                 'video_direction_json' => $video_direction_json,
+                'direction_keyword_ids' => $direction_keyword_ids_json, // Commit 2.3.9.2B-D
                 'cad_fee_usd' => $cad_fee_usd,
                 'cad_revision_rounds_included' => $cad_revision_rounds_included,
                 'cad_revision_round_fee_usd' => $cad_revision_round_fee_usd,
@@ -12326,7 +12793,7 @@ class N88_RFQ_Auth {
                 'payment_instructions_version' => $payment_instructions_version,
                 'created_at' => current_time( 'mysql' ),
             ),
-            array( '%d', '%d', '%d', '%d', '%s', '%s', '%f', '%d', '%f', '%d', '%f', '%f', '%s', '%s', '%s' )
+            array( '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%f', '%d', '%f', '%d', '%f', '%f', '%s', '%s', '%s' )
         );
 
         if ( $insert_result === false ) {
@@ -16096,6 +16563,19 @@ class N88_RFQ_Auth {
             }
         }
 
+        // Update prototype_status to 'submitted' (or update if was 'changes_requested')
+        $wpdb->update(
+            $prototype_payments_table,
+            array(
+                'prototype_status' => 'submitted',
+                'prototype_current_version' => $next_version,
+                'updated_at' => current_time( 'mysql' ),
+            ),
+            array( 'id' => $payment_id ),
+            array( '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        
         // Immutable event: prototype_video_submitted
         if ( function_exists( 'n88_log_event' ) ) {
             n88_log_event(
@@ -16122,6 +16602,329 @@ class N88_RFQ_Auth {
             'version' => $next_version,
             'link_count' => $link_count,
             'message' => 'Prototype video submitted successfully (v' . $next_version . ').',
+        ) );
+    }
+    
+    /**
+     * Commit 2.3.9.2B-D: AJAX handler to approve prototype video
+     */
+    public function ajax_approve_prototype() {
+        check_ajax_referer( 'n88_approve_prototype', '_ajax_nonce' );
+        
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+        
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer access required.' ) );
+            return;
+        }
+        
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        $version = isset( $_POST['version'] ) ? absint( $_POST['version'] ) : 0;
+        
+        if ( ! $payment_id || ! $item_id || ! $bid_id || ! $version ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+        
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        
+        // Verify payment belongs to designer
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, designer_user_id, prototype_status FROM {$prototype_payments_table}
+            WHERE id = %d AND item_id = %d AND bid_id = %d",
+            $payment_id, $item_id, $bid_id
+        ), ARRAY_A );
+        
+        if ( ! $payment || intval( $payment['designer_user_id'] ) !== $current_user->ID ) {
+            wp_send_json_error( array( 'message' => 'Access denied or payment not found.' ) );
+            return;
+        }
+        
+        // Update prototype status
+        $wpdb->update(
+            $prototype_payments_table,
+            array(
+                'prototype_status' => 'approved',
+                'prototype_approved_at' => current_time( 'mysql' ),
+                'prototype_approved_version' => $version,
+                'updated_at' => current_time( 'mysql' ),
+            ),
+            array( 'id' => $payment_id ),
+            array( '%s', '%s', '%d', '%s' ),
+            array( '%d' )
+        );
+        
+        // Log event
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'prototype_video_approved',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id' => $item_id,
+                    'payload_json' => array(
+                        'payment_id' => $payment_id,
+                        'item_id' => $item_id,
+                        'bid_id' => $bid_id,
+                        'designer_id' => $current_user->ID,
+                        'approved_version' => $version,
+                        'timestamp' => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+        
+        wp_send_json_success( array(
+            'message' => 'Prototype approved successfully.',
+        ) );
+    }
+    
+    /**
+     * Commit 2.3.9.2B-D: AJAX handler to request prototype changes
+     */
+    public function ajax_request_prototype_changes() {
+        check_ajax_referer( 'n88_request_prototype_changes', '_ajax_nonce' );
+        
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+        
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer access required.' ) );
+            return;
+        }
+        
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        $submission_version = isset( $_POST['submission_version'] ) ? absint( $_POST['submission_version'] ) : 0;
+        $feedback_packet_raw = isset( $_POST['feedback_packet'] ) ? wp_unslash( $_POST['feedback_packet'] ) : '';
+        
+        if ( ! $payment_id || ! $item_id || ! $bid_id || ! $submission_version ) {
+            wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
+            return;
+        }
+        
+        $feedback_packet = json_decode( $feedback_packet_raw, true );
+        if ( ! is_array( $feedback_packet ) || empty( $feedback_packet ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid feedback packet.' ) );
+            return;
+        }
+        
+        global $wpdb;
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $feedback_packets_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+        $feedback_packet_lines_table = $wpdb->prefix . 'n88_prototype_feedback_packet_lines';
+        
+        // Verify payment belongs to designer
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, designer_user_id FROM {$prototype_payments_table}
+            WHERE id = %d AND item_id = %d AND bid_id = %d",
+            $payment_id, $item_id, $bid_id
+        ), ARRAY_A );
+        
+        if ( ! $payment || intval( $payment['designer_user_id'] ) !== $current_user->ID ) {
+            wp_send_json_error( array( 'message' => 'Access denied or payment not found.' ) );
+            return;
+        }
+        
+        // Validate feedback packet (max 18 phrases total)
+        $total_phrases = 0;
+        $keyword_results = array();
+        foreach ( $feedback_packet as $keyword_id => $data ) {
+            $keyword_id_int = absint( $keyword_id );
+            $status = isset( $data['status'] ) ? sanitize_text_field( $data['status'] ) : '';
+            $severity = isset( $data['severity'] ) ? sanitize_text_field( $data['severity'] ) : null;
+            $phrase_ids = isset( $data['phrase_ids'] ) && is_array( $data['phrase_ids'] ) ? array_map( 'absint', $data['phrase_ids'] ) : array();
+            
+            if ( ! in_array( $status, array( 'satisfied', 'needs_adjustment', 'not_addressed' ), true ) ) {
+                wp_send_json_error( array( 'message' => 'Invalid keyword status.' ) );
+                return;
+            }
+            
+            if ( $status !== 'satisfied' && count( $phrase_ids ) > 3 ) {
+                wp_send_json_error( array( 'message' => 'Maximum 3 phrases per keyword.' ) );
+                return;
+            }
+            
+            if ( $status !== 'satisfied' && $severity && ! in_array( $severity, array( 'must_fix', 'should_fix', 'optional' ), true ) ) {
+                wp_send_json_error( array( 'message' => 'Invalid severity.' ) );
+                return;
+            }
+            
+            $total_phrases += count( $phrase_ids );
+            $keyword_results[] = array(
+                'keyword_id' => $keyword_id_int,
+                'keyword_status' => $status,
+                'severity' => $severity,
+                'selected_phrase_ids' => $phrase_ids,
+            );
+        }
+        
+        if ( $total_phrases > 18 ) {
+            wp_send_json_error( array( 'message' => 'Maximum 18 phrases total per packet.' ) );
+            return;
+        }
+        
+        // Insert feedback packet
+        $wpdb->insert(
+            $feedback_packets_table,
+            array(
+                'payment_id' => $payment_id,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'designer_id' => $current_user->ID,
+                'submission_version' => $submission_version,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%d', '%d', '%d', '%s' )
+        );
+        
+        $feedback_packet_id = $wpdb->insert_id;
+        if ( ! $feedback_packet_id ) {
+            wp_send_json_error( array( 'message' => 'Failed to create feedback packet.' ) );
+            return;
+        }
+        
+        // Insert feedback packet lines
+        foreach ( $keyword_results as $result ) {
+            $wpdb->insert(
+                $feedback_packet_lines_table,
+                array(
+                    'feedback_packet_id' => $feedback_packet_id,
+                    'keyword_id' => $result['keyword_id'],
+                    'keyword_status' => $result['keyword_status'],
+                    'severity' => $result['severity'],
+                    'selected_phrase_ids' => wp_json_encode( $result['selected_phrase_ids'] ),
+                    'created_at' => current_time( 'mysql' ),
+                ),
+                array( '%d', '%d', '%s', '%s', '%s', '%s' )
+            );
+        }
+        
+        // Update prototype status
+        $wpdb->update(
+            $prototype_payments_table,
+            array(
+                'prototype_status' => 'changes_requested',
+                'updated_at' => current_time( 'mysql' ),
+            ),
+            array( 'id' => $payment_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+        
+        // Log event
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event(
+                'prototype_video_changes_requested',
+                'prototype_payment',
+                array(
+                    'object_id' => $payment_id,
+                    'item_id' => $item_id,
+                    'payload_json' => array(
+                        'payment_id' => $payment_id,
+                        'item_id' => $item_id,
+                        'bid_id' => $bid_id,
+                        'designer_id' => $current_user->ID,
+                        'submission_version' => $submission_version,
+                        'keyword_results' => $keyword_results,
+                        'timestamp' => current_time( 'mysql' ),
+                    ),
+                )
+            );
+        }
+        
+        wp_send_json_success( array(
+            'message' => 'Changes requested successfully.',
+        ) );
+    }
+    
+    /**
+     * Commit 2.3.9.2B-D: AJAX handler to get keyword phrases for selected keywords
+     */
+    public function ajax_get_keyword_phrases() {
+        check_ajax_referer( 'n88_get_keyword_phrases', '_ajax_nonce' );
+        
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+        
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer access required.' ) );
+            return;
+        }
+        
+        $keyword_ids_raw = isset( $_POST['keyword_ids'] ) ? wp_unslash( $_POST['keyword_ids'] ) : '';
+        $keyword_ids = json_decode( $keyword_ids_raw, true );
+        
+        if ( ! is_array( $keyword_ids ) || empty( $keyword_ids ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid keyword IDs.' ) );
+            return;
+        }
+        
+        $keyword_ids = array_map( 'absint', $keyword_ids );
+        
+        global $wpdb;
+        $keyword_phrases_table = $wpdb->prefix . 'n88_keyword_phrases';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+        
+        // Get keyword names
+        $placeholders = implode( ',', array_fill( 0, count( $keyword_ids ), '%d' ) );
+        $keywords = $wpdb->get_results( $wpdb->prepare(
+            "SELECT keyword_id, keyword FROM {$keywords_table}
+            WHERE keyword_id IN ({$placeholders})",
+            ...$keyword_ids
+        ), ARRAY_A );
+        
+        $keyword_names = array();
+        foreach ( $keywords as $keyword ) {
+            $keyword_names[ intval( $keyword['keyword_id'] ) ] = $keyword['keyword'];
+        }
+        
+        // Get phrases
+        $phrases = $wpdb->get_results( $wpdb->prepare(
+            "SELECT phrase_id, keyword_id, phrase_text
+            FROM {$keyword_phrases_table}
+            WHERE keyword_id IN ({$placeholders})
+            AND is_active = 1
+            ORDER BY keyword_id, sort_order ASC, phrase_id ASC",
+            ...$keyword_ids
+        ), ARRAY_A );
+        
+        // Group phrases by keyword_id
+        $phrases_by_keyword = array();
+        foreach ( $phrases as $phrase ) {
+            $keyword_id = intval( $phrase['keyword_id'] );
+            if ( ! isset( $phrases_by_keyword[ $keyword_id ] ) ) {
+                $phrases_by_keyword[ $keyword_id ] = array();
+            }
+            $phrases_by_keyword[ $keyword_id ][] = array(
+                'phrase_id' => intval( $phrase['phrase_id'] ),
+                'phrase_text' => $phrase['phrase_text'],
+            );
+        }
+        
+        wp_send_json_success( array(
+            'phrases_by_keyword' => $phrases_by_keyword,
+            'keyword_names' => $keyword_names,
         ) );
     }
     

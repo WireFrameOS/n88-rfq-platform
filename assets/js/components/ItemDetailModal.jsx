@@ -1257,10 +1257,24 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         cad_approved_version: null,
         cad_released_to_supplier_at: null,
         cad_current_version: null,
+        // Commit 2.3.9.2B-D: Prototype review state
+        prototype_status: null,
+        prototype_current_version: null,
+        prototype_approved_version: null,
+        prototype_submission: null, // { version, links: [], created_at }
+        direction_keyword_ids: null, // Array of keyword IDs
     });
     
     // Payment Instructions Modal State
     const [showPaymentInstructions, setShowPaymentInstructions] = React.useState(false);
+    
+    // Commit 2.3.9.2B-D: Prototype section state
+    const [prototypeSectionExpanded, setPrototypeSectionExpanded] = React.useState(false);
+    const [showRequestChangesModal, setShowRequestChangesModal] = React.useState(false);
+    const [feedbackPacket, setFeedbackPacket] = React.useState({}); // { keyword_id: { status, severity, phrase_ids } }
+    const [availablePhrases, setAvailablePhrases] = React.useState({}); // { keyword_id: [phrases] }
+    const [keywordNames, setKeywordNames] = React.useState({}); // { keyword_id: keyword_name }
+    const [totalPhrasesSelected, setTotalPhrasesSelected] = React.useState(0);
     
     // Form state
     const [category, setCategory] = React.useState(item.category || item.item_type || '');
@@ -1457,6 +1471,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
                     cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
                     cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
+                    // Commit 2.3.9.2B-D: Prototype review state
+                    prototype_status: data.data.prototype_status || null,
+                    prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
+                    prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
+                    prototype_submission: data.data.prototype_submission || null,
+                    direction_keyword_ids: data.data.direction_keyword_ids || null,
                     loading: false,
                 });
             } else {
@@ -4914,29 +4934,681 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 </div>
                                             )}
                                             
-                                            {/* Commit 2.3.9.1C: Payment Confirmed Banner */}
+                                            {/* Commit 2.3.9.2B-D: Prototype Section (Expandable) */}
                                             {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
                                                 <div style={{
                                                     marginBottom: '24px',
-                                                    padding: '20px',
-                                                    backgroundColor: '#003300',
                                                     border: '2px solid #00ff00',
                                                     borderRadius: '4px',
+                                                    overflow: 'hidden',
                                                 }}>
-                                                    <div style={{
-                                                        fontSize: '16px',
-                                                        fontWeight: '600',
-                                                        color: '#00ff00',
-                                                        marginBottom: '8px',
-                                                    }}>
-                                                        Payment Confirmed
+                                                    {/* Header - Always Visible */}
+                                                    <div 
+                                                        onClick={() => setPrototypeSectionExpanded(!prototypeSectionExpanded)}
+                                                        style={{
+                                                            padding: '20px',
+                                                            backgroundColor: '#003300',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
+                                                        <div>
+                                                            <div style={{
+                                                                fontSize: '16px',
+                                                                fontWeight: '600',
+                                                                color: '#00ff00',
+                                                                marginBottom: '4px',
+                                                            }}>
+                                                                Payment Confirmed
+                                                            </div>
+                                                            <div style={{
+                                                                fontSize: '13px',
+                                                                color: '#00cc00',
+                                                                lineHeight: '1.5',
+                                                            }}>
+                                                                CAD drafting has begun.
+                                                            </div>
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: '20px',
+                                                            color: '#00ff00',
+                                                            fontWeight: 'bold',
+                                                        }}>
+                                                            {prototypeSectionExpanded ? '−' : '+'}
+                                                        </div>
                                                     </div>
+                                                    
+                                                    {/* Expandable Content - Prototype Review */}
+                                                    {prototypeSectionExpanded && (
+                                                        <div style={{
+                                                            padding: '20px',
+                                                            backgroundColor: '#001100',
+                                                            borderTop: '1px solid #00ff00',
+                                                        }}>
+                                                            {/* Prototype Video Header */}
+                                                            <div style={{
+                                                                fontSize: '18px',
+                                                                fontWeight: '600',
+                                                                color: '#00ff00',
+                                                                marginBottom: '16px',
+                                                            }}>
+                                                                Prototype Video
+                                                            </div>
+                                                            
+                                                            {/* Status Badge */}
+                                                            {itemState.prototype_status && (
+                                                                <div style={{
+                                                                    display: 'inline-block',
+                                                                    padding: '6px 12px',
+                                                                    backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : 
+                                                                                   itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
+                                                                    border: `1px solid ${itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                                           itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'}`,
+                                                                    borderRadius: '4px',
+                                                                    fontSize: '12px',
+                                                                    fontWeight: '600',
+                                                                    color: itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                                           itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
+                                                                    marginBottom: '16px',
+                                                                }}>
+                                                                    {itemState.prototype_status === 'approved' ? 'Approved' : 
+                                                                     itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : 
+                                                                     itemState.prototype_status === 'submitted' ? `Submitted (v${itemState.prototype_current_version || 0})` : 
+                                                                     'Not Submitted'}
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {/* Video Links */}
+                                                            {itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 && (
+                                                                <div style={{
+                                                                    marginBottom: '16px',
+                                                                }}>
+                                                                    <div style={{
+                                                                        fontSize: '13px',
+                                                                        fontWeight: '600',
+                                                                        color: '#ccc',
+                                                                        marginBottom: '8px',
+                                                                    }}>
+                                                                        Video Links (v{itemState.prototype_submission.version}):
+                                                                    </div>
+                                                                    {itemState.prototype_submission.links.map((link, idx) => (
+                                                                        <div key={idx} style={{
+                                                                            marginBottom: '8px',
+                                                                            padding: '10px',
+                                                                            backgroundColor: '#000',
+                                                                            border: '1px solid #333',
+                                                                            borderRadius: '4px',
+                                                                        }}>
+                                                                            <a 
+                                                                                href={link.url} 
+                                                                                target="_blank" 
+                                                                                rel="noopener noreferrer"
+                                                                                style={{
+                                                                                    color: '#66aaff',
+                                                                                    textDecoration: 'none',
+                                                                                    fontSize: '12px',
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '8px',
+                                                                                }}
+                                                                            >
+                                                                                <span style={{ fontWeight: '600', textTransform: 'capitalize' }}>{link.provider}:</span>
+                                                                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link.url}</span>
+                                                                                <span style={{ fontSize: '10px', color: '#888' }}>Open →</span>
+                                                                            </a>
+                                                                        </div>
+                                                                    ))}
+                                                                    {itemState.prototype_submission.created_at && (
+                                                                        <div style={{
+                                                                            fontSize: '11px',
+                                                                            color: '#888',
+                                                                            marginTop: '8px',
+                                                                        }}>
+                                                                            Submitted: {new Date(itemState.prototype_submission.created_at).toLocaleString()}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {/* Action Buttons */}
+                                                            {itemState.prototype_status === 'submitted' && (
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    gap: '12px',
+                                                                    marginTop: '16px',
+                                                                }}>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            // Fetch keyword names and phrases before opening modal
+                                                                            if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
+                                                                                try {
+                                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                                    const response = await fetch(ajaxUrl, {
+                                                                                        method: 'POST',
+                                                                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                                                                        body: new URLSearchParams({
+                                                                                            action: 'n88_get_keyword_phrases',
+                                                                                            _ajax_nonce: (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || 
+                                                                                                       (window.n88BoardNonce && window.n88BoardNonce.nonce) || 
+                                                                                                       (window.n88BoardData && window.n88BoardData.nonce) || 
+                                                                                                       (window.n88 && window.n88.nonce) || '',
+                                                                                            keyword_ids: JSON.stringify(itemState.direction_keyword_ids),
+                                                                                        }),
+                                                                                    });
+                                                                                    const data = await response.json();
+                                                                                    if (data.success && data.data) {
+                                                                                        // Ensure keyword_ids are numbers for consistent access
+                                                                                        const phrasesByKeyword = {};
+                                                                                        if (data.data.phrases_by_keyword) {
+                                                                                            Object.keys(data.data.phrases_by_keyword).forEach(kid => {
+                                                                                                phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid];
+                                                                                            });
+                                                                                        }
+                                                                                        setAvailablePhrases(phrasesByKeyword);
+                                                                                        
+                                                                                        const keywordNamesObj = {};
+                                                                                        if (data.data.keyword_names) {
+                                                                                            Object.keys(data.data.keyword_names).forEach(kid => {
+                                                                                                keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid];
+                                                                                            });
+                                                                                        }
+                                                                                        setKeywordNames(keywordNamesObj);
+                                                                                        // Initialize feedback packet with all keywords set to 'satisfied'
+                                                                                        const initialPacket = {};
+                                                                                        itemState.direction_keyword_ids.forEach(kid => {
+                                                                                            initialPacket[parseInt(kid)] = { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                                                        });
+                                                                                        setFeedbackPacket(initialPacket);
+                                                                                        setTotalPhrasesSelected(0);
+                                                                                        setShowRequestChangesModal(true);
+                                                                                    } else {
+                                                                                        alert('Failed to load keyword data: ' + (data.data?.message || 'Unknown error'));
+                                                                                    }
+                                                                                } catch (error) {
+                                                                                    console.error('Error fetching keyword data:', error);
+                                                                                    alert('Error loading keyword data');
+                                                                                }
+                                                                            } else {
+                                                                                setShowRequestChangesModal(true);
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            padding: '10px 20px',
+                                                                            backgroundColor: '#331100',
+                                                                            border: '1px solid #ff8800',
+                                                                            borderRadius: '4px',
+                                                                            color: '#ff8800',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            cursor: 'pointer',
+                                                                            fontFamily: 'monospace',
+                                                                        }}
+                                                                    >
+                                                                        Request Changes
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            // Approve prototype
+                                                                            try {
+                                                                                const response = await fetch(ajaxurl, {
+                                                                                    method: 'POST',
+                                                                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                                                                    body: new URLSearchParams({
+                                                                                        action: 'n88_approve_prototype',
+                                                                                        _ajax_nonce: (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || 
+                                                                                                   (window.n88BoardNonce && window.n88BoardNonce.nonce) || 
+                                                                                                   (window.n88BoardData && window.n88BoardData.nonce) || 
+                                                                                                   (window.n88 && window.n88.nonce) || '',
+                                                                                        payment_id: itemState.prototype_payment_id,
+                                                                                        item_id: item.id,
+                                                                                        bid_id: itemState.prototype_payment_bid_id,
+                                                                                        version: itemState.prototype_current_version,
+                                                                                    }),
+                                                                                });
+                                                                                const data = await response.json();
+                                                                                if (data.success) {
+                                                                                    await fetchItemState();
+                                                                                    setPrototypeSectionExpanded(true);
+                                                                                } else {
+                                                                                    alert(data.data?.message || 'Failed to approve prototype');
+                                                                                }
+                                                                            } catch (error) {
+                                                                                console.error('Error approving prototype:', error);
+                                                                                alert('Error approving prototype');
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            padding: '10px 20px',
+                                                                            backgroundColor: '#003300',
+                                                                            border: '1px solid #00ff00',
+                                                                            borderRadius: '4px',
+                                                                            color: '#00ff00',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            cursor: 'pointer',
+                                                                            fontFamily: 'monospace',
+                                                                        }}
+                                                                    >
+                                                                        Approve Prototype
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {itemState.prototype_status === 'changes_requested' && (
+                                                                <div style={{
+                                                                    fontSize: '12px',
+                                                                    color: '#ff8800',
+                                                                    marginTop: '12px',
+                                                                }}>
+                                                                    Changes have been requested. Waiting for supplier to submit updated version.
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {itemState.prototype_status === 'approved' && (
+                                                                <div style={{
+                                                                    fontSize: '12px',
+                                                                    color: '#00ff00',
+                                                                    marginTop: '12px',
+                                                                }}>
+                                                                    ✓ Prototype approved (v{itemState.prototype_approved_version || itemState.prototype_current_version})
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            
+                                            {/* Commit 2.3.9.2B-D: Request Changes Modal */}
+                                            {showRequestChangesModal && itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && (
+                                                <div style={{
+                                                    position: 'fixed',
+                                                    top: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                                    zIndex: 10000,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    padding: '20px',
+                                                }}
+                                                onClick={() => setShowRequestChangesModal(false)}
+                                                >
                                                     <div style={{
-                                                        fontSize: '13px',
-                                                        color: '#00cc00',
-                                                        lineHeight: '1.5',
-                                                    }}>
-                                                        CAD drafting has begun.
+                                                        backgroundColor: '#000',
+                                                        border: '2px solid #ff8800',
+                                                        borderRadius: '8px',
+                                                        padding: '24px',
+                                                        maxWidth: '800px',
+                                                        maxHeight: '90vh',
+                                                        overflowY: 'auto',
+                                                        width: '100%',
+                                                    }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            marginBottom: '20px',
+                                                        }}>
+                                                            <h2 style={{
+                                                                fontSize: '18px',
+                                                                fontWeight: '600',
+                                                                color: '#ff8800',
+                                                                margin: 0,
+                                                            }}>
+                                                                Request Changes - Feedback Packet
+                                                            </h2>
+                                                            <button
+                                                                onClick={() => setShowRequestChangesModal(false)}
+                                                                style={{
+                                                                    background: 'none',
+                                                                    border: 'none',
+                                                                    color: '#fff',
+                                                                    fontSize: '24px',
+                                                                    cursor: 'pointer',
+                                                                    padding: '0',
+                                                                    width: '30px',
+                                                                    height: '30px',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                }}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        <div style={{
+                                                            fontSize: '12px',
+                                                            color: '#aaa',
+                                                            marginBottom: '20px',
+                                                        }}>
+                                                            Review each keyword and select status. For keywords needing adjustment, select up to 3 phrases. Maximum 18 phrases total.
+                                                        </div>
+                                                        
+                                                        {/* Keyword Checklist */}
+                                                        <div style={{
+                                                            marginBottom: '20px',
+                                                        }}>
+                                                            {itemState.direction_keyword_ids.map((keywordId) => {
+                                                                const keywordData = feedbackPacket[keywordId] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                                const phrases = availablePhrases[keywordId] || [];
+                                                                
+                                                                return (
+                                                                    <div key={keywordIdNum} style={{
+                                                                        marginBottom: '16px',
+                                                                        padding: '16px',
+                                                                        backgroundColor: '#111',
+                                                                        border: '1px solid #333',
+                                                                        borderRadius: '4px',
+                                                                    }}>
+                                                                        <div style={{
+                                                                            fontSize: '14px',
+                                                                            fontWeight: '600',
+                                                                            color: '#fff',
+                                                                            marginBottom: '12px',
+                                                                        }}>
+                                                                            {keywordNames[keywordId] || `Keyword ID: ${keywordId}`}
+                                                                        </div>
+                                                                        
+                                                                        {/* Status Selection */}
+                                                                        <div style={{
+                                                                            display: 'flex',
+                                                                            gap: '12px',
+                                                                            marginBottom: '12px',
+                                                                        }}>
+                                                                            {['satisfied', 'needs_adjustment', 'not_addressed'].map((status) => (
+                                                                                <label key={status} style={{
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '6px',
+                                                                                    cursor: 'pointer',
+                                                                                    fontSize: '12px',
+                                                                                    color: '#ccc',
+                                                                                }}>
+                                                                                    <input
+                                                                                        type="radio"
+                                                                                        name={`keyword_${keywordIdNum}_status`}
+                                                                                        value={status}
+                                                                                        checked={keywordData.status === status}
+                                                                                        onChange={() => {
+                                                                                            const newPacket = { ...feedbackPacket };
+                                                                                            newPacket[keywordIdNum] = {
+                                                                                                ...keywordData,
+                                                                                                status: status,
+                                                                                                severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null,
+                                                                                                phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids,
+                                                                                            };
+                                                                                            setFeedbackPacket(newPacket);
+                                                                                            // Always fetch phrases if not already loaded when status changes to needs_adjustment or not_addressed
+                                                                                            if (status !== 'satisfied' && (!availablePhrases[keywordIdNum] || availablePhrases[keywordIdNum].length === 0)) {
+                                                                                                const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                                                fetch(ajaxUrl, {
+                                                                                                    method: 'POST',
+                                                                                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                                                                                    body: new URLSearchParams({
+                                                                                                        action: 'n88_get_keyword_phrases',
+                                                                                                        _ajax_nonce: (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || 
+                                                                                                                   (window.n88BoardNonce && window.n88BoardNonce.nonce) || 
+                                                                                                                   (window.n88BoardData && window.n88BoardData.nonce) || 
+                                                                                                                   (window.n88 && window.n88.nonce) || '',
+                                                                                                        keyword_ids: JSON.stringify([keywordIdNum]),
+                                                                                                    }),
+                                                                                                })
+                                                                                                .then(res => res.json())
+                                                                                                .then(data => {
+                                                                                                    if (data.success && data.data && data.data.phrases_by_keyword) {
+                                                                                                        // Ensure keyword_id is a number for consistent access
+                                                                                                        const phrasesByKeyword = {};
+                                                                                                        Object.keys(data.data.phrases_by_keyword).forEach(kid => {
+                                                                                                            phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid];
+                                                                                                        });
+                                                                                                        setAvailablePhrases(prev => ({
+                                                                                                            ...prev,
+                                                                                                            ...phrasesByKeyword,
+                                                                                                        }));
+                                                                                                        if (data.data.keyword_names) {
+                                                                                                            const keywordNamesObj = {};
+                                                                                                            Object.keys(data.data.keyword_names).forEach(kid => {
+                                                                                                                keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid];
+                                                                                                            });
+                                                                                                            setKeywordNames(prev => ({
+                                                                                                                ...prev,
+                                                                                                                ...keywordNamesObj,
+                                                                                                            }));
+                                                                                                        }
+                                                                                                    } else {
+                                                                                                        console.error('Failed to load phrases:', data.data?.message || 'Unknown error', data);
+                                                                                                    }
+                                                                                                })
+                                                                                                .catch(error => {
+                                                                                                    console.error('Error fetching phrases:', error);
+                                                                                                });
+                                                                                            }
+                                                                                        }}
+                                                                                        style={{ cursor: 'pointer' }}
+                                                                                    />
+                                                                                    <span>
+                                                                                        {status === 'satisfied' ? '✅ Satisfied' : 
+                                                                                         status === 'needs_adjustment' ? '⚠️ Needs Adjustment' : 
+                                                                                         '❌ Not Addressed'}
+                                                                                    </span>
+                                                                                </label>
+                                                                            ))}
+                                                                        </div>
+                                                                        
+                                                                        {/* Phrase Selection (only if not satisfied) */}
+                                                                        {keywordData.status !== 'satisfied' && (
+                                                                            phrases && phrases.length > 0 ? (
+                                                                            <>
+                                                                                <div style={{
+                                                                                    fontSize: '12px',
+                                                                                    color: '#aaa',
+                                                                                    marginBottom: '8px',
+                                                                                }}>
+                                                                                    Select up to 3 phrases:
+                                                                                </div>
+                                                                                <div style={{
+                                                                                    display: 'flex',
+                                                                                    flexDirection: 'column',
+                                                                                    gap: '6px',
+                                                                                }}>
+                                                                                    {phrases.map((phrase) => (
+                                                                                        <label key={phrase.phrase_id} style={{
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            gap: '8px',
+                                                                                            cursor: 'pointer',
+                                                                                            fontSize: '11px',
+                                                                                            color: '#ccc',
+                                                                                            padding: '6px',
+                                                                                            backgroundColor: keywordData.phrase_ids.includes(phrase.phrase_id) ? '#331100' : 'transparent',
+                                                                                            border: `1px solid ${keywordData.phrase_ids.includes(phrase.phrase_id) ? '#ff8800' : '#333'}`,
+                                                                                            borderRadius: '4px',
+                                                                                        }}>
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={keywordData.phrase_ids.includes(phrase.phrase_id)}
+                                                                                                onChange={(e) => {
+                                                                                                    const newPacket = { ...feedbackPacket };
+                                                                                                    const currentPhraseIds = keywordData.phrase_ids || [];
+                                                                                                    if (e.target.checked) {
+                                                                                                        if (currentPhraseIds.length < 3) {
+                                                                                                            newPacket[keywordIdNum] = {
+                                                                                                                ...keywordData,
+                                                                                                                phrase_ids: [...currentPhraseIds, phrase.phrase_id],
+                                                                                                            };
+                                                                                                            setTotalPhrasesSelected(totalPhrasesSelected + 1);
+                                                                                                        }
+                                                                                                    } else {
+                                                                                                        newPacket[keywordIdNum] = {
+                                                                                                            ...keywordData,
+                                                                                                            phrase_ids: currentPhraseIds.filter(id => id !== phrase.phrase_id),
+                                                                                                        };
+                                                                                                        setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1));
+                                                                                                    }
+                                                                                                    setFeedbackPacket(newPacket);
+                                                                                                }}
+                                                                                                disabled={!keywordData.phrase_ids.includes(phrase.phrase_id) && keywordData.phrase_ids.length >= 3}
+                                                                                                style={{ cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.includes(phrase.phrase_id) ? 'pointer' : 'not-allowed' }}
+                                                                                            />
+                                                                                            <span>{phrase.phrase_text}</span>
+                                                                                        </label>
+                                                                                    ))}
+                                                                                </div>
+                                                                                
+                                                                                {/* Severity Selection */}
+                                                                                <div style={{
+                                                                                    marginTop: '12px',
+                                                                                }}>
+                                                                                    <div style={{
+                                                                                        fontSize: '12px',
+                                                                                        color: '#aaa',
+                                                                                        marginBottom: '6px',
+                                                                                    }}>
+                                                                                        Severity:
+                                                                                    </div>
+                                                                                    <select
+                                                                                        value={keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix')}
+                                                                                        onChange={(e) => {
+                                                                                            const newPacket = { ...feedbackPacket };
+                                                                                            newPacket[keywordIdNum] = {
+                                                                                                ...keywordData,
+                                                                                                severity: e.target.value,
+                                                                                            };
+                                                                                            setFeedbackPacket(newPacket);
+                                                                                        }}
+                                                                                        style={{
+                                                                                            padding: '6px 12px',
+                                                                                            backgroundColor: '#000',
+                                                                                            color: '#fff',
+                                                                                            border: '1px solid #333',
+                                                                                            borderRadius: '4px',
+                                                                                            fontSize: '12px',
+                                                                                            fontFamily: 'monospace',
+                                                                                        }}
+                                                                                    >
+                                                                                        <option value="must_fix">Must Fix</option>
+                                                                                        <option value="should_fix">Should Fix</option>
+                                                                                        <option value="optional">Optional</option>
+                                                                                    </select>
+                                                                                </div>
+                                                                            </>
+                                                                            ) : (
+                                                                                <div style={{
+                                                                                    fontSize: '11px',
+                                                                                    color: '#888',
+                                                                                    fontStyle: 'italic',
+                                                                                    padding: '8px',
+                                                                                    backgroundColor: '#0a0a0a',
+                                                                                    border: '1px solid #333',
+                                                                                    borderRadius: '4px',
+                                                                                }}>
+                                                                                    Loading phrases...
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        
+                                                        {/* Total Phrases Counter */}
+                                                        <div style={{
+                                                            fontSize: '12px',
+                                                            color: totalPhrasesSelected > 18 ? '#ff6666' : '#aaa',
+                                                            marginBottom: '20px',
+                                                            textAlign: 'right',
+                                                        }}>
+                                                            Total Phrases Selected: {totalPhrasesSelected} / 18
+                                                        </div>
+                                                        
+                                                        {/* Submit Button */}
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            gap: '12px',
+                                                            justifyContent: 'flex-end',
+                                                        }}>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setShowRequestChangesModal(false);
+                                                                    setFeedbackPacket({});
+                                                                    setTotalPhrasesSelected(0);
+                                                                }}
+                                                                style={{
+                                                                    padding: '10px 20px',
+                                                                    backgroundColor: '#333',
+                                                                    border: '1px solid #666',
+                                                                    borderRadius: '4px',
+                                                                    color: '#ccc',
+                                                                    fontSize: '13px',
+                                                                    fontWeight: '600',
+                                                                    cursor: 'pointer',
+                                                                    fontFamily: 'monospace',
+                                                                }}
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (totalPhrasesSelected > 18) {
+                                                                        alert('Maximum 18 phrases allowed.');
+                                                                        return;
+                                                                    }
+                                                                    
+                                                                    try {
+                                                                        const response = await fetch(ajaxurl, {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                                                            body: new URLSearchParams({
+                                                                                action: 'n88_request_prototype_changes',
+                                                                                _ajax_nonce: (window.n88BoardNonce && window.n88BoardNonce.nonce_request_prototype_changes) || 
+                                                                                           (window.n88BoardNonce && window.n88BoardNonce.nonce) || 
+                                                                                           (window.n88BoardData && window.n88BoardData.nonce) || 
+                                                                                           (window.n88 && window.n88.nonce) || '',
+                                                                                payment_id: itemState.prototype_payment_id,
+                                                                                item_id: item.id,
+                                                                                bid_id: itemState.prototype_payment_bid_id,
+                                                                                submission_version: itemState.prototype_current_version,
+                                                                                feedback_packet: JSON.stringify(feedbackPacket),
+                                                                            }),
+                                                                        });
+                                                                        const data = await response.json();
+                                                                        if (data.success) {
+                                                                            setShowRequestChangesModal(false);
+                                                                            setFeedbackPacket({});
+                                                                            setTotalPhrasesSelected(0);
+                                                                            await fetchItemState();
+                                                                            setPrototypeSectionExpanded(true);
+                                                                        } else {
+                                                                            alert(data.data?.message || 'Failed to request changes');
+                                                                        }
+                                                                    } catch (error) {
+                                                                        console.error('Error requesting changes:', error);
+                                                                        alert('Error requesting changes');
+                                                                    }
+                                                                }}
+                                                                disabled={totalPhrasesSelected > 18}
+                                                                style={{
+                                                                    padding: '10px 20px',
+                                                                    backgroundColor: totalPhrasesSelected > 18 ? '#333' : '#331100',
+                                                                    border: `1px solid ${totalPhrasesSelected > 18 ? '#666' : '#ff8800'}`,
+                                                                    borderRadius: '4px',
+                                                                    color: totalPhrasesSelected > 18 ? '#666' : '#ff8800',
+                                                                    fontSize: '13px',
+                                                                    fontWeight: '600',
+                                                                    cursor: totalPhrasesSelected > 18 ? 'not-allowed' : 'pointer',
+                                                                    fontFamily: 'monospace',
+                                                                }}
+                                                            >
+                                                                Submit Feedback Packet
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}

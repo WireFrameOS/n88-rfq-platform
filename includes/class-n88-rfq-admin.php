@@ -4103,6 +4103,10 @@ class N88_RFQ_Admin {
             // Commit 2.3.9.2A: CAD workflow v1 nonces (designer actions)
             'nonce_request_cad_revision' => wp_create_nonce( 'n88_request_cad_revision' ),
             'nonce_approve_cad' => wp_create_nonce( 'n88_approve_cad' ),
+            // Commit 2.3.9.2B-D: Prototype review nonces
+            'nonce_get_keyword_phrases' => wp_create_nonce( 'n88_get_keyword_phrases' ),
+            'nonce_approve_prototype' => wp_create_nonce( 'n88_approve_prototype' ),
+            'nonce_request_prototype_changes' => wp_create_nonce( 'n88_request_prototype_changes' ),
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -7609,8 +7613,23 @@ class N88_RFQ_Admin {
                         has_unread_operator_messages: false,
                         unread_operator_messages: 0,
                         has_prototype_payment: false,
+                        prototype_payment_id: null,
+                        prototype_payment_bid_id: null,
+                        prototype_payment_supplier_id: null,
                         prototype_payment_status: null,
                         prototype_payment_total_due: null,
+                        cad_status: null,
+                        cad_revision_rounds_included: null,
+                        cad_revision_rounds_used: null,
+                        cad_approved_at: null,
+                        cad_approved_version: null,
+                        cad_released_to_supplier_at: null,
+                        cad_current_version: null,
+                        prototype_status: null,
+                        prototype_current_version: null,
+                        prototype_approved_version: null,
+                        prototype_submission: null,
+                        direction_keyword_ids: null,
                     });
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
@@ -7619,6 +7638,26 @@ class N88_RFQ_Admin {
                     var _showPaymentInstructionsState = React.useState(false);
                     var showPaymentInstructions = _showPaymentInstructionsState[0];
                     var setShowPaymentInstructions = _showPaymentInstructionsState[1];
+                    
+                    // Commit 2.3.9.2B-D: Prototype section state
+                    var _prototypeSectionExpandedState = React.useState(false);
+                    var prototypeSectionExpanded = _prototypeSectionExpandedState[0];
+                    var setPrototypeSectionExpanded = _prototypeSectionExpandedState[1];
+                    var _showRequestChangesModalState = React.useState(false);
+                    var showRequestChangesModal = _showRequestChangesModalState[0];
+                    var setShowRequestChangesModal = _showRequestChangesModalState[1];
+                    var _feedbackPacketState = React.useState({});
+                    var feedbackPacket = _feedbackPacketState[0];
+                    var setFeedbackPacket = _feedbackPacketState[1];
+                    var _availablePhrasesState = React.useState({});
+                    var availablePhrases = _availablePhrasesState[0];
+                    var setAvailablePhrases = _availablePhrasesState[1];
+                    var _keywordNamesState = React.useState({});
+                    var keywordNames = _keywordNamesState[0];
+                    var setKeywordNames = _keywordNamesState[1];
+                    var _totalPhrasesSelectedState = React.useState(0);
+                    var totalPhrasesSelected = _totalPhrasesSelectedState[0];
+                    var setTotalPhrasesSelected = _totalPhrasesSelectedState[1];
                     
                     // Form state
                     var _categoryState = React.useState(item.item_type || item.category || '');
@@ -8039,7 +8078,7 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
                             });
                             return;
                         }
@@ -8064,7 +8103,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
                             });
                             return;
                         }
@@ -8104,6 +8143,11 @@ class N88_RFQ_Admin {
                                     cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
                                     cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
                                     cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
+                                    prototype_status: data.data.prototype_status || null,
+                                    prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
+                                    prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
+                                    prototype_submission: data.data.prototype_submission || null,
+                                    direction_keyword_ids: data.data.direction_keyword_ids || null,
                                     loading: false,
                                 });
                             } else {
@@ -8116,7 +8160,7 @@ class N88_RFQ_Admin {
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
                             });
                         });
                     };
@@ -11323,31 +11367,662 @@ class N88_RFQ_Admin {
                                                     onMouseOut: function(e) { e.target.style.backgroundColor = '#ff8800'; }
                                                 }, '[ View Payment Instructions ]')
                                             ) : null,
-                                            // Commit 2.3.9.1C: Payment Confirmed Banner
+                                            // Commit 2.3.9.2B-D: Prototype Section (Expandable)
                                             itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' ? React.createElement('div', {
                                                 style: {
                                                     marginBottom: '24px',
-                                                    padding: '20px',
-                                                    backgroundColor: '#003300',
                                                     border: '2px solid #00ff00',
                                                     borderRadius: '4px',
+                                                    overflow: 'hidden',
                                                 }
+                                            },
+                                                // Header - Always Visible
+                                                React.createElement('div', {
+                                                    onClick: function() { setPrototypeSectionExpanded(!prototypeSectionExpanded); },
+                                                    style: {
+                                                        padding: '20px',
+                                                        backgroundColor: '#003300',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                    }
+                                                },
+                                                    React.createElement('div', null,
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '16px',
+                                                                fontWeight: '600',
+                                                                color: '#00ff00',
+                                                                marginBottom: '4px',
+                                                            }
+                                                        }, 'Payment Confirmed'),
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '13px',
+                                                                color: '#00cc00',
+                                                                lineHeight: '1.5',
+                                                            }
+                                                        }, 'CAD drafting has begun.')
+                                                    ),
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '20px',
+                                                            color: '#00ff00',
+                                                            fontWeight: 'bold',
+                                                        }
+                                                    }, prototypeSectionExpanded ? '−' : '+')
+                                                ),
+                                                // Expandable Content - Prototype Review
+                                                prototypeSectionExpanded ? React.createElement('div', {
+                                                    style: {
+                                                        padding: '20px',
+                                                        backgroundColor: '#001100',
+                                                        borderTop: '1px solid #00ff00',
+                                                    }
+                                                },
+                                                    // Prototype Video Header
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '18px',
+                                                            fontWeight: '600',
+                                                            color: '#00ff00',
+                                                            marginBottom: '16px',
+                                                        }
+                                                    }, 'Prototype Video'),
+                                                    // Status Badge
+                                                    itemState.prototype_status ? React.createElement('div', {
+                                                        style: {
+                                                            display: 'inline-block',
+                                                            padding: '6px 12px',
+                                                            backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : 
+                                                                           itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
+                                                            border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                                                   itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'),
+                                                            borderRadius: '4px',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            color: itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                                   itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
+                                                            marginBottom: '16px',
+                                                        }
+                                                    }, itemState.prototype_status === 'approved' ? 'Approved' : 
+                                                       itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : 
+                                                       itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 
+                                                       'Not Submitted') : null,
+                                                    // Video Links
+                                                    itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', {
+                                                        style: {
+                                                            marginBottom: '16px',
+                                                        }
+                                                    },
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '13px',
+                                                                fontWeight: '600',
+                                                                color: '#ccc',
+                                                                marginBottom: '8px',
+                                                            }
+                                                        }, 'Video Links (v' + itemState.prototype_submission.version + '):'),
+                                                        itemState.prototype_submission.links.map(function(link, idx) {
+                                                            return React.createElement('div', {
+                                                                key: idx,
+                                                                style: {
+                                                                    marginBottom: '8px',
+                                                                    padding: '10px',
+                                                                    backgroundColor: '#000',
+                                                                    border: '1px solid #333',
+                                                                    borderRadius: '4px',
+                                                                }
+                                                            },
+                                                                React.createElement('a', {
+                                                                    href: link.url,
+                                                                    target: '_blank',
+                                                                    rel: 'noopener noreferrer',
+                                                                    style: {
+                                                                        color: '#66aaff',
+                                                                        textDecoration: 'none',
+                                                                        fontSize: '12px',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '8px',
+                                                                    }
+                                                                },
+                                                                    React.createElement('span', {
+                                                                        style: { fontWeight: '600', textTransform: 'capitalize' }
+                                                                    }, link.provider + ':'),
+                                                                    React.createElement('span', {
+                                                                        style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+                                                                    }, link.url),
+                                                                    React.createElement('span', {
+                                                                        style: { fontSize: '10px', color: '#888' }
+                                                                    }, 'Open →')
+                                                                )
+                                                            );
+                                                        }),
+                                                        itemState.prototype_submission.created_at ? React.createElement('div', {
+                                                            style: {
+                                                                fontSize: '11px',
+                                                                color: '#888',
+                                                                marginTop: '8px',
+                                                            }
+                                                        }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null
+                                                    ) : null,
+                                                    // Action Buttons
+                                                    itemState.prototype_status === 'submitted' ? React.createElement('div', {
+                                                        style: {
+                                                            display: 'flex',
+                                                            gap: '12px',
+                                                            marginTop: '16px',
+                                                        }
+                                                    },
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                // Fetch keyword names and phrases before opening modal
+                                                                if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
+                                                                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                    var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                                    if (!nonce) {
+                                                                        alert('Nonce missing for keyword phrases.');
+                                                                        return;
+                                                                    }
+                                                                    var formData = new FormData();
+                                                                    formData.append('action', 'n88_get_keyword_phrases');
+                                                                    formData.append('keyword_ids', JSON.stringify(itemState.direction_keyword_ids));
+                                                                    formData.append('_ajax_nonce', nonce);
+                                                                    fetch(ajaxUrl, { method: 'POST', body: formData })
+                                                                    .then(function(res) { return res.json(); })
+                                                                    .then(function(data) {
+                                                                            if (data.success && data.data) {
+                                                                                // Ensure keyword_ids are numbers for consistent access
+                                                                                var phrasesByKeyword = {};
+                                                                                if (data.data.phrases_by_keyword) {
+                                                                                    Object.keys(data.data.phrases_by_keyword).forEach(function(kid) {
+                                                                                        phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid];
+                                                                                    });
+                                                                                }
+                                                                                setAvailablePhrases(phrasesByKeyword);
+                                                                                
+                                                                                var keywordNamesObj = {};
+                                                                                if (data.data.keyword_names) {
+                                                                                    Object.keys(data.data.keyword_names).forEach(function(kid) {
+                                                                                        keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid];
+                                                                                    });
+                                                                                }
+                                                                                setKeywordNames(keywordNamesObj);
+                                                                                // Initialize feedback packet with all keywords set to 'satisfied'
+                                                                                var initialPacket = {};
+                                                                                itemState.direction_keyword_ids.forEach(function(kid) {
+                                                                                    initialPacket[parseInt(kid)] = { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                                                });
+                                                                                setFeedbackPacket(initialPacket);
+                                                                            setTotalPhrasesSelected(0);
+                                                                            setShowRequestChangesModal(true);
+                                                                        } else {
+                                                                            alert('Failed to load keyword data');
+                                                                        }
+                                                                    })
+                                                                    .catch(function(error) {
+                                                                        console.error('Error fetching keyword data:', error);
+                                                                        alert('Error loading keyword data');
+                                                                    });
+                                                                } else {
+                                                                    setShowRequestChangesModal(true);
+                                                                }
+                                                            },
+                                                            style: {
+                                                                padding: '10px 20px',
+                                                                backgroundColor: '#331100',
+                                                                border: '1px solid #ff8800',
+                                                                borderRadius: '4px',
+                                                                color: '#ff8800',
+                                                                fontSize: '13px',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                                fontFamily: 'monospace',
+                                                            }
+                                                        }, 'Request Changes'),
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                if (!window.confirm('Approve prototype version ' + itemState.prototype_current_version + '?')) return;
+                                                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                                if (!nonce) {
+                                                                    alert('Nonce missing for prototype approval.');
+                                                                    return;
+                                                                }
+                                                                var formData = new FormData();
+                                                                formData.append('action', 'n88_approve_prototype');
+                                                                formData.append('payment_id', String(itemState.prototype_payment_id));
+                                                                formData.append('item_id', String(itemId));
+                                                                formData.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                                formData.append('version', String(itemState.prototype_current_version));
+                                                                formData.append('_ajax_nonce', nonce);
+                                                                fetch(ajaxUrl, { method: 'POST', body: formData })
+                                                                .then(function(res) { return res.json(); })
+                                                                .then(function(data) {
+                                                                    if (data.success) {
+                                                                        fetchItemState();
+                                                                        setPrototypeSectionExpanded(true);
+                                                                    } else {
+                                                                        alert(data.data && data.data.message ? data.data.message : 'Failed to approve prototype');
+                                                                    }
+                                                                })
+                                                                .catch(function(error) {
+                                                                    console.error('Error approving prototype:', error);
+                                                                    alert('Error approving prototype');
+                                                                });
+                                                            },
+                                                            style: {
+                                                                padding: '10px 20px',
+                                                                backgroundColor: '#003300',
+                                                                border: '1px solid #00ff00',
+                                                                borderRadius: '4px',
+                                                                color: '#00ff00',
+                                                                fontSize: '13px',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                                fontFamily: 'monospace',
+                                                            }
+                                                        }, 'Approve Prototype')
+                                                    ) : null,
+                                                    itemState.prototype_status === 'changes_requested' ? React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '12px',
+                                                            color: '#ff8800',
+                                                            marginTop: '12px',
+                                                        }
+                                                    }, 'Changes have been requested. Waiting for supplier to submit updated version.') : null,
+                                                    itemState.prototype_status === 'approved' ? React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '12px',
+                                                            color: '#00ff00',
+                                                            marginTop: '12px',
+                                                        }
+                                                    }, '✓ Prototype approved (v' + (itemState.prototype_approved_version || itemState.prototype_current_version) + ')') : null
+                                                ) : null
+                                            ) : null,
+                                            // Commit 2.3.9.2B-D: Request Changes Modal
+                                            showRequestChangesModal && itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 ? React.createElement('div', {
+                                                style: {
+                                                    position: 'fixed',
+                                                    top: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                                    zIndex: 10000,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    padding: '20px',
+                                                },
+                                                onClick: function() { setShowRequestChangesModal(false); }
                                             },
                                                 React.createElement('div', {
                                                     style: {
-                                                        fontSize: '16px',
-                                                        fontWeight: '600',
-                                                        color: '#00ff00',
-                                                        marginBottom: '8px',
-                                                    }
-                                                }, 'Payment Confirmed'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '13px',
-                                                        color: '#00cc00',
-                                                        lineHeight: '1.5',
-                                                    }
-                                                }, 'CAD drafting has begun.')
+                                                        backgroundColor: '#000',
+                                                        border: '2px solid #ff8800',
+                                                        borderRadius: '8px',
+                                                        padding: '24px',
+                                                        maxWidth: '800px',
+                                                        maxHeight: '90vh',
+                                                        overflowY: 'auto',
+                                                        width: '100%',
+                                                    },
+                                                    onClick: function(e) { e.stopPropagation(); }
+                                                },
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            marginBottom: '20px',
+                                                        }
+                                                    },
+                                                        React.createElement('h2', {
+                                                            style: {
+                                                                fontSize: '18px',
+                                                                fontWeight: '600',
+                                                                color: '#ff8800',
+                                                                margin: 0,
+                                                            }
+                                                        }, 'Request Changes - Feedback Packet'),
+                                                        React.createElement('button', {
+                                                            onClick: function() { setShowRequestChangesModal(false); },
+                                                            style: {
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: '#fff',
+                                                                fontSize: '24px',
+                                                                cursor: 'pointer',
+                                                                padding: '0',
+                                                                width: '30px',
+                                                                height: '30px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                            }
+                                                        }, '×')
+                                                    ),
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '12px',
+                                                            color: '#aaa',
+                                                            marginBottom: '20px',
+                                                        }
+                                                    }, 'Review each keyword and select status. For keywords needing adjustment, select up to 3 phrases. Maximum 18 phrases total.'),
+                                                    // Keyword Checklist
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            marginBottom: '20px',
+                                                        }
+                                                    },
+                                                        itemState.direction_keyword_ids.map(function(keywordId) {
+                                                            var keywordIdNum = parseInt(keywordId);
+                                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                            var phrases = availablePhrases[keywordIdNum] || [];
+                                                            return React.createElement('div', {
+                                                                key: keywordIdNum,
+                                                                style: {
+                                                                    marginBottom: '16px',
+                                                                    padding: '16px',
+                                                                    backgroundColor: '#111',
+                                                                    border: '1px solid #333',
+                                                                    borderRadius: '4px',
+                                                                }
+                                                            },
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        fontSize: '14px',
+                                                                        fontWeight: '600',
+                                                                        color: '#fff',
+                                                                        marginBottom: '12px',
+                                                                    }
+                                                                    }, keywordNames[keywordIdNum] || ('Keyword ID: ' + keywordIdNum)),
+                                                                // Status Selection
+                                                                React.createElement('div', {
+                                                                    style: {
+                                                                        display: 'flex',
+                                                                        gap: '12px',
+                                                                        marginBottom: '12px',
+                                                                    }
+                                                                },
+                                                                    ['satisfied', 'needs_adjustment', 'not_addressed'].map(function(status) {
+                                                                        return React.createElement('label', {
+                                                                            key: status,
+                                                                            style: {
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '6px',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: '12px',
+                                                                                color: '#ccc',
+                                                                            }
+                                                                        },
+                                                                            React.createElement('input', {
+                                                                                type: 'radio',
+                                                                                name: 'keyword_' + keywordIdNum + '_status',
+                                                                                value: status,
+                                                                                checked: keywordData.status === status,
+                                                                                onChange: function() {
+                                                                                    var newPacket = Object.assign({}, feedbackPacket);
+                                                                                    newPacket[keywordIdNum] = {
+                                                                                        status: status,
+                                                                                        severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null,
+                                                                                        phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids,
+                                                                                    };
+                                                                                    setFeedbackPacket(newPacket);
+                                                                                    // Always fetch phrases if not already loaded when status changes to needs_adjustment or not_addressed
+                                                                                    if (status !== 'satisfied' && (!availablePhrases[keywordIdNum] || availablePhrases[keywordIdNum].length === 0)) {
+                                                                                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                                                                                        var formData = new FormData();
+                                                                                        formData.append('action', 'n88_get_keyword_phrases');
+                                                                                        formData.append('keyword_ids', JSON.stringify([keywordIdNum]));
+                                                                                        formData.append('_ajax_nonce', nonce);
+                                                                                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                                                                                        .then(function(res) { return res.json(); })
+                                                                                        .then(function(data) {
+                                                                                            if (data.success && data.data && data.data.phrases_by_keyword) {
+                                                                                                // Ensure keyword_id is a number for consistent access
+                                                                                                var phrasesByKeyword = {};
+                                                                                                Object.keys(data.data.phrases_by_keyword).forEach(function(kid) {
+                                                                                                    phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid];
+                                                                                                });
+                                                                                                setAvailablePhrases(Object.assign({}, availablePhrases, phrasesByKeyword));
+                                                                                                if (data.data.keyword_names) {
+                                                                                                    var keywordNamesObj = {};
+                                                                                                    Object.keys(data.data.keyword_names).forEach(function(kid) {
+                                                                                                        keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid];
+                                                                                                    });
+                                                                                                    setKeywordNames(Object.assign({}, keywordNames, keywordNamesObj));
+                                                                                                }
+                                                                                            } else {
+                                                                                                console.error('Failed to load phrases:', data.data ? data.data.message : 'Unknown error', data);
+                                                                                            }
+                                                                                        })
+                                                                                        .catch(function(error) {
+                                                                                            console.error('Error fetching phrases:', error);
+                                                                                        });
+                                                                                    }
+                                                                                },
+                                                                                style: { cursor: 'pointer' }
+                                                                            }),
+                                                                            React.createElement('span', null,
+                                                                                status === 'satisfied' ? '✅ Satisfied' : 
+                                                                                status === 'needs_adjustment' ? '⚠️ Needs Adjustment' : 
+                                                                                '❌ Not Addressed'
+                                                                            )
+                                                                        );
+                                                                    })
+                                                                ),
+                                                                // Phrase Selection (only if not satisfied)
+                                                                keywordData.status !== 'satisfied' ? (
+                                                                    phrases && phrases.length > 0 ? React.createElement(React.Fragment, null,
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            fontSize: '12px',
+                                                                            color: '#aaa',
+                                                                            marginBottom: '8px',
+                                                                        }
+                                                                    }, 'Select up to 3 phrases:'),
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            display: 'flex',
+                                                                            flexDirection: 'column',
+                                                                            gap: '6px',
+                                                                        }
+                                                                    },
+                                                                        phrases.map(function(phrase) {
+                                                                            return React.createElement('label', {
+                                                                                key: phrase.phrase_id,
+                                                                                style: {
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '8px',
+                                                                                    cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? 'pointer' : 'not-allowed',
+                                                                                    fontSize: '11px',
+                                                                                    color: '#ccc',
+                                                                                    padding: '6px',
+                                                                                    backgroundColor: keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#331100' : 'transparent',
+                                                                                    border: '1px solid ' + (keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#ff8800' : '#333'),
+                                                                                    borderRadius: '4px',
+                                                                                }
+                                                                            },
+                                                                                React.createElement('input', {
+                                                                                    type: 'checkbox',
+                                                                                    checked: keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1,
+                                                                                    onChange: function(e) {
+                                                                                        var newPacket = Object.assign({}, feedbackPacket);
+                                                                                        var currentPhraseIds = keywordData.phrase_ids || [];
+                                                                                        if (e.target.checked) {
+                                                                                            if (currentPhraseIds.length < 3) {
+                                                                                                newPacket[keywordIdNum] = {
+                                                                                                    status: keywordData.status,
+                                                                                                    severity: keywordData.severity,
+                                                                                                    phrase_ids: currentPhraseIds.concat([phrase.phrase_id]),
+                                                                                                };
+                                                                                                setTotalPhrasesSelected(totalPhrasesSelected + 1);
+                                                                                            }
+                                                                                        } else {
+                                                                                            newPacket[keywordIdNum] = {
+                                                                                                status: keywordData.status,
+                                                                                                severity: keywordData.severity,
+                                                                                                phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }),
+                                                                                            };
+                                                                                            setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1));
+                                                                                        }
+                                                                                        setFeedbackPacket(newPacket);
+                                                                                    },
+                                                                                    disabled: keywordData.phrase_ids.indexOf(phrase.phrase_id) === -1 && keywordData.phrase_ids.length >= 3,
+                                                                                }),
+                                                                                React.createElement('span', null, phrase.phrase_text)
+                                                                            );
+                                                                        })
+                                                                    ),
+                                                                    // Severity Selection
+                                                                    React.createElement('div', {
+                                                                        style: {
+                                                                            marginTop: '12px',
+                                                                        }
+                                                                    },
+                                                                        React.createElement('div', {
+                                                                            style: {
+                                                                                fontSize: '12px',
+                                                                                color: '#aaa',
+                                                                                marginBottom: '6px',
+                                                                            }
+                                                                        }, 'Severity:'),
+                                                                        React.createElement('select', {
+                                                                            value: keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix'),
+                                                                            onChange: function(e) {
+                                                                                var newPacket = Object.assign({}, feedbackPacket);
+                                                                                newPacket[keywordIdNum] = {
+                                                                                    status: keywordData.status,
+                                                                                    severity: e.target.value,
+                                                                                    phrase_ids: keywordData.phrase_ids,
+                                                                                };
+                                                                                setFeedbackPacket(newPacket);
+                                                                            },
+                                                                            style: {
+                                                                                padding: '6px 12px',
+                                                                                backgroundColor: '#000',
+                                                                                color: '#fff',
+                                                                                border: '1px solid #333',
+                                                                                borderRadius: '4px',
+                                                                                fontSize: '12px',
+                                                                                fontFamily: 'monospace',
+                                                                            }
+                                                                        },
+                                                                            React.createElement('option', { value: 'must_fix' }, 'Must Fix'),
+                                                                            React.createElement('option', { value: 'should_fix' }, 'Should Fix'),
+                                                                            React.createElement('option', { value: 'optional' }, 'Optional')
+                                                                        )
+                                                                    )
+                                                                    ) : React.createElement('div', {
+                                                                        style: {
+                                                                            fontSize: '11px',
+                                                                            color: '#888',
+                                                                            fontStyle: 'italic',
+                                                                            padding: '8px',
+                                                                            backgroundColor: '#0a0a0a',
+                                                                            border: '1px solid #333',
+                                                                            borderRadius: '4px',
+                                                                        }
+                                                                    }, 'Loading phrases...')
+                                                                ) : null
+                                                            );
+                                                        })
+                                                    ),
+                                                    // Total Phrases Counter
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            fontSize: '12px',
+                                                            color: totalPhrasesSelected > 18 ? '#ff6666' : '#aaa',
+                                                            marginBottom: '20px',
+                                                            textAlign: 'right',
+                                                        }
+                                                    }, 'Total Phrases Selected: ' + totalPhrasesSelected + ' / 18'),
+                                                    // Submit Button
+                                                    React.createElement('div', {
+                                                        style: {
+                                                            display: 'flex',
+                                                            gap: '12px',
+                                                            justifyContent: 'flex-end',
+                                                        }
+                                                    },
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                setShowRequestChangesModal(false);
+                                                                setFeedbackPacket({});
+                                                                setTotalPhrasesSelected(0);
+                                                            },
+                                                            style: {
+                                                                padding: '10px 20px',
+                                                                backgroundColor: '#333',
+                                                                border: '1px solid #666',
+                                                                borderRadius: '4px',
+                                                                color: '#ccc',
+                                                                fontSize: '13px',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                                fontFamily: 'monospace',
+                                                            }
+                                                        }, 'Cancel'),
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                if (totalPhrasesSelected > 18) {
+                                                                    alert('Maximum 18 phrases allowed.');
+                                                                    return;
+                                                                }
+                                                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_request_prototype_changes) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                                if (!nonce) {
+                                                                    alert('Nonce missing for request changes.');
+                                                                    return;
+                                                                }
+                                                                var formData = new FormData();
+                                                                formData.append('action', 'n88_request_prototype_changes');
+                                                                formData.append('payment_id', String(itemState.prototype_payment_id));
+                                                                formData.append('item_id', String(itemId));
+                                                                formData.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                                formData.append('submission_version', String(itemState.prototype_current_version));
+                                                                formData.append('feedback_packet', JSON.stringify(feedbackPacket));
+                                                                formData.append('_ajax_nonce', nonce);
+                                                                fetch(ajaxUrl, { method: 'POST', body: formData })
+                                                                .then(function(res) { return res.json(); })
+                                                                .then(function(data) {
+                                                                    if (data.success) {
+                                                                        setShowRequestChangesModal(false);
+                                                                        setFeedbackPacket({});
+                                                                        setTotalPhrasesSelected(0);
+                                                                        fetchItemState();
+                                                                        setPrototypeSectionExpanded(true);
+                                                                    } else {
+                                                                        alert(data.data && data.data.message ? data.data.message : 'Failed to request changes');
+                                                                    }
+                                                                })
+                                                                .catch(function(error) {
+                                                                    console.error('Error requesting changes:', error);
+                                                                    alert('Error requesting changes');
+                                                                });
+                                                            },
+                                                            disabled: totalPhrasesSelected > 18,
+                                                            style: {
+                                                                padding: '10px 20px',
+                                                                backgroundColor: totalPhrasesSelected > 18 ? '#333' : '#331100',
+                                                                border: '1px solid ' + (totalPhrasesSelected > 18 ? '#666' : '#ff8800'),
+                                                                borderRadius: '4px',
+                                                                color: totalPhrasesSelected > 18 ? '#666' : '#ff8800',
+                                                                fontSize: '13px',
+                                                                fontWeight: '600',
+                                                                cursor: totalPhrasesSelected > 18 ? 'not-allowed' : 'pointer',
+                                                                fontFamily: 'monospace',
+                                                            }
+                                                        }, 'Submit Feedback Packet')
+                                                    )
+                                                )
                                             ) : null,
                                             // Bids Content - Only show if bids exist
                                             itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {

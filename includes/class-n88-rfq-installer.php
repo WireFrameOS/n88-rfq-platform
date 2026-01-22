@@ -29,6 +29,25 @@ class N88_RFQ_Installer {
      * @param string $on_delete ON DELETE action (e.g., 'CASCADE', 'SET NULL')
      * @return bool True if constraint was added or already exists, false on failure
      */
+    /**
+     * Check if a foreign key constraint exists
+     */
+    private static function foreign_key_exists( $table_name, $constraint_name ) {
+        global $wpdb;
+        
+        $exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND CONSTRAINT_NAME = %s",
+            DB_NAME,
+            $table_name,
+            $constraint_name
+        ) );
+        
+        return $exists > 0;
+    }
+    
     private static function safe_add_foreign_key( $table_name, $constraint_name, $column_name, $referenced_table, $referenced_column, $on_delete = 'CASCADE' ) {
         global $wpdb;
         
@@ -313,6 +332,10 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.2B-S: Create prototype video submission tables
         self::create_phase_2_3_9_2b_tables( $charset_collate );
+        
+        // Commit 2.3.9.2B-D: Create designer prototype review tables
+        self::create_phase_2_3_9_2b_d_tables( $charset_collate );
+        self::seed_keyword_phrases();
 
         self::maybe_upgrade();
     }
@@ -1175,6 +1198,13 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.2B-S: Create prototype video submission tables
         self::create_phase_2_3_9_2b_tables( $charset_collate );
+        
+        // Commit 2.3.9.2B-D: Create designer prototype review tables
+        self::create_phase_2_3_9_2b_d_tables( $charset_collate );
+        self::seed_keyword_phrases();
+        
+        // Commit 2.3.9.2B-D: Add prototype_status fields to n88_prototype_payments
+        self::add_prototype_status_fields();
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -1765,1008 +1795,175 @@ class N88_RFQ_Installer {
             }
         }
 
-        // Define keywords by category (Commit 2.3.6.2: Expanded for sourcing-neutral system)
+        // Define keywords by category (Updated with new CAD + Prototype Video keywords)
         $keywords_by_category = array(
-            // Indoor Furniture - Replaced with "Indoor Furniture (Casegoods)" comprehensive keywords (Commit 2.3.9.1B)
-            // Old generic keywords removed - see new comprehensive list below
-            'Sofas & Seating (Indoor)' => array(
-                'sofa',
-                'couch',
-                'sectional',
-                'loveseat',
-                'banquette',
-                'bench',
-                'upholstery',
-                'fabric',
-                'leather'
-            ),
-            'Chairs & Armchairs (Indoor)' => array(
-                'chair',
-                'armchair',
-                'dining chair',
-                'side chair',
-                'accent chair',
-                'upholstered',
-                'wood',
-                'metal'
-            ),
-            'Dining Tables (Indoor)' => array(
-                'dining table',
-                'table',
-                'wood',
-                'marble',
-                'glass',
-                'extendable',
-                'round',
-                'rectangular'
-            ),
-            'Cabinetry / Millwork (Custom)' => array(
-                'cabinetry',
-                'millwork',
-                'custom',
-                'built-in',
-                'kitchen',
-                'bathroom',
-                'vanity',
-                'storage'
-            ),
-            'Casegoods (Beds, Nightstands, Desks, Consoles)' => array(
-                'casegoods',
-                'bed',
-                'nightstand',
-                'desk',
-                'console',
-                'dresser',
-                'chest',
-                'storage'
-            ),
-            // Outdoor Furniture - Replaced with comprehensive CAD + Prototype Video keywords (Commit 2.3.9.1B)
-            // Old generic keywords removed - see new comprehensive list below
-            'Outdoor Seating' => array(
-                'outdoor seating',
-                'patio chairs',
-                'outdoor sofa',
-                'weatherproof',
-                'cushions',
-                'aluminum',
-                'teak'
-            ),
-            'Outdoor Dining Sets' => array(
-                'outdoor dining',
-                'patio table',
-                'dining set',
-                'weatherproof',
-                'aluminum',
-                'teak',
-                'umbrella'
-            ),
-            'Outdoor Loungers & Daybeds' => array(
-                'lounger',
-                'daybed',
-                'chaise',
-                'outdoor',
-                'weatherproof',
-                'cushions',
-                'aluminum',
-                'teak'
-            ),
-            'Pool Furniture' => array(
-                'pool furniture',
-                'poolside',
-                'weatherproof',
-                'salt-air',
-                'coastal',
-                'aluminum',
-                'resin'
-            ),
-            // Lighting - Replaced with comprehensive CAD + Prototype Video keywords (Commit 2.3.9.1B)
-            // Old generic keywords removed - see new comprehensive list below
-            'Decorative Lighting' => array(
-                'decorative lighting',
-                'pendant',
-                'chandelier',
-                'sconce',
-                'table lamp',
-                'floor lamp',
-                'decorative',
-                'custom'
-            ),
-            'Architectural Lighting' => array(
-                'architectural lighting',
-                'recessed',
-                'track',
-                'downlight',
-                'spotlight',
-                'linear',
-                'commercial',
-                'led'
-            ),
-            'Electrical / LED Components' => array(
-                'led',
-                'driver',
-                'transformer',
-                'dimmer',
-                'switch',
-                'electrical',
-                'components',
-                'wiring'
-            ),
-            // Plumbing + Bath + Kitchen
-            'Bathroom Fixtures' => array(
-                'bathroom',
-                'fixtures',
-                'vanity',
-                'toilet',
-                'bathtub',
-                'shower',
-                'bathroom accessories'
-            ),
-            'Kitchen Fixtures' => array(
-                'kitchen',
-                'fixtures',
-                'sink',
-                'faucet',
-                'kitchen accessories',
-                'hardware'
-            ),
-            'Faucets / Hardware (Plumbing)' => array(
-                'faucet',
-                'fixtures',
-                'sink',
-                'basin',
-                'shower',
-                'valve',
-                'hardware',
-                'drain',
-                'spout',
-                'mixer',
-                'tap'
-            ),
-            'Sinks / Basins' => array(
-                'sink',
-                'basin',
-                'kitchen sink',
-                'bathroom sink',
-                'undermount',
-                'drop-in',
-                'farmhouse',
-                'stainless',
-                'porcelain',
-                'stone'
-            ),
-            'Shower Systems / Accessories' => array(
-                'shower',
-                'shower system',
-                'showerhead',
-                'shower panel',
-                'shower accessories',
-                'handheld',
-                'rain',
-                'body jets'
-            ),
-            // Surfaces + Stone - Replaced with "Stone (Marble / Granite / Quartz)" comprehensive keywords (Commit 2.3.9.1B)
-            // "Marble / Stone" old keywords removed - replaced by "Stone (Marble / Granite / Quartz)" comprehensive list below
-            'Granite' => array(
-                'granite',
-                'stone',
-                'slab',
-                'countertop',
-                'vanity top',
-                'tabletop',
-                'polished',
-                'honed'
-            ),
-            'Quartz' => array(
-                'quartz',
-                'engineered stone',
-                'countertop',
-                'vanity top',
-                'tabletop',
-                'slab',
-                'polished',
-                'honed'
-            ),
-            'Porcelain / Ceramic Slabs' => array(
-                'porcelain',
-                'ceramic',
-                'slab',
-                'large format',
-                'countertop',
-                'wall',
-                'floor',
-                'tile'
-            ),
-            'Tile (Wall / Floor)' => array(
-                'tile',
-                'wall tile',
-                'floor tile',
-                'ceramic',
-                'porcelain',
-                'mosaic',
-                'backsplash',
-                'bathroom',
-                'kitchen'
-            ),
-            'Terrazzo' => array(
-                'terrazzo',
-                'aggregate',
-                'floor',
-                'wall',
-                'countertop',
-                'precast',
-                'poured'
-            ),
-            // Soft Goods - Replaced with comprehensive CAD + Prototype Video keywords (Commit 2.3.9.1B)
-            // Old generic keywords for "Rugs / Carpets" and "Drapery" removed - see comprehensive lists below
-            'Window Treatments / Shades' => array(
-                'window treatment',
-                'shade',
-                'roller shade',
-                'roman shade',
-                'blinds',
-                'blackout',
-                'sheer',
-                'motorized'
-            ),
-            // "Wallcoverings" old keywords removed - replaced by "Wallcoverings / Finishes" comprehensive list below
-            'Acoustic Panels' => array(
-                'acoustic',
-                'panel',
-                'sound',
-                'absorption',
-                'fabric',
-                'wood',
-                'custom',
-                'commercial'
-            ),
-            // Decor + Accessories - Replaced with "Glass / Mirrors" comprehensive keywords (Commit 2.3.9.1B)
-            // "Mirrors" old keywords removed - replaced by "Glass / Mirrors" comprehensive list below
-            'Artwork' => array(
-                'artwork',
-                'art',
-                'painting',
-                'print',
-                'sculpture',
-                'custom',
-                'commissioned'
-            ),
-            'Decorative Accessories' => array(
-                'decorative',
-                'accessories',
-                'vase',
-                'bowl',
-                'sculpture',
-                'objects',
-                'decor'
-            ),
-            'Planters' => array(
-                'planter',
-                'planter box',
-                'pot',
-                'indoor',
-                'outdoor',
-                'ceramic',
-                'fiberglass',
-                'metal',
-                'wood'
-            ),
-            'Sculptural Objects' => array(
-                'sculpture',
-                'sculptural',
-                'object',
-                'art',
-                'decorative',
-                'custom',
-                'commissioned'
-            ),
-            // Architectural / Exterior
-            'Railings' => array(
-                'railing',
-                'handrail',
-                'guardrail',
-                'stair',
-                'metal',
-                'glass',
-                'wood',
-                'custom'
-            ),
-            'Screens / Louvers' => array(
-                'screen',
-                'louver',
-                'louvre',
-                'privacy',
-                'exterior',
-                'interior',
-                'metal',
-                'wood',
-                'aluminum'
-            ),
-            'Pergola / Shade Components' => array(
-                'pergola',
-                'shade',
-                'canopy',
-                'outdoor',
-                'structure',
-                'wood',
-                'aluminum',
-                'fabric'
-            ),
-            'Facade Materials' => array(
-                'facade',
-                'cladding',
-                'exterior',
-                'siding',
-                'metal',
-                'composite',
-                'wood',
-                'stone',
-                'tile'
-            ),
-            // Other
-            'Material Sample Kit' => array(
-                'sample',
-                'material',
-                'fabric',
-                'finish',
-                'swatch'
-            ),
-            'Fabric Sample' => array(
-                'fabric',
-                'sample',
-                'swatch',
-                'textile',
-                'upholstery',
-                'drapery'
-            ),
-            'Custom Sourcing / Not Listed' => array(
-                'custom',
-                'sourcing',
-                'specialty',
-                'unique',
-                'bespoke'
-            ),
-            // New comprehensive keywords for CAD + Prototype Video (Commit 2.3.9.1B)
-            'Upholstery' => array(
-                'Seat height measurement',
-                'Seat depth measurement',
-                'Arm height measurement',
-                'Back height measurement',
-                'Overall width / depth / height overlay',
-                'Comparison to approved drawings',
-                'Cushion firmness test (hand pressure)',
-                'Cushion construction layers (foam / fill)',
-                'Tight vs loose seat demonstration',
-                'Suspension system (webbing / springs)',
-                'Frame structure close-up',
-                'Stitching detail (close-up)',
-                'Channel / tufting alignment',
-                'Seam consistency',
-                'COM/COL application quality',
-                'Leather grain & consistency',
-                'Fabric tension / wrinkling',
-                'Sit test (single + multiple users)',
-                'Edge comfort test',
-                'Back support demonstration',
-                'Measurement overlay against drawings',
-                'Close-up of critical junctions',
-                'Hospitality-grade build confirmation',
-                'CAL117 / FR tag shown'
+            'Indoor Furniture' => array(
+                'HEIGHT-MEASUREMENT',
+                'STITCH-DETAIL',
+                'FIRMNESS-TEST',
+                'DEPTH-VERIFICATION',
+                'ARM-MEASUREMENT',
+                'BACK-HEIGHT',
+                'DIMENSION-OVERLAY',
+                'FOAM-LAYERS',
+                'SUSPENSION-STRUCTURE',
+                'TENSION-CHECK'
             ),
             'Indoor Furniture (Casegoods)' => array(
-                'Overall dimensions overlay',
-                'Drawer interior dimensions',
-                'Clearance / reveal spacing',
-                'Comparison to shop drawings',
-                'Joinery detail (dovetail / dowel / cam)',
-                'Panel construction',
-                'KD / RTA assembly detail',
-                'Structural stability test',
-                'Solid wood vs veneer close-up',
-                'Veneer matching consistency',
-                'Finish type (matte / gloss / lacquer)',
-                'Edge banding quality',
-                'Mixed material junctions',
-                'Drawer glide operation',
-                'Door swing / soft-close demo',
-                'Leveling feet demonstration',
-                'Alignment to drawings and reveals'
-            ),
-            // Also add keywords to "Indoor Furniture" category (for backward compatibility)
-            // This ensures "Indoor Furniture" searches work even if mapping fails
-            'Indoor Furniture' => array(
-                'Overall dimensions overlay',
-                'Drawer interior dimensions',
-                'Clearance / reveal spacing',
-                'Comparison to shop drawings',
-                'Joinery detail (dovetail / dowel / cam)',
-                'Panel construction',
-                'KD / RTA assembly detail',
-                'Structural stability test',
-                'Solid wood vs veneer close-up',
-                'Veneer matching consistency',
-                'Finish type (matte / gloss / lacquer)',
-                'Edge banding quality',
-                'Mixed material junctions',
-                'Drawer glide operation',
-                'Door swing / soft-close demo',
-                'Leveling feet demonstration',
-                'Alignment to drawings and reveals'
-            ),
-            // Map similar categories to Upholstery keywords
-            'Sofas & Seating (Indoor)' => array(
-                'Seat height measurement',
-                'Seat depth measurement',
-                'Arm height measurement',
-                'Back height measurement',
-                'Overall width / depth / height overlay',
-                'Comparison to approved drawings',
-                'Cushion firmness test (hand pressure)',
-                'Cushion construction layers (foam / fill)',
-                'Tight vs loose seat demonstration',
-                'Suspension system (webbing / springs)',
-                'Frame structure close-up',
-                'Stitching detail (close-up)',
-                'Channel / tufting alignment',
-                'Seam consistency',
-                'COM/COL application quality',
-                'Leather grain & consistency',
-                'Fabric tension / wrinkling',
-                'Sit test (single + multiple users)',
-                'Edge comfort test',
-                'Back support demonstration',
-                'Measurement overlay against drawings',
-                'Close-up of critical junctions',
-                'Hospitality-grade build confirmation',
-                'CAL117 / FR tag shown'
-            ),
-            'Chairs & Armchairs (Indoor)' => array(
-                'Seat height measurement',
-                'Seat depth measurement',
-                'Arm height measurement',
-                'Back height measurement',
-                'Overall width / depth / height overlay',
-                'Comparison to approved drawings',
-                'Cushion firmness test (hand pressure)',
-                'Cushion construction layers (foam / fill)',
-                'Tight vs loose seat demonstration',
-                'Suspension system (webbing / springs)',
-                'Frame structure close-up',
-                'Stitching detail (close-up)',
-                'Channel / tufting alignment',
-                'Seam consistency',
-                'COM/COL application quality',
-                'Leather grain & consistency',
-                'Fabric tension / wrinkling',
-                'Sit test (single + multiple users)',
-                'Edge comfort test',
-                'Back support demonstration',
-                'Measurement overlay against drawings',
-                'Close-up of critical junctions',
-                'Hospitality-grade build confirmation',
-                'CAL117 / FR tag shown'
-            ),
-            // Map Casegoods to Indoor Furniture (Casegoods) keywords
-            'Casegoods (Beds, Nightstands, Desks, Consoles)' => array(
-                'Overall dimensions overlay',
-                'Drawer interior dimensions',
-                'Clearance / reveal spacing',
-                'Comparison to shop drawings',
-                'Joinery detail (dovetail / dowel / cam)',
-                'Panel construction',
-                'KD / RTA assembly detail',
-                'Structural stability test',
-                'Solid wood vs veneer close-up',
-                'Veneer matching consistency',
-                'Finish type (matte / gloss / lacquer)',
-                'Edge banding quality',
-                'Mixed material junctions',
-                'Drawer glide operation',
-                'Door swing / soft-close demo',
-                'Leveling feet demonstration',
-                'Alignment to drawings and reveals'
-            ),
-            // Map similar outdoor categories to Outdoor Furniture keywords
-            'Outdoor Seating' => array(
-                'Overall dimensions overlay',
-                'Seating height / depth measurement',
-                'Cushion thickness measurement',
-                'Frame material close-up (aluminum / SS / teak)',
-                'Weld quality / joint detail',
-                'Frame thickness measurement',
-                'Powder coat consistency',
-                'Rope / weave detail',
-                'Teak grain & finish',
-                'Sling tension demo',
-                'Cushion water drainage test',
-                'Quick-dry foam demonstration',
-                'Stackability (if applicable)',
-                'Outdoor daylight view',
-                'Coastal / salt-air spec confirmation'
-            ),
-            'Outdoor Dining Sets' => array(
-                'Overall dimensions overlay',
-                'Seating height / depth measurement',
-                'Cushion thickness measurement',
-                'Frame material close-up (aluminum / SS / teak)',
-                'Weld quality / joint detail',
-                'Frame thickness measurement',
-                'Powder coat consistency',
-                'Rope / weave detail',
-                'Teak grain & finish',
-                'Sling tension demo',
-                'Cushion water drainage test',
-                'Quick-dry foam demonstration',
-                'Stackability (if applicable)',
-                'Outdoor daylight view',
-                'Coastal / salt-air spec confirmation'
-            ),
-            'Outdoor Loungers & Daybeds' => array(
-                'Overall dimensions overlay',
-                'Seating height / depth measurement',
-                'Cushion thickness measurement',
-                'Frame material close-up (aluminum / SS / teak)',
-                'Weld quality / joint detail',
-                'Frame thickness measurement',
-                'Powder coat consistency',
-                'Rope / weave detail',
-                'Teak grain & finish',
-                'Sling tension demo',
-                'Cushion water drainage test',
-                'Quick-dry foam demonstration',
-                'Stackability (if applicable)',
-                'Outdoor daylight view',
-                'Coastal / salt-air spec confirmation'
-            ),
-            'Pool Furniture' => array(
-                'Overall dimensions overlay',
-                'Seating height / depth measurement',
-                'Cushion thickness measurement',
-                'Frame material close-up (aluminum / SS / teak)',
-                'Weld quality / joint detail',
-                'Frame thickness measurement',
-                'Powder coat consistency',
-                'Rope / weave detail',
-                'Teak grain & finish',
-                'Sling tension demo',
-                'Cushion water drainage test',
-                'Quick-dry foam demonstration',
-                'Stackability (if applicable)',
-                'Outdoor daylight view',
-                'Coastal / salt-air spec confirmation'
-            ),
-            // Map similar lighting categories to Lighting keywords
-            'Decorative Lighting' => array(
-                'Fixture overall dimensions',
-                'Drop length / canopy detail',
-                'Scale relative to person / space',
-                'Frame construction detail',
-                'Socket / wiring close-up',
-                'Mounting method demonstration',
-                'Metal finish consistency',
-                'Glass shade thickness & quality',
-                'Custom finish sample comparison',
-                'Light output ON (full)',
-                'Dimming demonstration',
-                'Color temperature shown',
-                'Glare control view',
-                'UL / ETL label shown',
-                'Hospitality spec confirmation'
-            ),
-            'Architectural Lighting' => array(
-                'Fixture overall dimensions',
-                'Drop length / canopy detail',
-                'Scale relative to person / space',
-                'Frame construction detail',
-                'Socket / wiring close-up',
-                'Mounting method demonstration',
-                'Metal finish consistency',
-                'Glass shade thickness & quality',
-                'Custom finish sample comparison',
-                'Light output ON (full)',
-                'Dimming demonstration',
-                'Color temperature shown',
-                'Glare control view',
-                'UL / ETL label shown',
-                'Hospitality spec confirmation'
-            ),
-            'Electrical / LED Components' => array(
-                'Fixture overall dimensions',
-                'Drop length / canopy detail',
-                'Scale relative to person / space',
-                'Frame construction detail',
-                'Socket / wiring close-up',
-                'Mounting method demonstration',
-                'Metal finish consistency',
-                'Glass shade thickness & quality',
-                'Custom finish sample comparison',
-                'Light output ON (full)',
-                'Dimming demonstration',
-                'Color temperature shown',
-                'Glare control view',
-                'UL / ETL label shown',
-                'Hospitality spec confirmation'
-            ),
-            // Map stone categories to Stone keywords
-            'Marble / Stone' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            'Granite' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            'Quartz' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            // Map cabinetry to Millwork / Cabinetry keywords
-            'Cabinetry / Millwork (Custom)' => array(
-                'Overall dimensions overlay',
-                'Reveal spacing',
-                'Alignment across units',
-                'Carcass construction',
-                'Drawer box detail',
-                'Shelving support detail',
-                'Veneer matching across panels',
-                'Paint / stain consistency',
-                'Laminate edge detail',
-                'Soft-close demo',
-                'Hinge alignment',
-                'Drawer glide operation'
-            ),
-            // Map drapery categories
-            'Drapery' => array(
-                'Full drop length shown',
-                'Stack-back measurement',
-                'Fabric texture close-up',
-                'Lining detail',
-                'COM application',
-                'Open / close operation',
-                'Motorized function demo',
-                'Track system detail'
-            ),
-            'Window Treatments / Shades' => array(
-                'Full drop length shown',
-                'Stack-back measurement',
-                'Fabric texture close-up',
-                'Lining detail',
-                'COM application',
-                'Open / close operation',
-                'Motorized function demo',
-                'Track system detail'
-            ),
-            // Map mirrors to Glass / Mirrors keywords
-            'Mirrors' => array(
-                'Glass thickness measurement',
-                'Edge finish detail',
-                'Safety marking shown',
-                'Mirror tint consistency',
-                'Bevel detail',
-                'Back-paint quality'
-            ),
-            // Map wallcoverings
-            'Wallcoverings' => array(
-                'Pattern alignment',
-                'Texture close-up',
-                'Seam detail',
-                'Corner transitions',
-                'Cleanability demo',
-                'Acoustic panel thickness (if applicable)'
-            ),
-            'Acoustic Panels' => array(
-                'Pattern alignment',
-                'Texture close-up',
-                'Seam detail',
-                'Corner transitions',
-                'Cleanability demo',
-                'Acoustic panel thickness (if applicable)'
-            ),
-            // Map additional stone-related categories
-            'Porcelain / Ceramic Slabs' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            'Tile (Wall / Floor)' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            'Terrazzo' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
-            ),
-            // Map hardware/plumbing categories to Hardware / Accessories keywords
-            'Bathroom Fixtures' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            'Kitchen Fixtures' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            'Faucets / Hardware (Plumbing)' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            'Sinks / Basins' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            'Shower Systems / Accessories' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            'Decorative Accessories' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
-            ),
-            // Map metalwork categories
-            'Railings' => array(
-                'Overall dimensions overlay',
-                'Thickness measurement',
-                'Weld quality close-up',
-                'Laser cut / CNC detail',
-                'Bend consistency',
-                'Finish uniformity',
-                'Patina variation (intentional)',
-                'Coating thickness view',
-                'Load / rigidity demonstration (if applicable)',
-                'Hardware integration detail'
-            ),
-            'Screens / Louvers' => array(
-                'Overall dimensions overlay',
-                'Thickness measurement',
-                'Weld quality close-up',
-                'Laser cut / CNC detail',
-                'Bend consistency',
-                'Finish uniformity',
-                'Patina variation (intentional)',
-                'Coating thickness view',
-                'Load / rigidity demonstration (if applicable)',
-                'Hardware integration detail'
-            ),
-            // Map Dining Tables to Indoor Furniture (Casegoods) keywords
-            'Dining Tables (Indoor)' => array(
-                'Overall dimensions overlay',
-                'Drawer interior dimensions',
-                'Clearance / reveal spacing',
-                'Comparison to shop drawings',
-                'Joinery detail (dovetail / dowel / cam)',
-                'Panel construction',
-                'KD / RTA assembly detail',
-                'Structural stability test',
-                'Solid wood vs veneer close-up',
-                'Veneer matching consistency',
-                'Finish type (matte / gloss / lacquer)',
-                'Edge banding quality',
-                'Mixed material junctions',
-                'Drawer glide operation',
-                'Door swing / soft-close demo',
-                'Leveling feet demonstration',
-                'Alignment to drawings and reveals'
+                'JOINERY-DETAIL',
+                'FINISH-TYPE',
+                'GLIDE-OPERATION',
+                'INTERIOR-DIMENSIONS',
+                'REVEAL-SPACING',
+                'STABILITY-TEST',
+                'VENEER-CONSISTENCY',
+                'SOFT-CLOSE-DEMO',
+                'LEVELING-FEET',
+                'EDGE-QUALITY'
             ),
             'Outdoor Furniture' => array(
-                'Overall dimensions overlay',
-                'Seating height / depth measurement',
-                'Cushion thickness measurement',
-                'Frame material close-up (aluminum / SS / teak)',
-                'Weld quality / joint detail',
-                'Frame thickness measurement',
-                'Powder coat consistency',
-                'Rope / weave detail',
-                'Teak grain & finish',
-                'Sling tension demo',
-                'Cushion water drainage test',
-                'Quick-dry foam demonstration',
-                'Stackability (if applicable)',
-                'Outdoor daylight view',
-                'Coastal / salt-air spec confirmation'
+                'FRAME-CLOSEUP',
+                'POWDER-COATING',
+                'DRAINAGE-TEST',
+                'WELD-QUALITY',
+                'FRAME-THICKNESS',
+                'WEAVE-DETAIL',
+                'QUICK-DRY-DEMO',
+                'STACKABILITY-CHECK',
+                'DAYLIGHT-VIEW',
+                'CUSHION-THICKNESS'
             ),
             'Lighting' => array(
-                'Fixture overall dimensions',
-                'Drop length / canopy detail',
-                'Scale relative to person / space',
-                'Frame construction detail',
-                'Socket / wiring close-up',
-                'Mounting method demonstration',
-                'Metal finish consistency',
-                'Glass shade thickness & quality',
-                'Custom finish sample comparison',
-                'Light output ON (full)',
-                'Dimming demonstration',
-                'Color temperature shown',
-                'Glare control view',
-                'UL / ETL label shown',
-                'Hospitality spec confirmation'
+                'OUTPUT-POWER',
+                'DIMMING-DEMO',
+                'CANOPY-DETAIL',
+                'SCALE-REFERENCE',
+                'WIRING-CLOSEUP',
+                'MOUNTING-METHOD',
+                'GLASS-QUALITY',
+                'COLOR-TEMP',
+                'GLARE-CONTROL',
+                'CERTIFICATION-LABEL'
             ),
             'Stone (Marble / Granite / Quartz)' => array(
-                'Overall slab view',
-                'Vein movement (wide view)',
-                'Vein detail (close-up)',
-                'Color consistency across slab',
-                'Finish type (polished / honed / leathered)',
-                'Light reflection test',
-                'Surface texture close-up',
-                'Slab thickness measurement',
-                'Edge thickness detail',
-                'Edge profile close-up',
-                'Sample vs drawing comparison',
-                'Bookmatch alignment',
-                'Shade variation comparison'
+                'VEIN-DETAIL',
+                'EDGE-PROFILE',
+                'SLAB-OVERVIEW',
+                'COLOR-CONSISTENCY',
+                'REFLECTION-TEST',
+                'THICKNESS-MEASURE',
+                'BOOKMATCH-ALIGN',
+                'SHADE-VARIATION',
+                'TEXTURE-CLOSEUP',
+                'SEAM-ALIGNMENT'
             ),
             'Metalwork' => array(
-                'Overall dimensions overlay',
-                'Thickness measurement',
-                'Weld quality close-up',
-                'Laser cut / CNC detail',
-                'Bend consistency',
-                'Finish uniformity',
-                'Patina variation (intentional)',
-                'Coating thickness view',
-                'Load / rigidity demonstration (if applicable)',
-                'Hardware integration detail'
+                'WELD-QUALITY',
+                'CNC-DETAIL',
+                'BEND-CONSISTENCY',
+                'FINISH-UNIFORMITY',
+                'PATINA-VARIATION',
+                'RIGIDITY-DEMO',
+                'GAUGE-MEASURE',
+                'HARDWARE-INTEGRATION',
+                'DIMENSION-OVERLAY',
+                'COATING-THICKNESS'
             ),
             'Millwork / Cabinetry' => array(
-                'Overall dimensions overlay',
-                'Reveal spacing',
-                'Alignment across units',
-                'Carcass construction',
-                'Drawer box detail',
-                'Shelving support detail',
-                'Veneer matching across panels',
-                'Paint / stain consistency',
-                'Laminate edge detail',
-                'Soft-close demo',
-                'Hinge alignment',
-                'Drawer glide operation'
+                'VENEER-MATCHING',
+                'REVEAL-ALIGNMENT',
+                'DRAWER-BOX',
+                'HINGE-ALIGNMENT',
+                'CARCASS-CONSTRUCTION',
+                'PAINT-CONSISTENCY',
+                'LAMINATE-EDGE',
+                'GLIDE-TEST',
+                'DIMENSION-VERIFY',
+                'FIT-INTEGRATION'
             ),
             'Flooring' => array(
-                'Overall pattern view',
-                'Color variation',
-                'Grain / texture close-up',
-                'Edge detail',
-                'Underlayment shown',
-                'Locking system demo',
-                'Slip resistance demo',
-                'Moisture barrier confirmation'
+                'PATTERN-VIEW',
+                'GRAIN-TEXTURE',
+                'LOCKING-SYSTEM',
+                'SLIP-RESISTANCE',
+                'EDGE-DETAIL',
+                'COLOR-RANGE',
+                'UNDERLAYMENT-PROOF',
+                'MOISTURE-BARRIER',
+                'THICKNESS-CHECK',
+                'SURFACE-REFLECT'
             ),
             'Drapery / Window Treatments' => array(
-                'Full drop length shown',
-                'Stack-back measurement',
-                'Fabric texture close-up',
-                'Lining detail',
-                'COM application',
-                'Open / close operation',
-                'Motorized function demo',
-                'Track system detail'
+                'MOTION-OPERATION',
+                'DROP-LENGTH',
+                'STACK-BACK',
+                'FABRIC-TEXTURE',
+                'COM-APPLICATION',
+                'MOTORIZED-DEMO',
+                'TRACK-DETAIL',
+                'HEM-FINISH',
+                'LIGHT-LEAK',
+                'PLEAT-ALIGNMENT'
             ),
             'Glass / Mirrors' => array(
-                'Glass thickness measurement',
-                'Edge finish detail',
-                'Safety marking shown',
-                'Mirror tint consistency',
-                'Bevel detail',
-                'Back-paint quality'
+                'THICKNESS-MEASUREMENT',
+                'EDGE-FINISH',
+                'SAFETY-MARKING',
+                'TINT-CONSISTENCY',
+                'BEVEL-DETAIL',
+                'BACK-PAINT',
+                'DISTORTION-CHECK',
+                'HARDWARE-SEATING',
+                'CLARITY-TEST',
+                'MOUNTING-STABILITY'
             ),
             'Hardware / Accessories' => array(
-                'Material thickness',
-                'Casting / machining detail',
-                'Finish consistency',
-                'Wear surface close-up',
-                'Installation demo',
-                'Operation test'
+                'GAUGE-VERIFICATION',
+                'MACHINING-DETAIL',
+                'FINISH-UNIFORMITY',
+                'WEAR-SURFACE',
+                'MOUNTING-DEMO',
+                'FUNCTION-TEST',
+                'SPRING-ACTION',
+                'THREADING-CHECK',
+                'SCALE-CHECK',
+                'COMPONENT-FIT'
             ),
             'Rugs / Carpets' => array(
-                'Pattern consistency',
-                'Color variation',
-                'Backing detail',
-                'Edge binding',
-                'Pile height measurement',
-                'Stain resistance demo (if applicable)'
-            ),
-            'Wallcoverings / Finishes' => array(
-                'Pattern alignment',
-                'Texture close-up',
-                'Seam detail',
-                'Corner transitions',
-                'Cleanability demo',
-                'Acoustic panel thickness (if applicable)'
+                'PATTERN-CONTINUITY',
+                'TONE-VARIATION',
+                'BACKING-DETAIL',
+                'BINDING-QUALITY',
+                'PILE-HEIGHT',
+                'RESISTANCE-DEMO',
+                'KNOT-DENSITY',
+                'SHEDDING-TEST',
+                'FRINGE-DETAIL',
+                'LUSTR-CHECK'
             ),
             'Appliances' => array(
-                'Built-in fit view',
-                'Panel alignment',
-                'Power on demo',
-                'Control interface view',
-                'Voltage label shown'
+                'CAVITY-FIT',
+                'REVEAL-ALIGNMENT',
+                'STARTUP-SEQUENCE',
+                'INTERFACE-LEGIBILITY',
+                'SPEC-LABEL',
+                'DOOR-CLEARANCE',
+                'INTERIOR-LAYOUT',
+                'VENTILATION-GAP',
+                'INDICATOR-LIGHTS',
+                'SOUND-LEVEL'
+            ),
+            'Wallcoverings / Finishes' => array(
+                'ALIGNMENT-CHECK',
+                'TEXTURE-DEPTH',
+                'SEAM-DETAIL',
+                'CORNER-TRANSITION',
+                'CLEANABILITY-PROOF',
+                'PANEL-THICKNESS',
+                'ADHESIVE-CHECK',
+                'PEEL-STRENGTH',
+                'GRAIN-DIRECTION',
+                'SUBSTRATE-TEXTURE'
             )
         );
 
@@ -3749,6 +2946,545 @@ class N88_RFQ_Installer {
         }
     }
 
+    /**
+     * Commit 2.3.9.2B-D: Create designer prototype review tables
+     */
+    private static function create_phase_2_3_9_2b_d_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        
+        $feedback_packets_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+        $feedback_packet_lines_table = $wpdb->prefix . 'n88_prototype_feedback_packet_lines';
+        $keyword_phrases_table = $wpdb->prefix . 'n88_keyword_phrases';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table = $wpdb->prefix . 'users';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        
+        // Create n88_prototype_feedback_packets table
+        $sql_feedback_packets = "CREATE TABLE {$feedback_packets_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            payment_id BIGINT UNSIGNED NOT NULL,
+            item_id BIGINT UNSIGNED NOT NULL,
+            bid_id BIGINT UNSIGNED NOT NULL,
+            designer_id BIGINT UNSIGNED NOT NULL,
+            submission_version INT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_payment_id (payment_id),
+            KEY idx_item_id (item_id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_designer_id (designer_id),
+            KEY idx_submission_version (submission_version),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+        
+        dbDelta( $sql_feedback_packets );
+        
+        // Create n88_prototype_feedback_packet_lines table
+        $sql_feedback_packet_lines = "CREATE TABLE {$feedback_packet_lines_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            feedback_packet_id BIGINT UNSIGNED NOT NULL,
+            keyword_id INT UNSIGNED NOT NULL,
+            keyword_status ENUM('satisfied', 'needs_adjustment', 'not_addressed') NOT NULL,
+            severity ENUM('must_fix', 'should_fix', 'optional') NULL,
+            selected_phrase_ids JSON NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_feedback_packet_id (feedback_packet_id),
+            KEY idx_keyword_id (keyword_id),
+            KEY idx_keyword_status (keyword_status)
+        ) {$charset_collate};";
+        
+        dbDelta( $sql_feedback_packet_lines );
+        
+        // Create n88_keyword_phrases table
+        $sql_keyword_phrases = "CREATE TABLE {$keyword_phrases_table} (
+            phrase_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            category_id INT UNSIGNED NULL,
+            keyword_id INT UNSIGNED NULL,
+            phrase_text TEXT NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (phrase_id),
+            KEY idx_category_id (category_id),
+            KEY idx_keyword_id (keyword_id),
+            KEY idx_is_active (is_active),
+            KEY idx_sort_order (sort_order)
+        ) {$charset_collate};";
+        
+        dbDelta( $sql_keyword_phrases );
+        
+        // Add foreign keys
+        $feedback_packets_table_safe = esc_sql( $feedback_packets_table );
+        $feedback_packet_lines_table_safe = esc_sql( $feedback_packet_lines_table );
+        $keyword_phrases_table_safe = esc_sql( $keyword_phrases_table );
+        
+        // FK for feedback_packets.payment_id
+        if ( ! self::foreign_key_exists( $feedback_packets_table, 'fk_feedback_packet_payment' ) ) {
+            self::safe_add_foreign_key( $feedback_packets_table, 'fk_feedback_packet_payment', 'payment_id', $prototype_payments_table, 'id', 'CASCADE' );
+        }
+        
+        // FK for feedback_packets.item_id
+        if ( ! self::foreign_key_exists( $feedback_packets_table, 'fk_feedback_packet_item' ) ) {
+            self::safe_add_foreign_key( $feedback_packets_table, 'fk_feedback_packet_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        
+        // FK for feedback_packets.bid_id
+        if ( ! self::foreign_key_exists( $feedback_packets_table, 'fk_feedback_packet_bid' ) ) {
+            self::safe_add_foreign_key( $feedback_packets_table, 'fk_feedback_packet_bid', 'bid_id', $item_bids_table, 'bid_id', 'CASCADE' );
+        }
+        
+        // FK for feedback_packets.designer_id
+        if ( ! self::foreign_key_exists( $feedback_packets_table, 'fk_feedback_packet_designer' ) ) {
+            self::safe_add_foreign_key( $feedback_packets_table, 'fk_feedback_packet_designer', 'designer_id', $users_table, 'ID', 'CASCADE' );
+        }
+        
+        // FK for feedback_packet_lines.feedback_packet_id
+        if ( ! self::foreign_key_exists( $feedback_packet_lines_table, 'fk_feedback_packet_line_packet' ) ) {
+            self::safe_add_foreign_key( $feedback_packet_lines_table, 'fk_feedback_packet_line_packet', 'feedback_packet_id', $feedback_packets_table, 'id', 'CASCADE' );
+        }
+        
+        // FK for feedback_packet_lines.keyword_id
+        if ( ! self::foreign_key_exists( $feedback_packet_lines_table, 'fk_feedback_packet_line_keyword' ) ) {
+            self::safe_add_foreign_key( $feedback_packet_lines_table, 'fk_feedback_packet_line_keyword', 'keyword_id', $keywords_table, 'keyword_id', 'CASCADE' );
+        }
+        
+        // FK for keyword_phrases.category_id
+        if ( ! self::foreign_key_exists( $keyword_phrases_table, 'fk_keyword_phrase_category' ) ) {
+            self::safe_add_foreign_key( $keyword_phrases_table, 'fk_keyword_phrase_category', 'category_id', $categories_table, 'category_id', 'SET NULL' );
+        }
+        
+        // FK for keyword_phrases.keyword_id
+        if ( ! self::foreign_key_exists( $keyword_phrases_table, 'fk_keyword_phrase_keyword' ) ) {
+            self::safe_add_foreign_key( $keyword_phrases_table, 'fk_keyword_phrase_keyword', 'keyword_id', $keywords_table, 'keyword_id', 'CASCADE' );
+        }
+    }
+    
+    /**
+     * Commit 2.3.9.2B-D: Add prototype_status fields to n88_prototype_payments
+     */
+    private static function add_prototype_status_fields() {
+        global $wpdb;
+        
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        
+        // Check if prototype_status column exists
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND COLUMN_NAME = 'prototype_status'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+        
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
+                ADD COLUMN prototype_status ENUM('not_submitted', 'submitted', 'changes_requested', 'approved') NOT NULL DEFAULT 'not_submitted' AFTER cad_released_to_supplier_at" );
+        }
+        
+        // Check if prototype_approved_at column exists
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND COLUMN_NAME = 'prototype_approved_at'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+        
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
+                ADD COLUMN prototype_approved_at DATETIME NULL AFTER prototype_status" );
+        }
+        
+        // Check if prototype_current_version column exists
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND COLUMN_NAME = 'prototype_current_version'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+        
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
+                ADD COLUMN prototype_current_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER prototype_approved_at" );
+        }
+        
+        // Check if prototype_approved_version column exists
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND COLUMN_NAME = 'prototype_approved_version'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+        
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
+                ADD COLUMN prototype_approved_version INT UNSIGNED NULL AFTER prototype_current_version" );
+        }
+        
+        // Check if direction_keyword_ids column exists
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s 
+            AND TABLE_NAME = %s 
+            AND COLUMN_NAME = 'direction_keyword_ids'",
+            DB_NAME,
+            $prototype_payments_table
+        ) );
+        
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
+                ADD COLUMN direction_keyword_ids JSON NULL AFTER video_direction_json" );
+        }
+    }
+    
+    /**
+     * Commit 2.3.9.2B-D: Seed keyword phrases library
+     * 
+     * Populates n88_keyword_phrases with phrases linked to keywords by category.
+     * Keywords are matched by exact name (case-insensitive) within their category.
+     */
+    private static function seed_keyword_phrases() {
+        global $wpdb;
+        
+        $keyword_phrases_table = $wpdb->prefix . 'n88_keyword_phrases';
+        $keywords_table = $wpdb->prefix . 'n88_keywords';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        
+        // Define keyword-phrase mappings by category
+        $category_keyword_phrases = array(
+            'UPHOLSTERY' => array(
+                'HEIGHT-MEASUREMENT' => 'Please reshoot clearly showing the seat height measurement.',
+                'STITCH-DETAIL' => 'Please reshoot with tighter close-ups of stitching detail.',
+                'FIRMNESS-TEST' => 'Please demonstrate cushion firmness using hand pressure.',
+                'DEPTH-VERIFICATION' => 'Please reshoot clearly showing the seat depth measurement.',
+                'ARM-MEASUREMENT' => 'Please reshoot clearly showing the arm height measurement.',
+                'BACK-HEIGHT' => 'Please reshoot clearly showing the back height measurement.',
+                'DIMENSION-OVERLAY' => 'Provide an overall width / depth / height overlay for scale.',
+                'FOAM-LAYERS' => 'Show cushion construction layers (foam / fill) in detail.',
+                'SUSPENSION-STRUCTURE' => 'Provide a frame structure close-up showing the suspension system.',
+                'TENSION-CHECK' => 'Demonstrate fabric tension to ensure no sagging or wrinkling.',
+            ),
+            'INDOOR FURNITURE (CASEGOODS)' => array(
+                'JOINERY-DETAIL' => 'Please reshoot showing joinery in close-up.',
+                'FINISH-TYPE' => 'Please reshoot to better show finish type (Matte / Gloss / Lacquer).',
+                'GLIDE-OPERATION' => 'Please demonstrate drawer glide operation.',
+                'INTERIOR-DIMENSIONS' => 'Please reshoot showing drawer interior dimensions.',
+                'REVEAL-SPACING' => 'Please reshoot showing clearance and reveal spacing.',
+                'STABILITY-TEST' => 'Please demonstrate a structural stability test.',
+                'VENEER-CONSISTENCY' => 'Show solid wood vs veneer close-ups to confirm matching consistency.',
+                'SOFT-CLOSE-DEMO' => 'Please demonstrate the door swing and soft-close functionality.',
+                'LEVELING-FEET' => 'Please provide a demonstration of the leveling feet.',
+                'EDGE-QUALITY' => 'Show a close-up of edge banding quality and junctions.',
+            ),
+            'OUTDOOR FURNITURE' => array(
+                'FRAME-CLOSEUP' => 'Please reshoot showing frame material in close-up.',
+                'POWDER-COATING' => 'Please reshoot to show powder coat consistency.',
+                'DRAINAGE-TEST' => 'Please demonstrate cushion water drainage.',
+                'WELD-QUALITY' => 'Show weld quality and joint detail in a close-up.',
+                'FRAME-THICKNESS' => 'Show a measurement of the frame material thickness.',
+                'WEAVE-DETAIL' => 'Show rope / weave detail and tension in a close-up.',
+                'QUICK-DRY-DEMO' => 'Provide a quick-dry foam demonstration.',
+                'STACKABILITY-CHECK' => 'Demonstrate unit stackability to confirm fit.',
+                'DAYLIGHT-VIEW' => 'Provide a view of the piece in outdoor natural daylight.',
+                'CUSHION-THICKNESS' => 'Show a measurement of the cushion thickness.',
+            ),
+            'LIGHTING' => array(
+                'OUTPUT-POWER' => 'Please reshoot with fixture fully powered on.',
+                'DIMMING-DEMO' => 'Please demonstrate dimming functionality.',
+                'CANOPY-DETAIL' => 'Show drop length and canopy mounting detail.',
+                'SCALE-REFERENCE' => 'Show fixture scale relative to a person or the space.',
+                'WIRING-CLOSEUP' => 'Show socket and wiring construction details.',
+                'MOUNTING-METHOD' => 'Demonstrate the fixture mounting method clearly.',
+                'GLASS-QUALITY' => 'Show shade thickness and glass quality in detail.',
+                'COLOR-TEMP' => 'Demonstrate the light color temperature against a neutral surface.',
+                'GLARE-CONTROL' => 'Provide a view of the fixture to demonstrate glare control.',
+                'CERTIFICATION-LABEL' => 'Show the UL / ETL label clearly on the fixture.',
+            ),
+            'STONE (MARBLE / GRANITE / QUARTZ)' => array(
+                'VEIN-DETAIL' => 'Please reshoot showing vein detail in close-up.',
+                'EDGE-PROFILE' => 'Please reshoot showing edge profile in close-up.',
+                'SLAB-OVERVIEW' => 'Provide an overall slab view to show vein movement.',
+                'COLOR-CONSISTENCY' => 'Show color consistency across the entire slab.',
+                'REFLECTION-TEST' => 'Perform a light reflection test to show surface finish quality.',
+                'THICKNESS-MEASURE' => 'Show a measurement of the slab and edge thickness.',
+                'BOOKMATCH-ALIGN' => 'Show bookmatch alignment at the seam for pattern matching.',
+                'SHADE-VARIATION' => 'Provide a shade variation comparison against the approved sample.',
+                'TEXTURE-CLOSEUP' => 'Provide a surface texture close-up for honed or leathered finishes.',
+                'SEAM-ALIGNMENT' => 'Show the alignment of the stone against the drawings.',
+            ),
+            'METALWORK' => array(
+                'WELD-QUALITY' => 'Please reshoot showing weld quality in close-up.',
+                'CNC-DETAIL' => 'Show laser cut or CNC detail and edge smoothness.',
+                'BEND-CONSISTENCY' => 'Provide a view of bend consistency across the piece.',
+                'FINISH-UNIFORMITY' => 'Show finish uniformity across all metal surfaces.',
+                'PATINA-VARIATION' => 'Show intentional patina variation to confirm it meets the spec.',
+                'RIGIDITY-DEMO' => 'Provide a load or rigidity demonstration of the frame.',
+                'GAUGE-MEASURE' => 'Show a thickness measurement of the metal material.',
+                'HARDWARE-INTEGRATION' => 'Show how hardware is integrated and fastened to the metal.',
+                'DIMENSION-OVERLAY' => 'Provide an overall dimensions overlay for verification.',
+                'COATING-THICKNESS' => 'Show a side profile view of the coating thickness.',
+            ),
+            'MILLWORK / CABINETRY' => array(
+                'VENEER-MATCHING' => 'Please reshoot showing veneer matching across panels.',
+                'REVEAL-ALIGNMENT' => 'Please reshoot showing reveal spacing and alignment across units.',
+                'DRAWER-BOX' => 'Show the drawer box construction and joinery detail.',
+                'HINGE-ALIGNMENT' => 'Show hinge alignment and soft-close operation.',
+                'CARCASS-CONSTRUCTION' => 'Show the internal carcass construction and shelving supports.',
+                'PAINT-CONSISTENCY' => 'Show paint or stain consistency across all surfaces.',
+                'LAMINATE-EDGE' => 'Show laminate edge detail to check for seams.',
+                'GLIDE-TEST' => 'Demonstrate drawer glide operation and stability.',
+                'DIMENSION-VERIFY' => 'Provide an overall dimensions overlay against shop drawings.',
+                'FIT-INTEGRATION' => 'Show how the unit aligns and fits within the designated space.',
+            ),
+            'FLOORING' => array(
+                'PATTERN-VIEW' => 'Please reshoot showing the overall flooring pattern view.',
+                'GRAIN-TEXTURE' => 'Provide a grain and texture close-up.',
+                'LOCKING-SYSTEM' => 'Demonstrate the locking system or tongue-and-groove detail.',
+                'SLIP-RESISTANCE' => 'Please provide a slip resistance demonstration.',
+                'EDGE-DETAIL' => 'Show the edge detail and bevel of the planks.',
+                'COLOR-RANGE' => 'Show color variation across multiple pieces.',
+                'UNDERLAYMENT-PROOF' => 'Show the underlayment material used.',
+                'MOISTURE-BARRIER' => 'Provide confirmation of the moisture barrier installation.',
+                'THICKNESS-CHECK' => 'Show a measurement of the top wear layer.',
+                'SURFACE-REFLECT' => 'Show light reflection to confirm the finish gloss level.',
+            ),
+            'DRAPERY / WINDOW TREATMENTS' => array(
+                'MOTION-OPERATION' => 'Please demonstrate open and close operation.',
+                'DROP-LENGTH' => 'Please reshoot showing the full drop length.',
+                'STACK-BACK' => 'Provide a stack-back measurement when fully open.',
+                'FABRIC-TEXTURE' => 'Show a close-up of the fabric texture and lining detail.',
+                'COM-APPLICATION' => 'Confirm COM application quality and seam placement.',
+                'MOTORIZED-DEMO' => 'Provide a demonstration of the motorized function.',
+                'TRACK-DETAIL' => 'Show the track system and carrier details.',
+                'HEM-FINISH' => 'Show the bottom hem finish and weighting.',
+                'LIGHT-LEAK' => 'Demonstrate the light-blocking capability at the edges.',
+                'PLEAT-ALIGNMENT' => 'Show pleat spacing and alignment across the header.',
+            ),
+            'GLASS / MIRRORS' => array(
+                'THICKNESS-MEASUREMENT' => 'Please reshoot showing glass thickness measurement.',
+                'EDGE-FINISH' => 'Show the edge finish detail and polish quality.',
+                'SAFETY-MARKING' => 'Show the safety marking or tempering logo.',
+                'TINT-CONSISTENCY' => 'Show mirror tint consistency across the surface.',
+                'BEVEL-DETAIL' => 'Show a close-up of the bevel detail and width.',
+                'BACK-PAINT' => 'Show the quality and coverage of the back-paint.',
+                'DISTORTION-CHECK' => 'Show a reflection at an angle to check for glass distortion.',
+                'HARDWARE-SEATING' => 'Show how glass is seated within the frame or hardware.',
+                'CLARITY-TEST' => 'Provide a shot through the glass to confirm clarity.',
+                'MOUNTING-STABILITY' => 'Show the mounting points to confirm structural stability.',
+            ),
+            'HARDWARE / ACCESSORIES' => array(
+                'GAUGE-VERIFICATION' => 'Please reshoot clearly showing material thickness measurement.',
+                'MACHINING-DETAIL' => 'Please reshoot showing casting/machining detail in close-up.',
+                'FINISH-UNIFORMITY' => 'Please reshoot to show finish consistency across surfaces.',
+                'WEAR-SURFACE' => 'Please reshoot with close-up of wear surface areas.',
+                'MOUNTING-DEMO' => 'Please demonstrate installation steps clearly.',
+                'FUNCTION-TEST' => 'Please demonstrate operation test clearly.',
+                'SPRING-ACTION' => 'Demonstrate the spring return or mechanical tension.',
+                'THREADING-CHECK' => 'Show internal threading and fastener quality.',
+                'SCALE-CHECK' => 'Show the hardware relative to a standard measurement tool.',
+                'COMPONENT-FIT' => 'Show how multiple parts of the hardware assemble together.',
+            ),
+            'RUGS / CARPETS' => array(
+                'PATTERN-CONTINUITY' => 'Please reshoot showing pattern consistency across the full rug.',
+                'TONE-VARIATION' => 'Please reshoot to show accurate color variation.',
+                'BACKING-DETAIL' => 'Please reshoot showing backing detail in close-up.',
+                'BINDING-QUALITY' => 'Please reshoot showing edge binding in close-up.',
+                'PILE-HEIGHT' => 'Please reshoot showing pile height measurement.',
+                'RESISTANCE-DEMO' => 'Please reshoot demonstrating stain resistance performance.',
+                'KNOT-DENSITY' => 'Show the back of the rug to confirm knot density/tufting.',
+                'SHEDDING-TEST' => 'Demonstrate a shedding test with a brush or hand.',
+                'FRINGE-DETAIL' => 'Show the fringe attachment or edge termination.',
+                'LUSTR-CHECK' => 'Show the rug under directional light to check fiber luster.',
+            ),
+            'WALLCOVERINGS / FINISHES' => array(
+                'ALIGNMENT-CHECK' => 'Please reshoot showing pattern alignment across seams.',
+                'TEXTURE-DEPTH' => 'Please reshoot with close-up of surface texture.',
+                'SEAM-DETAIL' => 'Please reshoot showing seam detail in close-up.',
+                'CORNER-TRANSITION' => 'Please reshoot showing corner transitions clearly.',
+                'CLEANABILITY-PROOF' => 'Please reshoot demonstrating cleanability.',
+                'PANEL-THICKNESS' => 'Please reshoot showing acoustic panel thickness measurement.',
+                'ADHESIVE-CHECK' => 'Show seams to ensure no adhesive bleed-through.',
+                'PEEL-STRENGTH' => 'Demonstrate a peel-strength test on the substrate.',
+                'GRAIN-DIRECTION' => 'Confirm the grain or pattern direction is consistent.',
+                'SUBSTRATE-TEXTURE' => 'Show the substrate texture through the finish.',
+            ),
+            'APPLIANCES' => array(
+                'CAVITY-FIT' => 'Please reshoot showing built-in fit clearly.',
+                'REVEAL-ALIGNMENT' => 'Please reshoot showing panel alignment clearly.',
+                'STARTUP-SEQUENCE' => 'Please reshoot showing power-on sequence clearly.',
+                'INTERFACE-LEGIBILITY' => 'Please reshoot showing control interface clearly.',
+                'SPEC-LABEL' => 'Please reshoot showing voltage label clearly.',
+                'DOOR-CLEARANCE' => 'Demonstrate the door swing and handle clearance.',
+                'INTERIOR-LAYOUT' => 'Show the internal rack and shelving configuration.',
+                'VENTILATION-GAP' => 'Show the ventilation gaps required for the build-in.',
+                'INDICATOR-LIGHTS' => 'Show all indicator lights and display functions.',
+                'SOUND-LEVEL' => 'Provide a video with sound to demonstrate operational noise.',
+            ),
+        );
+        
+        // Process each category
+        foreach ( $category_keyword_phrases as $category_name => $keyword_phrases ) {
+            // Get category_id by name (case-insensitive)
+            $category = $wpdb->get_row( $wpdb->prepare(
+                "SELECT category_id FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                $category_name
+            ), ARRAY_A );
+            
+            if ( ! $category ) {
+                continue; // Skip if category doesn't exist
+            }
+            
+            $category_id = intval( $category['category_id'] );
+            
+            // Process each keyword-phrase pair
+            foreach ( $keyword_phrases as $keyword_name => $phrase_text ) {
+                // Try exact match first (case-insensitive)
+                $keyword = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT keyword_id FROM {$keywords_table} 
+                    WHERE LOWER(keyword) = LOWER(%s) AND category_id = %d LIMIT 1",
+                    $keyword_name,
+                    $category_id
+                ), ARRAY_A );
+                
+                // If exact match fails, try flexible matching (keyword contains the search term)
+                if ( ! $keyword ) {
+                    // Convert 'JOINERY-DETAIL' to 'joinery detail' for flexible matching
+                    $search_term = str_replace( array( '-', '_' ), ' ', strtolower( $keyword_name ) );
+                    $keyword = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT keyword_id FROM {$keywords_table} 
+                        WHERE category_id = %d 
+                        AND (LOWER(keyword) LIKE %s OR LOWER(keyword) LIKE %s)
+                        LIMIT 1",
+                        $category_id,
+                        '%' . $wpdb->esc_like( $search_term ) . '%',
+                        '%' . $wpdb->esc_like( str_replace( ' ', '', $search_term ) ) . '%'
+                    ), ARRAY_A );
+                }
+                
+                // If still no match, try matching just the first significant word
+                if ( ! $keyword ) {
+                    $first_word = explode( ' ', strtolower( $keyword_name ) )[0];
+                    $first_word = str_replace( array( '-', '_' ), '', $first_word );
+                    if ( strlen( $first_word ) > 3 ) {
+                        $keyword = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT keyword_id FROM {$keywords_table} 
+                            WHERE category_id = %d 
+                            AND LOWER(keyword) LIKE %s
+                            LIMIT 1",
+                            $category_id,
+                            '%' . $wpdb->esc_like( $first_word ) . '%'
+                        ), ARRAY_A );
+                    }
+                }
+                
+                if ( ! $keyword ) {
+                    continue; // Skip if keyword doesn't exist
+                }
+                
+                $keyword_id = intval( $keyword['keyword_id'] );
+                
+                // Check if phrase already exists for this keyword
+                $existing = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$keyword_phrases_table} 
+                    WHERE keyword_id = %d AND phrase_text = %s",
+                    $keyword_id,
+                    $phrase_text
+                ) );
+                
+                if ( $existing > 0 ) {
+                    continue; // Skip if already exists
+                }
+                
+                // Insert phrase
+                $wpdb->insert(
+                    $keyword_phrases_table,
+                    array(
+                        'category_id' => $category_id,
+                        'keyword_id'  => $keyword_id,
+                        'phrase_text' => $phrase_text,
+                        'is_active'   => 1,
+                        'sort_order'  => 0,
+                        'created_at'  => current_time( 'mysql' ),
+                    ),
+                    array( '%d', '%d', '%s', '%d', '%d', '%s' )
+                );
+            }
+        }
+        
+        // Fallback: Direct keyword_id to phrase mapping for known keywords that might not match by name
+        // This ensures phrases are seeded even if name matching fails
+        $direct_keyword_phrases = array(
+            // Keyword ID 550: "Joinery detail (dovetail / dowel / cam)"
+            550 => array(
+                'Please reshoot showing joinery in close-up.',
+                'Please reshoot to better show finish type (Matte / Gloss / Lacquer).',
+                'Please demonstrate drawer glide operation.',
+                'Please reshoot showing drawer interior dimensions.',
+                'Please reshoot showing clearance and reveal spacing.',
+                'Please demonstrate a structural stability test.',
+                'Show solid wood vs veneer close-ups to confirm matching consistency.',
+                'Please demonstrate the door swing and soft-close functionality.',
+                'Please provide a demonstration of the leveling feet.',
+                'Show a close-up of edge banding quality and junctions.',
+            ),
+        );
+        
+        foreach ( $direct_keyword_phrases as $direct_keyword_id => $direct_phrases ) {
+            // Check if keyword exists
+            $keyword_exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$keywords_table} WHERE keyword_id = %d",
+                $direct_keyword_id
+            ) );
+            
+            if ( $keyword_exists > 0 ) {
+                foreach ( $direct_phrases as $phrase_text ) {
+                    // Check if phrase already exists
+                    $existing = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$keyword_phrases_table} 
+                        WHERE keyword_id = %d AND phrase_text = %s",
+                        $direct_keyword_id,
+                        $phrase_text
+                    ) );
+                    
+                    if ( $existing == 0 ) {
+                        // Get category_id for this keyword
+                        $keyword_info = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT category_id FROM {$keywords_table} WHERE keyword_id = %d",
+                            $direct_keyword_id
+                        ), ARRAY_A );
+                        
+                        $phrase_category_id = $keyword_info && isset( $keyword_info['category_id'] ) ? intval( $keyword_info['category_id'] ) : null;
+                        
+                        // Insert phrase
+                        $wpdb->insert(
+                            $keyword_phrases_table,
+                            array(
+                                'category_id' => $phrase_category_id,
+                                'keyword_id'  => $direct_keyword_id,
+                                'phrase_text' => $phrase_text,
+                                'is_active'   => 1,
+                                'sort_order'  => 0,
+                                'created_at'  => current_time( 'mysql' ),
+                            ),
+                            array( '%d', '%d', '%s', '%d', '%d', '%s' )
+                        );
+                    }
+                }
+            }
+        }
+    }
+    
     /**
      * Check if a table exists before attempting schema changes.
      */

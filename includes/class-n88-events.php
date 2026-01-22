@@ -62,6 +62,9 @@ class N88_Events {
         'cad_released_to_supplier',
         // Commit 2.3.9.2B-S: Prototype video submission events
         'prototype_video_submitted',
+        // Commit 2.3.9.2B-D: Designer prototype review events
+        'prototype_video_changes_requested',
+        'prototype_video_approved',
     );
 
     /**
