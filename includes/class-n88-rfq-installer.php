@@ -1205,6 +1205,9 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.2B-D: Add prototype_status fields to n88_prototype_payments
         self::add_prototype_status_fields();
+        
+        // Commit 2.3.10: Migrate item_delivery_context table for delivery quoting
+        self::migrate_item_delivery_context_for_delivery_quoting();
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -3146,6 +3149,46 @@ class N88_RFQ_Installer {
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
                 ADD COLUMN direction_keyword_ids JSON NULL AFTER video_direction_json" );
         }
+    }
+    
+    /**
+     * Commit 2.3.10: Migrate item_delivery_context table for delivery quoting
+     * Adds fields for storing computed CBM, shipping mode, and delivery cost
+     */
+    private static function migrate_item_delivery_context_for_delivery_quoting() {
+        global $wpdb;
+        
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        
+        // Check if table exists
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_delivery_context_table}'" ) !== $item_delivery_context_table ) {
+            return; // Table doesn't exist yet, will be created by create_phase_2_2_9_tables
+        }
+        
+        $columns = $wpdb->get_col( "DESCRIBE {$item_delivery_context_table}" );
+        
+        // Add cbm column if not exists
+        if ( ! in_array( 'cbm', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_delivery_context_table} ADD COLUMN cbm DECIMAL(10,6) NULL AFTER shipping_estimate_mode" );
+        }
+        
+        // Add shipping_mode column if not exists
+        if ( ! in_array( 'shipping_mode', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_delivery_context_table} ADD COLUMN shipping_mode ENUM('LCL', 'FCL_20', 'FCL_40HQ') NULL AFTER cbm" );
+        }
+        
+        // Add delivery_cost_usd column if not exists
+        if ( ! in_array( 'delivery_cost_usd', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_delivery_context_table} ADD COLUMN delivery_cost_usd DECIMAL(10,2) NULL AFTER shipping_mode" );
+        }
+        
+        // Add updated_at column if not exists
+        if ( ! in_array( 'updated_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$item_delivery_context_table} ADD COLUMN updated_at DATETIME NULL AFTER delivery_cost_usd" );
+        }
+        
+        // Update delivery_country_code to delivery_country for consistency (if needed)
+        // Note: Keeping delivery_country_code as is for backward compatibility
     }
     
     /**

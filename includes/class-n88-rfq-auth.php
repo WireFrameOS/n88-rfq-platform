@@ -10164,6 +10164,51 @@ class N88_RFQ_Auth {
                 $item_id
             ), ARRAY_A );
 
+            // Commit 2.3.10: Get delivery cost for this item
+            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+            $delivery_cost_data = null;
+            $delivery_shipping_mode = null;
+            
+            $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$delivery_context_table}'" ) === $delivery_context_table;
+            if ( $table_exists ) {
+                $columns = $wpdb->get_col( "DESCRIBE {$delivery_context_table}" );
+                $has_delivery_cost = in_array( 'delivery_cost_usd', $columns, true );
+                $has_shipping_mode = in_array( 'shipping_mode', $columns, true );
+                
+                if ( $has_delivery_cost || $has_shipping_mode ) {
+                    $select_delivery = 'delivery_country_code';
+                    if ( $has_delivery_cost ) {
+                        $select_delivery .= ', delivery_cost_usd';
+                    }
+                    if ( $has_shipping_mode ) {
+                        $select_delivery .= ', shipping_mode';
+                    }
+                    
+                    $delivery_context = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT {$select_delivery} FROM {$delivery_context_table} WHERE item_id = %d",
+                        $item_id
+                    ), ARRAY_A );
+                    
+                    if ( $delivery_context ) {
+                        // Only show delivery cost for US
+                        $delivery_country = isset( $delivery_context['delivery_country_code'] ) ? strtoupper( trim( $delivery_context['delivery_country_code'] ) ) : '';
+                        if ( $delivery_country === 'US' ) {
+                            $delivery_cost_data = isset( $delivery_context['delivery_cost_usd'] ) ? floatval( $delivery_context['delivery_cost_usd'] ) : null;
+                            $delivery_shipping_mode = isset( $delivery_context['shipping_mode'] ) ? $delivery_context['shipping_mode'] : null;
+                            
+                            // Commit 2.3.10: If delivery cost is NULL but country is US, try to calculate it on-the-fly
+                            if ( ( $delivery_cost_data === null || $delivery_cost_data === 0 ) && class_exists( 'N88_RFQ_Pricing' ) ) {
+                                $calculation_result = N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
+                                if ( $calculation_result && isset( $calculation_result['delivery_cost_usd'] ) && $calculation_result['delivery_cost_usd'] !== null ) {
+                                    $delivery_cost_data = floatval( $calculation_result['delivery_cost_usd'] );
+                                    $delivery_shipping_mode = isset( $calculation_result['shipping_mode'] ) ? $calculation_result['shipping_mode'] : null;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
 
             foreach ( $bids_data as $bid ) {
@@ -10315,6 +10360,9 @@ class N88_RFQ_Auth {
                     'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
                     'created_at' => $bid['created_at'],
                     'rfq_revision_at_submit' => $bid_revision, // D5: Revision tracking for bid filtering
+                    // Commit 2.3.10: Delivery cost (door-to-door USA)
+                    'delivery_cost_usd' => $delivery_cost_data,
+                    'delivery_shipping_mode' => $delivery_shipping_mode,
                 );
             }
         }
@@ -12154,6 +12202,19 @@ class N88_RFQ_Auth {
                     } else {
                         error_log( 'RFQ Submission - Successfully inserted delivery context for item ' . $item_id . ' with dimensions: ' . ( isset( $delivery_data['dimensions_json'] ) ? $delivery_data['dimensions_json'] : 'none' ) );
                     }
+                }
+
+                // Commit 2.3.10: Calculate and store delivery cost after delivery context is set
+                if ( class_exists( 'N88_RFQ_Pricing' ) ) {
+                    error_log( sprintf( 'RFQ Submission - Triggering delivery cost calculation for item %d', $item_id ) );
+                    $calc_result = N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
+                    if ( $calc_result ) {
+                        error_log( sprintf( 'RFQ Submission - Delivery cost calculation result for item %d: %s', $item_id, wp_json_encode( $calc_result ) ) );
+                    } else {
+                        error_log( sprintf( 'RFQ Submission - Delivery cost calculation returned FALSE for item %d', $item_id ) );
+                    }
+                } else {
+                    error_log( sprintf( 'RFQ Submission - N88_RFQ_Pricing class not found for item %d', $item_id ) );
                 }
 
                 // 2. Create designer_invited routes (for each invited supplier that exists)

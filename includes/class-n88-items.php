@@ -1706,6 +1706,91 @@ class N88_Items {
         error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
         error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
         
+        // Commit 2.3.10: Recalculate delivery cost if dimensions, quantity, or delivery country changed
+        $should_recalculate_delivery = false;
+        if ( in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true ) || 
+             ( isset( $payload['delivery_country'] ) || isset( $payload['delivery_postal'] ) ) ) {
+            $should_recalculate_delivery = true;
+        }
+        
+        if ( $should_recalculate_delivery ) {
+            // Update delivery context with latest dimensions, quantity, and country/postal
+            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+            $delivery_data = array();
+            $delivery_format = array();
+            
+            // Check if dimensions_json and quantity columns exist
+            $columns = $wpdb->get_col( "DESCRIBE {$delivery_context_table}" );
+            $has_dimensions_column = in_array( 'dimensions_json', $columns, true );
+            $has_quantity_column = in_array( 'quantity', $columns, true );
+            
+            // Update dimensions_json if dimensions were updated
+            if ( $has_dimensions_column && isset( $payload['dims'] ) && is_array( $payload['dims'] ) ) {
+                $dimensions_data = array(
+                    'width' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
+                    'depth' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
+                    'height' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
+                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
+                );
+                $delivery_data['dimensions_json'] = wp_json_encode( $dimensions_data );
+                $delivery_format[] = '%s';
+            }
+            
+            // Update quantity if it was updated
+            if ( $has_quantity_column && isset( $payload['quantity'] ) && $payload['quantity'] > 0 ) {
+                $delivery_data['quantity'] = (int) $payload['quantity'];
+                $delivery_format[] = '%d';
+            }
+            
+            // Update delivery country/postal if provided
+            if ( isset( $payload['delivery_country'] ) ) {
+                $delivery_data['delivery_country_code'] = strtoupper( sanitize_text_field( $payload['delivery_country'] ) );
+                $delivery_format[] = '%s';
+            }
+            
+            if ( isset( $payload['delivery_postal'] ) ) {
+                $delivery_data['delivery_postal_code'] = sanitize_text_field( $payload['delivery_postal'] );
+                $delivery_format[] = '%s';
+            }
+            
+            // Update delivery_context if we have data to update
+            if ( ! empty( $delivery_data ) ) {
+                $existing_delivery = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT item_id FROM {$delivery_context_table} WHERE item_id = %d",
+                    $item_id
+                ) );
+                
+                if ( $existing_delivery ) {
+                    $wpdb->update(
+                        $delivery_context_table,
+                        $delivery_data,
+                        array( 'item_id' => $item_id ),
+                        $delivery_format,
+                        array( '%d' )
+                    );
+                    error_log( sprintf( 
+                        'Item Update - Updated delivery_context for item %d with latest dimensions/quantity: %s',
+                        $item_id, wp_json_encode( $delivery_data )
+                    ) );
+                } else {
+                    // Insert with minimal required fields
+                    $delivery_data['item_id'] = $item_id;
+                    $delivery_data['shipping_estimate_mode'] = 'auto';
+                    if ( ! isset( $delivery_data['delivery_country_code'] ) ) {
+                        $delivery_data['delivery_country_code'] = 'US'; // Default
+                    }
+                    $delivery_format = array_merge( array( '%d' ), $delivery_format, array( '%s' ) );
+                    $wpdb->insert( $delivery_context_table, $delivery_data, $delivery_format );
+                }
+            }
+            
+            // Recalculate and store delivery cost with updated dimensions/quantity
+            if ( class_exists( 'N88_RFQ_Pricing' ) ) {
+                error_log( sprintf( 'Item Update - Triggering delivery cost recalculation for item %d', $item_id ) );
+                N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
+            }
+        }
+        
         // Commit 2.3.5.1: Log event - use item_facts_updated_after_rfq if RFQ exists and dims/qty changed
         if ( $has_rfq && ! empty( $changed_fields ) ) {
             // Log item_facts_updated_after_rfq event with before/after values

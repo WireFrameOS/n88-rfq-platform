@@ -6792,6 +6792,17 @@ class N88_RFQ_Admin {
                                         style: { fontSize: '11px', color: greenAccent }
                                     }, '$' + bid.unit_price)
                                 ) : null,
+                                (bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) ? React.createElement('div', null,
+                                    React.createElement('div', {
+                                        style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                    }, 'Door-to-Door Delivery'),
+                                    React.createElement('div', {
+                                        style: { fontSize: '11px', color: greenAccent }
+                                    }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2)),
+                                    bid.delivery_shipping_mode ? React.createElement('div', {
+                                        style: { fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.6 }
+                                    }, 'Mode: ' + (bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode)) : null
+                                ) : null,
                                 (function() {
                                     if (!smartAlternativesEnabled) return null;
                                     var sa = bid.smart_alternatives_suggestion;
@@ -7115,6 +7126,61 @@ class N88_RFQ_Admin {
                                         bid.unit_price !== null ? React.createElement('span', {
                                             style: { color: greenAccent }
                                         }, '$' + bid.unit_price) : React.createElement('span', {
+                                            style: { color: darkText }
+                                        }, '—')
+                                    );
+                                })
+                            ),
+                            // Door-to-Door Delivery Row (Commit 2.3.10)
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Door-to-Door Delivery'),
+                                displayBids.map(function(bid, idx) {
+                                    var hasDelivery = bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)));
+                                    var modeLabel = '';
+                                    if (bid.delivery_shipping_mode) {
+                                        if (bid.delivery_shipping_mode === 'LCL') {
+                                            modeLabel = 'LCL';
+                                        } else if (bid.delivery_shipping_mode === 'FCL_20') {
+                                            modeLabel = '20\' Container';
+                                        } else if (bid.delivery_shipping_mode === 'FCL_40HQ') {
+                                            modeLabel = '40\' HQ Container';
+                                        }
+                                    }
+                                    return React.createElement('div', {
+                                        key: 'delivery-' + bid.bid_id,
+                                        style: {
+                                            padding: '6px 10px',
+                                            borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                            fontSize: '10px',
+                                            textAlign: 'center',
+                                        }
+                                    },
+                                        hasDelivery ? React.createElement('div', {
+                                            style: { display: 'flex', flexDirection: 'column', gap: '2px' }
+                                        },
+                                            React.createElement('span', {
+                                                style: { color: greenAccent }
+                                            }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2)),
+                                            modeLabel ? React.createElement('span', {
+                                                style: { color: darkText, fontSize: '9px', opacity: 0.6 }
+                                            }, modeLabel) : null
+                                        ) : React.createElement('span', {
                                             style: { color: darkText }
                                         }, '—')
                                     );

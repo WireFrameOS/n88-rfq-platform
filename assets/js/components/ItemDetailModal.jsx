@@ -491,6 +491,18 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         </div>
                     )}
                     
+                    {(bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) && (
+                        <div>
+                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Door-to-Door Delivery</div>
+                            <div style={{ fontSize: '11px', color: greenAccent }}>${parseFloat(bid.delivery_cost_usd).toFixed(2)}</div>
+                            {bid.delivery_shipping_mode && (
+                                <div style={{ fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.6 }}>
+                                    Mode: {bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
                     {hasSmartAltContent && (
                         <div>
                             <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Smart Alternatives</div>
@@ -732,6 +744,60 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                             )}
                         </div>
                     ))}
+                </div>
+
+                {/* Door-to-Door Delivery Row (Commit 2.3.10) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Door-to-Door Delivery
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const hasDelivery = bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)));
+                        let modeLabel = '';
+                        if (bid.delivery_shipping_mode) {
+                            if (bid.delivery_shipping_mode === 'LCL') {
+                                modeLabel = 'LCL';
+                            } else if (bid.delivery_shipping_mode === 'FCL_20') {
+                                modeLabel = '20\' Container';
+                            } else if (bid.delivery_shipping_mode === 'FCL_40HQ') {
+                                modeLabel = '40\' HQ Container';
+                            }
+                        }
+                        return (
+                            <div
+                                key={`delivery-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {hasDelivery ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        <span style={{ color: greenAccent }}>${parseFloat(bid.delivery_cost_usd).toFixed(2)}</span>
+                                        {modeLabel && (
+                                            <span style={{ color: darkText, fontSize: '9px', opacity: 0.6 }}>{modeLabel}</span>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <span style={{ color: darkText }}>—</span>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* Smart Alternatives Rows - Only show if enabled */}
@@ -1204,6 +1270,17 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
             {bid.unit_price !== null && (
                 <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                     Unit Price: <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                </div>
+            )}
+            
+            {(bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) && (
+                <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                    Door-to-Door Delivery: <span style={{ color: greenAccent }}>${parseFloat(bid.delivery_cost_usd).toFixed(2)}</span>
+                    {bid.delivery_shipping_mode && (
+                        <div style={{ fontSize: '10px', color: darkText, marginTop: '2px', opacity: 0.7 }}>
+                            Mode: {bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode}
+                        </div>
+                    )}
                 </div>
             )}
             
