@@ -488,6 +488,11 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         <div>
                             <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Unit Price</div>
                             <div style={{ fontSize: '11px', color: greenAccent }}>${bid.unit_price}</div>
+                            {bid.total_price && bid.item_quantity && bid.item_quantity > 1 && (
+                                <div style={{ fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.7 }}>
+                                    Total: ${parseFloat(bid.total_price).toFixed(2)} ({bid.unit_price} × {bid.item_quantity})
+                                </div>
+                            )}
                         </div>
                     )}
                     
@@ -738,7 +743,14 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                             }}
                         >
                             {bid.unit_price !== null ? (
-                                <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                                    {bid.total_price && bid.item_quantity && bid.item_quantity > 1 && (
+                                        <span style={{ color: darkText, fontSize: '9px', opacity: 0.7 }}>
+                                            Total: ${parseFloat(bid.total_price).toFixed(2)}
+                                        </span>
+                                    )}
+                                </div>
                             ) : (
                                 <span style={{ color: darkText }}>—</span>
                             )}
@@ -794,6 +806,140 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                     </div>
                                 ) : (
                                     <span style={{ color: darkText }}>—</span>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Commit 2.4.1: Award Bid Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Award Bid
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        return (
+                            <div
+                                key={`award-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {bid.is_awarded ? (
+                                    <div style={{
+                                        padding: '4px 8px',
+                                        backgroundColor: '#003300',
+                                        border: '1px solid #00ff00',
+                                        borderRadius: '4px',
+                                        color: '#00ff00',
+                                        fontSize: '9px',
+                                        fontWeight: '600',
+                                    }}>
+                                        ✓ Awarded
+                                    </div>
+                                ) : bid.is_declined ? (
+                                    <div style={{
+                                        padding: '4px 8px',
+                                        backgroundColor: '#330000',
+                                        border: '1px solid #ff6666',
+                                        borderRadius: '4px',
+                                        color: '#ff6666',
+                                        fontSize: '9px',
+                                    }}>
+                                        Declined
+                                    </div>
+                                ) : bid.can_award ? (
+                                    <button
+                                        onClick={async () => {
+                                            if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                                return;
+                                            }
+                                            
+                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                            let nonce = '';
+                                            if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                                nonce = window.n88BoardNonce.nonce_award_bid;
+                                            } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                nonce = window.n88BoardData.nonce;
+                                            } else if (window.n88 && window.n88.nonce) {
+                                                nonce = window.n88.nonce;
+                                            }
+                                            
+                                            if (!nonce) {
+                                                alert('Security token missing. Please refresh the page and try again.');
+                                                return;
+                                            }
+                                            
+                                            try {
+                                                const formData = new FormData();
+                                                formData.append('action', 'n88_award_bid');
+                                                formData.append('item_id', item.id);
+                                                formData.append('bid_id', bid.bid_id);
+                                                formData.append('_ajax_nonce', nonce);
+                                                
+                                                const response = await fetch(ajaxUrl, {
+                                                    method: 'POST',
+                                                    body: formData
+                                                });
+                                                
+                                                const data = await response.json();
+                                                
+                                                if (data.success) {
+                                                    alert('Bid awarded successfully!');
+                                                    // Refresh the modal
+                                                    if (onSave) {
+                                                        await onSave(item.id, {});
+                                                    }
+                                                    onClose();
+                                                } else {
+                                                    alert('Error: ' + (data.data?.message || 'Failed to award bid'));
+                                                }
+                                            } catch (error) {
+                                                console.error('Error awarding bid:', error);
+                                                alert('Error awarding bid. Please try again.');
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '6px 12px',
+                                            backgroundColor: '#00ff00',
+                                            color: '#000',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '9px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            fontFamily: 'monospace',
+                                        }}
+                                        onMouseOver={(e) => {
+                                            e.target.style.backgroundColor = '#00cc00';
+                                        }}
+                                        onMouseOut={(e) => {
+                                            e.target.style.backgroundColor = '#00ff00';
+                                        }}
+                                    >
+                                        Award
+                                    </button>
+                                ) : (
+                                    <span style={{ color: darkText, fontSize: '9px' }}>
+                                        {bid.has_prototype_request && bid.prototype_status !== 'approved' 
+                                            ? 'Prototype Pending' 
+                                            : '—'}
+                                    </span>
                                 )}
                             </div>
                         );
@@ -1270,6 +1416,12 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
             {bid.unit_price !== null && (
                 <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                     Unit Price: <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                    {bid.total_price && bid.item_quantity && bid.item_quantity > 1 && (
+                        <div style={{ fontSize: '11px', color: darkText, marginTop: '4px', opacity: 0.8 }}>
+                            Total Price: <span style={{ color: greenAccent }}>${parseFloat(bid.total_price).toFixed(2)}</span>
+                            <span style={{ fontSize: '10px', opacity: 0.6 }}> ({bid.unit_price} × {bid.item_quantity})</span>
+                        </div>
+                    )}
                 </div>
             )}
             
@@ -1281,6 +1433,118 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
                             Mode: {bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode}
                         </div>
                     )}
+                </div>
+            )}
+            
+            {/* Commit 2.4.1: Award Bid Button */}
+            {bid.can_award && !bid.is_awarded && !bid.is_declined && (
+                <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+                    <button
+                        onClick={async () => {
+                            if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                return;
+                            }
+                            
+                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                            let nonce = '';
+                            if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                nonce = window.n88BoardNonce.nonce_award_bid;
+                            } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                nonce = window.n88BoardData.nonce;
+                            } else if (window.n88 && window.n88.nonce) {
+                                nonce = window.n88.nonce;
+                            }
+                            
+                            if (!nonce) {
+                                alert('Security token missing. Please refresh the page and try again.');
+                                return;
+                            }
+                            
+                            try {
+                                const formData = new FormData();
+                                formData.append('action', 'n88_award_bid');
+                                formData.append('item_id', item.id);
+                                formData.append('bid_id', bid.bid_id);
+                                formData.append('_ajax_nonce', nonce);
+                                
+                                const response = await fetch(ajaxUrl, {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                                
+                                const data = await response.json();
+                                
+                                if (data.success) {
+                                    alert('Bid awarded successfully!');
+                                    // Refresh the modal to show updated status
+                                    if (onSave) {
+                                        await onSave(item.id, {});
+                                    }
+                                    onClose();
+                                } else {
+                                    alert('Error: ' + (data.data?.message || 'Failed to award bid'));
+                                }
+                            } catch (error) {
+                                console.error('Error awarding bid:', error);
+                                alert('Error awarding bid. Please try again.');
+                            }
+                        }}
+                        style={{
+                            padding: '10px 20px',
+                            backgroundColor: '#00ff00',
+                            color: '#000',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                            transition: 'all 0.2s',
+                        }}
+                        onMouseOver={(e) => {
+                            e.target.style.backgroundColor = '#00cc00';
+                        }}
+                        onMouseOut={(e) => {
+                            e.target.style.backgroundColor = '#00ff00';
+                        }}
+                    >
+                        [ Award Bid ]
+                    </button>
+                </div>
+            )}
+            
+            {/* Commit 2.4.1: Awarded Status Badge */}
+            {bid.is_awarded && (
+                <div style={{ 
+                    marginTop: '12px', 
+                    marginBottom: '8px',
+                    padding: '10px',
+                    backgroundColor: '#003300',
+                    border: '1px solid #00ff00',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    color: '#00ff00',
+                    fontWeight: '600',
+                    textAlign: 'center',
+                }}>
+                    ✓ Bid Awarded
+                </div>
+            )}
+            
+            {/* Commit 2.4.1: Declined Status */}
+            {bid.is_declined && (
+                <div style={{ 
+                    marginTop: '12px', 
+                    marginBottom: '8px',
+                    padding: '10px',
+                    backgroundColor: '#330000',
+                    border: '1px solid #ff6666',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    color: '#ff6666',
+                    textAlign: 'center',
+                }}>
+                    Bid Declined
                 </div>
             )}
             

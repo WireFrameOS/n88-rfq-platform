@@ -3635,6 +3635,23 @@ class N88_RFQ_Admin {
                             $award_set = true;
                         }
                         
+                        // Commit 2.4.1: Check if any bid is awarded for this item
+                        // Check both bids table and item meta_json for awarded status
+                        $has_awarded_bid = intval( $wpdb->get_var( $wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$item_bids_table} 
+                             WHERE item_id = %d 
+                             AND status = 'awarded'",
+                            $item_id
+                        ) ) ) > 0;
+                        
+                        // Also check item meta_json for awarded status (more reliable)
+                        if ( ! $has_awarded_bid && isset( $item_meta['item_status'] ) && $item_meta['item_status'] === 'Awarded' ) {
+                            $has_awarded_bid = true;
+                        }
+                        if ( ! $has_awarded_bid && isset( $item_meta['awarded_bid_snapshot'] ) ) {
+                            $has_awarded_bid = true;
+                        }
+                        
                         // Check for unread operator messages (designer_operator thread)
                         // Action Required: Show when operator has sent messages that designer hasn't replied to
                         $messages_table = $wpdb->prefix . 'n88_item_messages';
@@ -3725,6 +3742,7 @@ class N88_RFQ_Admin {
                             'revision_changed' => $revision_changed,
                             'has_warning' => $has_warning,
                             'award_set' => $award_set,
+                            'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
                             // Action Required: Unread operator messages
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
@@ -3882,6 +3900,23 @@ class N88_RFQ_Admin {
                             $award_set = true;
                         }
                         
+                        // Commit 2.4.1: Check if any bid is awarded for this item
+                        // Check both bids table and item meta_json for awarded status
+                        $has_awarded_bid = intval( $wpdb->get_var( $wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$item_bids_table} 
+                             WHERE item_id = %d 
+                             AND status = 'awarded'",
+                            $item_id
+                        ) ) ) > 0;
+                        
+                        // Also check item meta_json for awarded status (more reliable)
+                        if ( ! $has_awarded_bid && isset( $item_meta['item_status'] ) && $item_meta['item_status'] === 'Awarded' ) {
+                            $has_awarded_bid = true;
+                        }
+                        if ( ! $has_awarded_bid && isset( $item_meta['awarded_bid_snapshot'] ) ) {
+                            $has_awarded_bid = true;
+                        }
+                        
                         // Check for unread operator messages (designer_operator thread)
                         // Action Required: Show when operator has sent messages that designer hasn't replied to
                         $messages_table = $wpdb->prefix . 'n88_item_messages';
@@ -3997,6 +4032,7 @@ class N88_RFQ_Admin {
                             'rfq_revision_current' => $rfq_revision_current,
                             'revision_changed' => $revision_changed,
                             'award_set' => $award_set,
+                            'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
                             // Action Required: Unread operator messages
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
@@ -4107,6 +4143,8 @@ class N88_RFQ_Admin {
             'nonce_get_keyword_phrases' => wp_create_nonce( 'n88_get_keyword_phrases' ),
             'nonce_approve_prototype' => wp_create_nonce( 'n88_approve_prototype' ),
             'nonce_request_prototype_changes' => wp_create_nonce( 'n88_request_prototype_changes' ),
+            // Commit 2.4.1: Award bid nonce
+            'nonce_award_bid' => wp_create_nonce( 'n88_award_bid' ),
         ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
@@ -5841,7 +5879,20 @@ class N88_RFQ_Admin {
                             return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
                         }
                         
-                        // Priority 3: Check if item has award_set (In Production)
+                        // Priority 3: Check if any bid is awarded (Commit 2.4.1)
+                        var hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
+                        // Also check item meta_json for awarded status (fallback)
+                        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') {
+                            hasAwardedBid = true;
+                        }
+                        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) {
+                            hasAwardedBid = true;
+                        }
+                        if (hasAwardedBid) {
+                            return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                        }
+                        
+                        // Priority 4: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                         }
@@ -6539,6 +6590,7 @@ class N88_RFQ_Admin {
                     var darkBg = matrixProps.darkBg || '#000000';
                     var onImageClick = matrixProps.onImageClick;
                     var smartAlternativesEnabled = matrixProps.smartAlternativesEnabled || false;
+                    var itemId = matrixProps.itemId || null; // Commit 2.4.1: Item ID for award bid action
                     
                     // Order bids by created_at ASC (already ordered from backend, but ensure stability)
                     var orderedBids = bids.slice().sort(function(a, b) {
@@ -6790,7 +6842,10 @@ class N88_RFQ_Admin {
                                     }, 'Unit Price'),
                                     React.createElement('div', {
                                         style: { fontSize: '11px', color: greenAccent }
-                                    }, '$' + bid.unit_price)
+                                    }, '$' + bid.unit_price),
+                                    bid.total_price && bid.item_quantity && bid.item_quantity > 1 ? React.createElement('div', {
+                                        style: { fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.7 }
+                                    }, 'Total: $' + parseFloat(bid.total_price).toFixed(2) + ' (' + bid.unit_price + ' × ' + bid.item_quantity + ')') : null
                                 ) : null,
                                 (bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) ? React.createElement('div', null,
                                     React.createElement('div', {
@@ -6803,6 +6858,106 @@ class N88_RFQ_Admin {
                                         style: { fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.6 }
                                     }, 'Mode: ' + (bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode)) : null
                                 ) : null,
+                                // Commit 2.4.1: Award Bid Button
+                                bid.can_award && !bid.is_awarded && !bid.is_declined ? React.createElement('div', {
+                                    style: { marginTop: '12px', marginBottom: '8px' }
+                                },
+                                    React.createElement('button', {
+                                        onClick: function() {
+                                            if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                                return;
+                                            }
+                                            
+                                            var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php');
+                                            var nonce = '';
+                                            if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                                nonce = window.n88BoardNonce.nonce_award_bid;
+                                            } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                nonce = window.n88BoardData.nonce;
+                                            } else if (window.n88 && window.n88.nonce) {
+                                                nonce = window.n88.nonce;
+                                            }
+                                            
+                                            if (!nonce) {
+                                                alert('Security token missing. Please refresh the page and try again.');
+                                                return;
+                                            }
+                                            
+                                            var formData = new FormData();
+                                            formData.append('action', 'n88_award_bid');
+                                            formData.append('item_id', itemId);
+                                            formData.append('bid_id', bid.bid_id);
+                                            formData.append('_ajax_nonce', nonce);
+                                            
+                                            fetch(ajaxUrl, {
+                                                method: 'POST',
+                                                body: formData
+                                            })
+                                            .then(function(response) {
+                                                return response.json();
+                                            })
+                                            .then(function(data) {
+                                                if (data.success) {
+                                                    alert('Bid awarded successfully!');
+                                                    window.location.reload();
+                                                } else {
+                                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid'));
+                                                }
+                                            })
+                                            .catch(function(error) {
+                                                console.error('Error awarding bid:', error);
+                                                alert('Error awarding bid. Please try again.');
+                                            });
+                                        },
+                                        style: {
+                                            padding: '10px 20px',
+                                            backgroundColor: '#00ff00',
+                                            color: '#000',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            fontFamily: 'monospace',
+                                            width: '100%',
+                                        },
+                                        onMouseOver: function(e) {
+                                            e.target.style.backgroundColor = '#00cc00';
+                                        },
+                                        onMouseOut: function(e) {
+                                            e.target.style.backgroundColor = '#00ff00';
+                                        }
+                                    }, '[ Award Bid ]')
+                                ) : null,
+                                // Commit 2.4.1: Awarded Status Badge
+                                bid.is_awarded ? React.createElement('div', {
+                                    style: {
+                                        marginTop: '12px',
+                                        marginBottom: '8px',
+                                        padding: '10px',
+                                        backgroundColor: '#003300',
+                                        border: '1px solid #00ff00',
+                                        borderRadius: '4px',
+                                        fontSize: '12px',
+                                        color: '#00ff00',
+                                        fontWeight: '600',
+                                        textAlign: 'center',
+                                    }
+                                }, '✓ Bid Awarded') : null,
+                                // Commit 2.4.1: Declined Status
+                                bid.is_declined ? React.createElement('div', {
+                                    style: {
+                                        marginTop: '12px',
+                                        marginBottom: '8px',
+                                        padding: '10px',
+                                        backgroundColor: '#330000',
+                                        border: '1px solid #ff6666',
+                                        borderRadius: '4px',
+                                        fontSize: '12px',
+                                        color: '#ff6666',
+                                        textAlign: 'center',
+                                    }
+                                }, 'Bid Declined') : null,
                                 (function() {
                                     if (!smartAlternativesEnabled) return null;
                                     var sa = bid.smart_alternatives_suggestion;
@@ -7123,9 +7278,16 @@ class N88_RFQ_Admin {
                                             textAlign: 'center',
                                         }
                                     },
-                                        bid.unit_price !== null ? React.createElement('span', {
-                                            style: { color: greenAccent }
-                                        }, '$' + bid.unit_price) : React.createElement('span', {
+                                        bid.unit_price !== null ? React.createElement('div', {
+                                            style: { display: 'flex', flexDirection: 'column', gap: '2px' }
+                                        },
+                                            React.createElement('span', {
+                                                style: { color: greenAccent }
+                                            }, '$' + bid.unit_price),
+                                            bid.total_price && bid.item_quantity && bid.item_quantity > 1 ? React.createElement('span', {
+                                                style: { color: darkText, fontSize: '9px', opacity: 0.7 }
+                                            }, 'Total: $' + parseFloat(bid.total_price).toFixed(2)) : null
+                                        ) : React.createElement('span', {
                                             style: { color: darkText }
                                         }, '—')
                                     );
@@ -7184,6 +7346,165 @@ class N88_RFQ_Admin {
                                             style: { color: darkText }
                                         }, '—')
                                     );
+                                })
+                            ),
+                            // Commit 2.4.1: Award Bid Row
+                            React.createElement('div', {
+                                style: {
+                                    display: 'grid',
+                                    gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                    borderBottom: '1px solid ' + darkBorder,
+                                }
+                            },
+                                React.createElement('div', {
+                                    style: {
+                                        padding: '6px 10px',
+                                        borderRight: '1px solid ' + darkBorder,
+                                        fontSize: '10px',
+                                        color: darkText,
+                                        backgroundColor: '#0a0a0a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                    }
+                                }, 'Award Bid'),
+                                displayBids.map(function(bid, idx) {
+                                    if (bid.is_awarded) {
+                                        return React.createElement('div', {
+                                            key: 'award-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    padding: '4px 8px',
+                                                    backgroundColor: '#003300',
+                                                    border: '1px solid #00ff00',
+                                                    borderRadius: '4px',
+                                                    color: '#00ff00',
+                                                    fontSize: '9px',
+                                                    fontWeight: '600',
+                                                    display: 'inline-block',
+                                                }
+                                            }, '✓ Awarded')
+                                        );
+                                    } else if (bid.is_declined) {
+                                        return React.createElement('div', {
+                                            key: 'award-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    padding: '4px 8px',
+                                                    backgroundColor: '#330000',
+                                                    border: '1px solid #ff6666',
+                                                    borderRadius: '4px',
+                                                    color: '#ff6666',
+                                                    fontSize: '9px',
+                                                    display: 'inline-block',
+                                                }
+                                            }, 'Declined')
+                                        );
+                                    } else if (bid.can_award) {
+                                        return React.createElement('div', {
+                                            key: 'award-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('button', {
+                                                onClick: function() {
+                                                    if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                                        return;
+                                                    }
+                                                    
+                                                    var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php');
+                                                    var nonce = '';
+                                                    if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                                        nonce = window.n88BoardNonce.nonce_award_bid;
+                                                    } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                        nonce = window.n88BoardData.nonce;
+                                                    } else if (window.n88 && window.n88.nonce) {
+                                                        nonce = window.n88.nonce;
+                                                    }
+                                                    
+                                                    if (!nonce) {
+                                                        alert('Security token missing. Please refresh the page and try again.');
+                                                        return;
+                                                    }
+                                                    
+                                                    var formData = new FormData();
+                                                    formData.append('action', 'n88_award_bid');
+                                                    formData.append('item_id', itemId);
+                                                    formData.append('bid_id', bid.bid_id);
+                                                    formData.append('_ajax_nonce', nonce);
+                                                    
+                                                    fetch(ajaxUrl, {
+                                                        method: 'POST',
+                                                        body: formData
+                                                    })
+                                                    .then(function(response) {
+                                                        return response.json();
+                                                    })
+                                                    .then(function(data) {
+                                                        if (data.success) {
+                                                            alert('Bid awarded successfully!');
+                                                            // Refresh the page
+                                                            window.location.reload();
+                                                        } else {
+                                                            alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid'));
+                                                        }
+                                                    })
+                                                    .catch(function(error) {
+                                                        console.error('Error awarding bid:', error);
+                                                        alert('Error awarding bid. Please try again.');
+                                                    });
+                                                },
+                                                style: {
+                                                    padding: '6px 12px',
+                                                    backgroundColor: '#00ff00',
+                                                    color: '#000',
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    fontSize: '9px',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                    fontFamily: 'monospace',
+                                                },
+                                                onMouseOver: function(e) {
+                                                    e.target.style.backgroundColor = '#00cc00';
+                                                },
+                                                onMouseOut: function(e) {
+                                                    e.target.style.backgroundColor = '#00ff00';
+                                                }
+                                            }, 'Award')
+                                        );
+                                    } else {
+                                        return React.createElement('div', {
+                                            key: 'award-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('span', {
+                                                style: { color: darkText, fontSize: '9px' }
+                                            }, bid.has_prototype_request && bid.prototype_status !== 'approved' ? 'Prototype Pending' : '—')
+                                        );
+                                    }
                                 })
                             ),
                             // Smart Alternatives Rows - Only show if enabled
@@ -12133,7 +12454,8 @@ class N88_RFQ_Admin {
                                                         darkText: darkText,
                                                         darkBg: darkBg,
                                                         onImageClick: setLightboxImage,
-                                                        smartAlternativesEnabled: smartAlternativesEnabled
+                                                        smartAlternativesEnabled: smartAlternativesEnabled,
+                                                        itemId: itemId // Commit 2.4.1: Pass itemId for award bid action
                                                     }),
                                                     // Commit 2.3.9.1B: Request CAD + Prototype Video Button/Form
                                                     !showCadPrototypeForm ? React.createElement('div', {

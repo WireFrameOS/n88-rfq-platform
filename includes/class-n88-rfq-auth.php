@@ -67,6 +67,9 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.6: Save bid draft
         add_action( 'wp_ajax_n88_save_bid_draft', array( $this, 'ajax_save_bid_draft' ) );
+        
+        // Commit 2.4.1: Award bid (designer action)
+        add_action( 'wp_ajax_n88_award_bid', array( $this, 'ajax_award_bid' ) );
         add_action( 'wp_ajax_n88_get_bid_draft', array( $this, 'ajax_get_bid_draft' ) );
         
         // G) Update bid to match new specs (create new draft from stale bid)
@@ -1116,6 +1119,15 @@ class N88_RFQ_Auth {
      * Returns: 'submit_bid', 'continue_draft', 'specs_changed', 'submitted', or 'expired'
      */
     private function determine_action_badge( $item_data, $route_status, $item_current_revision, $has_revision_column = true ) {
+        // Commit 2.4.1: Check if bid is awarded (highest priority)
+        if ( ! empty( $item_data['bids'] ) ) {
+            foreach ( $item_data['bids'] as $bid ) {
+                if ( isset( $bid['status'] ) && $bid['status'] === 'awarded' ) {
+                    return 'awarded';
+                }
+            }
+        }
+        
         // M6: If expired, return expired (read-only)
         if ( $route_status === 'expired' ) {
             return 'expired';
@@ -1699,6 +1711,10 @@ class N88_RFQ_Auth {
                                 $is_expired = $item_data['action_badge'] === 'expired';
                                 
                                 switch ( $item_data['action_badge'] ) {
+                                    case 'awarded':
+                                        $action_button_text = 'View Bid ►';
+                                        $action_badge_text = 'AWARDED';
+                                        break;
                                     case 'submit_bid':
                                         $action_button_text = 'Submit Bid ►';
                                         $action_badge_text = 'Needs Action';
@@ -2634,8 +2650,9 @@ class N88_RFQ_Auth {
                         '</div>' +
                         
                         // Bid Details Box (only shown when bid is submitted)
-                        (item.bid_status === 'submitted' && item.bid_data ? (function() {
+                        ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data ? (function() {
                             var bid = item.bid_data;
+                            var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
                                 bid.video_links.forEach(function(link, index) {
@@ -2758,8 +2775,19 @@ class N88_RFQ_Auth {
                                 }
                             }
                             
+                            // Commit 2.4.1: Check if bid is awarded
+                            // Check multiple sources: item.bid_status, bid.bid_status, and bid.is_awarded
+                            var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
+                            
                             return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
-                                '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid</div>' +
+                                '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid' + (isBidAwarded ? ' <span style="color: #00ff00; font-size: 14px;">✓ AWARDED</span>' : '') + '</div>' +
+                                // Commit 2.4.1: Awarded Status Message
+                                (isBidAwarded ? '<div style="background-color: #003300; border: 2px solid #00ff00; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #00ff00; line-height: 1.6;">' +
+                                    '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">🎉 Congratulations! Your Bid Has Been Awarded</div>' +
+                                    '<div style="margin-bottom: 8px;"><strong>Item:</strong> ' + (item.title || 'Item #' + itemId) + '</div>' +
+                                    '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #00ff00; font-weight: 600;">Awarded</span></div>' +
+                                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
+                                    '</div>' : '') +
                                 (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #1a3a1a; border: 1px solid #00ff00; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #00ff00; line-height: 1.5;">Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div>' : '') +
                                 // Commit 2.3.9.1E: Payment Received Notification
                                 (bid.payment_notification ? (function() {
@@ -2916,7 +2944,13 @@ class N88_RFQ_Auth {
                                 (bid.prototype_timeline ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Timeline:</strong> <span style="color: #fff;">' + bid.prototype_timeline + '</span></div>' : '') +
                                 (bid.prototype_cost !== null && bid.prototype_cost !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Cost:</strong> <span style="color: #fff;">$' + parseFloat(bid.prototype_cost).toFixed(2) + '</span></div>' : '') +
                                 (bid.production_lead_time ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Production Lead Time:</strong> <span style="color: #fff;">' + bid.production_lead_time + '</span></div>' : '') +
-                                (bid.unit_price !== null && bid.unit_price !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Unit Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>' : '') +
+                                (bid.unit_price !== null && bid.unit_price !== undefined ? (function() {
+                                    var unitPriceHtml = '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Unit Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>';
+                                    if (bid.total_price && bid.item_quantity && bid.item_quantity > 1) {
+                                        unitPriceHtml += '<div style="margin-bottom: 8px; margin-left: 16px; font-size: 12px;"><strong style="color: #00ff00;">Total Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.total_price).toFixed(2) + '</span> <span style="color: #999; font-size: 11px;">(' + parseFloat(bid.unit_price).toFixed(2) + ' × ' + bid.item_quantity + ')</span></div>';
+                                    }
+                                    return unitPriceHtml;
+                                })() : '') +
                                 smartAltHTML +
                             '</div>' +
                                 '</div>';
@@ -2925,13 +2959,13 @@ class N88_RFQ_Auth {
                         '</div>' +
                         // Footer - Start Bid / Continue Bid / Withdraw Bid / Resubmit Bid button
                         '<div style="padding: 20px; border-top: 1px solid #00ff00; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
-                        (item.bid_status === 'submitted' && !item.has_revision_mismatch ? 
-                            // Normal submitted state - check if resubmission
+                        ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
+                            // Normal submitted/awarded state - check if resubmission
                             '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
-                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted') + '</div>' +
-                            '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' +
+                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + (item.bid_status === 'awarded' ? 'Bid Awarded' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted')) + '</div>' +
+                            (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
                             '</div>' :
-                            (item.bid_status === 'submitted' && item.has_revision_mismatch ?
+                            ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.has_revision_mismatch ?
                                 // Specs changed - show resubmit button (opens form inside modal)
                                 '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
                                 (item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined ?
@@ -3693,9 +3727,14 @@ class N88_RFQ_Auth {
                     // 1. No bid exists yet
                     // 2. Bid is stale (has_revision_mismatch) - dims/qty changed, can resubmit
                     // 3. Bid is draft (can continue/update)
-                    // Only block if bid is submitted for current revision (no changes needed)
-                    if (data.success && data.data.bid_status === 'submitted' && !data.data.has_revision_mismatch && !data.data.is_resubmission) {
-                        alert('You\'ve already submitted a bid for this item.');
+                    // Only block if bid is submitted/awarded for current revision (no changes needed)
+                    // Commit 2.4.1: Include 'awarded' status - can't resubmit an awarded bid
+                    if (data.success && (data.data.bid_status === 'submitted' || data.data.bid_status === 'awarded') && !data.data.has_revision_mismatch && !data.data.is_resubmission) {
+                        if (data.data.bid_status === 'awarded') {
+                            alert('This bid has been awarded. You cannot modify an awarded bid.');
+                        } else {
+                            alert('You\'ve already submitted a bid for this item.');
+                        }
                         return;
                     }
                     // Continue with opening modal (allows resubmission when dims/qty changed)
@@ -9047,13 +9086,19 @@ class N88_RFQ_Auth {
                 $item_current_revision_for_bid = isset( $meta['rfq_revision_current'] ) ? intval( $meta['rfq_revision_current'] ) : null;
             }
             
-            // CRITICAL: Always prioritize SUBMITTED bids over draft bids
-            // First, try to get submitted bid (any revision)
+            // CRITICAL: Always prioritize SUBMITTED/AWARDED bids over draft bids
+            // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
+            // First, try to get submitted or awarded bid (any revision)
             $submitted_bid = $wpdb->get_row( $wpdb->prepare(
                 "SELECT {$select_bid_fields} FROM {$item_bids_table} 
                 WHERE item_id = %d AND supplier_id = %d
-                AND status = 'submitted'
-                ORDER BY created_at DESC, bid_id DESC
+                AND status IN ('submitted', 'awarded')
+                ORDER BY 
+                    CASE status
+                        WHEN 'awarded' THEN 1
+                        WHEN 'submitted' THEN 2
+                    END,
+                    created_at DESC, bid_id DESC
                 LIMIT 1",
                 $item_id,
                 $current_user->ID
@@ -9160,13 +9205,14 @@ class N88_RFQ_Auth {
             }
             
             if ( $existing_bid ) {
-                // CRITICAL: Priority must be SUBMITTED bid > Draft (user meta or database)
-                // If there's a submitted bid, always use that status (ignore drafts)
-                if ( $existing_bid['status'] === 'submitted' ) {
-                    // Submitted bid exists - use it (drafts are irrelevant when bid is submitted)
-                    $bid_status = 'submitted';
+                // CRITICAL: Priority must be SUBMITTED/AWARDED bid > Draft (user meta or database)
+                // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
+                // If there's a submitted or awarded bid, always use that status (ignore drafts)
+                if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awarded' ) {
+                    // Submitted or awarded bid exists - use it (drafts are irrelevant when bid is submitted/awarded)
+                    $bid_status = $existing_bid['status']; // Keep the actual status (submitted or awarded)
                     $bid_created_at = $existing_bid['created_at'];
-                    $has_submitted_bid = true;
+                    $has_submitted_bid = true; // Treat awarded as submitted for display purposes
                     
                     // Populate bid_data for submitted bid (needed for "Your Submitted Bid" box display)
                     $bid_id = intval( $existing_bid['bid_id'] );
@@ -9451,8 +9497,25 @@ class N88_RFQ_Auth {
                         }
                     }
                     
+                    // Get item quantity for total price calculation
+                    $item_quantity_for_bid = 1;
+                    if ( isset( $meta['quantity'] ) && $meta['quantity'] > 0 ) {
+                        $item_quantity_for_bid = (int) $meta['quantity'];
+                    } elseif ( $delivery_context && isset( $delivery_context['quantity'] ) && $delivery_context['quantity'] > 0 ) {
+                        $item_quantity_for_bid = (int) $delivery_context['quantity'];
+                    }
+                    
+                    // Calculate total price = unit_price * quantity (for supplier - raw price)
+                    $unit_price_raw_for_bid = $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null;
+                    $total_price_raw_for_bid = null;
+                    if ( $unit_price_raw_for_bid !== null ) {
+                        $total_price_raw_for_bid = $unit_price_raw_for_bid * $item_quantity_for_bid;
+                    }
+                    
                     $bid_data = array(
-                        'unit_price' => $existing_bid['unit_price'] ? floatval( $existing_bid['unit_price'] ) : null,
+                        'unit_price' => $unit_price_raw_for_bid,
+                        'total_price' => $total_price_raw_for_bid !== null ? number_format( $total_price_raw_for_bid, 2, '.', '' ) : null, // Supplier sees total raw price
+                        'item_quantity' => $item_quantity_for_bid, // Quantity used for calculation
                         'production_lead_time' => $existing_bid['production_lead_time_text'] ? sanitize_text_field( $existing_bid['production_lead_time_text'] ) : null,
                         'prototype_video_yes' => intval( $existing_bid['prototype_video_yes'] ) === 1,
                         'prototype_timeline' => $existing_bid['prototype_timeline_option'] ? sanitize_text_field( $existing_bid['prototype_timeline_option'] ) : null,
@@ -9466,6 +9529,9 @@ class N88_RFQ_Auth {
                         'has_prototype_request' => $has_prototype_request, // Commit 2.3.9.1B: Flag for CAD prototype request
                         'prototype_request_status' => $prototype_request_status, // Commit 2.3.9.1B: Status of prototype request
                         'payment_notification' => $payment_notification, // Commit 2.3.9.1E: Payment notification data
+                        // Commit 2.4.1: Bid status for supplier view
+                        'bid_status' => isset( $existing_bid['status'] ) ? $existing_bid['status'] : 'submitted',
+                        'is_awarded' => isset( $existing_bid['status'] ) && $existing_bid['status'] === 'awarded',
                     );
                 } else {
                     // No submitted bid - check for drafts
@@ -10015,8 +10081,10 @@ class N88_RFQ_Auth {
         
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
+        // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
         // Ensure bid_status is only 'draft' when there's actually a valid draft, otherwise null (shows "Start Bid")
-        if ( ! isset( $bid_status ) || ( $bid_status !== 'draft' && $bid_status !== 'submitted' ) ) {
+        // But keep 'submitted' and 'awarded' status so supplier can see their bid details
+        if ( ! isset( $bid_status ) || ( $bid_status !== 'draft' && $bid_status !== 'submitted' && $bid_status !== 'awarded' ) ) {
             $bid_status = null; // Default to null - will show "Start Bid" button
         }
         
@@ -10108,6 +10176,7 @@ class N88_RFQ_Auth {
         $smart_alternatives_note = '';
         $rfq_revision_current = null;
         $revision_changed = false;
+        $item_quantity = 1; // Default quantity
         if ( ! empty( $item_meta ) ) {
             $meta = json_decode( $item_meta, true );
             if ( is_array( $meta ) ) {
@@ -10120,6 +10189,22 @@ class N88_RFQ_Auth {
                 if ( isset( $meta['revision_changed'] ) ) {
                     $revision_changed = (bool) $meta['revision_changed'];
                 }
+                // Get item quantity for price calculation
+                if ( isset( $meta['quantity'] ) && $meta['quantity'] > 0 ) {
+                    $item_quantity = (int) $meta['quantity'];
+                }
+            }
+        }
+        
+        // Fallback: Get quantity from delivery_context if not in item meta
+        if ( $item_quantity === 1 ) {
+            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+            $delivery_quantity = $wpdb->get_var( $wpdb->prepare(
+                "SELECT quantity FROM {$delivery_context_table} WHERE item_id = %d",
+                $item_id
+            ) );
+            if ( $delivery_quantity && $delivery_quantity > 0 ) {
+                $item_quantity = (int) $delivery_quantity;
             }
         }
 
@@ -10131,11 +10216,19 @@ class N88_RFQ_Auth {
             $item_id
         ) ) > 0;
 
-        // Check if bids exist (submitted bids only)
+        // Check if bids exist (submitted, awarded, or declined)
         $has_bids = $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM {$item_bids_table} 
             WHERE item_id = %d 
-            AND status = 'submitted'",
+            AND status IN ('submitted', 'awarded', 'declined')",
+            $item_id
+        ) ) > 0;
+        
+        // Commit 2.4.1: Check if any bid is already awarded
+        $has_awarded_bid = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$item_bids_table} 
+            WHERE item_id = %d 
+            AND status = 'awarded'",
             $item_id
         ) ) > 0;
 
@@ -10147,7 +10240,7 @@ class N88_RFQ_Auth {
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
             
-            $select_fields = "b.bid_id, b.supplier_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.created_at";
+            $select_fields = "b.bid_id, b.supplier_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.status, b.created_at";
             if ( $has_bid_meta_json ) {
                 $select_fields .= ", b.meta_json";
             }
@@ -10159,8 +10252,14 @@ class N88_RFQ_Auth {
                 "SELECT {$select_fields}
                 FROM {$item_bids_table} b
                 WHERE b.item_id = %d 
-                AND b.status = 'submitted'
-                ORDER BY b.created_at ASC, b.bid_id ASC",
+                AND b.status IN ('submitted', 'awarded', 'declined')
+                ORDER BY 
+                    CASE b.status
+                        WHEN 'awarded' THEN 1
+                        WHEN 'submitted' THEN 2
+                        WHEN 'declined' THEN 3
+                    END,
+                    b.created_at ASC, b.bid_id ASC",
                 $item_id
             ), ARRAY_A );
 
@@ -10336,12 +10435,62 @@ class N88_RFQ_Auth {
                 // Calculate landed cost for prototype_cost
                 $prototype_cost_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $prototype_cost_raw, $duty_rate );
                 
+                // Get unit price display (after formulas for designer)
+                $unit_price_display = $unit_price_landed ? $unit_price_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw );
+                
+                // Calculate total price = unit_price * quantity (for supplier - raw price)
+                $total_price_raw = $unit_price_raw !== null ? (floatval( $unit_price_raw ) * $item_quantity) : null;
+                
+                // Calculate total price landed = unit_price_landed * quantity (for designer - after formulas)
+                $total_price_landed = null;
+                if ( $unit_price_landed && isset( $unit_price_landed['display_price'] ) ) {
+                    $total_price_landed = floatval( $unit_price_landed['display_price'] ) * $item_quantity;
+                } elseif ( $unit_price_raw !== null ) {
+                    // Fallback: use raw price if landed calculation not available
+                    $total_price_landed = floatval( $unit_price_raw ) * $item_quantity;
+                }
+                
+                // Commit 2.4.1: Check prototype status for award gating
+                $prototype_status_for_bid = null;
+                $has_prototype_request_for_bid = false;
+                $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+                $prototype_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+                
+                if ( $prototype_table_exists ) {
+                    $prototype_payment_for_bid = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id, prototype_status 
+                        FROM {$prototype_payments_table} 
+                        WHERE bid_id = %d AND item_id = %d 
+                        ORDER BY created_at DESC 
+                        LIMIT 1",
+                        $bid['bid_id'],
+                        $item_id
+                    ), ARRAY_A );
+                    
+                    if ( $prototype_payment_for_bid ) {
+                        $has_prototype_request_for_bid = true;
+                        $prototype_status_for_bid = isset( $prototype_payment_for_bid['prototype_status'] ) ? $prototype_payment_for_bid['prototype_status'] : null;
+                    }
+                }
+                
+                // Commit 2.4.1: Check if bid is already awarded
+                $bid_status = isset( $bid['status'] ) ? $bid['status'] : 'submitted';
+                $is_awarded = ( $bid_status === 'awarded' );
+                $is_declined = ( $bid_status === 'declined' );
+                
+                // Award gating: Can award if no prototype request OR prototype is approved
+                $can_award = ! $is_awarded && ! $is_declined && ( ! $has_prototype_request_for_bid || $prototype_status_for_bid === 'approved' );
+                
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
-                    'unit_price' => $unit_price_landed ? $unit_price_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $unit_price_raw ), // Designer sees landed cost (margin + duty)
+                    'unit_price' => $unit_price_display, // Designer sees landed cost (margin + duty)
                     'unit_price_raw' => $unit_price_raw, // Keep raw price for reference
                     'unit_price_duty_est' => $unit_price_landed ? $unit_price_landed['duty_est'] : null, // Duty estimate
                     'unit_price_duty_rate' => $duty_rate, // Duty rate used
+                    // Commit 2.3.10: Total price (unit_price * quantity)
+                    'total_price' => $total_price_landed !== null ? number_format( $total_price_landed, 2, '.', '' ) : null, // Designer sees total after formulas
+                    'total_price_raw' => $total_price_raw !== null ? number_format( $total_price_raw, 2, '.', '' ) : null, // Supplier sees total raw price
+                    'item_quantity' => $item_quantity, // Quantity used for calculation
                     'production_lead_time' => $bid['production_lead_time_text'] ? sanitize_text_field( $bid['production_lead_time_text'] ) : null,
                     'prototype_timeline' => $bid['prototype_timeline_option'] ? sanitize_text_field( $bid['prototype_timeline_option'] ) : null,
                     'prototype_cost' => $prototype_cost_landed ? $prototype_cost_landed['display_price'] : N88_RFQ_Helpers::n88_price_display_from_raw( $prototype_cost_raw ), // Designer sees landed cost (margin + duty)
@@ -10363,6 +10512,13 @@ class N88_RFQ_Auth {
                     // Commit 2.3.10: Delivery cost (door-to-door USA)
                     'delivery_cost_usd' => $delivery_cost_data,
                     'delivery_shipping_mode' => $delivery_shipping_mode,
+                    // Commit 2.4.1: Prototype status and bid status for award gating
+                    'has_prototype_request' => $has_prototype_request_for_bid,
+                    'prototype_status' => $prototype_status_for_bid,
+                    'bid_status' => $bid_status,
+                    'is_awarded' => $is_awarded,
+                    'is_declined' => $is_declined,
+                    'can_award' => $can_award,
                 );
             }
         }
@@ -10577,6 +10733,7 @@ class N88_RFQ_Auth {
         wp_send_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
+            'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Check if any bid is awarded
             'bids' => $bids,
             'rfq_revision_current' => $rfq_revision_current, // D5: Current revision for Specs Updated panel
             'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
@@ -11658,6 +11815,273 @@ class N88_RFQ_Auth {
         wp_send_json_success( array(
             'message' => 'Bid withdrawn successfully. You can resubmit a new bid.',
         ) );
+    }
+
+    /**
+     * Commit 2.4.1: AJAX handler to award bid (designer action)
+     * 
+     * Award Gating Rules:
+     * - Cannot award if prototype request exists UNLESS prototype_status = 'approved'
+     * - If prototype was not requested, award is allowed
+     * - If prototype was requested and approved, award is allowed
+     * 
+     * Actions:
+     * - Selected bid → status = 'awarded'
+     * - All other bids → status = 'declined'
+     * - Create immutable snapshot of awarded bid
+     * - Log bid_awarded and bid_declined events
+     * - Update item status to 'Awarded'
+     */
+    public function ajax_award_bid() {
+        check_ajax_referer( 'n88_award_bid', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_designer && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? intval( $_POST['bid_id'] ) : 0;
+        
+        if ( ! $item_id || ! $bid_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID or bid ID.' ) );
+        }
+
+        global $wpdb;
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $events_table = $wpdb->prefix . 'n88_events';
+
+        // Verify item ownership (unless system operator)
+        if ( ! $is_system_operator ) {
+            $item_owner = $wpdb->get_var( $wpdb->prepare(
+                "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+            
+            if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
+                wp_send_json_error( array( 'message' => 'Access denied. You can only award bids for your own items.' ), 403 );
+            }
+        }
+
+        // Verify bid exists and belongs to this item
+        $bid = $wpdb->get_row( $wpdb->prepare(
+            "SELECT bid_id, supplier_id, status, unit_price, production_lead_time_text, 
+                    prototype_video_yes, prototype_timeline_option, prototype_cost, 
+                    cad_yes, created_at, meta_json
+            FROM {$item_bids_table} 
+            WHERE bid_id = %d AND item_id = %d",
+            $bid_id,
+            $item_id
+        ), ARRAY_A );
+
+        if ( ! $bid ) {
+            wp_send_json_error( array( 'message' => 'Bid not found.' ) );
+        }
+
+        // Check if bid is already awarded
+        if ( $bid['status'] === 'awarded' ) {
+            wp_send_json_error( array( 'message' => 'This bid has already been awarded.' ) );
+        }
+
+        // Check if another bid is already awarded for this item
+        $existing_awarded = $wpdb->get_var( $wpdb->prepare(
+            "SELECT bid_id FROM {$item_bids_table} 
+            WHERE item_id = %d AND status = 'awarded'",
+            $item_id
+        ) );
+
+        if ( $existing_awarded ) {
+            wp_send_json_error( array( 'message' => 'Another bid has already been awarded for this item. Only one bid can be awarded per item.' ) );
+        }
+
+        // Award Gating: Check prototype status
+        $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, status, prototype_status 
+            FROM {$prototype_payments_table} 
+            WHERE bid_id = %d AND item_id = %d 
+            ORDER BY created_at DESC 
+            LIMIT 1",
+            $bid_id,
+            $item_id
+        ), ARRAY_A );
+
+        if ( $prototype_payment ) {
+            // Prototype request exists - check if approved
+            $prototype_status = isset( $prototype_payment['prototype_status'] ) ? $prototype_payment['prototype_status'] : null;
+            
+            if ( $prototype_status !== 'approved' ) {
+                wp_send_json_error( array( 
+                    'message' => 'Cannot award bid. Prototype must be approved before awarding. Current status: ' . ( $prototype_status ? $prototype_status : 'pending' )
+                ) );
+            }
+        }
+
+        // Start transaction
+        $wpdb->query( 'START TRANSACTION' );
+
+        try {
+            // 1. Update selected bid to 'awarded'
+            $update_awarded = $wpdb->update(
+                $item_bids_table,
+                array( 'status' => 'awarded' ),
+                array( 'bid_id' => $bid_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            if ( $update_awarded === false ) {
+                throw new Exception( 'Failed to update bid status to awarded.' );
+            }
+
+            // 2. Update all other submitted bids to 'declined'
+            $update_declined = $wpdb->update(
+                $item_bids_table,
+                array( 'status' => 'declined' ),
+                array(
+                    'item_id' => $item_id,
+                    'status' => 'submitted',
+                ),
+                array( '%s' ),
+                array( '%d', '%s' )
+            );
+
+            // 3. Create immutable snapshot of awarded bid
+            // Get all bid data including media links and photos
+            $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+            $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+            
+            $media_links = $wpdb->get_results( $wpdb->prepare(
+                "SELECT url, provider, sort_order 
+                FROM {$bid_media_links_table} 
+                WHERE bid_id = %d 
+                ORDER BY sort_order ASC, id ASC",
+                $bid_id
+            ), ARRAY_A );
+
+            $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                "SELECT file_url, sort_order 
+                FROM {$bid_media_files_table} 
+                WHERE bid_id = %d 
+                ORDER BY sort_order ASC, id ASC",
+                $bid_id
+            ), ARRAY_A );
+
+            // Create snapshot JSON
+            $snapshot_data = array(
+                'bid_id' => intval( $bid['bid_id'] ),
+                'item_id' => $item_id,
+                'supplier_id' => intval( $bid['supplier_id'] ),
+                'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
+                'production_lead_time_text' => $bid['production_lead_time_text'],
+                'prototype_video_yes' => intval( $bid['prototype_video_yes'] ) === 1,
+                'prototype_timeline_option' => $bid['prototype_timeline_option'],
+                'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
+                'cad_yes' => $bid['cad_yes'] ? intval( $bid['cad_yes'] ) === 1 : null,
+                'media_links' => $media_links,
+                'bid_photos' => array_map( function( $photo ) {
+                    return esc_url_raw( $photo['file_url'] );
+                }, $bid_photos ),
+                'meta_json' => $bid['meta_json'] ? $bid['meta_json'] : null,
+                'awarded_at' => current_time( 'mysql' ),
+                'awarded_by' => $current_user->ID,
+            );
+
+            // Store snapshot in item meta_json (or create separate table if needed)
+            // For now, store in item meta_json under 'awarded_bid_snapshot'
+            $item_meta = $wpdb->get_var( $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+            
+            $meta = ! empty( $item_meta ) ? json_decode( $item_meta, true ) : array();
+            if ( ! is_array( $meta ) ) {
+                $meta = array();
+            }
+            
+            $meta['awarded_bid_snapshot'] = $snapshot_data;
+            $meta['item_status'] = 'Awarded'; // Update item status
+            
+            $wpdb->update(
+                $items_table,
+                array( 'meta_json' => wp_json_encode( $meta ) ),
+                array( 'id' => $item_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            // 4. Log bid_awarded event
+            $wpdb->insert(
+                $events_table,
+                array(
+                    'actor_user_id' => $current_user->ID,
+                    'event_type' => 'bid_awarded',
+                    'object_type' => 'bid',
+                    'object_id' => $bid_id,
+                    'item_id' => $item_id,
+                    'payload_json' => wp_json_encode( array(
+                        'bid_id' => $bid_id,
+                        'item_id' => $item_id,
+                        'designer_id' => $current_user->ID,
+                        'supplier_id' => intval( $bid['supplier_id'] ),
+                        'timestamp' => current_time( 'mysql' ),
+                    ) ),
+                    'created_at' => current_time( 'mysql' ),
+                ),
+                array( '%d', '%s', '%s', '%d', '%d', '%s', '%s' )
+            );
+
+            // 5. Log bid_declined events for all other bids
+            $declined_bids = $wpdb->get_results( $wpdb->prepare(
+                "SELECT bid_id FROM {$item_bids_table} 
+                WHERE item_id = %d AND bid_id != %d AND status = 'declined'",
+                $item_id,
+                $bid_id
+            ), ARRAY_A );
+
+            foreach ( $declined_bids as $declined_bid ) {
+                $wpdb->insert(
+                    $events_table,
+                    array(
+                        'actor_user_id' => $current_user->ID,
+                        'event_type' => 'bid_declined',
+                        'object_type' => 'bid',
+                        'object_id' => intval( $declined_bid['bid_id'] ),
+                        'item_id' => $item_id,
+                        'payload_json' => wp_json_encode( array(
+                            'bid_id' => intval( $declined_bid['bid_id'] ),
+                            'item_id' => $item_id,
+                            'timestamp' => current_time( 'mysql' ),
+                        ) ),
+                        'created_at' => current_time( 'mysql' ),
+                    ),
+                    array( '%d', '%s', '%s', '%d', '%d', '%s', '%s' )
+                );
+            }
+
+            // Commit transaction
+            $wpdb->query( 'COMMIT' );
+
+            wp_send_json_success( array(
+                'message' => 'Bid awarded successfully!',
+                'bid_id' => $bid_id,
+                'item_id' => $item_id,
+            ) );
+
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            wp_send_json_error( array(
+                'message' => 'Failed to award bid: ' . $e->getMessage(),
+            ) );
+        }
     }
 
     /**
