@@ -1437,7 +1437,8 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
             )}
             
             {/* Commit 2.4.1: Award Bid Button */}
-            {bid.can_award && !bid.is_awarded && !bid.is_declined && (
+            {/* Commit 2.6.1: Hide Award Bid button for view-only team members */}
+            {!isViewOnly && bid.can_award && !bid.is_awarded && !bid.is_declined && (
                 <div style={{ marginTop: '12px', marginBottom: '8px' }}>
                     <button
                         onClick={async () => {
@@ -1574,6 +1575,8 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
  * ItemDetailModal - Designer Item Modal with Three States
  */
 const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false, onPriceRequest }) => {
+    // Commit 2.6.1: Check if user is view-only team member
+    const isViewOnly = window.n88BoardData?.isViewOnly || false;
     const updateLayout = useBoardStore((state) => state.updateLayout);
     
     // Item state (RFQ and bids)
@@ -2396,9 +2399,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     }, [itemState, item]);
     
     // Check if fields should be editable
-    // Dimensions and quantity must remain editable at all times after RFQ submission (State B and C)
-    const isEditable = currentState === 'A';
-    const isDimsQtyEditable = true; // Always editable, even after RFQ and bids
+    // Commit 2.6.1: View-only team members cannot edit anything
+    const isEditable = !isViewOnly && currentState === 'A';
+    const isDimsQtyEditable = !isViewOnly; // Team members cannot edit dimensions/quantity
     
     // Warning banner state for post-RFQ dims/qty changes
     // Show only if: RFQ exists AND bids exist AND dims/qty changed
@@ -3548,7 +3551,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                         ) : null}
                                                     </div>
 
-                                                    {itemState.cad_status !== 'approved' && (
+                                                    {/* Commit 2.6.1: Hide CAD actions for view-only team members */}
+                                                    {!isViewOnly && itemState.cad_status !== 'approved' && (
                                                         <div>
                                                             {!showRevisionUpload ? (
                                                                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -3721,7 +3725,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             )}
                                             
                                             {/* Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too */}
-                                            {(itemState.has_rfq || itemState.has_prototype_payment) && (
+                                            {/* Commit 2.6.1: Hide Message Operator button for view-only team members */}
+                                            {!isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && (
                                                     <div style={{
                                                     marginBottom: '24px',
                                                 }}>
@@ -4513,7 +4518,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             )}
                                             
                                             {/* Request Quote Button / RFQ Form / Specs Updated Panel */}
-                            {currentState === 'A' && (
+                            {/* Commit 2.6.1: Hide RFQ submission for view-only team members */}
+                            {currentState === 'A' && !isViewOnly && (
                                 <div id="request-quote-section" style={{ marginBottom: '24px' }}>
                                     {/* D5: Specs Updated Panel - Show when revision_changed=true and has_rfq=true */}
                                     {(itemState.revision_changed === true || item.revision_changed === true) && itemState.has_rfq === true ? (
@@ -5414,7 +5420,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             )}
                                                             
                                                             {/* Action Buttons */}
-                                                            {itemState.prototype_status === 'submitted' && (
+                                                            {/* Commit 2.6.1: Hide prototype action buttons for view-only team members */}
+                                                            {!isViewOnly && itemState.prototype_status === 'submitted' && (
                                                                 <div style={{
                                                                     display: 'flex',
                                                                     gap: '12px',
@@ -6621,9 +6628,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             justifyContent: 'flex-end',
                         }}>
                             {/* Show Update button only if RFQ has already been submitted (State B or C) */}
+                            {/* Commit 2.6.1: Hide Update button for view-only team members */}
                             {/* Update button: Only updates dimensions and quantity */}
                             {/* Also check item.has_rfq as fallback in case itemState not loaded yet */}
-                            {((currentState === 'B' || currentState === 'C') || (item?.has_rfq || itemState.has_rfq)) && (
+                            {!isViewOnly && ((currentState === 'B' || currentState === 'C') || (item?.has_rfq || itemState.has_rfq)) && (
                                 <button
                                     onClick={handleUpdateDimensions}
                                     disabled={isSaving || isUploadingInspiration}
@@ -6643,6 +6651,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')}
                                 </button>
                             )}
+                            {/* Commit 2.6.1: Hide Save button for view-only team members */}
+                            {!isViewOnly && (
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving || isUploadingInspiration}
@@ -6661,6 +6671,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                             >
                                     {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Saving...' : 'Save for later')}
                             </button>
+                            )}
                         </div>
                         )}
                     </motion.div>

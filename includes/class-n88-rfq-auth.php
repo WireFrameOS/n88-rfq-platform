@@ -70,6 +70,11 @@ class N88_RFQ_Auth {
         
         // Commit 2.4.1: Award bid (designer action)
         add_action( 'wp_ajax_n88_award_bid', array( $this, 'ajax_award_bid' ) );
+        
+        // Commit 2.6.1: Invite team member (designer action)
+        add_action( 'wp_ajax_n88_invite_team_member', array( $this, 'ajax_invite_team_member' ) );
+        // Commit 2.6.1: Accept team invitation (first-time login)
+        add_action( 'wp_ajax_nopriv_n88_accept_team_invitation', array( $this, 'ajax_accept_team_invitation' ) );
         add_action( 'wp_ajax_n88_get_bid_draft', array( $this, 'ajax_get_bid_draft' ) );
         
         // G) Update bid to match new specs (create new draft from stale bid)
@@ -408,6 +413,11 @@ class N88_RFQ_Auth {
         $message = '';
         $message_type = '';
 
+        // Commit 2.6.1: Check for invitation token
+        $invite_token = isset( $_GET['invite_token'] ) ? sanitize_text_field( wp_unslash( $_GET['invite_token'] ) ) : '';
+        $invite_email = isset( $_GET['email'] ) ? sanitize_email( wp_unslash( $_GET['email'] ) ) : '';
+        $has_invitation = ! empty( $invite_token ) && ! empty( $invite_email );
+
         // Check for messages
         if ( isset( $_GET['n88_login_error'] ) ) {
             $message_type = 'error';
@@ -423,46 +433,149 @@ class N88_RFQ_Auth {
         ?>
         <div class="n88-auth-container n88-login-container">
             <div class="n88-auth-form-wrapper">
-                <h2 class="n88-auth-title">Login Your Account</h2>
-                
-                <?php if ( $message ) : ?>
-                    <div class="n88-auth-message n88-auth-message-<?php echo esc_attr( $message_type ); ?>">
-                        <?php echo esc_html( $message ); ?>
-                    </div>
-                <?php endif; ?>
-
-                <form id="n88-login-form" class="n88-auth-form" method="post">
-                    <?php wp_nonce_field( 'n88_login_user', 'n88_login_nonce' ); ?>
+                <?php if ( $has_invitation ) : ?>
+                    <!-- Commit 2.6.1: Invitation Acceptance Form -->
+                    <h2 class="n88-auth-title">Accept Team Invitation</h2>
                     
-                    <div class="n88-form-group">
-                        <label for="n88_login_username">Username or Email</label>
-                        <input type="text" id="n88_login_username" name="username" required>
-                    </div>
+                    <?php if ( $message ) : ?>
+                        <div class="n88-auth-message n88-auth-message-<?php echo esc_attr( $message_type ); ?>">
+                            <?php echo esc_html( $message ); ?>
+                        </div>
+                    <?php endif; ?>
 
-                    <div class="n88-form-group">
-                        <label for="n88_login_password">Password</label>
-                        <input type="password" id="n88_login_password" name="password" required>
-                    </div>
+                    <form id="n88-accept-invitation-form" class="n88-auth-form" method="post">
+                        <?php wp_nonce_field( 'n88_accept_team_invitation', '_ajax_nonce' ); ?>
+                        <input type="hidden" name="invitation_token" value="<?php echo esc_attr( $invite_token ); ?>">
+                        <input type="hidden" name="email" value="<?php echo esc_attr( $invite_email ); ?>">
+                        
+                        <div class="n88-form-group">
+                            <label for="n88_invite_email_display">Email</label>
+                            <input type="email" id="n88_invite_email_display" value="<?php echo esc_attr( $invite_email ); ?>" disabled style="background-color: #f5f5f5;">
+                            <small style="color: #666; font-size: 12px;">This email was used for your invitation</small>
+                        </div>
 
-                    <div class="n88-form-group">
-                        <label class="n88-checkbox-label">
-                            <input type="checkbox" name="remember" value="1"> Remember me
-                        </label>
-                    </div>
+                        <div class="n88-form-group">
+                            <label for="n88_invite_display_name">Display Name (Optional)</label>
+                            <input type="text" id="n88_invite_display_name" name="display_name" placeholder="Your name">
+                        </div>
 
-                    <div class="n88-form-group">
-                        <button type="submit" class="n88-auth-submit">Log In</button>
-                    </div>
+                        <div class="n88-form-group">
+                            <label for="n88_invite_password">Create Password</label>
+                            <input type="password" id="n88_invite_password" name="password" required minlength="8">
+                            <small style="color: #666; font-size: 12px;">Password must be at least 8 characters</small>
+                        </div>
 
-                    <div class="n88-auth-footer">
-                        <p>Don't have an account? <a href="<?php echo esc_url( home_url( '/signup/' ) ); ?>">Sign Up</a></p>
-                    </div>
-                </form>
+                        <div class="n88-form-group">
+                            <label for="n88_invite_password_confirm">Confirm Password</label>
+                            <input type="password" id="n88_invite_password_confirm" name="password_confirm" required minlength="8">
+                        </div>
+
+                        <div class="n88-form-group">
+                            <button type="submit" class="n88-auth-submit">Create Account & Join Team</button>
+                        </div>
+                    </form>
+                <?php else : ?>
+                    <!-- Regular Login Form -->
+                    <h2 class="n88-auth-title">Login Your Account</h2>
+                    
+                    <?php if ( $message ) : ?>
+                        <div class="n88-auth-message n88-auth-message-<?php echo esc_attr( $message_type ); ?>">
+                            <?php echo esc_html( $message ); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form id="n88-login-form" class="n88-auth-form" method="post">
+                        <?php wp_nonce_field( 'n88_login_user', 'n88_login_nonce' ); ?>
+                        
+                        <div class="n88-form-group">
+                            <label for="n88_login_username">Username or Email</label>
+                            <input type="text" id="n88_login_username" name="username" required>
+                        </div>
+
+                        <div class="n88-form-group">
+                            <label for="n88_login_password">Password</label>
+                            <input type="password" id="n88_login_password" name="password" required>
+                        </div>
+
+                        <div class="n88-form-group">
+                            <label class="n88-checkbox-label">
+                                <input type="checkbox" name="remember" value="1"> Remember me
+                            </label>
+                        </div>
+
+                        <div class="n88-form-group">
+                            <button type="submit" class="n88-auth-submit">Log In</button>
+                        </div>
+
+                        <div class="n88-auth-footer">
+                            <p>Don't have an account? <a href="<?php echo esc_url( home_url( '/signup/' ) ); ?>">Sign Up</a></p>
+                        </div>
+                    </form>
+                <?php endif; ?>
             </div>
         </div>
 
         <script>
         (function() {
+            // Commit 2.6.1: Handle invitation acceptance form
+            const acceptForm = document.getElementById('n88-accept-invitation-form');
+            if (acceptForm) {
+                acceptForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const password = document.getElementById('n88_invite_password').value;
+                    const passwordConfirm = document.getElementById('n88_invite_password_confirm').value;
+                    
+                    if (password !== passwordConfirm) {
+                        alert('Passwords do not match. Please try again.');
+                        return;
+                    }
+                    
+                    if (password.length < 8) {
+                        alert('Password must be at least 8 characters long.');
+                        return;
+                    }
+                    
+                    const formData = new FormData(acceptForm);
+                    formData.append('action', 'n88_accept_team_invitation');
+                    
+                    const submitBtn = acceptForm.querySelector('.n88-auth-submit');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creating Account...';
+
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        // Check if response is ok
+                        if (!response.ok) {
+                            return response.text().then(text => {
+                                throw new Error('HTTP error! status: ' + response.status + ', body: ' + text);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            window.location.href = data.data.redirect_url || '<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-board-demo' ) ); ?>';
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Failed to create account. Please try again.');
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred. Please try again. ' + (error.message || ''));
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    });
+                });
+            }
+            
+            // Regular login form
             const form = document.getElementById('n88-login-form');
             if (!form) return;
 
@@ -667,6 +780,7 @@ class N88_RFQ_Auth {
     /**
      * Get redirect URL based on user role (Commit 2.2.1, updated 2.2.7)
      * Commit 2.3.9.1C: System operators redirect to operator queue
+     * Commit 2.6.1: Team members redirect to firm board
      */
     private function get_role_redirect_url( $user ) {
         if ( ! $user || ! isset( $user->roles ) ) {
@@ -706,7 +820,118 @@ class N88_RFQ_Auth {
         }
         
         if ( in_array( 'n88_designer', $user->roles, true ) || in_array( 'designer', $user->roles, true ) ) {
-            // Commit 2.2.8: Check if designer profile is incomplete
+            // Commit 2.6.1: Check if user is a view-only team member (MUST check first before profile check)
+            // This prevents team members from being redirected to onboarding
+            if ( self::is_view_only_team_member( $user->ID ) ) {
+                // Team member: redirect to firm board
+                global $wpdb;
+                $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+                $boards_table = $wpdb->prefix . 'n88_boards';
+                
+                // Get user's firm
+                $firm_member = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT firm_id FROM {$firm_members_table} 
+                    WHERE user_id = %d 
+                    AND status = 'active' 
+                    AND left_at IS NULL 
+                    LIMIT 1",
+                    $user->ID
+                ), ARRAY_A );
+                
+                if ( $firm_member && isset( $firm_member['firm_id'] ) ) {
+                    // Get board owned by the firm owner (not just any board from firm)
+                    // First get the firm owner's user_id
+                    $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT user_id FROM {$firm_members_table} 
+                        WHERE firm_id = %d 
+                        AND role = 'owner' 
+                        AND status = 'active' 
+                        AND left_at IS NULL 
+                        LIMIT 1",
+                        $firm_member['firm_id']
+                    ), ARRAY_A );
+                    
+                    if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                        // Get the board owned by the firm owner
+                        $board = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT id FROM {$boards_table} 
+                            WHERE owner_user_id = %d 
+                            AND deleted_at IS NULL 
+                            ORDER BY created_at ASC 
+                            LIMIT 1",
+                            $firm_owner['user_id']
+                        ), ARRAY_A );
+                        
+                        if ( $board && isset( $board['id'] ) ) {
+                            return admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) );
+                        }
+                    }
+                    
+                    // Fallback: get any board from the firm if owner's board not found
+                    $board = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id FROM {$boards_table} 
+                        WHERE owner_firm_id = %d 
+                        AND deleted_at IS NULL 
+                        ORDER BY created_at ASC 
+                        LIMIT 1",
+                        $firm_member['firm_id']
+                    ), ARRAY_A );
+                    
+                    if ( $board && isset( $board['id'] ) ) {
+                        return admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) );
+                    }
+                    // Fallback to board demo page if no board exists
+                    return admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                }
+            }
+            
+            // Commit 2.6.1: Double-check if user is a team member (in case is_view_only_team_member didn't catch it)
+            // This prevents team members from being sent to onboarding
+            global $wpdb;
+            $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+            
+            // Check if user is a firm member (even if not yet detected by is_view_only_team_member)
+            $team_member_check = $wpdb->get_row( $wpdb->prepare(
+                "SELECT firm_id FROM {$firm_members_table} 
+                WHERE user_id = %d 
+                AND status = 'active' 
+                AND left_at IS NULL 
+                LIMIT 1",
+                $user->ID
+            ), ARRAY_A );
+            
+            if ( $team_member_check && isset( $team_member_check['firm_id'] ) ) {
+                // User is a team member - redirect to firm board (skip onboarding)
+                $boards_table = $wpdb->prefix . 'n88_boards';
+                
+                // Get firm owner's board
+                $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT user_id FROM {$firm_members_table} 
+                    WHERE firm_id = %d 
+                    AND role = 'owner' 
+                    AND status = 'active' 
+                    AND left_at IS NULL 
+                    LIMIT 1",
+                    $team_member_check['firm_id']
+                ), ARRAY_A );
+                
+                if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                    $board = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id FROM {$boards_table} 
+                        WHERE owner_user_id = %d 
+                        AND deleted_at IS NULL 
+                        ORDER BY created_at ASC 
+                        LIMIT 1",
+                        $firm_owner['user_id']
+                    ), ARRAY_A );
+                    
+                    if ( $board && isset( $board['id'] ) ) {
+                        return admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) );
+                    }
+                }
+            }
+            
+            // Commit 2.2.8: Check if designer profile is incomplete (only for non-team-member designers)
             global $wpdb;
             $designer_profiles_table = $wpdb->prefix . 'n88_designer_profiles_v2';
             
@@ -729,6 +954,47 @@ class N88_RFQ_Auth {
         }
 
         return null;
+    }
+
+    /**
+     * Commit 2.6.1: Check if user is a view-only team member (not firm owner)
+     * 
+     * @param int|null $user_id User ID (defaults to current user)
+     * @return bool True if user is a team member (view-only), false if owner or not a firm member
+     */
+    public static function is_view_only_team_member( $user_id = null ) {
+        if ( ! $user_id ) {
+            $current_user = wp_get_current_user();
+            if ( ! $current_user || ! $current_user->ID ) {
+                return false;
+            }
+            $user_id = $current_user->ID;
+        }
+
+        global $wpdb;
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+
+        // Check if table exists
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$firm_members_table}'" ) !== $firm_members_table ) {
+            return false;
+        }
+
+        // Check if user is a firm member with role 'member' (not 'owner')
+        $member = $wpdb->get_row( $wpdb->prepare(
+            "SELECT role, status FROM {$firm_members_table} 
+            WHERE user_id = %d 
+            AND status = 'active' 
+            AND left_at IS NULL
+            LIMIT 1",
+            $user_id
+        ), ARRAY_A );
+
+        // If user is a member (not owner), they're view-only
+        if ( $member && $member['role'] === 'member' ) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -11847,6 +12113,11 @@ class N88_RFQ_Auth {
             wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
         }
 
+        // Commit 2.6.1: Check if user is view-only team member
+        if ( self::is_view_only_team_member( $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Team members have view-only access.' ) );
+        }
+
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
         $bid_id = isset( $_POST['bid_id'] ) ? intval( $_POST['bid_id'] ) : 0;
         
@@ -12082,6 +12353,549 @@ class N88_RFQ_Auth {
                 'message' => 'Failed to award bid: ' . $e->getMessage(),
             ) );
         }
+    }
+
+    /**
+     * Commit 2.6.1: AJAX handler to invite team member by email
+     * 
+     * Creates a pending firm member invitation and sends email
+     */
+    public function ajax_invite_team_member() {
+        check_ajax_referer( 'n88_invite_team_member', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        
+        if ( ! $is_designer && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+        }
+
+        $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+        
+        if ( empty( $email ) || ! is_email( $email ) ) {
+            wp_send_json_error( array( 'message' => 'Valid email address is required.' ) );
+        }
+
+        global $wpdb;
+        $firms_table = $wpdb->prefix . 'n88_firms';
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+        $designer_profiles_table = $wpdb->prefix . 'n88_designer_profiles_v2';
+
+        // First, check if user is already a firm owner (they might have created a firm when creating a board)
+        $existing_firm_member = $wpdb->get_row( $wpdb->prepare(
+            "SELECT fm.firm_id, f.name as firm_name 
+            FROM {$firm_members_table} fm
+            INNER JOIN {$firms_table} f ON fm.firm_id = f.id
+            WHERE fm.user_id = %d 
+            AND fm.role = 'owner' 
+            AND fm.status = 'active' 
+            AND fm.left_at IS NULL
+            AND f.deleted_at IS NULL
+            LIMIT 1",
+            $current_user->ID
+        ), ARRAY_A );
+
+        if ( $existing_firm_member && ! empty( $existing_firm_member['firm_name'] ) ) {
+            // User is already a firm owner - use that firm
+            $firm_id = intval( $existing_firm_member['firm_id'] );
+            $firm_name = $existing_firm_member['firm_name'];
+        } else {
+            // Check designer profile for firm_name
+            $designer_profile = $wpdb->get_row( $wpdb->prepare(
+                "SELECT firm_name FROM {$designer_profiles_table} WHERE designer_id = %d",
+                $current_user->ID
+            ), ARRAY_A );
+
+            if ( ! $designer_profile || empty( $designer_profile['firm_name'] ) ) {
+                wp_send_json_error( array( 'message' => 'Please complete your profile with a firm name before inviting team members, or create a board first.' ) );
+            }
+
+            $firm_name = $designer_profile['firm_name'];
+            
+            // Get or create firm based on firm_name
+            $firm = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id, name FROM {$firms_table} WHERE name = %s AND deleted_at IS NULL",
+                $firm_name
+            ), ARRAY_A );
+
+            if ( ! $firm ) {
+                // Create firm if it doesn't exist
+                $firm_slug = sanitize_title( $firm_name );
+                $firm_slug_base = $firm_slug;
+                $counter = 1;
+                
+                // Ensure unique slug
+                while ( $wpdb->get_var( $wpdb->prepare(
+                    "SELECT id FROM {$firms_table} WHERE slug = %s",
+                    $firm_slug
+                ) ) ) {
+                    $firm_slug = $firm_slug_base . '-' . $counter;
+                    $counter++;
+                }
+
+                $wpdb->insert(
+                    $firms_table,
+                    array(
+                        'name' => $firm_name,
+                        'slug' => $firm_slug,
+                        'created_by_user_id' => $current_user->ID,
+                        'created_at' => current_time( 'mysql' ),
+                        'updated_at' => current_time( 'mysql' ),
+                    ),
+                    array( '%s', '%s', '%d', '%s', '%s' )
+                );
+
+                $firm_id = $wpdb->insert_id;
+                
+                // Add designer as firm owner
+                $wpdb->insert(
+                    $firm_members_table,
+                    array(
+                        'firm_id' => $firm_id,
+                        'user_id' => $current_user->ID,
+                        'role' => 'owner',
+                        'status' => 'active',
+                        'joined_at' => current_time( 'mysql' ),
+                    ),
+                    array( '%d', '%d', '%s', '%s', '%s' )
+                );
+            } else {
+                $firm_id = intval( $firm['id'] );
+                
+                // Check if user is already a member of this firm
+                $existing_member = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT id FROM {$firm_members_table} 
+                    WHERE firm_id = %d AND user_id = %d AND left_at IS NULL",
+                    $firm_id,
+                    $current_user->ID
+                ), ARRAY_A );
+                
+                if ( ! $existing_member ) {
+                    // Add designer as firm owner
+                    $wpdb->insert(
+                        $firm_members_table,
+                        array(
+                            'firm_id' => $firm_id,
+                            'user_id' => $current_user->ID,
+                            'role' => 'owner',
+                            'status' => 'active',
+                            'joined_at' => current_time( 'mysql' ),
+                        ),
+                        array( '%d', '%d', '%s', '%s', '%s' )
+                    );
+                }
+            }
+        }
+
+        // At this point, $firm_id should be set from either path above
+        if ( ! isset( $firm_id ) || $firm_id === 0 ) {
+            wp_send_json_error( array( 'message' => 'Failed to determine firm. Please try again.' ) );
+        }
+
+        // Check if user already exists with this email
+        $existing_user = get_user_by( 'email', $email );
+        
+        if ( $existing_user ) {
+            // User exists - check if already a member
+            $existing_member = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id, status FROM {$firm_members_table} 
+                WHERE firm_id = %d AND user_id = %d AND left_at IS NULL",
+                $firm_id,
+                $existing_user->ID
+            ), ARRAY_A );
+
+            if ( $existing_member ) {
+                if ( $existing_member['status'] === 'pending' ) {
+                    wp_send_json_error( array( 'message' => 'This email has already been invited. Please check your email for the invitation link.' ) );
+                } else {
+                    wp_send_json_error( array( 'message' => 'This user is already a member of your firm.' ) );
+                }
+            }
+        }
+
+        // Check if there's already a pending invitation for this email
+        $pending_invitation = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, status FROM {$firm_members_table} 
+            WHERE firm_id = %d AND email = %s AND status = 'pending' AND left_at IS NULL",
+            $firm_id,
+            $email
+        ), ARRAY_A );
+
+        if ( $pending_invitation ) {
+            wp_send_json_error( array( 'message' => 'This email has already been invited. Please check your email for the invitation link.' ) );
+        }
+
+        // Generate invitation token
+        $invitation_token = bin2hex( random_bytes( 32 ) );
+
+        // Create pending invitation
+        $insert_data = array(
+            'firm_id' => $firm_id,
+            'email' => $email,
+            'role' => 'member',
+            'status' => 'pending',
+            'invitation_token' => $invitation_token,
+            'invited_by_user_id' => $current_user->ID,
+            'invited_at' => current_time( 'mysql' ),
+        );
+
+        // If user exists, also set user_id (otherwise will be 0 until account is created)
+        if ( $existing_user ) {
+            $insert_data['user_id'] = $existing_user->ID;
+        } else {
+            $insert_data['user_id'] = 0; // Will be updated when user creates account
+        }
+
+        // Note: joined_at is NOT set for pending invitations - only set when user accepts
+
+        $wpdb->insert(
+            $firm_members_table,
+            $insert_data,
+            array( '%d', '%s', '%d', '%s', '%s', '%s', '%d', '%s' )
+        );
+
+        if ( $wpdb->last_error ) {
+            wp_send_json_error( array( 'message' => 'Failed to create invitation. Please try again.' ) );
+        }
+
+        // Send invitation email
+        // Use custom login page URL instead of wp-login.php
+        $login_url = home_url( '/login/' );
+        $invitation_url = add_query_arg( array(
+            'invite_token' => $invitation_token,
+            'email' => urlencode( $email ),
+        ), $login_url );
+
+        $subject = sprintf( 'You\'ve been invited to join %s on N88 RFQ Platform', $firm_name );
+        $message = sprintf(
+            "Hello,\n\nYou've been invited by %s to join %s as a team member on the N88 RFQ Platform.\n\n" .
+            "To accept this invitation and set up your account:\n" .
+            "1. Click the link below or copy it to your browser\n" .
+            "2. Enter your email address: %s\n" .
+            "3. Create a password\n" .
+            "4. You'll be automatically logged in and granted access to the firm's boards\n\n" .
+            "Invitation Link: %s\n\n" .
+            "This invitation link will remain valid until you create your account.\n\n" .
+            "If you did not expect this invitation, please ignore this email.\n\n" .
+            "Best regards,\nN88 RFQ Platform",
+            $current_user->display_name,
+            $firm_name,
+            $email,
+            $invitation_url
+        );
+
+        $headers = array( 'Content-Type: text/plain; charset=UTF-8' );
+        $mail_sent = wp_mail( $email, $subject, $message, $headers );
+
+        if ( ! $mail_sent ) {
+            error_log( 'N88 Team Invite: Failed to send invitation email to ' . $email );
+            // Don't fail the request if email fails - invitation is still created
+        }
+
+        wp_send_json_success( array(
+            'message' => 'Team member invitation sent successfully to ' . $email,
+            'email' => $email,
+        ) );
+    }
+
+    /**
+     * Commit 2.6.1: AJAX handler to accept team invitation (first-time login)
+     * 
+     * Creates user account, activates firm member, and auto-logs in
+     */
+    public function ajax_accept_team_invitation() {
+        // Verify nonce - check both POST and GET
+        $nonce = isset( $_POST['_ajax_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_ajax_nonce'] ) ) : '';
+        
+        if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'n88_accept_team_invitation' ) ) {
+            // Log for debugging
+            error_log( 'N88 RFQ: Accept invitation nonce verification failed. Nonce: ' . ( empty( $nonce ) ? 'empty' : 'present' ) );
+            wp_send_json_error( array( 
+                'message' => 'Security check failed. Please refresh the page and try again.',
+                'debug' => defined( 'WP_DEBUG' ) && WP_DEBUG ? 'Nonce verification failed' : ''
+            ) );
+        }
+
+        $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+        $invitation_token = isset( $_POST['invitation_token'] ) ? sanitize_text_field( wp_unslash( $_POST['invitation_token'] ) ) : '';
+        $password = isset( $_POST['password'] ) ? $_POST['password'] : '';
+        $display_name = isset( $_POST['display_name'] ) ? sanitize_text_field( wp_unslash( $_POST['display_name'] ) ) : '';
+
+        if ( empty( $email ) || ! is_email( $email ) ) {
+            wp_send_json_error( array( 'message' => 'Valid email address is required.' ) );
+        }
+
+        if ( empty( $invitation_token ) ) {
+            wp_send_json_error( array( 'message' => 'Invitation token is required.' ) );
+        }
+
+        if ( empty( $password ) || strlen( $password ) < 8 ) {
+            wp_send_json_error( array( 'message' => 'Password must be at least 8 characters long.' ) );
+        }
+
+        global $wpdb;
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+        $firms_table = $wpdb->prefix . 'n88_firms';
+        $boards_table = $wpdb->prefix . 'n88_boards';
+
+        // Find pending invitation (include invited_by_user_id to get the designer who invited)
+        $invitation = $wpdb->get_row( $wpdb->prepare(
+            "SELECT fm.*, f.name as firm_name 
+            FROM {$firm_members_table} fm
+            INNER JOIN {$firms_table} f ON fm.firm_id = f.id
+            WHERE fm.email = %s 
+            AND fm.invitation_token = %s 
+            AND fm.status = 'pending'
+            AND fm.left_at IS NULL",
+            $email,
+            $invitation_token
+        ), ARRAY_A );
+
+        if ( ! $invitation ) {
+            wp_send_json_error( array( 'message' => 'Invalid or expired invitation. Please contact the person who invited you.' ) );
+        }
+
+        // Check if user already exists
+        $existing_user = get_user_by( 'email', $email );
+        
+        if ( $existing_user ) {
+            // User exists - activate the invitation
+            $user_id = $existing_user->ID;
+            
+            // Update firm member record
+            $wpdb->update(
+                $firm_members_table,
+                array(
+                    'user_id' => $user_id,
+                    'status' => 'active',
+                    'joined_at' => current_time( 'mysql' ),
+                    'invitation_token' => null, // Clear token after use
+                ),
+                array( 'id' => $invitation['id'] ),
+                array( '%d', '%s', '%s', '%s' ),
+                array( '%d' )
+            );
+
+            // Log the user in
+            wp_set_current_user( $user_id );
+            wp_set_auth_cookie( $user_id, true );
+
+            // Get board owned by the designer who invited them (invited_by_user_id)
+            $inviter_user_id = isset( $invitation['invited_by_user_id'] ) ? intval( $invitation['invited_by_user_id'] ) : 0;
+            
+            if ( $inviter_user_id > 0 ) {
+                // Get the board owned by the designer who invited them
+                $board = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT id FROM {$boards_table} 
+                    WHERE owner_user_id = %d 
+                    AND deleted_at IS NULL 
+                    ORDER BY created_at ASC 
+                    LIMIT 1",
+                    $inviter_user_id
+                ), ARRAY_A );
+                
+                if ( $board && isset( $board['id'] ) ) {
+                    $board_id = intval( $board['id'] );
+                    $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . $board_id );
+                    error_log( 'N88 Team Invite: Redirecting to board_id=' . $board_id . ' for inviter_user_id=' . $inviter_user_id );
+                } else {
+                    error_log( 'N88 Team Invite: No board found for inviter_user_id=' . $inviter_user_id . ', trying firm owner fallback' );
+                    // Fallback: try to get firm owner's board
+                    $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT user_id FROM {$firm_members_table} 
+                        WHERE firm_id = %d 
+                        AND role = 'owner' 
+                        AND status = 'active' 
+                        AND left_at IS NULL 
+                        LIMIT 1",
+                        $invitation['firm_id']
+                    ), ARRAY_A );
+                    
+                    if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                        $board = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT id FROM {$boards_table} 
+                            WHERE owner_user_id = %d 
+                            AND deleted_at IS NULL 
+                            ORDER BY created_at ASC 
+                            LIMIT 1",
+                            $firm_owner['user_id']
+                        ), ARRAY_A );
+                        
+                        $redirect_url = $board && isset( $board['id'] ) ? admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) ) : admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                    } else {
+                        $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                    }
+                }
+            } else {
+                // No inviter user ID - fallback to firm owner
+                $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT user_id FROM {$firm_members_table} 
+                    WHERE firm_id = %d 
+                    AND role = 'owner' 
+                    AND status = 'active' 
+                    AND left_at IS NULL 
+                    LIMIT 1",
+                    $invitation['firm_id']
+                ), ARRAY_A );
+                
+                if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                    $board = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id FROM {$boards_table} 
+                        WHERE owner_user_id = %d 
+                        AND deleted_at IS NULL 
+                        ORDER BY created_at ASC 
+                        LIMIT 1",
+                        $firm_owner['user_id']
+                    ), ARRAY_A );
+                    
+                    $redirect_url = $board && isset( $board['id'] ) ? admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) ) : admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                } else {
+                    $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                }
+            }
+
+            wp_send_json_success( array(
+                'message' => 'Account activated successfully!',
+                'redirect_url' => $redirect_url,
+            ) );
+        }
+
+        // Create new user account
+        $username = sanitize_user( $email, true );
+        // Ensure username is unique
+        $username_base = $username;
+        $counter = 1;
+        while ( username_exists( $username ) ) {
+            $username = $username_base . $counter;
+            $counter++;
+        }
+
+        $user_id = wp_create_user( $username, $password, $email );
+
+        if ( is_wp_error( $user_id ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to create account: ' . $user_id->get_error_message() ) );
+        }
+
+        // Set display name
+        if ( ! empty( $display_name ) ) {
+            wp_update_user( array(
+                'ID' => $user_id,
+                'display_name' => $display_name,
+            ) );
+        } else {
+            // Use email prefix as display name
+            $email_parts = explode( '@', $email );
+            wp_update_user( array(
+                'ID' => $user_id,
+                'display_name' => $email_parts[0],
+            ) );
+        }
+
+        // Assign designer role (team members are designers with view-only access)
+        $user = new WP_User( $user_id );
+        $user->set_role( 'n88_designer' );
+
+        // Activate firm member
+        $wpdb->update(
+            $firm_members_table,
+            array(
+                'user_id' => $user_id,
+                'status' => 'active',
+                'joined_at' => current_time( 'mysql' ),
+                'invitation_token' => null, // Clear token after use
+            ),
+            array( 'id' => $invitation['id'] ),
+            array( '%d', '%s', '%s', '%s' ),
+            array( '%d' )
+        );
+
+        // Log the user in
+        wp_set_current_user( $user_id );
+        wp_set_auth_cookie( $user_id, true );
+
+        // Get board owned by the designer who invited them (invited_by_user_id)
+        $inviter_user_id = isset( $invitation['invited_by_user_id'] ) ? intval( $invitation['invited_by_user_id'] ) : 0;
+        
+        if ( $inviter_user_id > 0 ) {
+            // Get the board owned by the designer who invited them
+            $board = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id FROM {$boards_table} 
+                WHERE owner_user_id = %d 
+                AND deleted_at IS NULL 
+                ORDER BY created_at ASC 
+                LIMIT 1",
+                $inviter_user_id
+            ), ARRAY_A );
+            
+            if ( $board && isset( $board['id'] ) ) {
+                $board_id = intval( $board['id'] );
+                $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . $board_id );
+                error_log( 'N88 Team Invite: Redirecting new user to board_id=' . $board_id . ' for inviter_user_id=' . $inviter_user_id );
+            } else {
+                error_log( 'N88 Team Invite: No board found for inviter_user_id=' . $inviter_user_id . ', trying firm owner fallback' );
+                // Fallback: try to get firm owner's board
+                $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT user_id FROM {$firm_members_table} 
+                    WHERE firm_id = %d 
+                    AND role = 'owner' 
+                    AND status = 'active' 
+                    AND left_at IS NULL 
+                    LIMIT 1",
+                    $invitation['firm_id']
+                ), ARRAY_A );
+                
+                if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                    $board = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT id FROM {$boards_table} 
+                        WHERE owner_user_id = %d 
+                        AND deleted_at IS NULL 
+                        ORDER BY created_at ASC 
+                        LIMIT 1",
+                        $firm_owner['user_id']
+                    ), ARRAY_A );
+                    
+                    $redirect_url = $board && isset( $board['id'] ) ? admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) ) : admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                } else {
+                    $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo' );
+                }
+            }
+        } else {
+            // No inviter user ID - fallback to firm owner
+            $firm_owner = $wpdb->get_row( $wpdb->prepare(
+                "SELECT user_id FROM {$firm_members_table} 
+                WHERE firm_id = %d 
+                AND role = 'owner' 
+                AND status = 'active' 
+                AND left_at IS NULL 
+                LIMIT 1",
+                $invitation['firm_id']
+            ), ARRAY_A );
+            
+            if ( $firm_owner && isset( $firm_owner['user_id'] ) ) {
+                $board = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT id FROM {$boards_table} 
+                    WHERE owner_user_id = %d 
+                    AND deleted_at IS NULL 
+                    ORDER BY created_at ASC 
+                    LIMIT 1",
+                    $firm_owner['user_id']
+                ), ARRAY_A );
+                
+                $redirect_url = $board && isset( $board['id'] ) ? admin_url( 'admin.php?page=n88-rfq-board-demo&board_id=' . intval( $board['id'] ) ) : admin_url( 'admin.php?page=n88-rfq-board-demo' );
+            } else {
+                $redirect_url = admin_url( 'admin.php?page=n88-rfq-board-demo' );
+            }
+        }
+
+        wp_send_json_success( array(
+            'message' => 'Account created successfully!',
+            'redirect_url' => $redirect_url,
+        ) );
     }
 
     /**
@@ -12357,6 +13171,11 @@ class N88_RFQ_Auth {
 
         if ( ! $is_designer && ! $is_system_operator ) {
             wp_send_json_error( array( 'message' => 'Access denied. Creator or System Operator account required.' ) );
+        }
+
+        // Commit 2.6.1: Check if user is view-only team member
+        if ( self::is_view_only_team_member( $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Team members have view-only access.' ) );
         }
 
         global $wpdb;
@@ -13118,6 +13937,12 @@ class N88_RFQ_Auth {
         
         if ( ! $is_designer ) {
             wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+            return;
+        }
+
+        // Commit 2.6.1: Check if user is view-only team member
+        if ( self::is_view_only_team_member( $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Team members have view-only access.' ) );
             return;
         }
 

@@ -62,7 +62,8 @@ class N88_Authorization {
      * 
      * Returns the board only if:
      * - The user owns the board (owner_user_id matches), OR
-     * - The user is an admin (manage_options capability)
+     * - The user is an admin (manage_options capability), OR
+     * - Commit 2.6.1: The user is a team member of the firm that owns the board
      * 
      * @param int $board_id Board ID
      * @param int $user_id User ID (typically from get_current_user_id())
@@ -90,38 +91,126 @@ class N88_Authorization {
             );
         }
 
-        // Ownership check in WHERE clause - never trust incoming IDs
-        return $wpdb->get_row(
+        // First check: Direct ownership
+        $board = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT * FROM {$table} WHERE id = %d AND owner_user_id = %d AND deleted_at IS NULL",
                 $board_id,
                 $user_id
             )
         );
+
+        if ( $board ) {
+            return $board;
+        }
+
+        // Commit 2.6.1: Check if user is a team member of the firm that owns the board
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+        
+        // Check if firm_members table exists
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$firm_members_table}'" ) === $firm_members_table ) {
+            // First, try to get board's firm_id from owner_firm_id column
+            $board_firm = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT owner_firm_id, owner_user_id FROM {$table} WHERE id = %d AND deleted_at IS NULL",
+                    $board_id
+                ),
+                ARRAY_A
+            );
+
+            $firm_id = null;
+            
+            // Method 1: Use owner_firm_id if it's set on the board
+            if ( $board_firm && ! empty( $board_firm['owner_firm_id'] ) ) {
+                $firm_id = intval( $board_firm['owner_firm_id'] );
+            }
+            // Method 2: If owner_firm_id is NULL, get firm_id from board owner's firm membership
+            else if ( $board_firm && ! empty( $board_firm['owner_user_id'] ) ) {
+                $board_owner_id = intval( $board_firm['owner_user_id'] );
+                $owner_firm = $wpdb->get_row(
+                    $wpdb->prepare(
+                        "SELECT firm_id FROM {$firm_members_table} 
+                        WHERE user_id = %d 
+                        AND status = 'active' 
+                        AND left_at IS NULL 
+                        LIMIT 1",
+                        $board_owner_id
+                    ),
+                    ARRAY_A
+                );
+                
+                if ( $owner_firm && ! empty( $owner_firm['firm_id'] ) ) {
+                    $firm_id = intval( $owner_firm['firm_id'] );
+                }
+            }
+
+            // If we found a firm_id, check if current user is an active member of that firm
+            if ( $firm_id ) {
+                $firm_member = $wpdb->get_row(
+                    $wpdb->prepare(
+                        "SELECT id FROM {$firm_members_table} 
+                        WHERE firm_id = %d 
+                        AND user_id = %d 
+                        AND status = 'active' 
+                        AND left_at IS NULL 
+                        LIMIT 1",
+                        $firm_id,
+                        $user_id
+                    ),
+                    ARRAY_A
+                );
+
+                if ( $firm_member ) {
+                    // User is a team member - return the board (view-only access)
+                    return $wpdb->get_row(
+                        $wpdb->prepare(
+                            "SELECT * FROM {$table} WHERE id = %d AND deleted_at IS NULL",
+                            $board_id
+                        )
+                    );
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
      * Check if a user can edit an item.
+     * 
+     * Commit 2.6.1: Team members (view-only) cannot edit items
      * 
      * @param int $user_id User ID
      * @param int $item_id Item ID
      * @return bool True if user can edit, false otherwise
      */
     public static function can_edit_item( $user_id, $item_id ) {
-        $item = self::get_item_for_user( $item_id, $user_id );
-        return $item !== null;
+        // Commit 2.6.1: Check if user is a view-only team member
+        if ( N88_RFQ_Auth::is_view_only_team_member( $user_id ) ) {
+            return false;
+        }
+
+        // User must own the item
+        return self::is_item_owner( $user_id, $item_id );
     }
 
     /**
      * Check if a user can edit a board.
+     * 
+     * Commit 2.6.1: Team members (view-only) cannot edit boards
      * 
      * @param int $user_id User ID
      * @param int $board_id Board ID
      * @return bool True if user can edit, false otherwise
      */
     public static function can_edit_board( $user_id, $board_id ) {
-        $board = self::get_board_for_user( $board_id, $user_id );
-        return $board !== null;
+        // Commit 2.6.1: Check if user is a view-only team member
+        if ( N88_RFQ_Auth::is_view_only_team_member( $user_id ) ) {
+            return false;
+        }
+
+        // User must own the board (not just view it as team member)
+        return self::is_board_owner( $user_id, $board_id );
     }
 
     /**

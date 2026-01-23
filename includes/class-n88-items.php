@@ -471,6 +471,11 @@ class N88_Items {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ), 400 );
         }
 
+        // Commit 2.6.1: Check if user is view-only team member
+        if ( N88_RFQ_Auth::is_view_only_team_member( $user_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Team members have view-only access.' ), 403 );
+        }
+
         // Ownership validation (owner OR admin)
         $item = N88_Authorization::get_item_for_user( $item_id, $user_id );
         if ( ! $item ) {

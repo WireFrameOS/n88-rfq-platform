@@ -3307,6 +3307,7 @@ class N88_RFQ_Admin {
         $items = array();
         $is_real_board = false;
         $board_name = 'Demo Board';
+        $board = null; // Initialize board variable
 
         // If board_id provided, load real board items
         if ( $board_id > 0 ) {
@@ -4145,13 +4146,19 @@ class N88_RFQ_Admin {
             'nonce_request_prototype_changes' => wp_create_nonce( 'n88_request_prototype_changes' ),
             // Commit 2.4.1: Award bid nonce
             'nonce_award_bid' => wp_create_nonce( 'n88_award_bid' ),
+            // Commit 2.6.1: Invite team member nonce
+            'nonce_invite_team_member' => wp_create_nonce( 'n88_invite_team_member' ),
         ) );
+        
+        // Commit 2.6.1: Check if current user is view-only team member
+        $is_view_only = N88_RFQ_Auth::is_view_only_team_member( $user_id );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
         wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
             'nonce' => wp_create_nonce( 'n88_get_item_rfq_state' ),
             'boardName' => $board_name,
+            'isViewOnly' => $is_view_only, // Commit 2.6.1: View-only flag for team members
         ) );
         ?>
         <style>
@@ -4323,10 +4330,23 @@ class N88_RFQ_Admin {
                 
                 <!-- Tabs Row - Project dropdown and search left-aligned after Firm Board -->
                 <div style="display: flex; align-items: center; gap: 20px; padding: 10px 20px; border-bottom: 1px solid #ddd;">
-                    <span style="margin-right: 10px; padding: 8px 15px; background-color: #0073aa; color: #fff; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                    <?php
+                    // Check if current user owns the board being viewed
+                    $is_own_board = false;
+                    if ( $is_real_board && isset( $board ) && isset( $board->owner_user_id ) ) {
+                        $is_own_board = ( intval( $board->owner_user_id ) === intval( $user_id ) );
+                    }
+                    // Determine active button:
+                    // - If viewing own board: "My Board" is active
+                    // - If viewing owner's board (team member): "Firm Board (View-Only)" is active
+                    // - If demo board: "My Board" is active by default
+                    $my_board_active = $is_own_board || ! $is_real_board;
+                    $firm_board_active = ! $is_own_board && $is_real_board;
+                    ?>
+                    <span style="margin-right: 10px; padding: 8px 15px; background-color: <?php echo $my_board_active ? '#0073aa' : '#f0f0f0'; ?>; color: <?php echo $my_board_active ? '#fff' : '#666'; ?>; border-radius: 4px; font-size: 14px; cursor: pointer;">
                         My Board
                     </span>
-                    <span style="margin-right: 10px; padding: 8px 15px; background-color: #f0f0f0; color: #666; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                    <span style="margin-right: 10px; padding: 8px 15px; background-color: <?php echo $firm_board_active ? '#0073aa' : '#f0f0f0'; ?>; color: <?php echo $firm_board_active ? '#fff' : '#666'; ?>; border-radius: 4px; font-size: 14px; cursor: pointer;">
                         Firm Board (View-Only)
                     </span>
                     <!-- K) Project dropdown and search left-aligned right after Firm Board -->
@@ -4344,14 +4364,28 @@ class N88_RFQ_Admin {
                 
                 <!-- K) Controls Row - Create Project and Add Item buttons left-aligned -->
                 <div style="display: flex; align-items: center; gap: 10px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
-                    <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
-                        + Create Project
-                    </button>
-                    <?php if ( $is_real_board ) : ?>
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
-                           style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
-                            + Add Item
-                        </a>
+                    <?php 
+                    // Commit 2.6.1: Check if user is view-only team member
+                    $is_view_only_team = N88_RFQ_Auth::is_view_only_team_member( $user_id );
+                    // Hide buttons if: user is view-only team member OR viewing someone else's board (not their own)
+                    $should_hide_buttons = $is_view_only_team || ( $is_real_board && ! $is_own_board );
+                    ?>
+                    <?php if ( ! $should_hide_buttons ) : ?>
+                        <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
+                            + Create Project
+                        </button>
+                        <?php if ( $is_real_board ) : ?>
+                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
+                               style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
+                                + Add Item
+                            </a>
+                            <!-- Commit 2.6.1: Invite Team Member Button -->
+                            <button id="n88-invite-team-member-btn" style="padding: 8px 16px; background-color: #4caf50; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
+                                + Invite Team Member
+                            </button>
+                        <?php endif; ?>
+                    <?php else : ?>
+                        <span style="padding: 8px 16px; color: #666; font-size: 14px; font-weight: 500;">View-Only Mode</span>
                     <?php endif; ?>
                 </div>
             </div>
@@ -4380,6 +4414,74 @@ class N88_RFQ_Admin {
                 if (createProjectBtn) {
                     createProjectBtn.addEventListener('click', function() {
                         alert('Create Project functionality will be available in a future update.');
+                    });
+                }
+                
+                // Commit 2.6.1: Invite Team Member button handler
+                var inviteTeamMemberBtn = document.getElementById('n88-invite-team-member-btn');
+                if (inviteTeamMemberBtn) {
+                    inviteTeamMemberBtn.addEventListener('click', function() {
+                        var email = prompt('Enter email address to invite:');
+                        if (!email || !email.trim()) {
+                            return;
+                        }
+                        
+                        email = email.trim();
+                        
+                        // Basic email validation
+                        var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                        if (!emailRegex.test(email)) {
+                            alert('Please enter a valid email address.');
+                            return;
+                        }
+                        
+                        // Get nonce
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_invite_team_member) {
+                            nonce = window.n88BoardNonce.nonce_invite_team_member;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        }
+                        
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        // Disable button during request
+                        inviteTeamMemberBtn.disabled = true;
+                        inviteTeamMemberBtn.textContent = 'Sending...';
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_invite_team_member');
+                        formData.append('email', email);
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            inviteTeamMemberBtn.disabled = false;
+                            inviteTeamMemberBtn.textContent = '+ Invite Team Member';
+                            
+                            if (data.success) {
+                                alert('Invitation sent successfully to ' + email + '!');
+                            } else {
+                                alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send invitation.'));
+                            }
+                        })
+                        .catch(function(error) {
+                            inviteTeamMemberBtn.disabled = false;
+                            inviteTeamMemberBtn.textContent = '+ Invite Team Member';
+                            console.error('Error inviting team member:', error);
+                            alert('Error sending invitation. Please try again.');
+                        });
                     });
                 }
                 

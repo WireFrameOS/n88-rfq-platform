@@ -1205,9 +1205,12 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.2B-D: Add prototype_status fields to n88_prototype_payments
         self::add_prototype_status_fields();
-        
+
         // Commit 2.3.10: Migrate item_delivery_context table for delivery quoting
         self::migrate_item_delivery_context_for_delivery_quoting();
+
+        // Commit 2.6.1: Migrate firm_members table for pending invitations
+        self::migrate_firm_members_for_invitations();
 
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
@@ -3537,6 +3540,67 @@ class N88_RFQ_Installer {
         $result = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $like ) );
 
         return $result === $table_name;
+    }
+
+    /**
+     * Commit 2.6.1: Migrate firm_members table to support pending invitations
+     * Adds: email, status, invitation_token, invited_at columns
+     */
+    private static function migrate_firm_members_for_invitations() {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $firm_members_table = $wpdb->prefix . 'n88_firm_members';
+
+        // Check if table exists
+        if ( ! self::table_exists( $firm_members_table ) ) {
+            error_log( 'N88 Firm Members: Table does not exist, skipping migration.' );
+            return;
+        }
+
+        // Get existing columns
+        $columns = $wpdb->get_col( "DESCRIBE {$firm_members_table}" );
+
+        // Add email column (for pending invitations before user account exists)
+        if ( ! in_array( 'email', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD COLUMN email VARCHAR(255) NULL AFTER firm_id" );
+            error_log( 'N88 Firm Members: Added email column.' );
+        }
+
+        // Add status column (pending, active, inactive)
+        if ( ! in_array( 'status', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active' AFTER role" );
+            // Update existing records to 'active'
+            $wpdb->query( "UPDATE {$firm_members_table} SET status = 'active' WHERE status IS NULL OR status = ''" );
+            error_log( 'N88 Firm Members: Added status column.' );
+        }
+
+        // Add invitation_token column (for email verification)
+        if ( ! in_array( 'invitation_token', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD COLUMN invitation_token VARCHAR(64) NULL AFTER status" );
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD UNIQUE KEY unique_invitation_token (invitation_token)" );
+            error_log( 'N88 Firm Members: Added invitation_token column.' );
+        }
+
+        // Add invited_at column
+        if ( ! in_array( 'invited_at', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD COLUMN invited_at DATETIME NULL AFTER invitation_token" );
+            error_log( 'N88 Firm Members: Added invited_at column.' );
+        }
+
+        // Add index on email for faster lookups
+        $indexes = $wpdb->get_results( "SHOW INDEX FROM {$firm_members_table} WHERE Key_name = 'idx_email'" );
+        if ( empty( $indexes ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD INDEX idx_email (email)" );
+            error_log( 'N88 Firm Members: Added email index.' );
+        }
+
+        // Add index on status
+        $indexes = $wpdb->get_results( "SHOW INDEX FROM {$firm_members_table} WHERE Key_name = 'idx_status'" );
+        if ( empty( $indexes ) ) {
+            $wpdb->query( "ALTER TABLE {$firm_members_table} ADD INDEX idx_status (status)" );
+            error_log( 'N88 Firm Members: Added status index.' );
+        }
     }
 }
 // .....
