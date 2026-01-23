@@ -307,6 +307,10 @@ class N88_Items {
         $columns = $wpdb->get_col( "DESCRIBE {$table_safe}" );
         $has_meta_json = in_array( 'meta_json', $columns, true );
         
+        // Commit 2.5.2: Get project_id and room_id if provided
+        $project_id = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : null;
+        $room_id = isset( $_POST['room_id'] ) ? absint( $_POST['room_id'] ) : null;
+        
         // Insert item
         $insert_data = array(
             'owner_user_id' => $user_id,
@@ -319,6 +323,16 @@ class N88_Items {
             'updated_at'   => $now,
         );
         $insert_format = array( '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s' );
+        
+        // Commit 2.5.2: Add project_id and room_id if provided
+        if ( $project_id > 0 ) {
+            $insert_data['project_id'] = $project_id;
+            $insert_format[] = '%d';
+        }
+        if ( $room_id > 0 ) {
+            $insert_data['room_id'] = $room_id;
+            $insert_format[] = '%d';
+        }
         
         // Add meta_json only if column exists
         if ( $has_meta_json ) {

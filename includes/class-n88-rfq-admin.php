@@ -2417,6 +2417,12 @@ class N88_RFQ_Admin {
         // Get nonce for AJAX requests
         $nonce = wp_create_nonce( 'n88-rfq-nonce' );
         
+        // Debug: Log nonce creation
+        error_log( 'N88 Items Page: Nonce created - Length: ' . strlen( $nonce ) . ', Action: n88-rfq-nonce' );
+        
+        // Commit 2.5.2: Enqueue jQuery and localize script for nonce (for room loading)
+        wp_enqueue_script( 'jquery' );
+        
         // Check if user is designer
         $current_user = wp_get_current_user();
         $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
@@ -2615,6 +2621,44 @@ class N88_RFQ_Admin {
                             <?php else : ?>
                             <input type="hidden" id="item-board" name="board_id" value="<?php echo esc_attr( $designer_board->id ); ?>" />
                             <?php endif; ?>
+                            
+                            <!-- Commit 2.5.2: Project and Room selectors -->
+                            <?php if ( $is_designer && $has_board ) : ?>
+                            <?php
+                            // Get projects for this board
+                            global $wpdb;
+                            $projects_table = $wpdb->prefix . 'n88_projects';
+                            $board_projects = $wpdb->get_results(
+                                $wpdb->prepare(
+                                    "SELECT id, name FROM {$projects_table}
+                                     WHERE board_id = %d AND deleted_at IS NULL
+                                     ORDER BY created_at ASC",
+                                    $designer_board->id
+                                )
+                            );
+                            ?>
+                            <tr>
+                                <th><label for="item-project">Project (Optional)</label></th>
+                                <td>
+                                    <select id="item-project" name="project_id" style="width: 100%;">
+                                        <option value="">-- No Project --</option>
+                                        <?php foreach ( $board_projects as $project ) : ?>
+                                            <option value="<?php echo esc_attr( $project->id ); ?>"><?php echo esc_html( $project->name ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <p class="description">Select a project to organize this item</p>
+                                </td>
+                            </tr>
+                            <tr id="item-room-row" style="display: none;">
+                                <th><label for="item-room">Room (Optional)</label></th>
+                                <td>
+                                    <select id="item-room" name="room_id" style="width: 100%;">
+                                        <option value="">-- Select Room --</option>
+                                    </select>
+                                    <p class="description">Select a room within the project</p>
+                                </td>
+                            </tr>
+                            <?php endif; ?>
                         </table>
                         <p class="submit">
                             <button type="submit" class="button button-primary">Add Item</button>
@@ -2622,6 +2666,30 @@ class N88_RFQ_Admin {
                         <div id="create-item-result" style="margin-top: 10px;"></div>
                     </form>
                 </div>
+                
+                <!-- Commit 2.5.2: Ensure nonce is available immediately for room loading -->
+                <script type="text/javascript">
+                // Set nonce immediately (before jQuery ready) for room loading
+                (function() {
+                    var nonceValue = '<?php echo esc_js( $nonce ); ?>';
+                    var ajaxUrlValue = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                    
+                    if (typeof window.n88ItemsNonce === 'undefined') {
+                        window.n88ItemsNonce = {
+                            nonce: nonceValue,
+                            ajaxUrl: ajaxUrlValue
+                        };
+                    }
+                    
+                    // Debug: Log nonce setup
+                    console.log('N88 Items Nonce Setup:', {
+                        nonceLength: nonceValue.length,
+                        nonceValue: nonceValue.substring(0, 10) + '...',
+                        ajaxUrl: ajaxUrlValue,
+                        windowObject: !!window.n88ItemsNonce
+                    });
+                })();
+                </script>
                 
                 <?php if ( ! $is_designer ) : ?>
                     <!-- Admin: Show board creation form too -->
@@ -2777,6 +2845,13 @@ class N88_RFQ_Admin {
 
             <script type="text/javascript">
             jQuery(document).ready(function($) {
+                // Commit 2.5.2: Setup nonce for room loading (if not already set)
+                if (typeof window.n88ItemsNonce === 'undefined') {
+                    window.n88ItemsNonce = {
+                        nonce: '<?php echo esc_js( $nonce ); ?>',
+                        ajaxUrl: '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>'
+                    };
+                }
                 var nonce = '<?php echo esc_js( $nonce ); ?>';
                 var ajaxurl = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
                 
@@ -2924,6 +2999,140 @@ class N88_RFQ_Admin {
                     }
                 });
 
+                // Commit 2.5.2: Load rooms when project is selected
+                $('#item-project').on('change', function() {
+                    var projectId = $(this).val();
+                    var $roomRow = $('#item-room-row');
+                    var $roomSelect = $('#item-room');
+                    
+                    if (!projectId || projectId === '') {
+                        $roomRow.hide();
+                        $roomSelect.html('<option value="">-- Select Room --</option>');
+                        return;
+                    }
+                    
+                    // Show room selector
+                    $roomRow.show();
+                    $roomSelect.html('<option value="">Loading rooms...</option>');
+                    
+                    // Get nonce - prioritize window.n88ItemsNonce (set at page load)
+                    var roomNonce = '';
+                    
+                    // Debug: Log available nonce sources
+                    console.log('Room loading: Checking nonce sources...', {
+                        n88ItemsNonce: window.n88ItemsNonce,
+                        localNonce: typeof nonce !== 'undefined' ? nonce : 'undefined',
+                        n88BoardNonce: window.n88BoardNonce,
+                        n88BoardData: window.n88BoardData,
+                        n88: window.n88
+                    });
+                    
+                    // Try multiple sources in order of priority
+                    if (window.n88ItemsNonce && window.n88ItemsNonce.nonce) {
+                        roomNonce = window.n88ItemsNonce.nonce;
+                        console.log('Room loading: Using n88ItemsNonce.nonce');
+                    } else if (typeof nonce !== 'undefined' && nonce) {
+                        // Local nonce variable from jQuery ready scope
+                        roomNonce = nonce;
+                        console.log('Room loading: Using local nonce variable');
+                    } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                        roomNonce = window.n88BoardNonce.nonce;
+                        console.log('Room loading: Using n88BoardNonce.nonce');
+                    } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                        roomNonce = window.n88BoardData.nonce;
+                        console.log('Room loading: Using n88BoardData.nonce');
+                    } else if (window.n88 && window.n88.nonce) {
+                        roomNonce = window.n88.nonce;
+                        console.log('Room loading: Using window.n88.nonce');
+                    }
+                    
+                    if (!roomNonce) {
+                        $roomSelect.html('<option value="">Error: Security token missing. Please refresh the page.</option>');
+                        console.error('Room loading: Nonce not found. Debug info:', {
+                            n88ItemsNonce_exists: !!window.n88ItemsNonce,
+                            n88ItemsNonce_nonce: window.n88ItemsNonce ? window.n88ItemsNonce.nonce : 'N/A',
+                            localNonce_defined: typeof nonce !== 'undefined',
+                            localNonce_value: typeof nonce !== 'undefined' ? nonce : 'N/A',
+                            n88BoardNonce: !!window.n88BoardNonce,
+                            n88BoardData: !!window.n88BoardData,
+                            n88: !!window.n88
+                        });
+                        return;
+                    }
+                    
+                    console.log('Room loading: Nonce found, making AJAX request with project_id:', projectId);
+                    
+                    // Load rooms via AJAX
+                    var ajaxUrl = (typeof ajaxurl !== 'undefined' && ajaxurl) 
+                                || (window.n88BoardData && window.n88BoardData.ajaxUrl) 
+                                || (window.n88ItemsNonce && window.n88ItemsNonce.ajaxUrl)
+                                || (window.n88 && window.n88.ajaxUrl) 
+                                || '/wp-admin/admin-ajax.php';
+                    
+                    // Debug: Log what we're sending
+                    console.log('Room loading: Sending AJAX request:', {
+                        url: ajaxUrl,
+                        action: 'n88_get_project_rooms',
+                        project_id: projectId,
+                        nonce_length: roomNonce ? roomNonce.length : 0,
+                        nonce_preview: roomNonce ? roomNonce.substring(0, 10) + '...' : 'empty'
+                    });
+                    
+                    $.ajax({
+                        url: ajaxUrl,
+                        type: 'GET',
+                        data: {
+                            action: 'n88_get_project_rooms',
+                            project_id: projectId,
+                            nonce: roomNonce
+                        },
+                        success: function(response) {
+                            console.log('Room loading: AJAX response:', response);
+                            if (response.success && response.data && response.data.rooms) {
+                                var options = '<option value="">-- Select Room --</option>';
+                                response.data.rooms.forEach(function(room) {
+                                    options += '<option value="' + room.id + '">' + room.name + '</option>';
+                                });
+                                $roomSelect.html(options);
+                            } else {
+                                var errorMsg = response.data && response.data.message ? response.data.message : 'No rooms found';
+                                $roomSelect.html('<option value="">' + errorMsg + '</option>');
+                                console.error('Room loading: Error response:', response);
+                                
+                                // If it's a security error, show helpful message
+                                if (errorMsg.toLowerCase().indexOf('security') !== -1 || errorMsg.toLowerCase().indexOf('nonce') !== -1) {
+                                    console.error('Room loading: Security error detected. Nonce used:', roomNonce ? 'yes (' + roomNonce.length + ' chars)' : 'no');
+                                }
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Room loading: AJAX error:', {
+                                status: status,
+                                error: error,
+                                responseText: xhr.responseText,
+                                statusCode: xhr.status,
+                                requestData: {
+                                    action: 'n88_get_project_rooms',
+                                    project_id: projectId,
+                                    nonce_sent: !!roomNonce
+                                }
+                            });
+                            
+                            // Try to parse error response
+                            try {
+                                var errorResponse = JSON.parse(xhr.responseText);
+                                if (errorResponse.data && errorResponse.data.message) {
+                                    $roomSelect.html('<option value="">Error: ' + errorResponse.data.message + '</option>');
+                                } else {
+                                    $roomSelect.html('<option value="">Error loading rooms. Check console for details.</option>');
+                                }
+                            } catch(e) {
+                                $roomSelect.html('<option value="">Error loading rooms. Check console for details.</option>');
+                            }
+                        }
+                    });
+                });
+                
                 // Create Item
                 $('#n88-create-item-form').on('submit', function(e) {
                     e.preventDefault();
@@ -2962,6 +3171,16 @@ class N88_RFQ_Admin {
                     formData.append('item_type', $('#item-type').val());
                     formData.append('status', 'active'); // Always active
                     formData.append('size', $('#item-size').val());
+                    
+                    // Commit 2.5.2: Add project_id and room_id if selected
+                    var projectId = $('#item-project').val();
+                    var roomId = $('#item-room').val();
+                    if (projectId && projectId !== '') {
+                        formData.append('project_id', projectId);
+                    }
+                    if (roomId && roomId !== '') {
+                        formData.append('room_id', roomId);
+                    }
                     formData.append('board_id', boardId);
                     
                     // Commit 2.3.5.1: Add dimensions and quantity
@@ -3383,23 +3602,69 @@ class N88_RFQ_Admin {
                 }
                 
                 // Query board items - MUST filter removed_at IS NULL to exclude deleted items
+                // Commit 2.5.2: Filter by project_id and room_id if selected
+                $project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
+                $room_id = isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0;
+                
                 // If this is after item creation, log the query for debugging
                 if ( $is_after_item_creation ) {
                     error_log('PHP: Cache cleared, now querying database...');
                 }
                 
-                $board_items = $wpdb->get_results(
-                    $wpdb->prepare(
-                        "SELECT {$select_fields}
-                         FROM {$board_items_table} bi
-                         INNER JOIN {$items_table} i ON bi.item_id = i.id
-                         WHERE bi.board_id = %d 
-                         AND bi.removed_at IS NULL
-                         AND i.deleted_at IS NULL
-                         ORDER BY bi.added_at ASC",
-                        $board_id
-                    )
-                );
+                // Build query with optional project and room filters
+                if ( $project_id > 0 ) {
+                    // Show items for selected project
+                    if ( $room_id > 0 ) {
+                        // Fix 3: Filter by specific room
+                        $board_items = $wpdb->get_results(
+                            $wpdb->prepare(
+                                "SELECT {$select_fields}
+                                 FROM {$board_items_table} bi
+                                 INNER JOIN {$items_table} i ON bi.item_id = i.id
+                                 WHERE bi.board_id = %d 
+                                 AND i.project_id = %d
+                                 AND i.room_id = %d
+                                 AND bi.removed_at IS NULL
+                                 AND i.deleted_at IS NULL
+                                 ORDER BY bi.added_at ASC",
+                                $board_id,
+                                $project_id,
+                                $room_id
+                            )
+                        );
+                    } else {
+                        // Show all items for project (all rooms)
+                        $board_items = $wpdb->get_results(
+                            $wpdb->prepare(
+                                "SELECT {$select_fields}
+                                 FROM {$board_items_table} bi
+                                 INNER JOIN {$items_table} i ON bi.item_id = i.id
+                                 WHERE bi.board_id = %d 
+                                 AND i.project_id = %d
+                                 AND bi.removed_at IS NULL
+                                 AND i.deleted_at IS NULL
+                                 ORDER BY bi.added_at ASC",
+                                $board_id,
+                                $project_id
+                            )
+                        );
+                    }
+                } else {
+                    // Fix 1: Show only items WITHOUT project (exclude project items from main board)
+                    $board_items = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT {$select_fields}
+                             FROM {$board_items_table} bi
+                             INNER JOIN {$items_table} i ON bi.item_id = i.id
+                             WHERE bi.board_id = %d 
+                             AND (i.project_id IS NULL OR i.project_id = 0)
+                             AND bi.removed_at IS NULL
+                             AND i.deleted_at IS NULL
+                             ORDER BY bi.added_at ASC",
+                            $board_id
+                        )
+                    );
+                }
                 
                 // Log results if after item creation
                 if ( $is_after_item_creation ) {
@@ -4262,6 +4527,12 @@ class N88_RFQ_Admin {
                 -webkit-overflow-scrolling: touch !important;
             }
             
+            /* Fix 2: Add extra top spacing when project is selected (rooms section visible) */
+            body.n88-board-page.has-project-selected #n88-board-canvas-container {
+                top: 290px !important;
+                height: calc(100vh - 300px) !important;
+            }
+            
             /* Board canvas root - expands to fit all items */
             #n88-board-demo-root {
                 position: relative !important;
@@ -4353,7 +4624,47 @@ class N88_RFQ_Admin {
                     <div style="display: flex; align-items: center; gap: 10px; margin-left: 10px;">
                         <span style="font-size: 14px; color: #666;">Project:</span>
                         <select id="n88-project-selector" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px; cursor: pointer;">
-                            <option value="">Select Project</option>
+                            <option value="">All Items (No Project)</option>
+                            <?php
+                            // Load projects for this board
+                            if ( $is_real_board && isset( $board_id ) && $board_id > 0 ) {
+                                global $wpdb;
+                                $projects_table = $wpdb->prefix . 'n88_projects';
+                                
+                                // Check if table exists
+                                $table_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $projects_table ) ) === $projects_table;
+                                
+                                if ( $table_exists ) {
+                                    $projects = $wpdb->get_results(
+                                        $wpdb->prepare(
+                                            "SELECT id, name, status FROM {$projects_table}
+                                             WHERE board_id = %d AND deleted_at IS NULL
+                                             ORDER BY created_at ASC",
+                                            $board_id
+                                        ),
+                                        OBJECT
+                                    );
+                                    
+                                    // Debug: Log if no projects found
+                                    if ( empty( $projects ) ) {
+                                        error_log( 'N88 Projects: No projects found for board_id=' . $board_id );
+                                    } else {
+                                        error_log( 'N88 Projects: Found ' . count( $projects ) . ' projects for board_id=' . $board_id );
+                                    }
+                                    
+                                    if ( $projects && count( $projects ) > 0 ) {
+                                        foreach ( $projects as $project ) {
+                                            $selected = isset( $_GET['project_id'] ) && intval( $_GET['project_id'] ) === intval( $project->id ) ? 'selected' : '';
+                                            echo '<option value="' . esc_attr( $project->id ) . '" ' . $selected . '>' . esc_html( $project->name ) . '</option>';
+                                        }
+                                    }
+                                } else {
+                                    error_log( 'N88 Projects: Table does not exist: ' . $projects_table );
+                                }
+                            } else {
+                                error_log( 'N88 Projects: Conditions not met - is_real_board=' . ( $is_real_board ? 'true' : 'false' ) . ', board_id=' . ( isset( $board_id ) ? $board_id : 'not set' ) );
+                            }
+                            ?>
                         </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -4388,10 +4699,73 @@ class N88_RFQ_Admin {
                         <span style="padding: 8px 16px; color: #666; font-size: 14px; font-weight: 500;">View-Only Mode</span>
                     <?php endif; ?>
                 </div>
+                
+                <!-- Commit 2.5.2: Rooms Section (shown when project is selected) -->
+                <?php
+                $selected_project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
+                $project_rooms = array();
+                if ( $selected_project_id > 0 && $is_real_board ) {
+                    global $wpdb;
+                    $rooms_table = $wpdb->prefix . 'n88_project_rooms';
+                    $project_rooms = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT id, name, description, display_order
+                             FROM {$rooms_table}
+                             WHERE project_id = %d AND deleted_at IS NULL
+                             ORDER BY display_order ASC, created_at ASC",
+                            $selected_project_id
+                        ),
+                        ARRAY_A
+                    );
+                }
+                ?>
+                <?php if ( $selected_project_id > 0 && ! $should_hide_buttons ) : ?>
+                <div id="n88-rooms-section" style="padding: 15px 20px; border-bottom: 1px solid #ddd; background-color: #f9f9f9;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #333;">Rooms</h3>
+                        <button id="n88-create-room-btn" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer;">
+                            + Add Room
+                        </button>
+                    </div>
+                    <!-- Fix 3: Rooms as switchable tabs -->
+                    <?php
+                    $selected_room_id = isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0;
+                    $all_items_active = $selected_room_id === 0 ? 'background-color: #0073aa; color: #fff;' : 'background-color: #f0f0f0; color: #666;';
+                    ?>
+                    <div id="n88-rooms-tabs" style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                        <button class="n88-room-tab" data-room-id="0" style="padding: 8px 16px; <?php echo $all_items_active; ?> border: none; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;">
+                            All Items
+                        </button>
+                        <?php if ( ! empty( $project_rooms ) ) : ?>
+                            <?php foreach ( $project_rooms as $room ) : ?>
+                                <?php
+                                $room_active = ( $selected_room_id > 0 && intval( $selected_room_id ) === intval( $room['id'] ) ) ? 'background-color: #0073aa; color: #fff;' : 'background-color: #f0f0f0; color: #666;';
+                                ?>
+                                <button class="n88-room-tab" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" style="padding: 8px 16px; <?php echo $room_active; ?> border: none; border-radius: 4px; font-size: 13px; cursor: pointer; position: relative;">
+                                    <span class="n88-room-name"><?php echo esc_html( $room['name'] ); ?></span>
+                                    <span class="n88-room-actions" style="margin-left: 8px; display: inline-flex; gap: 4px;">
+                                        <button class="n88-edit-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" data-room-name="<?php echo esc_attr( $room['name'] ); ?>" style="padding: 2px 6px; background: #fff; border: 1px solid #ddd; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Edit">✎</button>
+                                        <button class="n88-delete-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" style="padding: 2px 6px; background: #ff4444; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Delete">×</button>
+                                    </span>
+                                </button>
+                            <?php endforeach; ?>
+                        <?php else : ?>
+                            <p style="color: #666; font-size: 14px; margin: 0; width: 100%;">No rooms yet. Click "+ Add Room" to create one.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
             
             <script>
             (function() {
+                // Fix 2: Add body class when project is selected (for top spacing)
+                var urlParams = new URLSearchParams(window.location.search);
+                var projectId = urlParams.get('project_id');
+                if (projectId && projectId !== '0') {
+                    document.body.classList.add('has-project-selected');
+                }
+                
                 var trigger = document.getElementById('n88-profile-dropdown-trigger');
                 var dropdown = document.getElementById('n88-profile-dropdown');
                 
@@ -4409,13 +4783,334 @@ class N88_RFQ_Admin {
                     });
                 }
                 
-                // Create Project button - UI only (no functionality in 2.3.7)
+                // Commit 2.5.2: Create Project button handler
                 var createProjectBtn = document.getElementById('n88-create-project-btn');
                 if (createProjectBtn) {
                     createProjectBtn.addEventListener('click', function() {
-                        alert('Create Project functionality will be available in a future update.');
+                        var projectName = prompt('Enter project name:');
+                        if (!projectName || !projectName.trim()) {
+                            return;
+                        }
+                        
+                        projectName = projectName.trim();
+                        
+                        // Get nonce and board_id
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        }
+                        
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        // Get board_id from URL
+                        var urlParams = new URLSearchParams(window.location.search);
+                        var boardId = urlParams.get('board_id') || 0;
+                        
+                        if (!boardId || boardId === '0') {
+                            alert('Board ID not found. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        // Disable button during request
+                        createProjectBtn.disabled = true;
+                        createProjectBtn.textContent = 'Creating...';
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_create_board_project');
+                        formData.append('board_id', boardId);
+                        formData.append('name', projectName);
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            createProjectBtn.disabled = false;
+                            createProjectBtn.textContent = '+ Create Project';
+                            
+                            if (data.success) {
+                                alert('Project created successfully!');
+                                // Reload page to show new project in dropdown
+                                window.location.reload();
+                            } else {
+                                alert('Error: ' + (data.data.message || 'Failed to create project'));
+                            }
+                        })
+                        .catch(function(error) {
+                            createProjectBtn.disabled = false;
+                            createProjectBtn.textContent = '+ Create Project';
+                            console.error('Error creating project:', error);
+                            alert('An error occurred. Please try again.');
+                        });
                     });
                 }
+                
+                // Commit 2.5.2: Project selector change handler
+                var projectSelector = document.getElementById('n88-project-selector');
+                if (projectSelector) {
+                    projectSelector.addEventListener('change', function() {
+                        var projectId = this.value;
+                        var urlParams = new URLSearchParams(window.location.search);
+                        
+                        if (projectId) {
+                            urlParams.set('project_id', projectId);
+                            // Remove room_id when switching projects
+                            urlParams.delete('room_id');
+                            // Add body class for spacing
+                            document.body.classList.add('has-project-selected');
+                        } else {
+                            urlParams.delete('project_id');
+                            urlParams.delete('room_id');
+                            // Remove body class
+                            document.body.classList.remove('has-project-selected');
+                        }
+                        
+                        // Reload page with project filter
+                        window.location.search = urlParams.toString();
+                    });
+                }
+                
+                // Fix 3: Room tab switching handler
+                var roomTabs = document.querySelectorAll('.n88-room-tab');
+                roomTabs.forEach(function(tab) {
+                    tab.addEventListener('click', function(e) {
+                        // Don't trigger if clicking edit/delete buttons
+                        if (e.target.classList.contains('n88-edit-room-btn') || e.target.classList.contains('n88-delete-room-btn')) {
+                            return;
+                        }
+                        
+                        var roomId = this.getAttribute('data-room-id');
+                        var urlParams = new URLSearchParams(window.location.search);
+                        
+                        // Update active tab styling
+                        roomTabs.forEach(function(t) {
+                            if (t.getAttribute('data-room-id') === roomId) {
+                                t.style.backgroundColor = '#0073aa';
+                                t.style.color = '#fff';
+                            } else {
+                                t.style.backgroundColor = '#f0f0f0';
+                                t.style.color = '#666';
+                            }
+                        });
+                        
+                        // Update URL with room filter
+                        if (roomId && roomId !== '0') {
+                            urlParams.set('room_id', roomId);
+                        } else {
+                            urlParams.delete('room_id');
+                        }
+                        
+                        // Reload page with room filter
+                        window.location.search = urlParams.toString();
+                    });
+                });
+                
+                // Set active room tab on page load
+                var urlParams = new URLSearchParams(window.location.search);
+                var selectedRoomId = urlParams.get('room_id') || '0';
+                roomTabs.forEach(function(tab) {
+                    var tabRoomId = tab.getAttribute('data-room-id');
+                    if (tabRoomId === selectedRoomId) {
+                        tab.style.backgroundColor = '#0073aa';
+                        tab.style.color = '#fff';
+                    } else {
+                        tab.style.backgroundColor = '#f0f0f0';
+                        tab.style.color = '#666';
+                    }
+                });
+                
+                // Commit 2.5.2: Rooms Management Handlers
+                var createRoomBtn = document.getElementById('n88-create-room-btn');
+                if (createRoomBtn) {
+                    createRoomBtn.addEventListener('click', function() {
+                        var roomName = prompt('Enter room name (e.g., Bedroom, Kitchen, Living Room):');
+                        if (!roomName || !roomName.trim()) {
+                            return;
+                        }
+                        
+                        roomName = roomName.trim();
+                        
+                        // Get nonce and project_id
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        }
+                        
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        var urlParams = new URLSearchParams(window.location.search);
+                        var projectId = urlParams.get('project_id') || 0;
+                        
+                        if (!projectId || projectId === '0') {
+                            alert('Please select a project first.');
+                            return;
+                        }
+                        
+                        // Disable button during request
+                        createRoomBtn.disabled = true;
+                        createRoomBtn.textContent = 'Creating...';
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_create_project_room');
+                        formData.append('project_id', projectId);
+                        formData.append('name', roomName);
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            createRoomBtn.disabled = false;
+                            createRoomBtn.textContent = '+ Add Room';
+                            
+                            if (data.success) {
+                                alert('Room created successfully!');
+                                window.location.reload();
+                            } else {
+                                alert('Error: ' + (data.data.message || 'Failed to create room'));
+                            }
+                        })
+                        .catch(function(error) {
+                            createRoomBtn.disabled = false;
+                            createRoomBtn.textContent = '+ Add Room';
+                            console.error('Error creating room:', error);
+                            alert('An error occurred. Please try again.');
+                        });
+                    });
+                }
+                
+                // Edit Room handlers
+                var editRoomBtns = document.querySelectorAll('.n88-edit-room-btn');
+                editRoomBtns.forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var roomId = this.getAttribute('data-room-id');
+                        var currentName = this.getAttribute('data-room-name');
+                        var newName = prompt('Enter new room name:', currentName);
+                        
+                        if (!newName || !newName.trim() || newName === currentName) {
+                            return;
+                        }
+                        
+                        newName = newName.trim();
+                        
+                        // Get nonce
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        }
+                        
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_update_project_room');
+                        formData.append('room_id', roomId);
+                        formData.append('name', newName);
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                alert('Room updated successfully!');
+                                window.location.reload();
+                            } else {
+                                alert('Error: ' + (data.data.message || 'Failed to update room'));
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('Error updating room:', error);
+                            alert('An error occurred. Please try again.');
+                        });
+                    });
+                });
+                
+                // Delete Room handlers
+                var deleteRoomBtns = document.querySelectorAll('.n88-delete-room-btn');
+                deleteRoomBtns.forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var roomId = this.getAttribute('data-room-id');
+                        
+                        if (!confirm('Are you sure you want to delete this room? Items in this room will not be deleted, but they will be unassigned from the room.')) {
+                            return;
+                        }
+                        
+                        // Get nonce
+                        var nonce = '';
+                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                            nonce = window.n88BoardNonce.nonce;
+                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                            nonce = window.n88BoardData.nonce;
+                        }
+                        
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        
+                        var formData = new FormData();
+                        formData.append('action', 'n88_delete_project_room');
+                        formData.append('room_id', roomId);
+                        formData.append('_ajax_nonce', nonce);
+                        
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                alert('Room deleted successfully!');
+                                window.location.reload();
+                            } else {
+                                alert('Error: ' + (data.data.message || 'Failed to delete room'));
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('Error deleting room:', error);
+                            alert('An error occurred. Please try again.');
+                        });
+                    });
+                });
                 
                 // Commit 2.6.1: Invite Team Member button handler
                 var inviteTeamMemberBtn = document.getElementById('n88-invite-team-member-btn');

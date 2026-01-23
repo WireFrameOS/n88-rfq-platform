@@ -337,6 +337,9 @@ class N88_RFQ_Installer {
         self::create_phase_2_3_9_2b_d_tables( $charset_collate );
         self::seed_keyword_phrases();
 
+        // Commit 2.5.2: Create board-first projects and rooms tables
+        self::create_phase_2_5_2_tables( $charset_collate );
+
         self::maybe_upgrade();
     }
 
@@ -3600,6 +3603,72 @@ class N88_RFQ_Installer {
         if ( empty( $indexes ) ) {
             $wpdb->query( "ALTER TABLE {$firm_members_table} ADD INDEX idx_status (status)" );
             error_log( 'N88 Firm Members: Added status index.' );
+        }
+    }
+
+    /**
+     * Create Phase 2.5.2 tables (Board-First Projects and Rooms)
+     * 
+     * Commit 2.5.2: Projects are containers within boards, with rooms and items
+     */
+    private static function create_phase_2_5_2_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $projects_table = $wpdb->prefix . 'n88_projects';
+        $project_rooms_table = $wpdb->prefix . 'n88_project_rooms';
+        $items_table = $wpdb->prefix . 'n88_items';
+
+        // 1. n88_projects - Projects within boards
+        $sql_projects = "CREATE TABLE {$projects_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            board_id BIGINT UNSIGNED NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            status ENUM('draft', 'locked') NOT NULL DEFAULT 'draft',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY board_id (board_id),
+            KEY status (status),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // 2. n88_project_rooms - Rooms within projects
+        $sql_project_rooms = "CREATE TABLE {$project_rooms_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            project_id BIGINT UNSIGNED NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            description TEXT NULL,
+            display_order INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY project_id (project_id),
+            KEY display_order (display_order),
+            KEY created_at (created_at),
+            KEY deleted_at (deleted_at)
+        ) {$charset_collate};";
+
+        // Create tables
+        dbDelta( $sql_projects );
+        dbDelta( $sql_project_rooms );
+
+        // Add project_id and room_id columns to items table if they don't exist
+        $items_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+        $items_columns = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+        
+        if ( ! in_array( 'project_id', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN project_id BIGINT UNSIGNED NULL AFTER owner_firm_id" );
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY project_id (project_id)" );
+        }
+        
+        if ( ! in_array( 'room_id', $items_columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD COLUMN room_id BIGINT UNSIGNED NULL AFTER project_id" );
+            $wpdb->query( "ALTER TABLE {$items_table_safe} ADD KEY room_id (room_id)" );
         }
     }
 }
