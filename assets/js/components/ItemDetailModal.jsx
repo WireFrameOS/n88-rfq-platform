@@ -1611,7 +1611,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     
     // Payment Instructions Modal State
     const [showPaymentInstructions, setShowPaymentInstructions] = React.useState(false);
-    
+    const [paymentReceipts, setPaymentReceipts] = React.useState([]);
+    const [paymentReceiptsLoading, setPaymentReceiptsLoading] = React.useState(false);
+    const [paymentReceiptUploading, setPaymentReceiptUploading] = React.useState(false);
+    const paymentReceiptInputRef = React.useRef(null);
+
     // Commit 2.3.9.2B-D: Prototype section state
     const [prototypeSectionExpanded, setPrototypeSectionExpanded] = React.useState(false);
     const [showRequestChangesModal, setShowRequestChangesModal] = React.useState(false);
@@ -1723,16 +1727,24 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     }, [showCadPrototypeForm, itemState.bids, selectedBidId]);
     
-    // Auto-expand bids in State C and set active tab; when unread operator messages: Mission Spec + Message Operator expanded
+    // Auto-expand bids in State C and set active tab; when Action Required (operator sent CAD or message): Mission Spec and auto-expand Message Operator
     React.useEffect(() => {
         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
         if (skipNextTabSwitchFromCadActionRef.current) {
             skipNextTabSwitchFromCadActionRef.current = false;
             return;
         }
-        if (itemState.has_unread_operator_messages) {
-            setActiveTab('details'); // Mission Spec
-            setShowDesignerMessageForm(true); // Message Operator box expanded by default
+        // Action Required (operator sent CAD or message): open to Mission Spec and auto-expand Message Operator so designer sees CAD/messages.
+        // Use item.action_required / item.has_unread_operator_messages so we behave correctly before fetchItemState completes.
+        const hasActionRequired = !!(
+            itemState.has_unread_operator_messages ||
+            item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 ||
+            item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1
+        );
+        if (hasActionRequired) {
+            setActiveTab('details'); // Mission Spec (CAD review and Message Operator both live here)
+            setShowDesignerMessageForm(true); // Auto-open Message Operator when operator sent CAD or message
+            loadDesignerMessages();
             return;
         }
         if (currentState === 'C' && itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
@@ -1743,7 +1755,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         } else {
             setActiveTab('details'); // Default to details tab in State A
         }
-    }, [currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread flags or itemState change
+    }, [currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, item?.action_required, item?.has_unread_operator_messages]);
     
     // Image lightbox state
     const [lightboxImage, setLightboxImage] = React.useState(null);
@@ -1762,12 +1775,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     };
     const itemId = getItemId();
     
-    // Fetch item RFQ/bid state when modal opens
+    // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Message Operator so the tab effect can auto-expand it.
     React.useEffect(() => {
         if (isOpen && itemId && itemId > 0) {
+            const hasActionRequired = !!(
+                item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 ||
+                item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1
+            );
+            if (!hasActionRequired) {
+                setShowDesignerMessageForm(false); // Collapse when not Action Required
+            }
             fetchItemState();
         }
-    }, [isOpen, itemId]);
+    }, [isOpen, itemId, item?.action_required, item?.has_unread_operator_messages]);
+    
+    // Auto-expand "Payment Confirmed" / "View Prototype Videos" when supplier has submitted videos
+    React.useEffect(() => {
+        if (itemState.prototype_submission?.links?.length > 0) {
+            setPrototypeSectionExpanded(true);
+        }
+    }, [itemState.prototype_submission]);
     
     // Fetch item state from server
     const fetchItemState = async () => {
@@ -2092,6 +2119,65 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             setIsCadActionBusy(false);
         }
     }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
+
+    // Fetch payment receipts when Payment Instructions modal opens
+    const fetchPaymentReceipts = React.useCallback(async () => {
+        const pid = itemState.prototype_payment_id;
+        if (!pid) return;
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardNonce?.nonce_get_payment_receipts || '';
+        if (!nonce) return;
+        setPaymentReceiptsLoading(true);
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_get_payment_receipts');
+            fd.append('payment_id', String(pid));
+            fd.append('_ajax_nonce', nonce);
+            const r = await fetch(ajaxUrl, { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.success && Array.isArray(d.data.receipts)) setPaymentReceipts(d.data.receipts);
+            else setPaymentReceipts([]);
+        } catch (e) {
+            setPaymentReceipts([]);
+        } finally {
+            setPaymentReceiptsLoading(false);
+        }
+    }, [itemState.prototype_payment_id]);
+
+    React.useEffect(() => {
+        if (showPaymentInstructions && itemState.prototype_payment_id) fetchPaymentReceipts();
+        else if (!showPaymentInstructions) setPaymentReceipts([]);
+    }, [showPaymentInstructions, itemState.prototype_payment_id, fetchPaymentReceipts]);
+
+    const handlePaymentReceiptUpload = React.useCallback(async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const pid = itemState.prototype_payment_id;
+        if (!pid) return;
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardNonce?.nonce_upload_payment_receipt || '';
+        if (!nonce) { alert('Upload not available.'); return; }
+        const ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].includes(file.type);
+        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
+        setPaymentReceiptUploading(true);
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_upload_payment_receipt');
+            fd.append('payment_id', String(pid));
+            fd.append('receipt_file', file);
+            fd.append('_ajax_nonce', nonce);
+            const r = await fetch(ajaxUrl, { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.success) await fetchPaymentReceipts();
+            else alert(d.data?.message || 'Upload failed.');
+        } catch (err) {
+            alert('Upload failed.');
+        } finally {
+            setPaymentReceiptUploading(false);
+            e.target.value = '';
+            if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
+        }
+    }, [itemState.prototype_payment_id, fetchPaymentReceipts]);
     
     // Auto-scroll to bottom when messages load or new message is sent
     React.useEffect(() => {
@@ -2418,8 +2504,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     
     // Check if fields should be editable
     // Commit 2.6.1: View-only team members cannot edit anything
-    // Lock Designer Editing While Awaiting Payment: when prototype/CAD requested and payment status is 'requested', lock Brief/RFQ and hide Update/Save
-    const isLockedAwaitingPayment = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested');
+    // Lock after CAD/Prototype request submitted (permanent): lock Brief/RFQ and hide Update/Save
+    const isLockedAwaitingPayment = !!itemState.has_prototype_payment;
     const isEditable = !isViewOnly && currentState === 'A' && !isLockedAwaitingPayment;
     const isDimsQtyEditable = !isViewOnly && !isLockedAwaitingPayment;
     
@@ -2813,7 +2899,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     const updateSystemInvitesMessage = React.useCallback(() => {
         if (allowSystemInvites) {
             if (invitedSuppliers.length > 0) {
-                return 'We\'ll invite 2 additional makers in 24 hours.';
+                return '';
             } else {
                 return 'We will send your request on your behalf.';
             }
@@ -2848,7 +2934,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         
         // Update system invites message if checkbox is checked
         if (allowSystemInvites) {
-            setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+            setSystemInvitesMessage('');
         }
     };
     
@@ -2860,7 +2946,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         // Update system invites message if checkbox is checked
         if (allowSystemInvites) {
             if (newSuppliers.length > 0) {
-                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                setSystemInvitesMessage('');
             } else {
                 setSystemInvitesMessage('We will send your request on your behalf.');
             }
@@ -5148,7 +5234,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             setTimeout(() => {
                                                                 if (e.target.checked) {
                                                                     if (invitedSuppliers.length > 0) {
-                                                                        setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                                                        setSystemInvitesMessage('');
                                             } else {
                                                                         setSystemInvitesMessage('We will send your request on your behalf.');
                                             }
@@ -5338,14 +5424,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                 color: '#00ff00',
                                                                 marginBottom: '4px',
                                                             }}>
-                                                                Payment Confirmed
+                                                                {itemState.prototype_submission?.links?.length > 0 ? 'View Prototype Videos' : 'Payment Confirmed'}
                                                             </div>
                                                             <div style={{
                                                                 fontSize: '13px',
                                                                 color: '#00cc00',
                                                                 lineHeight: '1.5',
                                                             }}>
-                                                                CAD drafting has begun.
+                                                                {itemState.prototype_submission?.links?.length > 0 ? 'Supplier has submitted prototype video(s).' : 'CAD drafting has begun.'}
                                                             </div>
                                                         </div>
                                                         <div style={{
@@ -6381,6 +6467,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     setCadPrototypeSuccess(true);
                                                                     setSelectedKeywords([]);
                                                                     setPrototypeNote('');
+                                                                    // Lock Launch Brief immediately when CAD request is submitted
+                                                                    setItemState(prev => ({ ...prev, has_prototype_payment: true, prototype_payment_status: 'requested' }));
                                                                     // Commit 2.3.9.1C: Refresh item state to show payment banner
                                                                     fetchItemState();
                                                                     // Scroll to top of form to show success message
@@ -6850,6 +6938,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                     fontSize: '13px',
                                     color: darkText,
                                     lineHeight: '1.6',
+                                    maxHeight: '70vh',
+                                    overflowY: 'auto',
                                 }}>
                                     <div style={{
                                         marginBottom: '16px',
@@ -6957,6 +7047,34 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         }}>
                                             Work does not begin until payment is confirmed by our team.
                                         </div>
+                                    </div>
+
+                                    {/* Upload Payment Receipt (JPG/PDF) — operator sees these when marking received */}
+                                    <div style={{ marginTop: '20px', padding: '12px', backgroundColor: '#0a1a0a', borderRadius: '4px', border: '1px solid #00ff00' }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>Upload Payment Receipt</div>
+                                        <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>JPG or PDF. Operator will review before confirming payment.</p>
+                                        <input
+                                            ref={paymentReceiptInputRef}
+                                            type="file"
+                                            accept=".jpg,.jpeg,.pdf"
+                                            onChange={handlePaymentReceiptUpload}
+                                            disabled={paymentReceiptUploading}
+                                            style={{ display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' }}
+                                        />
+                                        {paymentReceiptUploading && <span style={{ fontSize: '11px', color: '#00ff00' }}>Uploading…</span>}
+                                        {paymentReceiptsLoading && <div style={{ fontSize: '12px', color: '#888' }}>Loading receipts…</div>}
+                                        {!paymentReceiptsLoading && paymentReceipts.length > 0 && (
+                                            <div style={{ marginTop: '10px' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#00ff00', marginBottom: '6px' }}>Uploaded:</div>
+                                                <ul style={{ margin: 0, paddingLeft: '18px', color: '#ccc', fontSize: '12px' }}>
+                                                    {paymentReceipts.map((r) => (
+                                                        <li key={r.id}>
+                                                            <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: '#00ff00' }}>{r.file_name}</a>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>

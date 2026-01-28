@@ -96,6 +96,13 @@ class N88_RFQ_Auth {
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
 
+        // Fix #13/#26: Mark Resolved — clear Action Required for operator/supplier/designer
+        add_action( 'wp_ajax_n88_mark_clarification_resolved', array( $this, 'ajax_mark_clarification_resolved' ) );
+
+        // Payment receipt: designer upload (JPG/PDF); operator views before mark received
+        add_action( 'wp_ajax_n88_upload_payment_receipt', array( $this, 'ajax_upload_payment_receipt' ) );
+        add_action( 'wp_ajax_n88_get_payment_receipts', array( $this, 'ajax_get_payment_receipts' ) );
+
         // Commit 2.3.9.2A: CAD workflow v1
         add_action( 'wp_ajax_n88_upload_cad_files', array( $this, 'ajax_upload_cad_files' ) );
         add_action( 'wp_ajax_n88_request_cad_revision', array( $this, 'ajax_request_cad_revision' ) );
@@ -1804,6 +1811,24 @@ class N88_RFQ_Auth {
                     $current_user->ID
                 ) ) );
                 $has_unread_operator_messages = $unread_operator_messages > 0;
+                // Fix #13/#26: If operator marked resolved for any of this supplier's bids on this item, clear Action Required
+                if ( $has_unread_operator_messages ) {
+                    $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                    $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                        $resolved = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT 1 FROM {$resolutions_table} r
+                            INNER JOIN {$item_bids_table} b ON b.item_id = r.item_id AND b.bid_id = r.bid_id AND b.supplier_id = %d
+                            WHERE r.item_id = %d LIMIT 1",
+                            $current_user->ID,
+                            $item_id
+                        ) );
+                        if ( $resolved ) {
+                            $has_unread_operator_messages = false;
+                            $unread_operator_messages = 0;
+                        }
+                    }
+                }
             }
             
             $item_data['has_unread_operator_messages'] = $has_unread_operator_messages;
@@ -3054,7 +3079,7 @@ class N88_RFQ_Auth {
                                     '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #00ff00; font-weight: 600;">Awarded</span></div>' +
                                     '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
                                     '</div>' : '') +
-                                (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #1a3a1a; border: 1px solid #00ff00; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #00ff00; line-height: 1.5;">Prototype requested. Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div>' : '') +
+                                (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">Prototype Requested — Awaiting Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div></div>' : '') +
                                 // Commit 2.3.9.1E: Payment Received Notification
                                 (bid.payment_notification ? (function() {
                                     var notif = bid.payment_notification;
@@ -6360,9 +6385,16 @@ class N88_RFQ_Auth {
                                 var leadSelect = form.querySelector('select[name="smart_alt_lead_time_impact"]');
                                 if (leadSelect) leadSelect.value = sa.lead_time_impact;
                             }
-                            if (sa.comparisons && sa.comparisons.length > 0) {
-                                sa.comparisons.forEach(function(comp) {
-                                    var checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"]');
+                            // Comparison Points: draft saves as comparison_points; support legacy comparisons
+                            var comps = sa.comparison_points || sa.comparisons || [];
+                            if (comps.length > 0) {
+                                comps.forEach(function(comp) {
+                                    var val = String(comp || '').trim();
+                                    if (!val) return;
+                                    var checkbox = form.querySelector('input.n88-smart-alt-checkbox[value="' + val.replace(/"/g, '&quot;') + '"]');
+                                    if (!checkbox) {
+                                        checkbox = form.querySelector('input[name="smart_alt_comparison[]"][value="' + val.replace(/"/g, '&quot;') + '"]');
+                                    }
                                     if (checkbox) checkbox.checked = true;
                                 });
                             }
@@ -6600,17 +6632,20 @@ class N88_RFQ_Auth {
                         var leadSelect = form.querySelector('select[name="smart_alt_lead_time_impact"]');
                         if (leadSelect) leadSelect.value = sa.lead_time_impact;
                     }
-                    // H) Fix comparison points restoration - use correct selector
-                    if (sa.comparison_points && sa.comparison_points.length > 0) {
-                        sa.comparison_points.forEach(function(comp) {
-                            var checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"].n88-smart-alt-checkbox-modal');
+                    // Comparison Points: draft/bid saves as comparison_points; support legacy comparisons
+                    var compsModal = sa.comparison_points || sa.comparisons || [];
+                    if (compsModal.length > 0) {
+                        compsModal.forEach(function(comp) {
+                            var val = String(comp || '').trim();
+                            if (!val) return;
+                            var checkbox = form.querySelector('input.n88-smart-alt-checkbox-modal[value="' + val.replace(/"/g, '&quot;') + '"]');
                             if (!checkbox) {
-                                // Try without class
-                                checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"]');
+                                checkbox = form.querySelector('input[name="smart_alt_comparison[]"][value="' + val.replace(/"/g, '&quot;') + '"]');
                             }
-                            if (checkbox) {
-                                checkbox.checked = true;
+                            if (!checkbox) {
+                                checkbox = form.querySelector('input[type="checkbox"][value="' + val.replace(/"/g, '&quot;') + '"]');
                             }
+                            if (checkbox) checkbox.checked = true;
                         });
                     }
                     // Update preview
@@ -6738,17 +6773,22 @@ class N88_RFQ_Auth {
                         var leadSelect = form.querySelector('select[name="smart_alt_lead_time_impact"]');
                         if (leadSelect) leadSelect.value = sa.lead_time_impact;
                     }
-                    if (sa.comparison_points && sa.comparison_points.length > 0) {
-                        sa.comparison_points.forEach(function(comp) {
-                            var checkbox = form.querySelector('input[type="checkbox"][value="' + comp + '"]');
-                            if (checkbox) {
-                                checkbox.checked = true;
+                    // Comparison Points: use comparison_points; support legacy comparisons; prefer .n88-smart-alt-checkbox
+                    var compsEmb = sa.comparison_points || sa.comparisons || [];
+                    if (compsEmb.length > 0) {
+                        compsEmb.forEach(function(comp) {
+                            var val = String(comp || '').trim();
+                            if (!val) return;
+                            var checkbox = form.querySelector('input.n88-smart-alt-checkbox[value="' + val.replace(/"/g, '&quot;') + '"]');
+                            if (!checkbox) {
+                                checkbox = form.querySelector('input[name="smart_alt_comparison[]"][value="' + val.replace(/"/g, '&quot;') + '"]');
                             }
+                            if (checkbox) checkbox.checked = true;
                         });
                     }
-                    // Update preview if function exists
-                    if (typeof updateSmartAltPreviewModal === 'function') {
-                        updateSmartAltPreviewModal();
+                    // Update preview if function exists (embedded form uses updateSmartAltPreview(itemId))
+                    if (typeof updateSmartAltPreview === 'function') {
+                        updateSmartAltPreview(itemId);
                     }
                 }
                 
@@ -10799,22 +10839,36 @@ class N88_RFQ_Auth {
         $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
         if ( $messages_table_exists ) {
             // Count unread operator messages (operator messages with no designer reply after them)
-            $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(DISTINCT m.message_id)
-                FROM {$messages_table} m
-                WHERE m.item_id = %d
-                AND m.thread_type = 'designer_operator'
-                AND m.sender_role = 'operator'
-                AND NOT EXISTS (
-                    SELECT 1 FROM {$messages_table} m2
-                    WHERE m2.item_id = m.item_id
-                    AND m2.thread_type = 'designer_operator'
-                    AND m2.sender_role = 'designer'
-                    AND m2.created_at > m.created_at
-                )",
-                $item_id
-            ) ) );
+                $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(DISTINCT m.message_id)
+                    FROM {$messages_table} m
+                    WHERE m.item_id = %d
+                    AND m.thread_type = 'designer_operator'
+                    AND m.sender_role = 'operator'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} m2
+                        WHERE m2.item_id = m.item_id
+                        AND m2.thread_type = 'designer_operator'
+                        AND m2.sender_role = 'designer'
+                        AND m2.created_at > m.created_at
+                    )",
+                    $item_id
+                ) ) );
             $has_unread_operator_messages = $unread_operator_messages > 0;
+            // Fix #13/#26: If operator marked resolved (designer thread = item_id, bid_id NULL), clear Action Required
+            if ( $has_unread_operator_messages ) {
+                $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                    $resolved = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
+                        $item_id
+                    ) );
+                    if ( $resolved ) {
+                        $has_unread_operator_messages = false;
+                        $unread_operator_messages = 0;
+                    }
+                }
+            }
         }
 
         // Commit 2.3.9.1C: Check for prototype payment status
@@ -10852,6 +10906,7 @@ class N88_RFQ_Auth {
             $has_cad_revision_rounds_used = in_array( 'cad_revision_rounds_used', $pp_columns, true );
 
             // Get the most recent prototype payment for this item
+            // For system operator: any request for this item (item_id only). For designer: own request only.
             $select_fields = "id, bid_id, supplier_id, status, total_due_usd";
             $select_fields .= $has_cad_status ? ", cad_status" : ", NULL as cad_status";
             $select_fields .= $has_cad_revision_rounds_included ? ", cad_revision_rounds_included" : ", NULL as cad_revision_rounds_included";
@@ -10860,16 +10915,27 @@ class N88_RFQ_Auth {
             $select_fields .= $has_cad_approved_version ? ", cad_approved_version" : ", NULL as cad_approved_version";
             $select_fields .= $has_cad_released_to_supplier_at ? ", cad_released_to_supplier_at" : ", NULL as cad_released_to_supplier_at";
 
-            $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                "SELECT {$select_fields}
-                FROM {$prototype_payments_table}
-                WHERE item_id = %d
-                AND designer_user_id = %d
-                ORDER BY created_at DESC
-                LIMIT 1",
-                $item_id,
-                $current_user->ID
-            ), ARRAY_A );
+            if ( $is_system_operator ) {
+                $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT {$select_fields}
+                    FROM {$prototype_payments_table}
+                    WHERE item_id = %d
+                    ORDER BY created_at DESC
+                    LIMIT 1",
+                    $item_id
+                ), ARRAY_A );
+            } else {
+                $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT {$select_fields}
+                    FROM {$prototype_payments_table}
+                    WHERE item_id = %d
+                    AND designer_user_id = %d
+                    ORDER BY created_at DESC
+                    LIMIT 1",
+                    $item_id,
+                    $current_user->ID
+                ), ARRAY_A );
+            }
             
             if ( $prototype_payment ) {
                 $has_prototype_payment = true;
@@ -14879,7 +14945,10 @@ class N88_RFQ_Auth {
                                 <tr>
                                     <td colspan="5" style="padding: 20px; text-align: center; color: #999; font-size: 12px;">No requests found matching the selected filters.</td>
                                 </tr>
-                            <?php else : ?>
+                            <?php else :
+                                    $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                                    $resolutions_table_exists = ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table );
+                                ?>
                                 <?php foreach ( $requests as $request ) : 
                                     $item_id = intval( $request['item_id'] );
                                     $bid_id = intval( $request['bid_id'] );
@@ -15023,9 +15092,34 @@ class N88_RFQ_Auth {
                                     $clarification_count = ! empty( $request['clarification_count'] ) ? intval( $request['clarification_count'] ) : 0;
                                     $unread_messages = ! empty( $request['unread_messages'] ) ? intval( $request['unread_messages'] ) : 0;
                                     
-                                    // Show "Action Required" only if there are unread inbound messages (supplier/designer after operator's last reply)
-                                    $show_action_required = $unread_messages > 0;
-                                    
+                                    // Fix #26 (operator half): Action Required only for real pending states:
+                                    // - unread message (supplier/designer after operator's last reply; includes clarification needs action)
+                                    // - payment proof (designer uploaded receipt; operator must verify and mark received)
+                                    // - pending CAD approval (payment received, CAD uploaded/revision — operator may follow up until designer approves)
+                                    $payment_proof_pending = false;
+                                    if ( $payment_id && ( $request['status'] === 'requested' ) ) {
+                                        $receipts_tbl = $wpdb->prefix . 'n88_prototype_payment_receipts';
+                                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_tbl}'" ) === $receipts_tbl ) {
+                                            $payment_proof_pending = (bool) $wpdb->get_var( $wpdb->prepare(
+                                                "SELECT 1 FROM {$receipts_tbl} WHERE payment_id = %d LIMIT 1",
+                                                $payment_id
+                                            ) );
+                                        }
+                                    }
+                                    $pending_cad_approval = ( $payment_id && isset( $request['status'] ) && $request['status'] === 'marked_received' && in_array( (string) $cad_status, array( 'uploaded', 'revision_requested' ), true ) );
+                                    $show_action_required = ( $unread_messages > 0 ) || $payment_proof_pending || $pending_cad_approval;
+                                    // Fix #13/#26: If operator marked this case resolved, clear only the unread-based Action Required (not payment proof or pending CAD)
+                                    if ( $show_action_required && $resolutions_table_exists ) {
+                                        $bid_val = $bid_id ? $bid_id : 0;
+                                        $resolved = $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND ( bid_id IS NULL OR ( bid_id = %d AND %d > 0 ) ) LIMIT 1",
+                                            $item_id, $bid_val, $bid_val
+                                        ) );
+                                        if ( $resolved && ( $unread_messages > 0 ) ) {
+                                            $show_action_required = $payment_proof_pending || $pending_cad_approval;
+                                        }
+                                    }
+
                                     if ( $request['status'] === 'clarification_needed' || $has_clarification ) {
                                         $status_display = 'Clarification Needed';
                                     } elseif ( $request['status'] === 'requested' ) {
@@ -15134,6 +15228,9 @@ class N88_RFQ_Auth {
                                                         <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="0" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             Message Threads
                                                         </button>
+                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                            Mark Resolved
+                                                        </button>
                                                     </div>
                                                 </div>
                                             <?php else : ?>
@@ -15177,6 +15274,9 @@ class N88_RFQ_Auth {
                                                         </button>
                                                         <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             Message Threads
+                                                        </button>
+                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                            Mark Resolved
                                                         </button>
                                                         <?php if ( $request['status'] === 'requested' ) : ?>
                                                             <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
@@ -15336,6 +15436,9 @@ class N88_RFQ_Auth {
                     <div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ff8800; border-radius: 4px; color: #ffaa00; font-size: 11px; line-height: 1.5;">
                         <strong>Warning:</strong> This confirms offline payment and unlocks the next CAD drafting step (future commit).
                     </div>
+                    <div id="n88-payment-receipts-container" style="margin-top: 14px; padding: 10px; background-color: #0a1a0a; border: 1px solid #00ff00; border-radius: 4px; font-size: 12px; color: #ccc;">
+                        <span style="color: #00ff00;">Payment receipts:</span> <span id="n88-receipts-list">—</span>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
                     <button id="n88-cancel-payment-confirm" style="padding: 8px 16px; background-color: #333; color: #fff; border: 1px solid #666; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#444';" onmouseout="this.style.backgroundColor='#333';">
@@ -15485,6 +15588,44 @@ class N88_RFQ_Auth {
                     if (caseModal) caseModal.style.display = 'none';
                 });
             }
+
+            // Fix #13/#26: Mark Resolved — delegated for expanded row and modal
+            document.addEventListener('click', function(e) {
+                var el = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || null;
+                var btn = el && el.closest ? el.closest('.n88-mark-resolved-btn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                var itemId = btn.getAttribute('data-item-id');
+                var bidId = btn.getAttribute('data-bid-id') || '0';
+                if (!itemId) { alert('Missing item ID.'); return; }
+                btn.disabled = true;
+                var origText = btn.textContent;
+                btn.textContent = 'Resolving...';
+                var formData = new FormData();
+                formData.append('action', 'n88_mark_clarification_resolved');
+                formData.append('item_id', itemId);
+                formData.append('bid_id', bidId);
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_mark_clarification_resolved' ) ); ?>');
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            if (caseModal && caseModal.style) caseModal.style.display = 'none';
+                            window.location.reload();
+                        } else {
+                            alert(data.data && data.data.message ? data.data.message : 'Failed to mark resolved.');
+                            btn.disabled = false;
+                            btn.textContent = origText;
+                        }
+                    })
+                    .catch(function(err) {
+                        console.error('Mark resolved error:', err);
+                        alert('An error occurred. Please try again.');
+                        btn.disabled = false;
+                        btn.textContent = origText;
+                    });
+            });
 
             // Commit 2.3.9.1C-a: Message Threads Toggle
             var messageThreadsBtns = document.querySelectorAll('.n88-message-threads-btn');
@@ -15993,6 +16134,31 @@ class N88_RFQ_Auth {
                     
                     // Show modal
                     if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
+
+                    // Load payment receipts (JPG/PDF) so operator can review before confirming
+                    var listEl = document.getElementById('n88-receipts-list');
+                    if (listEl) {
+                        listEl.textContent = 'Loading…';
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_payment_receipts');
+                        fd.append('payment_id', paymentId);
+                        fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_payment_receipts' ) ); ?>');
+                        fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (!listEl) return;
+                                if (d.success && d.data.receipts && d.data.receipts.length > 0) {
+                                    var parts = d.data.receipts.map(function(x) {
+                                        var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                        return '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>';
+                                    });
+                                    listEl.innerHTML = parts.join(', ');
+                                } else {
+                                    listEl.textContent = 'None uploaded.';
+                                }
+                            })
+                            .catch(function() { if (listEl) listEl.textContent = '—'; });
+                    }
                 });
             });
 
@@ -16511,6 +16677,11 @@ class N88_RFQ_Auth {
                 <div><strong>Supplier ID:</strong> <?php echo esc_html( $payment['supplier_id'] ); ?></div>
                 <div><strong>Request Created:</strong> <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></div>
                 <div><strong>Payment Status:</strong> <?php echo esc_html( ucfirst( str_replace( '_', ' ', $payment['status'] ) ) ); ?></div>
+            </div>
+            <div style="margin-top: 12px;">
+                <button type="button" class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( ! empty( $payment['bid_id'] ) ? $payment['bid_id'] : '0' ); ?>" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                    Mark Resolved
+                </button>
             </div>
         </div>
 
@@ -18890,6 +19061,273 @@ class N88_RFQ_Auth {
         }
 
         wp_send_json_success( array( 'message' => 'Clarification closed successfully.' ) );
+    }
+
+    /**
+     * AJAX: Mark clarification/case as resolved (Fix #13 / #26)
+     * - Sets clarification(s) for the item to closed
+     * - Inserts into n88_rfq_case_resolutions to clear Action Required for operator and for supplier/designer when no other pending alerts
+     * - Fires clarification_resolved event: item_id, bid_id (nullable), actor_user_id, timestamp
+     */
+    public function ajax_mark_clarification_resolved() {
+        check_ajax_referer( 'n88_mark_clarification_resolved', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+
+        if ( ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator access required.' ) );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        if ( $bid_id === 0 ) {
+            $bid_id = null;
+        }
+
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+        $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+
+        // 1) Set all clarifications for this item to closed (covers both item-level and bid-level threads)
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$clarifications_table}'" ) === $clarifications_table ) {
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$clarifications_table} SET status = 'closed' WHERE item_id = %d",
+                $item_id
+            ) );
+        }
+
+        // 2) Ensure table exists (upgrade may not have run yet)
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) !== $resolutions_table ) {
+            // Table missing: still close clarifications and fire event; Action Required will clear when table is created on next upgrade
+            do_action( 'clarification_resolved', array(
+                'item_id'       => $item_id,
+                'bid_id'        => $bid_id,
+                'actor_user_id' => $current_user->ID,
+                'timestamp'     => current_time( 'mysql' ),
+            ) );
+            wp_send_json_success( array( 'message' => 'Clarification marked resolved. Case resolutions table not yet created; please upgrade the plugin.' ) );
+            return;
+        }
+
+        // 3) Insert resolution: designer thread = (item_id, NULL); supplier thread = (item_id, bid_id). When resolving a payment case (has bid_id), insert both so operator/supplier and designer all clear.
+        $wpdb->query( $wpdb->prepare(
+            "INSERT INTO {$resolutions_table} (item_id, bid_id, actor_user_id, resolved_at) VALUES (%d, NULL, %d, %s)",
+            $item_id,
+            $current_user->ID,
+            current_time( 'mysql' )
+        ) );
+        if ( $bid_id !== null ) {
+            $wpdb->insert(
+                $resolutions_table,
+                array(
+                    'item_id'        => $item_id,
+                    'bid_id'         => $bid_id,
+                    'actor_user_id'  => $current_user->ID,
+                    'resolved_at'    => current_time( 'mysql' ),
+                ),
+                array( '%d', '%d', '%d', '%s' )
+            );
+        }
+
+        // 4) Fire event
+        do_action( 'clarification_resolved', array(
+            'item_id'       => $item_id,
+            'bid_id'        => $bid_id,
+            'actor_user_id' => $current_user->ID,
+            'timestamp'     => current_time( 'mysql' ),
+        ) );
+
+        wp_send_json_success( array( 'message' => 'Marked resolved. Action Required cleared for this case.' ) );
+    }
+
+    /**
+     * AJAX: Upload payment receipt (JPG/PDF) for a prototype payment.
+     * Designer (payment's designer_user_id) can upload. Operator views in Mark Payment Received modal.
+     */
+    public function ajax_upload_payment_receipt() {
+        check_ajax_referer( 'n88_upload_payment_receipt', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        if ( ! $payment_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
+            return;
+        }
+
+        $file = isset( $_FILES['receipt_file'] ) ? $_FILES['receipt_file'] : null;
+        if ( ! $file || empty( $file['tmp_name'] ) || ! empty( $file['error'] ) ) {
+            wp_send_json_error( array( 'message' => 'No file or upload error. Please choose a JPG or PDF.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, designer_user_id FROM {$payments_table} WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment not found.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = (int) $payment['designer_user_id'] === (int) $current_user->ID;
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        if ( ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Only the designer or operator can upload a receipt.' ) );
+            return;
+        }
+
+        $mime = isset( $file['type'] ) ? sanitize_text_field( $file['type'] ) : '';
+        $allowed = array( 'application/pdf', 'image/jpeg', 'image/jpg', 'image/pjpeg' );
+        if ( ! in_array( $mime, $allowed, true ) ) {
+            wp_send_json_error( array( 'message' => 'Only JPG and PDF are allowed.' ) );
+            return;
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) !== $receipts_table ) {
+            wp_send_json_error( array( 'message' => 'Receipts table not ready. Please upgrade the plugin.' ) );
+            return;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+        if ( empty( $upload['file'] ) || empty( $upload['url'] ) ) {
+            wp_send_json_error( array( 'message' => 'Upload failed. Try another file.' ) );
+            return;
+        }
+
+        $attachment = array(
+            'post_mime_type' => $upload['type'],
+            'post_title'     => sanitize_file_name( wp_basename( $upload['file'] ) ),
+            'post_content'   => '',
+            'post_status'    => 'inherit',
+        );
+        $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+        if ( ! $attach_id ) {
+            wp_send_json_error( array( 'message' => 'Failed to save file.' ) );
+            return;
+        }
+
+        $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+        if ( ! is_wp_error( $attach_data ) ) {
+            wp_update_attachment_metadata( $attach_id, $attach_data );
+        }
+
+        $file_name = isset( $file['name'] ) ? sanitize_file_name( $file['name'] ) : wp_basename( $upload['file'] );
+        $wpdb->insert(
+            $receipts_table,
+            array(
+                'payment_id'   => $payment_id,
+                'attachment_id'=> $attach_id,
+                'file_name'    => $file_name,
+                'uploaded_by'  => $current_user->ID,
+                'uploaded_at'  => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%s', '%d', '%s' )
+        );
+
+        $url = wp_get_attachment_url( $attach_id );
+        if ( ! $url ) {
+            $url = $upload['url'];
+        }
+
+        wp_send_json_success( array(
+            'attachment_id' => $attach_id,
+            'file_name'     => $file_name,
+            'url'           => $url,
+        ) );
+    }
+
+    /**
+     * AJAX: Get payment receipts for a prototype payment.
+     * Designer (own payment) or operator can call.
+     */
+    public function ajax_get_payment_receipts() {
+        check_ajax_referer( 'n88_get_payment_receipts', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        if ( ! $payment_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+
+        $payment = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, designer_user_id FROM {$payments_table} WHERE id = %d",
+            $payment_id
+        ), ARRAY_A );
+
+        if ( ! $payment ) {
+            wp_send_json_error( array( 'message' => 'Payment not found.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = (int) $payment['designer_user_id'] === (int) $current_user->ID;
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        if ( ! $is_designer && ! $is_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ) );
+            return;
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) !== $receipts_table ) {
+            wp_send_json_success( array( 'receipts' => array() ) );
+            return;
+        }
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT r.id, r.attachment_id, r.file_name, r.uploaded_at
+             FROM {$receipts_table} r
+             WHERE r.payment_id = %d
+             ORDER BY r.uploaded_at DESC",
+            $payment_id
+        ), ARRAY_A );
+
+        $receipts = array();
+        foreach ( $rows as $r ) {
+            $url = wp_get_attachment_url( (int) $r['attachment_id'] );
+            $receipts[] = array(
+                'id'          => (int) $r['id'],
+                'attachment_id' => (int) $r['attachment_id'],
+                'file_name'   => $r['file_name'],
+                'url'         => $url ?: '',
+                'uploaded_at' => $r['uploaded_at'],
+            );
+        }
+
+        wp_send_json_success( array( 'receipts' => $receipts ) );
     }
 }
 

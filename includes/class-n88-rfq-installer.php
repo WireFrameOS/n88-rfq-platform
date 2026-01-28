@@ -1198,6 +1198,12 @@ class N88_RFQ_Installer {
         
         // Commit 2.3.9.1C-B: Create clarifications table
         self::create_phase_2_3_9_1c_b_tables( $charset_collate );
+
+        // Fix #13/#26: Create case resolutions table (Mark Resolved)
+        self::create_case_resolutions_table( $charset_collate );
+
+        // Payment receipts (designer upload JPG/PDF; operator views before mark received)
+        self::create_payment_receipts_table( $charset_collate );
         
         // Commit 2.3.9.2B-S: Create prototype video submission tables
         self::create_phase_2_3_9_2b_tables( $charset_collate );
@@ -2870,6 +2876,65 @@ class N88_RFQ_Installer {
         if ( ! $fk_clarification_supplier ) {
             self::safe_add_foreign_key( $clarifications_table, 'fk_clarification_supplier', 'supplier_id', $users_table, 'ID', 'CASCADE' );
         }
+    }
+
+    /**
+     * Create n88_rfq_case_resolutions table (Fix #13 / #26: Mark Resolved)
+     * Tracks when an operator marks clarification/case as resolved to clear Action Required.
+     */
+    private static function create_case_resolutions_table( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+            return;
+        }
+
+        $sql = "CREATE TABLE {$resolutions_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            bid_id BIGINT UNSIGNED NULL,
+            actor_user_id BIGINT UNSIGNED NOT NULL,
+            resolved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_item_id (item_id),
+            KEY idx_item_bid (item_id, bid_id),
+            KEY idx_resolved_at (resolved_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql );
+    }
+
+    /**
+     * Create n88_prototype_payment_receipts table
+     * Designer uploads payment receipt (JPG/PDF); operator views before marking received.
+     */
+    private static function create_payment_receipts_table( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+        $payments_table = $wpdb->prefix . 'n88_prototype_payments';
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+            return;
+        }
+
+        $sql = "CREATE TABLE {$receipts_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            payment_id BIGINT UNSIGNED NOT NULL,
+            attachment_id BIGINT UNSIGNED NOT NULL,
+            file_name VARCHAR(255) NOT NULL,
+            uploaded_by BIGINT UNSIGNED NOT NULL,
+            uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_payment_id (payment_id),
+            KEY idx_uploaded_at (uploaded_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql );
     }
 
     /**

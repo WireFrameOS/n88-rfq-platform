@@ -3237,13 +3237,20 @@ class N88_RFQ_Admin {
                                 }
                                 
                                 <?php if ( $is_designer && $has_board ) : ?>
-                                // Redirect directly to board page with success message
+                                // Redirect to board page; if project selected go to that project; if room selected go to that room
                                 if (redirectBoardId) {
-                                    // Build redirect URL with success parameter
                                     var baseUrl = '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>';
-                                    var boardUrl = baseUrl + '?page=n88-rfq-board-demo&board_id=' + parseInt(redirectBoardId) + '&item_added=1';
-                                    // Redirect immediately
-                                    window.location.href = boardUrl;
+                                    var params = new URLSearchParams();
+                                    params.set('page', 'n88-rfq-board-demo');
+                                    params.set('board_id', String(parseInt(redirectBoardId)));
+                                    params.set('item_added', '1');
+                                    if (projectId && projectId !== '') {
+                                        params.set('project_id', String(projectId));
+                                    }
+                                    if (roomId && roomId !== '') {
+                                        params.set('room_id', String(roomId));
+                                    }
+                                    window.location.href = baseUrl + '?' + params.toString();
                                 } else {
                                     // Fallback: show success message if no board ID
                                     $result.html('<p style="color: green;">✓ Item created successfully! ID: ' + response.data.item_id + '</p>');
@@ -3944,6 +3951,20 @@ class N88_RFQ_Admin {
                                 $item_id
                             ) ) );
                             $has_unread_operator_messages = $unread_operator_messages > 0;
+                            // Fix #13/#26: If operator marked resolved (designer thread), clear Action Required
+                            if ( $has_unread_operator_messages ) {
+                                $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                                    $resolved = $wpdb->get_var( $wpdb->prepare(
+                                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
+                                        $item_id
+                                    ) );
+                                    if ( $resolved ) {
+                                        $has_unread_operator_messages = false;
+                                        $unread_operator_messages = 0;
+                                    }
+                                }
+                            }
                         }
                         
                         // Commit 2.3.9.1C: Check for prototype payment status
@@ -4209,6 +4230,20 @@ class N88_RFQ_Admin {
                                 $item_id
                             ) ) );
                             $has_unread_operator_messages = $unread_operator_messages > 0;
+                            // Fix #13/#26: If operator marked resolved (designer thread), clear Action Required
+                            if ( $has_unread_operator_messages ) {
+                                $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                                    $resolved = $wpdb->get_var( $wpdb->prepare(
+                                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
+                                        $item_id
+                                    ) );
+                                    if ( $resolved ) {
+                                        $has_unread_operator_messages = false;
+                                        $unread_operator_messages = 0;
+                                    }
+                                }
+                            }
                         }
                         
                         // Commit 2.3.9.1C: Check for prototype payment status
@@ -4413,6 +4448,9 @@ class N88_RFQ_Admin {
             'nonce_award_bid' => wp_create_nonce( 'n88_award_bid' ),
             // Commit 2.6.1: Invite team member nonce
             'nonce_invite_team_member' => wp_create_nonce( 'n88_invite_team_member' ),
+            // Payment receipt (designer upload JPG/PDF in Payment Instructions modal)
+            'nonce_upload_payment_receipt' => wp_create_nonce( 'n88_upload_payment_receipt' ),
+            'nonce_get_payment_receipts' => wp_create_nonce( 'n88_get_payment_receipts' ),
         ) );
         
         // Commit 2.6.1: Check if current user is view-only team member
@@ -4841,8 +4879,16 @@ class N88_RFQ_Admin {
                             
                             if (data.success) {
                                 alert('Project created successfully!');
-                                // Reload page to show new project in dropdown
-                                window.location.reload();
+                                // Redirect to the new project board (same board_id + project_id) when user clicks OK
+                                var newProjectId = data.data && data.data.project_id ? data.data.project_id : null;
+                                if (newProjectId) {
+                                    var cur = new URLSearchParams(window.location.search);
+                                    cur.set('project_id', String(newProjectId));
+                                    cur.delete('room_id');
+                                    window.location.search = cur.toString();
+                                } else {
+                                    window.location.reload();
+                                }
                             } else {
                                 alert('Error: ' + (data.data.message || 'Failed to create project'));
                             }
@@ -4987,7 +5033,15 @@ class N88_RFQ_Admin {
                             
                             if (data.success) {
                                 alert('Room created successfully!');
-                                window.location.reload();
+                                // Redirect to the new room (keep board_id, project_id; set room_id) when user clicks OK
+                                var newRoomId = data.data && data.data.room_id ? data.data.room_id : null;
+                                if (newRoomId) {
+                                    var cur = new URLSearchParams(window.location.search);
+                                    cur.set('room_id', String(newRoomId));
+                                    window.location.search = cur.toString();
+                                } else {
+                                    window.location.reload();
+                                }
                             } else {
                                 alert('Error: ' + (data.data.message || 'Failed to create room'));
                             }
@@ -8822,6 +8876,15 @@ class N88_RFQ_Admin {
                     var _showPaymentInstructionsState = React.useState(false);
                     var showPaymentInstructions = _showPaymentInstructionsState[0];
                     var setShowPaymentInstructions = _showPaymentInstructionsState[1];
+                    var _paymentReceiptsState = React.useState([]);
+                    var paymentReceipts = _paymentReceiptsState[0];
+                    var setPaymentReceipts = _paymentReceiptsState[1];
+                    var _paymentReceiptsLoadingState = React.useState(false);
+                    var paymentReceiptsLoading = _paymentReceiptsLoadingState[0];
+                    var setPaymentReceiptsLoading = _paymentReceiptsLoadingState[1];
+                    var _paymentReceiptUploadingState = React.useState(false);
+                    var paymentReceiptUploading = _paymentReceiptUploadingState[0];
+                    var setPaymentReceiptUploading = _paymentReceiptUploadingState[1];
                     
                     // Commit 2.3.9.2B-D: Prototype section state
                     var _prototypeSectionExpandedState = React.useState(false);
@@ -9045,7 +9108,7 @@ class N88_RFQ_Admin {
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     
-                    // Auto-select tab based on state; when unread operator messages: Mission Spec + Message Operator expanded
+                    // Auto-select tab based on state; when Action Required (unread operator messages): Mission Spec, Message Operator stays collapsed
                     React.useEffect(function() {
                         if (itemState.loading) return;
                         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
@@ -9055,7 +9118,7 @@ class N88_RFQ_Admin {
                         }
                         if (itemState.has_unread_operator_messages) {
                             setActiveTab('details'); // Mission Spec
-                            setShowDesignerMessageForm(true); // Message Operator box expanded by default
+                            setShowDesignerMessageForm(false); // Do NOT auto-open Message Operator; designer opens when ready
                             return;
                         }
                         if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
@@ -9365,9 +9428,10 @@ class N88_RFQ_Admin {
                         });
                     };
                     
-                    // Fetch item state when modal opens
+                    // Fetch item state when modal opens; reset Message Operator to collapsed to avoid carry-over from previous item
                     React.useEffect(function() {
                         if (isOpen && itemId && itemId > 0) {
+                            setShowDesignerMessageForm(false);
                             fetchItemState();
                         }
                     }, [isOpen, itemId]);
@@ -9474,6 +9538,70 @@ class N88_RFQ_Admin {
                         }
                     }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
                     
+                    // Fetch payment receipts when Payment Instructions modal opens
+                    var fetchPaymentReceipts = function() {
+                        var pid = itemState.prototype_payment_id;
+                        if (!pid) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_payment_receipts) || '';
+                        if (!nonce) return;
+                        setPaymentReceiptsLoading(true);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_payment_receipts');
+                        fd.append('payment_id', String(pid));
+                        fd.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (d.success && d.data && d.data.receipts && Array.isArray(d.data.receipts)) {
+                                    setPaymentReceipts(d.data.receipts);
+                                } else {
+                                    setPaymentReceipts([]);
+                                }
+                            })
+                            .catch(function() { setPaymentReceipts([]); })
+                            .finally(function() { setPaymentReceiptsLoading(false); });
+                    };
+                    React.useEffect(function() {
+                        if (showPaymentInstructions && itemState.prototype_payment_id) {
+                            fetchPaymentReceipts();
+                        } else if (!showPaymentInstructions) {
+                            setPaymentReceipts([]);
+                        }
+                    }, [showPaymentInstructions, itemState.prototype_payment_id]);
+                    
+                    // Auto-expand "Payment Confirmed" / "View Prototype Videos" when supplier has submitted videos
+                    React.useEffect(function() {
+                        if (itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) {
+                            setPrototypeSectionExpanded(true);
+                        }
+                    }, [itemState.prototype_submission]);
+                    
+                    var handlePaymentReceiptUpload = function(e) {
+                        var file = e.target && e.target.files && e.target.files[0];
+                        if (!file) return;
+                        var pid = itemState.prototype_payment_id;
+                        if (!pid) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_upload_payment_receipt) || '';
+                        if (!nonce) { alert('Upload not available.'); e.target.value = ''; return; }
+                        var ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].indexOf(file.type) !== -1;
+                        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
+                        setPaymentReceiptUploading(true);
+                        var fd = new FormData();
+                        fd.append('action', 'n88_upload_payment_receipt');
+                        fd.append('payment_id', String(pid));
+                        fd.append('receipt_file', file);
+                        fd.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: fd })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (d.success) { fetchPaymentReceipts(); } else { alert(d.data && d.data.message ? d.data.message : 'Upload failed.'); }
+                            })
+                            .catch(function() { alert('Upload failed.'); })
+                            .finally(function() { setPaymentReceiptUploading(false); e.target.value = ''; });
+                    };
+                    
                     // Update inspiration when item changes (if modal is reopened with different item)
                     React.useEffect(function() {
                         var validInspiration = (item.inspiration || []).filter(validateInspirationItem);
@@ -9558,8 +9686,8 @@ class N88_RFQ_Admin {
                     })();
                     
                     // Check if fields should be editable
-                    // Lock Designer Editing While Awaiting Payment: when prototype/CAD requested and payment status is 'requested', lock Brief/RFQ and hide Update/Save
-                    var isLockedAwaitingPayment = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested');
+                    // Lock after CAD/Prototype request submitted (permanent): lock Brief/RFQ and hide Update/Save
+                    var isLockedAwaitingPayment = !!itemState.has_prototype_payment;
                     var isEditable = currentState === 'A' && !isLockedAwaitingPayment;
                     
                     // Format dimensions for display
@@ -9650,7 +9778,7 @@ class N88_RFQ_Admin {
                         
                         // Update system invites message if checkbox is checked
                         if (allowSystemInvites) {
-                            setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                            setSystemInvitesMessage('');
                         }
                     };
                     
@@ -9662,7 +9790,7 @@ class N88_RFQ_Admin {
                         // Update system invites message if checkbox is checked
                         if (allowSystemInvites) {
                             if (newSuppliers.length > 0) {
-                                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                setSystemInvitesMessage('');
                             } else {
                                 setSystemInvitesMessage('We will send your request on your behalf.');
                             }
@@ -12605,14 +12733,14 @@ class N88_RFQ_Admin {
                                                                 color: '#00ff00',
                                                                 marginBottom: '4px',
                                                             }
-                                                        }, 'Payment Confirmed'),
+                                                        }, (itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) ? 'View Prototype Videos' : 'Payment Confirmed'),
                                                         React.createElement('div', {
                                                             style: {
                                                                 fontSize: '13px',
                                                                 color: '#00cc00',
                                                                 lineHeight: '1.5',
                                                             }
-                                                        }, 'CAD drafting has begun.')
+                                                        }, (itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) ? 'Supplier has submitted prototype video(s).' : 'CAD drafting has begun.')
                                                     ),
                                                     React.createElement('div', {
                                                         style: {
@@ -13659,6 +13787,8 @@ class N88_RFQ_Admin {
                                                                         setCadPrototypeSuccess(true);
                                                                         setSelectedKeywords([]);
                                                                         setPrototypeNote('');
+                                                                        // Lock Launch Brief immediately when CAD request is submitted
+                                                                        setItemState(function(prev) { return Object.assign({}, prev, { has_prototype_payment: true, prototype_payment_status: 'requested' }); });
                                                                         // Commit 2.3.9.1C: Refresh item state to show payment banner
                                                                         fetchItemState();
                                                                         // Scroll to top of form to show success message
@@ -14266,6 +14396,8 @@ class N88_RFQ_Admin {
                                             fontSize: '13px',
                                             color: darkText,
                                             lineHeight: '1.6',
+                                            maxHeight: '70vh',
+                                            overflowY: 'auto',
                                         }
                                     },
                                         React.createElement('div', {
@@ -14386,6 +14518,41 @@ class N88_RFQ_Admin {
                                                     marginTop: '4px',
                                                 }
                                             }, 'Work does not begin until payment is confirmed by our team.')
+                                        ),
+                                        React.createElement('div', {
+                                            style: {
+                                                marginTop: '20px',
+                                                padding: '12px',
+                                                backgroundColor: '#0a1a0a',
+                                                borderRadius: '4px',
+                                                border: '1px solid #00ff00',
+                                            }
+                                        },
+                                            React.createElement('div', {
+                                                style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }
+                                            }, 'Upload Payment Receipt'),
+                                            React.createElement('div', {
+                                                style: { fontSize: '12px', color: darkText, marginBottom: '10px' }
+                                            }, 'JPG or PDF. Operator will review before confirming payment.'),
+                                            React.createElement('input', {
+                                                type: 'file',
+                                                accept: '.jpg,.jpeg,.pdf',
+                                                onChange: handlePaymentReceiptUpload,
+                                                disabled: paymentReceiptUploading,
+                                                style: { display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' },
+                                            }),
+                                            paymentReceiptUploading ? React.createElement('div', { style: { fontSize: '12px', color: greenAccent, marginBottom: '8px' } }, 'Uploading…') : null,
+                                            paymentReceiptsLoading ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } }, 'Loading receipts…') : null,
+                                            (!paymentReceiptsLoading && paymentReceipts.length > 0) ? React.createElement('div', { style: { marginTop: '10px' } },
+                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '6px' } }, 'Uploaded:'),
+                                                React.createElement('ul', { style: { margin: 0, paddingLeft: '20px', color: darkText, fontSize: '12px' } },
+                                                    paymentReceipts.map(function(r) {
+                                                        return React.createElement('li', { key: r.id },
+                                                            React.createElement('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, r.file_name)
+                                                        );
+                                                    })
+                                                )
+                                            ) : null
                                         )
                                     )
                                 )
@@ -15083,6 +15250,8 @@ class N88_RFQ_Admin {
             // Commit 2.3.9.2A: CAD workflow nonces
             'nonce_request_cad_revision' => wp_create_nonce( 'n88_request_cad_revision' ),
             'nonce_approve_cad' => wp_create_nonce( 'n88_approve_cad' ),
+            'nonce_upload_payment_receipt' => wp_create_nonce( 'n88_upload_payment_receipt' ),
+            'nonce_get_payment_receipts' => wp_create_nonce( 'n88_get_payment_receipts' ),
         ) );
         ?>
         <div class="wrap">
@@ -15721,7 +15890,7 @@ class N88_RFQ_Admin {
                 if (checkbox.checked) {
                     messageDiv.style.display = 'block';
                     if (inviteInput && inviteInput.value.trim()) {
-                        messageDiv.textContent = 'We\'ll invite 2 additional makers in 24 hours.';
+                        messageDiv.textContent = '';
                     } else {
                         messageDiv.textContent = 'We will send your request on your behalf.';
                     }
