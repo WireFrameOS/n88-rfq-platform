@@ -1727,23 +1727,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     }, [showCadPrototypeForm, itemState.bids, selectedBidId]);
     
-    // Auto-expand bids in State C and set active tab; when Action Required (operator sent CAD or message): Mission Spec and auto-expand Message Operator
+    // Auto-expand bids in State C and set active tab; when Action Required (operator sent CAD or message): Mission Spec and auto-expand Designer–Operator Communication
     React.useEffect(() => {
         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
         if (skipNextTabSwitchFromCadActionRef.current) {
             skipNextTabSwitchFromCadActionRef.current = false;
             return;
         }
-        // Action Required (operator sent CAD or message): open to Mission Spec and auto-expand Message Operator so designer sees CAD/messages.
+        // Action Required: operator sent message, or operator submitted CAD for designer to review — auto-expand Designer–Operator Communication
         // Use item.action_required / item.has_unread_operator_messages so we behave correctly before fetchItemState completes.
-        const hasActionRequired = !!(
-            itemState.has_unread_operator_messages ||
-            item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 ||
-            item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1
-        );
+        const hasUnread = !!(itemState.has_unread_operator_messages || item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 || item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1);
+        const cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].includes(String(itemState.cad_status || '')));
+        const hasActionRequired = hasUnread || cadPendingDesignerReview;
         if (hasActionRequired) {
-            setActiveTab('details'); // Mission Spec (CAD review and Message Operator both live here)
-            setShowDesignerMessageForm(true); // Auto-open Message Operator when operator sent CAD or message
+            setActiveTab('details'); // Mission Spec (CAD review and Designer–Operator Communication both live here)
+            setShowDesignerMessageForm(true); // Auto-expand when operator sent CAD or message
             loadDesignerMessages();
             return;
         }
@@ -1755,8 +1753,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         } else {
             setActiveTab('details'); // Default to details tab in State A
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread flags or itemState change
-    }, [currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, item?.action_required, item?.has_unread_operator_messages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread/CAD-pending or itemState change
+    }, [currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, item?.action_required, item?.has_unread_operator_messages]);
     
     // Image lightbox state
     const [lightboxImage, setLightboxImage] = React.useState(null);
@@ -1775,7 +1773,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     };
     const itemId = getItemId();
     
-    // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Message Operator so the tab effect can auto-expand it.
+    // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Designer–Operator Communication so the tab effect can auto-expand it.
     React.useEffect(() => {
         if (isOpen && itemId && itemId > 0) {
             const hasActionRequired = !!(
@@ -1783,7 +1781,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1
             );
             if (!hasActionRequired) {
-                setShowDesignerMessageForm(false); // Collapse when not Action Required
+                setShowDesignerMessageForm(false); // Collapse when not Action Required (CAD-pending is only known after fetch)
             }
             fetchItemState();
         }
@@ -2072,6 +2070,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 setRevisionFiles([]);
                 await loadDesignerMessages();
                 skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after revision request
+                setActiveTab('details'); // keep Mission Spec tab
+                setShowDesignerMessageForm(true); // keep message box open
                 await fetchItemState();
             } else {
                 alert('Error: ' + (data.data?.message || 'Failed to request revision.'));
@@ -2108,6 +2108,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
             if (data.success) {
                 await loadDesignerMessages();
                 skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
+                setActiveTab('details'); // keep Mission Spec tab
+                setShowDesignerMessageForm(true); // keep message box open
                 await fetchItemState();
             } else {
                 alert('Error: ' + (data.data?.message || 'Failed to approve CAD.'));
@@ -3622,8 +3624,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 </div>
                                             )}
 
-                                            {/* Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too */}
-                                            {/* Commit 2.6.1: Hide Message Operator button for view-only team members */}
+                                            {/* Commit 2.3.9.1C-a: Designer–Operator Communication - allow CAD flow too */}
+                                            {/* Commit 2.6.1: Hide Designer–Operator Communication button for view-only team members */}
                                             {!isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && (
                                                     <div style={{
                                                     marginBottom: '24px',
@@ -3649,7 +3651,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             onMouseOver={(e) => e.target.style.backgroundColor = '#1a1a1a'}
                                                             onMouseOut={(e) => e.target.style.backgroundColor = '#111111'}
                                                         >
-                                                            Message Operator
+                                                            Designer–Operator Communication
                                                         </button>
                                                     ) : (
                                                         <div style={{
@@ -3669,7 +3671,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                     fontWeight: '600',
                                                                     color: darkText,
                                                     }}>
-                                                                    Message Operator
+                                                                    Designer–Operator Communication
                                                     </div>
                                                                 <button
                                                                     onClick={() => setShowDesignerMessageForm(false)}
@@ -3728,7 +3730,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                 Current CAD: <span style={{ color: '#fff', fontWeight: 700 }}>v{itemState.cad_current_version}</span>
                                                                 {itemState.cad_status === 'approved' && itemState.cad_approved_version ? (
                                                                     <span style={{ marginLeft: '10px', color: '#00ff00' }}>
-                                                                        ✓ Approved (v{itemState.cad_approved_version})
+                                                                        CAD Approved (v{itemState.cad_approved_version})
                                                                     </span>
                                                                 ) : null}
                                                             </div>
@@ -4440,7 +4442,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 alignItems: 'center',
                                                 gap: '8px',
                                             }}>
-                                                <span>⚠️</span>
+                                                <span></span>
                                                 <span>Action Required: Clarification Needed</span>
                                             </div>
                                             <div style={{
@@ -5476,7 +5478,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                            itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
                                                                     marginBottom: '16px',
                                                                 }}>
-                                                                    {itemState.prototype_status === 'approved' ? 'Approved' : 
+                                                                    {itemState.prototype_status === 'approved' ? 'Prototype Approved' : 
                                                                      itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : 
                                                                      itemState.prototype_status === 'submitted' ? `Submitted (v${itemState.prototype_current_version || 0})` : 
                                                                      'Not Submitted'}
@@ -5635,6 +5637,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                                 if (data.success) {
                                                                                     await fetchItemState();
                                                                                     setPrototypeSectionExpanded(true);
+                                                                                    updateLayout(item.id, { prototype_status: 'approved', action_required: false });
                                                                                 } else {
                                                                                     alert(data.data?.message || 'Failed to approve prototype');
                                                                                 }

@@ -94,14 +94,39 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
 
     // Calculate item status based on available data
     const getItemStatus = () => {
-        // Priority 1: Action Required (unread operator messages) - highest priority
         const hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
-        if (hasUnreadOperatorMessages) {
+        const ps = (item.prototype_status || '').toLowerCase() || null;
+        const hasPrototypeVideoSubmitted = item.has_prototype_video_submitted === true || item.has_prototype_video_submitted === 'true' || item.has_prototype_video_submitted === 1;
+
+        // Priority 1: Bid Awarded — when designer has awarded a bid, show this over Prototype Approved
+        let hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
+        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
+        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
+        if (hasAwardedBid) {
+            return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
+        }
+
+        // Priority 2: Prototype Approved (designer approved prototype) — must beat Action Required
+        if (ps === 'approved') {
+            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+        }
+        // Priority 3: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
+        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
         }
-        
-        // Priority 2: Awaiting Payment (prototype payment requested) - Commit 2.3.9.1C
+        // Priority 4: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
+        if (ps === 'changes_requested') {
+            return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
+        }
+
+        // Priority 5: CAD Approved (Fix #27, #5) — after CAD approved, before prototype approved
         const hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
+        const cadStatus = (item.cad_status || '').toLowerCase() || null;
+        if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
+            return { text: 'CAD Approved', color: '#00ff00', dot: '#00ff00' };
+        }
+
+        // Priority 6: Awaiting Payment (prototype payment requested, status=requested) - Commit 2.3.9.1C, Fix #27
         const prototypePaymentStatus = item.prototype_payment_status || null;
         if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
             return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
@@ -599,19 +624,6 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                             }}
                         />
                         <span style={{ fontWeight: 500 }}>{itemStatus.text}</span>
-                        {/* Action Required Indicator (if needed) */}
-                        {item.action_required && (
-                            <span
-                                style={{
-                                    fontSize: '10px',
-                                    color: '#ff9800',
-                                    marginLeft: '4px',
-                                }}
-                                title="Action Required"
-                            >
-                                ⚠
-                            </span>
-                        )}
                     </div>
 
                     {/* Sizes Button Row - Show all sizes inline */}

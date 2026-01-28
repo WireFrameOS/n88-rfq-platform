@@ -3971,13 +3971,14 @@ class N88_RFQ_Admin {
                         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
                         $prototype_payment_status = null;
                         $has_prototype_payment = false;
+                        $has_prototype_video_submitted = false;
                         
                         // Check if prototype payments table exists
                         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
                         if ( $prototype_payments_table_exists ) {
-                            // Get the most recent prototype payment for this item and designer
+                            // Get the most recent prototype payment for this item and designer (need id for submission check)
                             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                                "SELECT status 
+                                "SELECT id, status 
                                 FROM {$prototype_payments_table}
                                 WHERE item_id = %d
                                 AND designer_user_id = %d
@@ -3990,6 +3991,18 @@ class N88_RFQ_Admin {
                             if ( $prototype_payment ) {
                                 $has_prototype_payment = true;
                                 $prototype_payment_status = $prototype_payment['status'];
+                                // Designer Action Required: supplier has submitted prototype video(s) — designer must review
+                                if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
+                                    $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+                                    $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table
+                                        && $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table ) {
+                                        $has_prototype_video_submitted = (bool) $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                    }
+                                }
                             }
                         }
                         
@@ -4030,12 +4043,16 @@ class N88_RFQ_Admin {
                             'has_warning' => $has_warning,
                             'award_set' => $award_set,
                             'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
-                            // Action Required: Unread operator messages
+                            // Action Required: Unread operator messages; or prototype_status=submitted (supplier submitted/resubmitted — designer must review)
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
-                            // Commit 2.3.9.1C: Prototype payment status
+                            'has_prototype_video_submitted' => $has_prototype_video_submitted,
+                            'prototype_status' => $prototype_status,
+                            'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ),
+                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved label
                             'has_prototype_payment' => $has_prototype_payment,
                             'prototype_payment_status' => $prototype_payment_status,
+                            'cad_status' => $cad_status,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -4249,15 +4266,20 @@ class N88_RFQ_Admin {
                         // Commit 2.3.9.1C: Check for prototype payment status
                         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
                         $prototype_payment_status = null;
+                        $prototype_status = null;
+                        $cad_status = null;
                         $has_prototype_payment = false;
+                        $has_prototype_video_submitted = false;
                         
                         // Check if prototype payments table exists
                         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
                         if ( $prototype_payments_table_exists ) {
-                            // Get the most recent prototype payment for this item and designer
+                            $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                            $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
+                            $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
+                            $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
                             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                                "SELECT status 
-                                FROM {$prototype_payments_table}
+                                "SELECT {$sel_pp} FROM {$prototype_payments_table}
                                 WHERE item_id = %d
                                 AND designer_user_id = %d
                                 ORDER BY created_at DESC
@@ -4269,6 +4291,19 @@ class N88_RFQ_Admin {
                             if ( $prototype_payment ) {
                                 $has_prototype_payment = true;
                                 $prototype_payment_status = $prototype_payment['status'];
+                                $prototype_status = ( $has_ps_col && isset( $prototype_payment['prototype_status'] ) ) ? $prototype_payment['prototype_status'] : null;
+                                $cad_status = ( $has_cad_col && isset( $prototype_payment['cad_status'] ) ) ? $prototype_payment['cad_status'] : null;
+                                if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
+                                    $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+                                    $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table
+                                        && $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table ) {
+                                        $has_prototype_video_submitted = (bool) $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                    }
+                                }
                             }
                         }
                         
@@ -4334,12 +4369,16 @@ class N88_RFQ_Admin {
                             'revision_changed' => $revision_changed,
                             'award_set' => $award_set,
                             'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
-                            // Action Required: Unread operator messages
+                            // Action Required: Unread operator messages; or prototype_status=submitted (supplier submitted/resubmitted — designer must review)
                             'has_unread_operator_messages' => $has_unread_operator_messages,
                             'unread_operator_messages' => $unread_operator_messages,
-                            // Commit 2.3.9.1C: Prototype payment status
+                            'has_prototype_video_submitted' => $has_prototype_video_submitted,
+                            'prototype_status' => $prototype_status,
+                            'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ),
+                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved label
                             'has_prototype_payment' => $has_prototype_payment,
                             'prototype_payment_status' => $prototype_payment_status,
+                            'cad_status' => $cad_status,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
                         );
@@ -6717,33 +6756,46 @@ class N88_RFQ_Admin {
 
                     // Calculate item status based on available data
                     var getItemStatus = function() {
-                        // Priority 1: Action Required (unread operator messages) - highest priority
                         var hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
-                        if (hasUnreadOperatorMessages) {
+                        var psRaw = item.prototype_status || '';
+                        var ps = (typeof psRaw === 'string' && psRaw) ? psRaw.toLowerCase() : (psRaw || null);
+                        var hasPrototypeVideoSubmitted = item.has_prototype_video_submitted === true || item.has_prototype_video_submitted === 'true' || item.has_prototype_video_submitted === 1;
+
+                        // Priority 1: Bid Awarded — when designer has awarded a bid, show this over Prototype Approved
+                        var hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
+                        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
+                        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
+                        if (hasAwardedBid) {
+                            return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
+                        }
+
+                        // Priority 2: Prototype Approved (designer approved prototype) — must beat Action Required
+                        if (ps === 'approved') {
+                            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+                        }
+                        // Priority 3: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
+                        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
                             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
                         }
-                        
-                        // Priority 2: Awaiting Payment (prototype payment requested) - Commit 2.3.9.1C
+                        // Priority 3: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
+                        if (ps === 'changes_requested') {
+                            return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
+                        }
+
+                        // Priority 4: CAD Approved (Fix #27, #5) — after CAD approved, before prototype approved
                         var hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
+                        var cadStatus = (item.cad_status || '').toLowerCase() || null;
+                        if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
+                            return { text: 'CAD Approved', color: '#00ff00', dot: '#00ff00' };
+                        }
+
+                        // Priority 6: Awaiting Payment (prototype payment requested, status=requested) - Commit 2.3.9.1C, Fix #27
                         var prototypePaymentStatus = item.prototype_payment_status || null;
                         if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
                             return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
                         }
                         
-                        // Priority 3: Check if any bid is awarded (Commit 2.4.1)
-                        var hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
-                        // Also check item meta_json for awarded status (fallback)
-                        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') {
-                            hasAwardedBid = true;
-                        }
-                        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) {
-                            hasAwardedBid = true;
-                        }
-                        if (hasAwardedBid) {
-                            return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
-                        }
-                        
-                        // Priority 4: Check if item has award_set (In Production)
+                        // Priority 7: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                         }
@@ -9108,7 +9160,7 @@ class N88_RFQ_Admin {
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     
-                    // Auto-select tab based on state; when Action Required (unread operator messages): Mission Spec, Message Operator stays collapsed
+                    // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Designer–Operator Communication
                     React.useEffect(function() {
                         if (itemState.loading) return;
                         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
@@ -9116,9 +9168,11 @@ class N88_RFQ_Admin {
                             skipNextTabSwitchFromCadActionRef.current = false;
                             return;
                         }
-                        if (itemState.has_unread_operator_messages) {
-                            setActiveTab('details'); // Mission Spec
-                            setShowDesignerMessageForm(false); // Do NOT auto-open Message Operator; designer opens when ready
+                        var cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].indexOf(String(itemState.cad_status || '')) !== -1);
+                        if (itemState.has_unread_operator_messages || cadPendingDesignerReview) {
+                            setActiveTab('details'); // Mission Spec (CAD review and Designer–Operator Communication)
+                            setShowDesignerMessageForm(true); // Auto-expand when operator sent CAD or message
+                            if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
                             return;
                         }
                         if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
@@ -9128,7 +9182,7 @@ class N88_RFQ_Admin {
                         } else {
                             setActiveTab('details'); // Default to details tab in State A
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages]);
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -9519,6 +9573,8 @@ class N88_RFQ_Admin {
                                 if (data.success) {
                                     if (loadDesignerMessages) loadDesignerMessages();
                                     skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
+                                    setActiveTab('details');
+                                    setShowDesignerMessageForm(true);
                                     fetchItemState();
                                 } else {
                                     alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to approve CAD.'));
@@ -11088,7 +11144,7 @@ class N88_RFQ_Admin {
                                                                 fontWeight: '600',
                                                                 color: darkText,
                                                             }
-                                                        }, 'Message Operator'),
+                                                        }, 'Designer–Operator Communication'),
                                                         React.createElement('button', {
                                                             onClick: function() { setShowDesignerMessageForm(false); },
                                                             style: {
@@ -12783,7 +12839,7 @@ class N88_RFQ_Admin {
                                                                    itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
                                                             marginBottom: '16px',
                                                         }
-                                                    }, itemState.prototype_status === 'approved' ? 'Approved' : 
+                                                    }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : 
                                                        itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : 
                                                        itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 
                                                        'Not Submitted') : null,
@@ -12941,6 +12997,9 @@ class N88_RFQ_Admin {
                                                                     if (data.success) {
                                                                         fetchItemState();
                                                                         setPrototypeSectionExpanded(true);
+                                                                        if (typeof updateLayout === 'function' && item && item.id) {
+                                                                            updateLayout(item.id, { prototype_status: 'approved', action_required: false });
+                                                                        }
                                                                     } else {
                                                                         alert(data.data && data.data.message ? data.data.message : 'Failed to approve prototype');
                                                                     }
@@ -13407,8 +13466,8 @@ class N88_RFQ_Admin {
                                                         smartAlternativesEnabled: smartAlternativesEnabled,
                                                         itemId: itemId // Commit 2.4.1: Pass itemId for award bid action
                                                     }),
-                                                    // Commit 2.3.9.1B: Request CAD + Prototype Video Button/Form
-                                                    !showCadPrototypeForm ? React.createElement('div', {
+                                                    // Commit 2.3.9.1B: Request CAD + Prototype Video — hide when designer submitted
+                                                    !itemState.has_prototype_payment ? ( !showCadPrototypeForm ? React.createElement('div', {
                                                         style: { marginTop: '20px', textAlign: 'center' }
                                                     },
                                                         React.createElement('button', {
@@ -13838,7 +13897,7 @@ class N88_RFQ_Admin {
                                                                 cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer',
                                                             }
                                                         }, isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request')
-                                                    ),
+                                                    ) ) : null,
                                                     // Commit 2.3.6: Concierge + Delivery Banner
                                                     React.createElement('div', {
                                                         style: {

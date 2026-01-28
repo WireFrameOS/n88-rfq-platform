@@ -161,7 +161,7 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 return state; // No-op: item not found
             }
 
-            // Validate partialChanges: only allow layout properties (not id)
+            // Validate partialChanges: layout properties + status used to refresh card after approve/request-changes (not id)
             const allowedKeys = [
                 'x',
                 'y',
@@ -170,6 +170,8 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 'height',
                 'sizeKey',
                 'displayMode',
+                'prototype_status',
+                'action_required',
             ];
 
             const filteredChanges = {};

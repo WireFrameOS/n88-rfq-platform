@@ -1834,6 +1834,60 @@ class N88_RFQ_Auth {
             $item_data['has_unread_operator_messages'] = $has_unread_operator_messages;
             $item_data['unread_operator_messages'] = $unread_operator_messages;
             
+            // E) Fix #22, #25: Clear Action Required when CAD approved or prototype approved (supplier has no pending task)
+            // F) Fix #28: Never show Action Required when awarded
+            $cad_status = null;
+            $prototype_status = null;
+            $cad_released_to_supplier_at = null;
+            $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+                $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                $has_cad = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
+                $has_ps = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
+                $has_cad_released = is_array( $pp_cols ) && in_array( 'cad_released_to_supplier_at', $pp_cols, true );
+                $sel = 'id' . ( $has_cad ? ', cad_status' : '' ) . ( $has_ps ? ', prototype_status' : '' ) . ( $has_cad_released ? ', cad_released_to_supplier_at' : '' );
+                $row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT {$sel} FROM {$prototype_payments_table} WHERE item_id = %d AND supplier_id = %d ORDER BY id DESC LIMIT 1",
+                    $item_id,
+                    $current_user->ID
+                ), ARRAY_A );
+                if ( $row ) {
+                    if ( $has_cad && isset( $row['cad_status'] ) ) {
+                        $cad_status = $row['cad_status'];
+                    }
+                    if ( $has_ps && isset( $row['prototype_status'] ) ) {
+                        $prototype_status = $row['prototype_status'];
+                    }
+                    if ( $has_cad_released && isset( $row['cad_released_to_supplier_at'] ) && $row['cad_released_to_supplier_at'] !== null && trim( (string) $row['cad_released_to_supplier_at'] ) !== '' ) {
+                        $cad_released_to_supplier_at = $row['cad_released_to_supplier_at'];
+                    }
+                }
+            }
+            // Override badge when designer sent video changes request or approved video
+            if ( $action_badge !== 'awarded' && $prototype_status === 'approved' ) {
+                $item_data['action_badge'] = 'cad_video_approved';
+                $action_badge = 'cad_video_approved';
+            } elseif ( $action_badge !== 'awarded' && $prototype_status === 'changes_requested' ) {
+                $item_data['action_badge'] = 'changes_received';
+                $action_badge = 'changes_received';
+            }
+            $show_action_required = $has_unread_operator_messages;
+            if ( $action_badge === 'awarded' ) {
+                $show_action_required = false;
+            }
+            if ( $prototype_status === 'approved' ) {
+                $show_action_required = false;
+            }
+            if ( $cad_status === 'approved' && ( $prototype_status === null || $prototype_status === '' || $prototype_status === 'approved' ) ) {
+                $show_action_required = false;
+            }
+            // When operator sent CAD and supplier has submitted prototype video: no reply needed — clear Action Required (unread)
+            if ( $cad_released_to_supplier_at && $prototype_status === 'submitted' ) {
+                $show_action_required = false;
+            }
+            $item_data['show_action_required'] = $show_action_required;
+            $item_data['cad_released_to_supplier_at'] = $cad_released_to_supplier_at;
+            
             $items_by_id[ $item_id ] = $item_data;
         }
         
@@ -1852,6 +1906,8 @@ class N88_RFQ_Auth {
                 $passes_status = $item_data['action_badge'] === 'submitted';
             } elseif ( $status_filter === 'expired' ) {
                 $passes_status = $item_data['action_badge'] === 'expired';
+            } elseif ( $status_filter === 'awarded' ) {
+                $passes_status = $item_data['action_badge'] === 'awarded';
             }
             
             if ( ! $passes_status ) {
@@ -2006,6 +2062,14 @@ class N88_RFQ_Auth {
                                         $action_button_text = 'View Bid ►';
                                         $action_badge_text = 'AWARDED';
                                         break;
+                                    case 'cad_video_approved':
+                                        $action_button_text = 'View Bid ►';
+                                        $action_badge_text = 'CAD Video Approved';
+                                        break;
+                                    case 'changes_received':
+                                        $action_button_text = 'View Bid ►';
+                                        $action_badge_text = 'Changes Received';
+                                        break;
                                     case 'submit_bid':
                                         $action_button_text = 'Submit Bid ►';
                                         $action_badge_text = 'Needs Action';
@@ -2060,17 +2124,18 @@ class N88_RFQ_Auth {
                                         <?php endif; ?>
                                         </div>
                                         <div style="margin-top: 5px;">
-                                            <span style="color: #fff; font-size: 11px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
+                                            <span style="color: <?php echo in_array( $item_data['action_badge'], array( 'awarded', 'cad_video_approved' ), true ) ? '#00ff00' : '#fff'; ?>; font-size: 11px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
                                         <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
                                             <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
                                         <?php endif; ?>
-                                            <?php if ( ! empty( $item_data['has_unread_operator_messages'] ) && $item_data['has_unread_operator_messages'] ) : 
+                                            <?php if ( ! empty( $item_data['show_action_required'] ) && $item_data['show_action_required'] ) : 
                                                 $unread_count = ! empty( $item_data['unread_operator_messages'] ) ? intval( $item_data['unread_operator_messages'] ) : 0;
+                                                $cad_released = ! empty( $item_data['cad_released_to_supplier_at'] ) && trim( (string) $item_data['cad_released_to_supplier_at'] ) !== '';
                                             ?>
                                                 <div style="margin-top: 5px;">
                                                     <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
                                                     <div style="color: #ff6666; font-size: 10px; margin-top: 3px;">
-                                                        <?php echo esc_html( $unread_count ); ?> msg<?php echo $unread_count !== 1 ? 's' : ''; ?> from operator
+                                                        <?php echo $cad_released ? 'CAD files received' : ( esc_html( $unread_count ) . ' msg' . ( $unread_count !== 1 ? 's' : '' ) . ' from operator' ); ?>
                                                     </div>
                                                 </div>
                                         <?php endif; ?>
@@ -2236,7 +2301,7 @@ class N88_RFQ_Auth {
                     });
                 }
                 
-                // Commit 2.3.9.1C-a: Attach event listeners to Request Clarification buttons
+                // Commit 2.3.9.1C-a: Attach event listeners to Operator–Supplier Messages (clarification) buttons
                 var clarificationButtons = document.querySelectorAll('.n88-open-clarification-modal');
                 clarificationButtons.forEach(function(btn) {
                     btn.addEventListener('click', function() {
@@ -2901,14 +2966,14 @@ class N88_RFQ_Auth {
                         
                         (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '') +
                         
-                        // Commit 2.3.9.1C-a: Request Clarification Section (Expandable)
+                        // Commit 2.3.9.1C-a: Operator–Supplier Messages Section (Expandable)
                         '<div style="margin-top: 16px; margin-bottom: 16px;">' +
                         '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
-                        'Request Clarification' +
+                        'Operator–Supplier Messages' +
                         '</button>' +
                         '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00;">Request Clarification</div>' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00;">Operator–Supplier Messages</div>' +
                         '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
                         '</div>' +
                         // Category Dropdown at Top
@@ -2931,7 +2996,7 @@ class N88_RFQ_Auth {
                         '</div>' +
                         // Message Input at Bottom
                         '<div style="display: flex; gap: 8px; align-items: flex-end;">' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #00ff00; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Ask Operator for clarification"></textarea>' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #00ff00; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
                         '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
                         'Send' +
                         '</button>' +
@@ -3189,7 +3254,7 @@ class N88_RFQ_Auth {
                                                     window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
                                                     viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">View Changes</button>';
                                                 } else if (notif.prototype_status === 'approved') {
-                                                    statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ Prototype Approved</div>';
+                                                    statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
                                                     statusMessage = 'Prototype video has been approved by the designer.';
                                                     helpMessage = ''; // No help message when approved
                                                 }
@@ -3274,6 +3339,14 @@ class N88_RFQ_Auth {
                         '</div>';
                     
                     modalContent.innerHTML = modalHTML;
+                    
+                    // Auto-expand Operator–Supplier Messages when operator has sent (e.g. CAD approved, clarification, new message) — only expand when collapsed, never collapse
+                    if (item.has_operator_supplier_messages && typeof toggleSupplierClarification === 'function') {
+                        setTimeout(function() {
+                            var fc = document.getElementById('n88-supplier-clarification-form-' + itemId);
+                            if (fc && fc.style.display === 'none') { toggleSupplierClarification(itemId); }
+                        }, 80);
+                    }
                     
                     // Commit 2.3.5.4: Ensure bid form visible without scrolling - scroll to top on modal open
                     setTimeout(function() {
@@ -10385,6 +10458,20 @@ class N88_RFQ_Auth {
             $show_dims_qty_warning = false;
         }
         
+        // has_operator_supplier_messages: true when operator has sent any message to this supplier (supplier_operator thread) — auto-expand Operator–Supplier Messages in modal
+        $has_operator_supplier_messages = false;
+        if ( $is_supplier ) {
+            $messages_table = $wpdb->prefix . 'n88_item_messages';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+                $exists = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT 1 FROM {$messages_table} WHERE item_id = %d AND thread_type = 'supplier_operator' AND sender_role = 'operator' AND supplier_id = %d LIMIT 1",
+                    $item_id,
+                    $current_user->ID
+                ) );
+                $has_operator_supplier_messages = (bool) $exists;
+            }
+        }
+        
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
@@ -10424,6 +10511,7 @@ class N88_RFQ_Auth {
             'has_revision_mismatch' => $has_revision_mismatch, // G) Flag for "Specs Changed" banner
             'latest_stale_bid_data' => $latest_stale_bid_data, // G) Latest stale bid data for pre-filling
             'is_resubmission' => $is_resubmission, // G) Flag to show "Bid Already Resubmitted" instead of "Bid Already Submitted"
+            'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operator–Supplier Messages when any message exists
         );
 
         wp_send_json_success( $response );
@@ -14509,6 +14597,40 @@ class N88_RFQ_Auth {
                     )
                 ) as clarification_count,
                 (
+                    SELECT COUNT(DISTINCT sm.message_id)
+                    FROM {$messages_table} sm
+                    WHERE sm.thread_type = 'supplier_operator'
+                    AND sm.sender_role = 'supplier'
+                    AND sm.item_id = pp.item_id
+                    AND (sm.bid_id = pp.bid_id OR (sm.bid_id IS NULL AND pp.bid_id IS NULL))
+                    AND sm.supplier_id = pp.supplier_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} om
+                        WHERE om.thread_type = 'supplier_operator'
+                        AND om.sender_role = 'operator'
+                        AND om.item_id = sm.item_id
+                        AND (om.bid_id = sm.bid_id OR (om.bid_id IS NULL AND sm.bid_id IS NULL))
+                        AND om.supplier_id = sm.supplier_id
+                        AND om.created_at > sm.created_at
+                    )
+                ) as supplier_unread_count,
+                (
+                    SELECT COUNT(DISTINCT dm.message_id)
+                    FROM {$messages_table} dm
+                    WHERE dm.thread_type = 'designer_operator'
+                    AND dm.sender_role = 'designer'
+                    AND dm.item_id = pp.item_id
+                    AND dm.designer_id = pp.designer_user_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} om2
+                        WHERE om2.thread_type = 'designer_operator'
+                        AND om2.sender_role = 'operator'
+                        AND om2.item_id = dm.item_id
+                        AND om2.designer_id = dm.designer_id
+                        AND om2.created_at > dm.created_at
+                    )
+                ) as designer_unread_count,
+                (
                     (
                         SELECT COUNT(DISTINCT sm.message_id)
                         FROM {$messages_table} sm
@@ -14617,6 +14739,8 @@ class N88_RFQ_Auth {
                     ELSE 0 
                 END as has_clarification,
                 COALESCE(unread_count.unread_messages, 0) as clarification_count,
+                COALESCE(unread_count.unread_messages, 0) as supplier_unread_count,
+                0 as designer_unread_count,
                 COALESCE(unread_count.unread_messages, 0) as unread_messages
             FROM {$messages_table} m
             LEFT JOIN {$items_table} i ON m.item_id = i.id
@@ -14713,6 +14837,8 @@ class N88_RFQ_Auth {
                     ELSE 0
                 END as has_clarification,
                 COALESCE(unread_d.unread_messages, 0) as clarification_count,
+                0 as supplier_unread_count,
+                COALESCE(unread_d.unread_messages, 0) as designer_unread_count,
                 COALESCE(unread_d.unread_messages, 0) as unread_messages
             FROM {$messages_table} m
             LEFT JOIN {$items_table} i ON m.item_id = i.id
@@ -15091,11 +15217,21 @@ class N88_RFQ_Auth {
                                     $has_clarification = ! empty( $request['has_clarification'] );
                                     $clarification_count = ! empty( $request['clarification_count'] ) ? intval( $request['clarification_count'] ) : 0;
                                     $unread_messages = ! empty( $request['unread_messages'] ) ? intval( $request['unread_messages'] ) : 0;
+                                    $supplier_unread_count = isset( $request['supplier_unread_count'] ) ? intval( $request['supplier_unread_count'] ) : 0;
+                                    $designer_unread_count = isset( $request['designer_unread_count'] ) ? intval( $request['designer_unread_count'] ) : 0;
+                                    $cad_status_val = isset( $request['cad_status'] ) ? (string) $request['cad_status'] : '';
+                                    $is_cad_released = ! empty( $request['cad_released_to_supplier_at'] ) && trim( (string) $request['cad_released_to_supplier_at'] ) !== '';
+                                    // When designer has approved CAD: designer "unread" needs no operator response — do NOT show "1 clarification message"
+                                    $effective_designer_unread = ( $cad_status_val === 'approved' ) ? 0 : $designer_unread_count;
+                                    $effective_unread = $unread_messages - $designer_unread_count + $effective_designer_unread;
+                                    // Pending release: designer approved CAD but operator has not yet sent to supplier — Action Required
+                                    $pending_release_to_supplier = ( $cad_status_val === 'approved' && ! $is_cad_released );
                                     
                                     // Fix #26 (operator half): Action Required only for real pending states:
-                                    // - unread message (supplier/designer after operator's last reply; includes clarification needs action)
+                                    // - unread message (supplier/designer; excludes designer when CAD approved — no "1 clarification message")
                                     // - payment proof (designer uploaded receipt; operator must verify and mark received)
                                     // - pending CAD approval (payment received, CAD uploaded/revision — operator may follow up until designer approves)
+                                    // - pending release to supplier (designer approved CAD; operator must send to supplier — hide only after operator sends)
                                     $payment_proof_pending = false;
                                     if ( $payment_id && ( $request['status'] === 'requested' ) ) {
                                         $receipts_tbl = $wpdb->prefix . 'n88_prototype_payment_receipts';
@@ -15107,20 +15243,20 @@ class N88_RFQ_Auth {
                                         }
                                     }
                                     $pending_cad_approval = ( $payment_id && isset( $request['status'] ) && $request['status'] === 'marked_received' && in_array( (string) $cad_status, array( 'uploaded', 'revision_requested' ), true ) );
-                                    $show_action_required = ( $unread_messages > 0 ) || $payment_proof_pending || $pending_cad_approval;
-                                    // Fix #13/#26: If operator marked this case resolved, clear only the unread-based Action Required (not payment proof or pending CAD)
+                                    $show_action_required = ( $effective_unread > 0 ) || $payment_proof_pending || $pending_cad_approval || $pending_release_to_supplier;
+                                    // Fix #13/#26: If operator marked this case resolved, clear only the unread-based Action Required (not payment proof, pending CAD, or pending release)
                                     if ( $show_action_required && $resolutions_table_exists ) {
                                         $bid_val = $bid_id ? $bid_id : 0;
                                         $resolved = $wpdb->get_var( $wpdb->prepare(
                                             "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND ( bid_id IS NULL OR ( bid_id = %d AND %d > 0 ) ) LIMIT 1",
                                             $item_id, $bid_val, $bid_val
                                         ) );
-                                        if ( $resolved && ( $unread_messages > 0 ) ) {
-                                            $show_action_required = $payment_proof_pending || $pending_cad_approval;
+                                        if ( $resolved && ( $effective_unread > 0 ) ) {
+                                            $show_action_required = $payment_proof_pending || $pending_cad_approval || $pending_release_to_supplier;
                                         }
                                     }
 
-                                    if ( $request['status'] === 'clarification_needed' || $has_clarification ) {
+                                    if ( ( $request['status'] === 'clarification_needed' || $has_clarification ) && $effective_unread > 0 ) {
                                         $status_display = 'Clarification Needed';
                                     } elseif ( $request['status'] === 'requested' ) {
                                         $status_display = 'Payment Requested';
@@ -15145,8 +15281,10 @@ class N88_RFQ_Auth {
                                             $designer_label = $name_parts[0] . ' ' . substr( $name_parts[count( $name_parts ) - 1], 0, 1 ) . '.';
                                         }
                                     }
+                                    // Auto-open Message Threads when designer submitted CAD revision or designer message (prototype rows only; they have the section)
+                                    $auto_open_threads = ( $payment_id && ( $designer_unread_count > 0 || $cad_status_val === 'revision_requested' ) ) ? '1' : '0';
                                 ?>
-                                    <tr style="border-bottom: 1px solid #333;" class="n88-operator-queue-row" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-has-clarification="<?php echo $has_clarification ? '1' : '0'; ?>">
+                                    <tr style="border-bottom: 1px solid #333;" class="n88-operator-queue-row" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-has-clarification="<?php echo ( $effective_unread > 0 ) ? '1' : '0'; ?>" data-auto-open-threads="<?php echo esc_attr( $auto_open_threads ); ?>">
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div style="display: flex; align-items: center; gap: 10px;">
                                                 <?php if ( $thumbnail_url ) : ?>
@@ -15161,9 +15299,34 @@ class N88_RFQ_Auth {
                                                     </div>
                                                     <div style="font-size: 11px; color: #999;">Project: —</div>
                                                     <div style="font-size: 11px; color: #999;">Category: <?php echo esc_html( $category ); ?></div>
-                                                    <?php if ( $has_clarification && $clarification_count > 0 ) : ?>
+                                                    <?php
+                                                    // Show action hint when: (a) there are messages needing reply (effective_unread; designer unread excluded when CAD approved — no "1 clarification message"), or (b) designer approved CAD but operator has not sent to supplier
+                                                    if ( $effective_unread > 0 || $pending_release_to_supplier ) :
+                                                    ?>
                                                         <div style="font-size: 11px; color: #00ff00; margin-top: 4px;">
-                                                            <?php echo esc_html( $clarification_count ); ?> clarification message<?php echo $clarification_count > 1 ? 's' : ''; ?>
+                                                            <?php
+                                                            $action_lines = array();
+                                                            if ( $pending_release_to_supplier ) {
+                                                                $action_lines[] = 'Release CAD to supplier';
+                                                            }
+                                                            if ( $effective_designer_unread > 0 ) {
+                                                                if ( $cad_status_val === 'revision_requested' ) {
+                                                                    $action_lines[] = 'Designer submitted CAD revision' . ( $effective_designer_unread > 1 ? ' (+ message)' : '' );
+                                                                } else {
+                                                                    $action_lines[] = $effective_designer_unread . ' Designer message' . ( $effective_designer_unread > 1 ? 's' : '' );
+                                                                }
+                                                            }
+                                                            if ( $supplier_unread_count > 0 ) {
+                                                                $action_lines[] = $supplier_unread_count . ' clarification message' . ( $supplier_unread_count > 1 ? 's' : '' );
+                                                            }
+                                                            // Fallback for UNION rows where only clarification_count/unread_messages exist
+                                                            if ( empty( $action_lines ) && $effective_unread > 0 && $clarification_count > 0 ) {
+                                                                $action_lines[] = $clarification_count . ' unread';
+                                                            }
+                                                            if ( ! empty( $action_lines ) ) {
+                                                                echo esc_html( implode( ' | ', $action_lines ) );
+                                                            }
+                                                            ?>
                                                         </div>
                                                     <?php endif; ?>
                                                 </div>
@@ -15189,10 +15352,10 @@ class N88_RFQ_Auth {
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div><?php echo esc_html( $status_display ); ?></div>
-                                            <?php if ( $has_clarification ) : ?>
-                                                <div style="font-size: 11px; color: #00ff00;">Clarification Request</div>
+                                            <?php if ( $effective_unread > 0 ) : ?>
+                                                <div style="font-size: 11px; color: #00ff00;"><?php echo ( $effective_designer_unread > 0 && $cad_status_val === 'revision_requested' ) ? 'Designer CAD revision' : ( ( $effective_designer_unread > 0 ) ? 'Designer message' : 'Clarification Request' ); ?></div>
                                                 <?php if ( $show_action_required ) : ?>
-                                                    <div style="font-size: 10px; color: #ff0000; margin-top: 2px;"><?php echo esc_html( $unread_messages ); ?> unread</div>
+                                                    <div style="font-size: 10px; color: #ff0000; margin-top: 2px;"><?php echo esc_html( $effective_unread ); ?> unread</div>
                                                 <?php endif; ?>
                                             <?php else : ?>
                                                 <div style="font-size: 11px; color: #999;"><?php echo $request['status'] === 'marked_received' ? 'Received' : 'Requested'; ?></div>
@@ -15210,7 +15373,7 @@ class N88_RFQ_Auth {
                                             <?php if ( $has_clarification && ! $payment_id ) : ?>
                                                 <!-- Clarification-Only Item Details -->
                                                 <div style="margin-bottom: 16px;">
-                                                    <div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">⚠️ Clarification Request</div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">⚠️ <?php echo ( $designer_unread_count > 0 ) ? 'Designer message' : 'Clarification Request'; ?></div>
                                                     <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
                                                         <li>Item: <?php echo esc_html( $item_label ); ?> (ID: <?php echo esc_html( $item_id ); ?>)</li>
                                                         <?php if ( $bid_id ) : ?>
@@ -15218,7 +15381,7 @@ class N88_RFQ_Auth {
                                                         <?php endif; ?>
                                                         <li>Supplier: <?php echo esc_html( $supplier_label ); ?></li>
                                                         <li>Designer: <?php echo esc_html( $designer_label ); ?></li>
-                                                        <li>Messages: <?php echo esc_html( $clarification_count ); ?> clarification message<?php echo $clarification_count > 1 ? 's' : ''; ?></li>
+                                                        <li>Messages: <?php echo ( $designer_unread_count > 0 ) ? ( esc_html( $designer_unread_count ) . ' Designer message' . ( $designer_unread_count > 1 ? 's' : '' ) ) : ( esc_html( $clarification_count ) . ' clarification message' . ( $clarification_count > 1 ? 's' : '' ) ); ?></li>
                                                         <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
                                                     </ul>
                                                 </div>
@@ -15557,12 +15720,21 @@ class N88_RFQ_Auth {
                     var paymentId = this.getAttribute('data-payment-id');
                     var row = this.closest('.n88-operator-queue-row');
                     var itemId = row ? row.getAttribute('data-item-id') : null;
+                    var bidId = row ? (row.getAttribute('data-bid-id') || '0') : '0';
                     // Try payment_id first, then item_id as fallback for clarification-only items
                     var detailsRow = document.querySelector('.n88-case-details-row[data-payment-id="' + paymentId + '"]') ||
                                     (itemId ? document.querySelector('.n88-case-details-row[data-item-id="' + itemId + '"]') : null);
                     if (detailsRow) {
                         if (detailsRow.style.display === 'none') {
                             detailsRow.style.display = 'table-row';
+                            // Auto-open Message Threads when designer submitted CAD revision or designer message (Designer–Operator thread)
+                            if (row && row.getAttribute('data-auto-open-threads') === '1' && typeof loadMessageThreads === 'function') {
+                                var threadsSection = detailsRow.querySelector('.n88-message-threads-section');
+                                if (threadsSection && itemId) {
+                                    threadsSection.style.display = 'block';
+                                    loadMessageThreads(itemId, bidId, paymentId);
+                                }
+                            }
                         } else {
                             detailsRow.style.display = 'none';
                         }
