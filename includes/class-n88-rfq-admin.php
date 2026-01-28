@@ -9042,10 +9042,22 @@ class N88_RFQ_Admin {
                     var _activeTabState = React.useState('details');
                     var activeTab = _activeTabState[0];
                     var setActiveTab = _activeTabState[1];
+                    // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
+                    var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     
-                    // Auto-select tab based on state
+                    // Auto-select tab based on state; when unread operator messages: Mission Spec + Message Operator expanded
                     React.useEffect(function() {
                         if (itemState.loading) return;
+                        // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
+                        if (skipNextTabSwitchFromCadActionRef.current) {
+                            skipNextTabSwitchFromCadActionRef.current = false;
+                            return;
+                        }
+                        if (itemState.has_unread_operator_messages) {
+                            setActiveTab('details'); // Mission Spec
+                            setShowDesignerMessageForm(true); // Message Operator box expanded by default
+                            return;
+                        }
                         if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
                             setActiveTab('bids'); // Auto-select bids tab in State C
                         } else if (itemState.has_rfq) {
@@ -9053,7 +9065,7 @@ class N88_RFQ_Admin {
                         } else {
                             setActiveTab('details'); // Default to details tab in State A
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading]);
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -9334,6 +9346,10 @@ class N88_RFQ_Admin {
                                     direction_keyword_ids: data.data.direction_keyword_ids || null,
                                     loading: false,
                                 });
+                                // When all bids withdrawn: item is State A; reset Launch Brief to show "Request Quote" (fresh form)
+                                if ( (data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids) ) {
+                                    setShowRfqForm(false);
+                                }
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
@@ -9438,6 +9454,7 @@ class N88_RFQ_Admin {
                             .then(function(data) {
                                 if (data.success) {
                                     if (loadDesignerMessages) loadDesignerMessages();
+                                    skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
                                     fetchItemState();
                                 } else {
                                     alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to approve CAD.'));
@@ -9541,7 +9558,9 @@ class N88_RFQ_Admin {
                     })();
                     
                     // Check if fields should be editable
-                    var isEditable = currentState === 'A';
+                    // Lock Designer Editing While Awaiting Payment: when prototype/CAD requested and payment status is 'requested', lock Brief/RFQ and hide Update/Save
+                    var isLockedAwaitingPayment = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested');
+                    var isEditable = currentState === 'A' && !isLockedAwaitingPayment;
                     
                     // Format dimensions for display
                     var formatDimensions = function() {
@@ -10894,205 +10913,6 @@ class N88_RFQ_Admin {
                                                 }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
                                             ) : null,
                                             
-                                            // Commit 2.3.9.2A: CAD Review Actions (Designer) - always show when CAD exists
-                                            itemState.has_prototype_payment &&
-                                                itemState.prototype_payment_status === 'marked_received' &&
-                                                itemState.cad_current_version &&
-                                                Number(itemState.cad_current_version) > 0 &&
-                                                (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '24px',
-                                                    padding: '16px',
-                                                    backgroundColor: '#0a0a14',
-                                                    border: '1px solid #333',
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' }
-                                                }, 'CAD Review'),
-                                                React.createElement('div', {
-                                                    style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' }
-                                                },
-                                                    React.createElement('span', null, 'Current CAD: '),
-                                                    React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
-                                                    itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', {
-                                                        style: { marginLeft: '10px', color: '#00ff00' }
-                                                    }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
-                                                ),
-                                                React.createElement('div', {
-                                                    style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' }
-                                                },
-                                                    React.createElement('span', null, 'Rounds Used: '),
-                                                    React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
-                                                    React.createElement('span', null, ' of '),
-                                                    React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
-                                                    ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', {
-                                                        style: { marginLeft: '10px', color: '#ffaa00' }
-                                                    }, 'Additional fee required (future commit)') : null
-                                                ),
-                                                itemState.cad_status !== 'approved' ? (
-                                                    !showRevisionUpload ? React.createElement('div', {
-                                                        style: { display: 'flex', gap: '10px' }
-                                                    },
-                                                        React.createElement('button', {
-                                                            type: 'button',
-                                                            onClick: function() { setShowRevisionUpload(true); },
-                                                            disabled: isCadActionBusy,
-                                                            style: {
-                                                                flex: 1,
-                                                                padding: '10px 12px',
-                                                                backgroundColor: '#111111',
-                                                                border: '1px solid #666',
-                                                                borderRadius: '4px',
-                                                                color: '#fff',
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '12px',
-                                                                cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
-                                                                opacity: isCadActionBusy ? 0.6 : 1,
-                                                            }
-                                                        }, 'Request Revision'),
-                                                        React.createElement('button', {
-                                                            type: 'button',
-                                                            onClick: approveCad,
-                                                            disabled: isCadActionBusy,
-                                                            style: {
-                                                                flex: 1,
-                                                                padding: '10px 12px',
-                                                                backgroundColor: '#003300',
-                                                                border: '1px solid #00ff00',
-                                                                borderRadius: '4px',
-                                                                color: '#00ff00',
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '12px',
-                                                                fontWeight: 700,
-                                                                cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
-                                                                opacity: isCadActionBusy ? 0.6 : 1,
-                                                            }
-                                                        }, 'Approve CAD')
-                                                    ) : React.createElement('div', {
-                                                        style: {
-                                                            padding: '12px',
-                                                            backgroundColor: '#0a0a0a',
-                                                            border: '1px solid #333',
-                                                            borderRadius: '4px',
-                                                        }
-                                                    },
-                                                        React.createElement('div', {
-                                                            style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' }
-                                                        }, 'Upload Files for Revision Request'),
-                                                        React.createElement('div', {
-                                                            onDrop: function(e) {
-                                                                e.preventDefault();
-                                                                var files = Array.from(e.dataTransfer.files).filter(function(f) {
-                                                                    return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
-                                                                });
-                                                                setRevisionFiles(function(prev) { return prev.concat(files); });
-                                                            },
-                                                            onDragOver: function(e) { e.preventDefault(); },
-                                                            onClick: function() {
-                                                                var input = document.createElement('input');
-                                                                input.type = 'file';
-                                                                input.multiple = true;
-                                                                input.accept = '.pdf,.jpg,.jpeg,.png';
-                                                                input.onchange = function(e) {
-                                                                    var files = Array.from(e.target.files || []).filter(function(f) {
-                                                                        return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
-                                                                    });
-                                                                    setRevisionFiles(function(prev) { return prev.concat(files); });
-                                                                };
-                                                                input.click();
-                                                            },
-                                                            style: {
-                                                                border: '2px dashed #666',
-                                                                padding: '20px',
-                                                                textAlign: 'center',
-                                                                marginBottom: '12px',
-                                                                cursor: 'pointer',
-                                                                color: '#999',
-                                                                fontSize: '11px',
-                                                            }
-                                                        }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
-                                                        revisionFiles.length > 0 ? React.createElement('div', {
-                                                            style: { marginBottom: '12px' }
-                                                        }, revisionFiles.map(function(file, idx) {
-                                                            return React.createElement('div', {
-                                                                key: idx,
-                                                                style: {
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'space-between',
-                                                                    padding: '6px 10px',
-                                                                    backgroundColor: '#1a1a1a',
-                                                                    border: '1px solid #333',
-                                                                    borderRadius: '4px',
-                                                                    marginBottom: '6px',
-                                                                    fontSize: '11px',
-                                                                    color: '#fff',
-                                                                }
-                                                            },
-                                                                React.createElement('span', null, file.name),
-                                                                React.createElement('button', {
-                                                                    type: 'button',
-                                                                    onClick: function() {
-                                                                        setRevisionFiles(function(prev) {
-                                                                            return prev.filter(function(_, i) { return i !== idx; });
-                                                                        });
-                                                                    },
-                                                                    style: {
-                                                                        background: 'none',
-                                                                        border: 'none',
-                                                                        color: '#ff6666',
-                                                                        cursor: 'pointer',
-                                                                        fontSize: '14px',
-                                                                        padding: '0 4px',
-                                                                    }
-                                                                }, '×')
-                                                            );
-                                                        })) : null,
-                                                        React.createElement('div', {
-                                                            style: { display: 'flex', gap: '8px' }
-                                                        },
-                                                            React.createElement('button', {
-                                                                type: 'button',
-                                                                onClick: function() {
-                                                                    setShowRevisionUpload(false);
-                                                                    setRevisionFiles([]);
-                                                                },
-                                                                style: {
-                                                                    flex: 1,
-                                                                    padding: '8px 12px',
-                                                                    backgroundColor: '#333',
-                                                                    border: '1px solid #666',
-                                                                    borderRadius: '4px',
-                                                                    color: '#fff',
-                                                                    fontFamily: 'monospace',
-                                                                    fontSize: '11px',
-                                                                    cursor: 'pointer',
-                                                                }
-                                                            }, 'Cancel'),
-                                                            React.createElement('button', {
-                                                                type: 'button',
-                                                                onClick: function() { requestCadRevision(revisionFiles); },
-                                                                disabled: isCadActionBusy || revisionFiles.length === 0,
-                                                                style: {
-                                                                    flex: 1,
-                                                                    padding: '8px 12px',
-                                                                    backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111',
-                                                                    border: '1px solid #666',
-                                                                    borderRadius: '4px',
-                                                                    color: '#fff',
-                                                                    fontFamily: 'monospace',
-                                                                    fontSize: '11px',
-                                                                    cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
-                                                                    opacity: revisionFiles.length === 0 ? 0.5 : 1,
-                                                                }
-                                                            }, isCadActionBusy ? 'Requesting...' : 'Request Revision')
-                                                        )
-                                                    )
-                                                ) : null
-                                            ) : null,
-                                            
                                             // Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too
                                             (itemState.has_rfq || itemState.has_prototype_payment) ? React.createElement('div', {
                                                 style: {
@@ -11173,6 +10993,205 @@ class N88_RFQ_Admin {
                                                             flexDirection: 'column',
                                                         }
                                                     },
+                                                        // CAD Review - inside chat area when CAD received from operator
+                                                        itemState.has_prototype_payment &&
+                                                            itemState.prototype_payment_status === 'marked_received' &&
+                                                            itemState.cad_current_version &&
+                                                            Number(itemState.cad_current_version) > 0 &&
+                                                            (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
+                                                            style: {
+                                                                marginBottom: '12px',
+                                                                padding: '16px',
+                                                                backgroundColor: '#0a0a14',
+                                                                border: '1px solid #333',
+                                                                borderRadius: '4px',
+                                                                flexShrink: 0,
+                                                            }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' }
+                                                            }, 'CAD Review'),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' }
+                                                            },
+                                                                React.createElement('span', null, 'Current CAD: '),
+                                                                React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
+                                                                itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', {
+                                                                    style: { marginLeft: '10px', color: '#00ff00' }
+                                                                }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
+                                                            ),
+                                                            React.createElement('div', {
+                                                                style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' }
+                                                            },
+                                                                React.createElement('span', null, 'Rounds Used: '),
+                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
+                                                                React.createElement('span', null, ' of '),
+                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
+                                                                ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', {
+                                                                    style: { marginLeft: '10px', color: '#ffaa00' }
+                                                                }, 'Additional fee required (future commit)') : null
+                                                            ),
+                                                            itemState.cad_status !== 'approved' ? (
+                                                                !showRevisionUpload ? React.createElement('div', {
+                                                                    style: { display: 'flex', gap: '10px' }
+                                                                },
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        onClick: function() { setShowRevisionUpload(true); },
+                                                                        disabled: isCadActionBusy,
+                                                                        style: {
+                                                                            flex: 1,
+                                                                            padding: '10px 12px',
+                                                                            backgroundColor: '#111111',
+                                                                            border: '1px solid #666',
+                                                                            borderRadius: '4px',
+                                                                            color: '#fff',
+                                                                            fontFamily: 'monospace',
+                                                                            fontSize: '12px',
+                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                            opacity: isCadActionBusy ? 0.6 : 1,
+                                                                        }
+                                                                    }, 'Request Revision'),
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        onClick: approveCad,
+                                                                        disabled: isCadActionBusy,
+                                                                        style: {
+                                                                            flex: 1,
+                                                                            padding: '10px 12px',
+                                                                            backgroundColor: '#003300',
+                                                                            border: '1px solid #00ff00',
+                                                                            borderRadius: '4px',
+                                                                            color: '#00ff00',
+                                                                            fontFamily: 'monospace',
+                                                                            fontSize: '12px',
+                                                                            fontWeight: 700,
+                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
+                                                                            opacity: isCadActionBusy ? 0.6 : 1,
+                                                                        }
+                                                                    }, 'Approve CAD')
+                                                                ) : React.createElement('div', {
+                                                                    style: {
+                                                                        padding: '12px',
+                                                                        backgroundColor: '#0a0a0a',
+                                                                        border: '1px solid #333',
+                                                                        borderRadius: '4px',
+                                                                    }
+                                                                },
+                                                                    React.createElement('div', {
+                                                                        style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' }
+                                                                    }, 'Upload Files for Revision Request'),
+                                                                    React.createElement('div', {
+                                                                        onDrop: function(e) {
+                                                                            e.preventDefault();
+                                                                            var files = Array.from(e.dataTransfer.files).filter(function(f) {
+                                                                                return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
+                                                                            });
+                                                                            setRevisionFiles(function(prev) { return prev.concat(files); });
+                                                                        },
+                                                                        onDragOver: function(e) { e.preventDefault(); },
+                                                                        onClick: function() {
+                                                                            var input = document.createElement('input');
+                                                                            input.type = 'file';
+                                                                            input.multiple = true;
+                                                                            input.accept = '.pdf,.jpg,.jpeg,.png';
+                                                                            input.onchange = function(e) {
+                                                                                var files = Array.from(e.target.files || []).filter(function(f) {
+                                                                                    return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
+                                                                                });
+                                                                                setRevisionFiles(function(prev) { return prev.concat(files); });
+                                                                            };
+                                                                            input.click();
+                                                                        },
+                                                                        style: {
+                                                                            border: '2px dashed #666',
+                                                                            padding: '20px',
+                                                                            textAlign: 'center',
+                                                                            marginBottom: '12px',
+                                                                            cursor: 'pointer',
+                                                                            color: '#999',
+                                                                            fontSize: '11px',
+                                                                        }
+                                                                    }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
+                                                                    revisionFiles.length > 0 ? React.createElement('div', {
+                                                                        style: { marginBottom: '12px' }
+                                                                    }, revisionFiles.map(function(file, idx) {
+                                                                        return React.createElement('div', {
+                                                                            key: idx,
+                                                                            style: {
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'space-between',
+                                                                                padding: '6px 10px',
+                                                                                backgroundColor: '#1a1a1a',
+                                                                                border: '1px solid #333',
+                                                                                borderRadius: '4px',
+                                                                                marginBottom: '6px',
+                                                                                fontSize: '11px',
+                                                                                color: '#fff',
+                                                                            }
+                                                                        },
+                                                                            React.createElement('span', null, file.name),
+                                                                            React.createElement('button', {
+                                                                                type: 'button',
+                                                                                onClick: function() {
+                                                                                    setRevisionFiles(function(prev) {
+                                                                                        return prev.filter(function(_, i) { return i !== idx; });
+                                                                                    });
+                                                                                },
+                                                                                style: {
+                                                                                    background: 'none',
+                                                                                    border: 'none',
+                                                                                    color: '#ff6666',
+                                                                                    cursor: 'pointer',
+                                                                                    fontSize: '14px',
+                                                                                    padding: '0 4px',
+                                                                                }
+                                                                            }, '×')
+                                                                        );
+                                                                    })) : null,
+                                                                    React.createElement('div', {
+                                                                        style: { display: 'flex', gap: '8px' }
+                                                                    },
+                                                                        React.createElement('button', {
+                                                                            type: 'button',
+                                                                            onClick: function() {
+                                                                                setShowRevisionUpload(false);
+                                                                                setRevisionFiles([]);
+                                                                            },
+                                                                            style: {
+                                                                                flex: 1,
+                                                                                padding: '8px 12px',
+                                                                                backgroundColor: '#333',
+                                                                                border: '1px solid #666',
+                                                                                borderRadius: '4px',
+                                                                                color: '#fff',
+                                                                                fontFamily: 'monospace',
+                                                                                fontSize: '11px',
+                                                                                cursor: 'pointer',
+                                                                            }
+                                                                        }, 'Cancel'),
+                                                                        React.createElement('button', {
+                                                                            type: 'button',
+                                                                            onClick: function() { requestCadRevision(revisionFiles); },
+                                                                            disabled: isCadActionBusy || revisionFiles.length === 0,
+                                                                            style: {
+                                                                                flex: 1,
+                                                                                padding: '8px 12px',
+                                                                                backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111',
+                                                                                border: '1px solid #666',
+                                                                                borderRadius: '4px',
+                                                                                color: '#fff',
+                                                                                fontFamily: 'monospace',
+                                                                                fontSize: '11px',
+                                                                                cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
+                                                                                opacity: revisionFiles.length === 0 ? 0.5 : 1,
+                                                                            }
+                                                                        }, isCadActionBusy ? 'Requesting...' : 'Request Revision')
+                                                                    )
+                                                                )
+                                                            ) : null
+                                                        ) : null,
                                                         isLoadingDesignerMessages ? React.createElement('div', {
                                                             style: {
                                                                 textAlign: 'center',
@@ -12340,6 +12359,7 @@ class N88_RFQ_Admin {
                                                     onChange: function(e) { setQuantity(e.target.value); },
                                                     min: '1',
                                                     placeholder: '1',
+                                                    disabled: isLockedAwaitingPayment,
                                                     style: {
                                                         width: '100%',
                                                         padding: '8px',
@@ -12370,6 +12390,7 @@ class N88_RFQ_Admin {
                                                         onChange: function(e) { setWidth(e.target.value); },
                                                         placeholder: 'W',
                                                         step: '0.01',
+                                                        disabled: isLockedAwaitingPayment,
                                                         style: {
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
@@ -12386,6 +12407,7 @@ class N88_RFQ_Admin {
                                                         onChange: function(e) { setDepth(e.target.value); },
                                                         placeholder: 'D',
                                                         step: '0.01',
+                                                        disabled: isLockedAwaitingPayment,
                                                         style: {
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
@@ -12402,6 +12424,7 @@ class N88_RFQ_Admin {
                                                         onChange: function(e) { setHeight(e.target.value); },
                                                         placeholder: 'H',
                                                         step: '0.01',
+                                                        disabled: isLockedAwaitingPayment,
                                                         style: {
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
@@ -12415,6 +12438,7 @@ class N88_RFQ_Admin {
                                                     React.createElement('select', {
                                                         value: unit,
                                                         onChange: function(e) { setUnit(e.target.value); },
+                                                        disabled: isLockedAwaitingPayment,
                                                         style: {
                                                             padding: '8px',
                                                             backgroundColor: darkBg,
@@ -12451,6 +12475,7 @@ class N88_RFQ_Admin {
                                                     },
                                                     placeholder: '[ Add notes for suppliers ]',
                                                     maxLength: 240,
+                                                    disabled: isLockedAwaitingPayment,
                                                     style: {
                                                         width: '100%',
                                                         minHeight: '60px',
@@ -12469,8 +12494,8 @@ class N88_RFQ_Admin {
                                                 }, '(' + smartAlternativesNote.length + ' chars • filtered)')
                                             )
                                         ),
-                                        // Instructional microcopy - Outside the box
-                                        React.createElement('div', {
+                                        // Instructional microcopy - Outside the box; hide when locked awaiting payment
+                                        !isLockedAwaitingPayment ? React.createElement('div', {
                                             style: {
                                                 marginTop: '12px',
                                                 fontSize: '11px',
@@ -12478,7 +12503,7 @@ class N88_RFQ_Admin {
                                                 textAlign: 'center',
                                                 fontFamily: 'monospace',
                                             }
-                                        }, 'Edit RFQ details and click Update.')
+                                        }, 'Edit RFQ details and click Update.') : null
                                     )
                                 ) : null
                             ) : null,
@@ -14046,8 +14071,8 @@ class N88_RFQ_Admin {
                                     )
                                 )
                             ),
-                            // Footer - Update button and Save button (State A, B, and C - dims/qty always editable)
-                            (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement('div', {
+                            // Footer - Update button and Save button (State A, B, and C - dims/qty always editable); Lock Designer: hidden when awaiting payment
+                            (currentState === 'A' || currentState === 'B' || currentState === 'C') && !isLockedAwaitingPayment ? React.createElement('div', {
                                 style: {
                                     padding: '16px 20px',
                                     borderTop: '1px solid ' + darkBorder,

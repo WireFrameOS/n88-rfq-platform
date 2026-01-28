@@ -12026,7 +12026,6 @@ class N88_RFQ_Auth {
         }
 
         // Check if there are any other submitted bids for this item (from any supplier)
-        // If no submitted bids remain, revert route status back to 'viewed' so designer board shows "Standby" instead of "Bids Received"
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
         
         // Count remaining submitted bids for this item
@@ -12037,19 +12036,28 @@ class N88_RFQ_Auth {
             $item_id
         ) );
         
-        // If no submitted bids remain, update route status back to 'viewed'
+        // If no submitted bids remain: reset to State A so designer can request RFQ again.
+        // - Delete all RFQ routes for this item (has_rfq becomes false).
+        // - Clear item meta revision flags so Launch Brief form is fresh.
         if ( intval( $remaining_submitted_bids ) === 0 ) {
-            // Update all routes for this item from 'bid_submitted' back to 'viewed'
-            $wpdb->update(
-                $rfq_routes_table,
-                array( 'status' => 'viewed' ),
-                array(
-                    'item_id' => $item_id,
-                    'status' => 'bid_submitted',
-                ),
-                array( '%s' ),
-                array( '%d', '%s' )
-            );
+            $wpdb->delete( $rfq_routes_table, array( 'item_id' => $item_id ), array( '%d' ) );
+
+            $items_table = $wpdb->prefix . 'n88_items';
+            $item_meta_json = $wpdb->get_var( $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+            $item_meta = ! empty( $item_meta_json ) ? json_decode( $item_meta_json, true ) : array();
+            if ( is_array( $item_meta ) ) {
+                unset( $item_meta['revision_changed'], $item_meta['rfq_revision_current'] );
+                $wpdb->update(
+                    $items_table,
+                    array( 'meta_json' => wp_json_encode( $item_meta ) ),
+                    array( 'id' => $item_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+            }
         } else {
             // There are still other submitted bids - only update this supplier's route
             // Check if this supplier's route is 'bid_submitted' and there are no other submitted bids from this supplier
@@ -14061,12 +14069,38 @@ class N88_RFQ_Auth {
             }
         }
 
+        // Designer/operator Amount Due: CAD fee + prototype cost AFTER markup (landed), not supplier raw.
+        $prototype_video_cost_for_total = 0.00;
+        if ( $prototype_video_cost_estimate !== null && floatval( $prototype_video_cost_estimate ) > 0 ) {
+            $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+            $origin_region = null;
+            $duty_rate_override = null;
+            if ( $supplier_id > 0 ) {
+                $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$supplier_profiles_table}'" ) === $supplier_profiles_table;
+                if ( $table_exists ) {
+                    $supplier_profile = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT origin_region, duty_rate_override FROM {$supplier_profiles_table} WHERE supplier_id = %d",
+                        $supplier_id
+                    ), ARRAY_A );
+                    if ( $supplier_profile ) {
+                        $origin_region = isset( $supplier_profile['origin_region'] ) ? $supplier_profile['origin_region'] : null;
+                        $duty_rate_override = isset( $supplier_profile['duty_rate_override'] ) ? $supplier_profile['duty_rate_override'] : null;
+                    }
+                }
+            }
+            $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
+            $prototype_landed = N88_RFQ_Helpers::n88_calculate_landed_cost( $prototype_video_cost_estimate, $duty_rate );
+            $prototype_video_cost_for_total = ( $prototype_landed && isset( $prototype_landed['display_price'] ) )
+                ? floatval( $prototype_landed['display_price'] )
+                : floatval( $prototype_video_cost_estimate );
+        }
+
         // Calculate costs
         $cad_fee_usd = 60.00;
         $cad_revision_rounds_included = 3;
         $cad_revision_round_fee_usd = 25.00;
         $cad_revision_rounds_used = 0;
-        $total_due_usd = $cad_fee_usd + ( $prototype_video_cost_estimate ? floatval( $prototype_video_cost_estimate ) : 0.00 );
+        $total_due_usd = $cad_fee_usd + $prototype_video_cost_for_total;
 
         // Prepare video_direction_json
         $video_direction_data = array(
@@ -14973,6 +15007,12 @@ class N88_RFQ_Auth {
                                             }
                                         }
                                     }
+                                    // Operator display: use landed prototype and total = CAD + landed (matches designer; fixes legacy wrong total_due_usd)
+                                    $prototype_estimate_display = ( $bid_prototype_cost_landed_display !== null )
+                                        ? ( '$' . number_format( $bid_prototype_cost_landed_display, 2 ) )
+                                        : ( $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : '—' );
+                                    $total_due_for_display = floatval( $request['cad_fee_usd'] ) + ( $bid_prototype_cost_landed_display !== null ? $bid_prototype_cost_landed_display : ( $request['prototype_video_cost_estimate_usd'] ? floatval( $request['prototype_video_cost_estimate_usd'] ) : 0 ) );
+                                    $total_due_display = '$' . number_format( $total_due_for_display, 2 );
                                     
                                     // Format dates
                                     $created_date = ! empty( $request['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $request['created_at'] ) ) : '—';
@@ -15139,7 +15179,7 @@ class N88_RFQ_Auth {
                                                             Message Threads
                                                         </button>
                                                         <?php if ( $request['status'] === 'requested' ) : ?>
-                                                            <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $request['total_due_usd'] ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                            <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                                 Mark Payment Received
                                                             </button>
                                                         <?php else : ?>
@@ -16394,6 +16434,30 @@ class N88_RFQ_Auth {
             $payment_id
         ), ARRAY_A );
 
+        // Operator display: landed prototype and total due (matches designer; fixes legacy wrong total_due_usd)
+        $prototype_estimate_for_display = null;
+        $total_due_for_display = floatval( $payment['cad_fee_usd'] );
+        if ( $payment['prototype_video_cost_estimate_usd'] !== null && $payment['prototype_video_cost_estimate_usd'] !== '' && floatval( $payment['prototype_video_cost_estimate_usd'] ) > 0 ) {
+            $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+            $origin_region = null;
+            $duty_rate_override = null;
+            if ( ! empty( $payment['supplier_id'] ) ) {
+                $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$supplier_profiles_table}'" ) === $supplier_profiles_table;
+                if ( $table_exists ) {
+                    $sp = $wpdb->get_row( $wpdb->prepare( "SELECT origin_region, duty_rate_override FROM {$supplier_profiles_table} WHERE supplier_id = %d", intval( $payment['supplier_id'] ) ), ARRAY_A );
+                    if ( $sp ) {
+                        $origin_region = isset( $sp['origin_region'] ) ? $sp['origin_region'] : null;
+                        $duty_rate_override = isset( $sp['duty_rate_override'] ) ? $sp['duty_rate_override'] : null;
+                    }
+                }
+            }
+            $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
+            $pl = N88_RFQ_Helpers::n88_calculate_landed_cost( floatval( $payment['prototype_video_cost_estimate_usd'] ), $duty_rate );
+            $prototype_landed_val = ( $pl && isset( $pl['display_price'] ) ) ? floatval( $pl['display_price'] ) : floatval( $payment['prototype_video_cost_estimate_usd'] );
+            $prototype_estimate_for_display = $prototype_landed_val;
+            $total_due_for_display += $prototype_landed_val;
+        }
+
         // Commit 2.3.9.1C-a: Get messages for both threads
         $messages_table = $wpdb->prefix . 'n88_item_messages';
         $users_table = $wpdb->prefix . 'users';
@@ -16455,8 +16519,8 @@ class N88_RFQ_Auth {
             <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Cost Block (Read-Only)</div>
             <div style="font-size: 12px; color: #fff; line-height: 1.8;">
                 <div><strong>CAD Fee:</strong> $<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></div>
-                <div><strong>Prototype Estimate:</strong> <?php echo $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—'; ?></div>
-                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;"><strong>Total Due:</strong> <span style="color: #ff8800; font-weight: 600;">$<?php echo number_format( floatval( $payment['total_due_usd'] ), 2 ); ?></span></div>
+                <div><strong>Prototype Estimate:</strong> <?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;"><strong>Total Due:</strong> <span style="color: #ff8800; font-weight: 600;">$<?php echo number_format( $total_due_for_display, 2 ); ?></span></div>
             </div>
         </div>
 
