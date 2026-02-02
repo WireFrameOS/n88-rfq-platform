@@ -98,6 +98,8 @@ class N88_RFQ_Auth {
 
         // Fix #13/#26: Mark Resolved — clear Action Required for operator/supplier/designer
         add_action( 'wp_ajax_n88_mark_clarification_resolved', array( $this, 'ajax_mark_clarification_resolved' ) );
+        // Supplier confirms clarification (operator sees via case_resolutions)
+        add_action( 'wp_ajax_n88_supplier_confirm_clarification', array( $this, 'ajax_supplier_confirm_clarification' ) );
 
         // Payment receipt: designer upload (JPG/PDF); operator views before mark received
         add_action( 'wp_ajax_n88_upload_payment_receipt', array( $this, 'ajax_upload_payment_receipt' ) );
@@ -1899,7 +1901,7 @@ class N88_RFQ_Auth {
             if ( $status_filter === 'all' ) {
                 $passes_status = true;
             } elseif ( $status_filter === 'needs_action' ) {
-                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed' ), true );
+                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received' ), true );
             } elseif ( $status_filter === 'draft_saved' ) {
                 $passes_status = $item_data['action_badge'] === 'continue_draft';
             } elseif ( $status_filter === 'submitted' ) {
@@ -2068,7 +2070,7 @@ class N88_RFQ_Auth {
                                         break;
                                     case 'changes_received':
                                         $action_button_text = 'View Bid ►';
-                                        $action_badge_text = 'Changes Received';
+                                        $action_badge_text = 'Action required — Changes received';
                                         break;
                                     case 'submit_bid':
                                         $action_button_text = 'Submit Bid ►';
@@ -2124,18 +2126,35 @@ class N88_RFQ_Auth {
                                         <?php endif; ?>
                                         </div>
                                         <div style="margin-top: 5px;">
-                                            <span style="color: <?php echo in_array( $item_data['action_badge'], array( 'awarded', 'cad_video_approved' ), true ) ? '#00ff00' : '#fff'; ?>; font-size: 11px;">Badge: <?php echo esc_html( $action_badge_text ); ?></span>
+                                            <?php
+                                            $badge_color = '#fff';
+                                            if ( in_array( $item_data['action_badge'], array( 'awarded', 'cad_video_approved' ), true ) ) {
+                                                $badge_color = '#00ff00';
+                                            } elseif ( $item_data['action_badge'] === 'changes_received' ) {
+                                                $badge_color = '#ff8800';
+                                            }
+                                            ?>
+                                            <span style="color: <?php echo esc_attr( $badge_color ); ?>; font-size: 11px; font-weight: <?php echo ( $item_data['action_badge'] === 'changes_received' ) ? '600' : 'normal'; ?>;"><?php echo ( $item_data['action_badge'] === 'changes_received' ) ? '⚠ ' : 'Badge: '; ?><?php echo esc_html( $action_badge_text ); ?></span>
                                         <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
                                             <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
                                         <?php endif; ?>
                                             <?php if ( ! empty( $item_data['show_action_required'] ) && $item_data['show_action_required'] ) : 
                                                 $unread_count = ! empty( $item_data['unread_operator_messages'] ) ? intval( $item_data['unread_operator_messages'] ) : 0;
                                                 $cad_released = ! empty( $item_data['cad_released_to_supplier_at'] ) && trim( (string) $item_data['cad_released_to_supplier_at'] ) !== '';
+                                                $is_changes_received = ( ! empty( $item_data['action_badge'] ) && $item_data['action_badge'] === 'changes_received' );
                                             ?>
                                                 <div style="margin-top: 5px;">
                                                     <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
                                                     <div style="color: #ff6666; font-size: 10px; margin-top: 3px;">
-                                                        <?php echo $cad_released ? 'CAD files received' : ( esc_html( $unread_count ) . ' msg' . ( $unread_count !== 1 ? 's' : '' ) . ' from operator' ); ?>
+                                                        <?php
+                                                        if ( $is_changes_received ) {
+                                                            echo esc_html( 'Designer sent changes — review required' );
+                                                        } elseif ( $cad_released ) {
+                                                            echo 'CAD files received';
+                                                        } else {
+                                                            echo esc_html( $unread_count ) . ' msg' . ( $unread_count !== 1 ? 's' : '' ) . ' from operator';
+                                                        }
+                                                        ?>
                                                     </div>
                                                 </div>
                                         <?php endif; ?>
@@ -2345,7 +2364,12 @@ class N88_RFQ_Auth {
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     if (data.success && data.data && data.data.messages) {
-                        renderSupplierMessagesInline(data.data.messages, itemId);
+                        var opts = {
+                            has_operator_reply: !!(data.data.has_operator_reply),
+                            supplier_confirmed_clarification: !!(data.data.supplier_confirmed_clarification),
+                            bid_id: data.data.bid_id || 0
+                        };
+                        renderSupplierMessagesInline(data.data.messages, itemId, opts);
                     } else {
                         messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No messages yet. Start the conversation!</div>';
                     }
@@ -2357,7 +2381,8 @@ class N88_RFQ_Auth {
             }
             
             // Commit 2.3.9.1C-a: Render Supplier Messages (Inline) - WhatsApp Style
-            function renderSupplierMessagesInline(messages, itemId) {
+            function renderSupplierMessagesInline(messages, itemId, opts) {
+                opts = opts || {};
                 var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
                 if (!messagesContainer) return;
                 
@@ -2457,11 +2482,59 @@ class N88_RFQ_Auth {
                     html += '</div>';
                 });
                 
+                // Supplier: small "Mark as clarified" button when operator has replied (operator gets notified via case_resolutions)
+                if (opts.has_operator_reply) {
+                    html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start;">';
+                    if (opts.supplier_confirmed_clarification) {
+                        html += '<span style="font-size: 11px; color: #00aa00;">✓ Clarified</span>';
+                    } else {
+                        var bidIdVal = (opts.bid_id || 0);
+                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; border-radius: 4px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#005500\';" onmouseout="this.style.backgroundColor=\'#003300\';">Mark as clarified</button>';
+                    }
+                    html += '</div>';
+                }
+                
                 messagesContainer.innerHTML = html;
                 setTimeout(function() {
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }, 100);
             }
+            
+            // Supplier: confirm clarification (operator sees via case_resolutions)
+            function supplierConfirmClarification(itemId, bidId) {
+                var btn = document.querySelector('.n88-supplier-mark-clarified-btn[data-item-id="' + itemId + '"]');
+                if (btn) { btn.disabled = true; btn.textContent = '...'; }
+                var formData = new FormData();
+                formData.append('action', 'n88_supplier_confirm_clarification');
+                formData.append('item_id', itemId);
+                formData.append('bid_id', bidId || '0');
+                formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_supplier_confirm_clarification' ) ); ?>');
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            loadSupplierMessagesInline(itemId);
+                        } else {
+                            if (btn) { btn.disabled = false; btn.textContent = 'Mark as clarified'; }
+                            alert(data.data && data.data.message ? data.data.message : 'Failed.');
+                        }
+                    })
+                    .catch(function() {
+                        if (btn) { btn.disabled = false; btn.textContent = 'Mark as clarified'; }
+                        alert('An error occurred. Please try again.');
+                    });
+            }
+            
+            // Delegated click for supplier "Mark as clarified" button (buttons are inside dynamically rendered messages)
+            document.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('.n88-supplier-mark-clarified-btn') : null;
+                if (!btn || btn.disabled) return;
+                var itemId = btn.getAttribute('data-item-id');
+                var bidId = btn.getAttribute('data-bid-id') || '0';
+                if (itemId && typeof supplierConfirmClarification === 'function') {
+                    supplierConfirmClarification(itemId, bidId);
+                }
+            });
             
             // Commit 2.3.9.1C-a: Send Supplier Clarification (Inline)
             function sendSupplierClarificationInline(event, itemId) {
@@ -2966,14 +3039,14 @@ class N88_RFQ_Auth {
                         
                         (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '') +
                         
-                        // Commit 2.3.9.1C-a: Operator–Supplier Messages Section (Expandable)
+                        // Commit 2.3.9.1C-a: Support (Operator–Supplier Messages) Section – headset icon (support, not music)
                         '<div style="margin-top: 16px; margin-bottom: 16px;">' +
-                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
-                        'Operator–Supplier Messages' +
+                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;flex-shrink:0;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support' +
                         '</button>' +
                         '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00;">Operator–Supplier Messages</div>' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
                         '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
                         '</div>' +
                         // Category Dropdown at Top
@@ -8328,17 +8401,42 @@ class N88_RFQ_Auth {
                 'acoustic panels' => 'Wallcoverings / Finishes',
                 
                 // Appliances keywords
-                'appliances' => 'Appliances'
+                'appliances' => 'Appliances',
+                // Other (dropdown value OTHER)
+                'other' => 'Other'
+            );
+
+            // Also map dropdown values (uppercase) to DB names (Title Case) so "UPHOLSTERY" -> "Upholstery"
+            $dropdown_to_db = array(
+                'upholstery' => 'Upholstery',
+                'indoor furniture (casegoods)' => 'Indoor Furniture (Casegoods)',
+                'outdoor furniture' => 'Outdoor Furniture',
+                'lighting' => 'Lighting',
+                'stone (marble / granite / quartz)' => 'Stone (Marble / Granite / Quartz)',
+                'metalwork' => 'Metalwork',
+                'millwork / cabinetry' => 'Millwork / Cabinetry',
+                'flooring' => 'Flooring',
+                'drapery / window treatments' => 'Drapery / Window Treatments',
+                'glass / mirrors' => 'Glass / Mirrors',
+                'hardware / accessories' => 'Hardware / Accessories',
+                'rugs / carpets' => 'Rugs / Carpets',
+                'wallcoverings / finishes' => 'Wallcoverings / Finishes',
+                'appliances' => 'Appliances',
+                'other' => 'Other',
             );
             
             $category_name_lower = strtolower( trim( $category_name ) );
             $mapped_name = null;
             
-            // Check if we have a direct mapping
-            if ( isset( $category_mappings[ $category_name_lower ] ) ) {
+            // 1) Try dropdown-to-DB mapping first (exact match on lowercase)
+            if ( isset( $dropdown_to_db[ $category_name_lower ] ) ) {
+                $mapped_name = $dropdown_to_db[ $category_name_lower ];
+            }
+            // 2) Check legacy/alias mappings
+            if ( ! $mapped_name && isset( $category_mappings[ $category_name_lower ] ) ) {
                 $mapped_name = $category_mappings[ $category_name_lower ];
-            } else {
-                // Try partial matching for mappings (e.g., "indoor" should match "indoor furniture")
+            }
+            if ( ! $mapped_name ) {
                 foreach ( $category_mappings as $key => $value ) {
                     if ( strpos( $category_name_lower, $key ) !== false || strpos( $key, $category_name_lower ) !== false ) {
                         $mapped_name = $value;
@@ -8347,7 +8445,6 @@ class N88_RFQ_Auth {
                 }
             }
             
-            // If we have a mapped name, use it
             if ( $mapped_name ) {
                 $category = $wpdb->get_row( $wpdb->prepare(
                     "SELECT category_id FROM {$categories_table} WHERE name = %s LIMIT 1",
@@ -8355,7 +8452,6 @@ class N88_RFQ_Auth {
                 ) );
             }
             
-            // If no mapping worked, try exact match (case-insensitive)
             if ( ! $category ) {
                 $category = $wpdb->get_row( $wpdb->prepare(
                     "SELECT category_id FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
@@ -8363,7 +8459,6 @@ class N88_RFQ_Auth {
                 ) );
             }
             
-            // If still no match, try to find a category that contains the search term
             if ( ! $category ) {
                 $search_term = '%' . $wpdb->esc_like( $category_name ) . '%';
                 $category = $wpdb->get_row( $wpdb->prepare(
@@ -8375,9 +8470,17 @@ class N88_RFQ_Auth {
             if ( $category ) {
                 $category_id = intval( $category->category_id );
             }
+
+            // Debug log: why keywords might be empty (helps when category_name is sent but DB has no keywords)
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+                error_log( '[n88_get_keywords_by_category] category_name=' . $category_name . ' category_name_lower=' . $category_name_lower . ' mapped_name=' . ( $mapped_name ?: '(none)' ) . ' category_id=' . ( $category_id ?: 0 ) );
+            }
         }
 
         if ( ! $category_id ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+                error_log( '[n88_get_keywords_by_category] No category found for category_name=' . ( isset( $category_name ) ? $category_name : '' ) . ' category_id=' . ( isset( $_POST['category_id'] ) ? intval( $_POST['category_id'] ) : 0 ) );
+            }
             wp_send_json_error( array( 'message' => 'Category ID or Category Name required.' ) );
         }
 
@@ -8385,6 +8488,11 @@ class N88_RFQ_Auth {
             "SELECT keyword_id, keyword FROM {$keywords_table} WHERE category_id = %d AND is_active = 1 ORDER BY keyword",
             $category_id
         ) );
+
+        if ( empty( $keywords ) && defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+            $db_name = $wpdb->get_var( $wpdb->prepare( "SELECT name FROM {$categories_table} WHERE category_id = %d", $category_id ) );
+            error_log( '[n88_get_keywords_by_category] No keywords in DB for category_id=' . $category_id . ' name=' . ( $db_name ?: '' ) . '. Ensure plugin activation/install has run so seed_keyword_library() inserts keywords for this category.' );
+        }
 
         wp_send_json_success( array( 'keywords' => $keywords ) );
     }
@@ -10967,6 +11075,7 @@ class N88_RFQ_Auth {
         $prototype_payment_id = null;
         $prototype_payment_bid_id = null;
         $prototype_payment_supplier_id = null;
+        $has_payment_receipt_uploaded = false;
         // Commit 2.3.9.2A: CAD workflow state
         $cad_status = null;
         $cad_revision_rounds_included = null;
@@ -11032,6 +11141,18 @@ class N88_RFQ_Auth {
                 $prototype_payment_supplier_id = isset( $prototype_payment['supplier_id'] ) ? absint( $prototype_payment['supplier_id'] ) : null;
                 $prototype_payment_status = $prototype_payment['status'];
                 $prototype_payment_total_due = $prototype_payment['total_due_usd'] ? floatval( $prototype_payment['total_due_usd'] ) : null;
+
+                // Designer uploaded receipt: item card shows "Awaiting payment confirmation"
+                $has_payment_receipt_uploaded = false;
+                if ( $prototype_payment_status === 'requested' && $prototype_payment_id ) {
+                    $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                        $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
+                            "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
+                            $prototype_payment_id
+                        ) );
+                    }
+                }
 
                 // Commit 2.3.9.2A: CAD workflow state
                 $cad_status = isset( $prototype_payment['cad_status'] ) ? $prototype_payment['cad_status'] : null;
@@ -11165,6 +11286,7 @@ class N88_RFQ_Auth {
             'prototype_payment_supplier_id' => $prototype_payment_supplier_id, // Commit 2.3.9.2A
             'prototype_payment_status' => $prototype_payment_status, // Commit 2.3.9.1C: Payment status (requested, marked_received, etc.)
             'prototype_payment_total_due' => $prototype_payment_total_due, // Commit 2.3.9.1C: Total amount due
+            'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded, // Designer uploaded receipt; item card shows "Awaiting payment confirmation"
             // Commit 2.3.9.2A: CAD workflow state
             'cad_status' => $cad_status,
             'cad_revision_rounds_included' => $cad_revision_rounds_included,
@@ -13741,7 +13863,7 @@ class N88_RFQ_Auth {
                 // Toggle ON
                 if ( $has_any_invites ) {
                     // Toggle ON + email added
-                    $message .= ' Your invited maker(s) will receive this request first. WireFrame (OS) will invite additional makers after 24 hours.';
+                    $message .= ' Your invited maker(s) will receive this request.';
                 } else {
                     // Toggle ON + NO email entered
                     $message .= ' We sent your request to makers that match your category and keywords.';
@@ -14390,6 +14512,7 @@ class N88_RFQ_Auth {
         $prototype_payments_table   = $wpdb->prefix . 'n88_prototype_payments';
         $items_table                = $wpdb->prefix . 'n88_items';
         $item_bids_table            = $wpdb->prefix . 'n88_item_bids';
+        $board_items_table          = $wpdb->prefix . 'n88_board_items';
         $categories_table           = $wpdb->prefix . 'n88_categories';
         $users_table                = $wpdb->prefix . 'users';
         $events_table               = $wpdb->prefix . 'n88_events';
@@ -14424,8 +14547,9 @@ class N88_RFQ_Auth {
         // Build WHERE conditions array - query prototype_payments table
         $where_conditions = array();
         
-        // Exclude deleted items (only if item exists)
-        $where_conditions[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+        // Exclude deleted items: item must exist, not soft-deleted, and still on a board (not removed)
+        $where_conditions[] = "i.id IS NOT NULL AND (i.deleted_at IS NULL OR i.deleted_at = '')";
+        $where_conditions[] = "EXISTS (SELECT 1 FROM {$board_items_table} bi WHERE bi.item_id = pp.item_id AND (bi.removed_at IS NULL OR bi.removed_at = ''))";
         
         // Base condition: only show requested or marked_received status
         if ( $status_filter === 'requested' ) {
@@ -14681,7 +14805,8 @@ class N88_RFQ_Auth {
         $clarification_where = array();
         $clarification_where[] = "m.thread_type = 'supplier_operator'";
         $clarification_where[] = "m.sender_role = 'supplier'";
-        $clarification_where[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+        $clarification_where[] = "i.id IS NOT NULL AND (i.deleted_at IS NULL OR i.deleted_at = '')";
+        $clarification_where[] = "EXISTS (SELECT 1 FROM {$board_items_table} bi WHERE bi.item_id = m.item_id AND (bi.removed_at IS NULL OR bi.removed_at = ''))";
         
         // Apply filters to clarification query
         if ( $supplier_filter !== 'all' ) {
@@ -14784,7 +14909,8 @@ class N88_RFQ_Auth {
         $designer_where = array();
         $designer_where[] = "m.thread_type = 'designer_operator'";
         $designer_where[] = "m.sender_role = 'designer'";
-        $designer_where[] = "(i.id IS NULL OR i.deleted_at IS NULL)";
+        $designer_where[] = "i.id IS NOT NULL AND (i.deleted_at IS NULL OR i.deleted_at = '')";
+        $designer_where[] = "EXISTS (SELECT 1 FROM {$board_items_table} bi WHERE bi.item_id = m.item_id AND (bi.removed_at IS NULL OR bi.removed_at = ''))";
 
         // If supplier filter is active, designer-only threads have no supplier context → exclude
         if ( $supplier_filter !== 'all' ) {
@@ -15261,7 +15387,7 @@ class N88_RFQ_Auth {
                                     } elseif ( $request['status'] === 'requested' ) {
                                         $status_display = 'Payment Requested';
                                     } elseif ( $request['status'] === 'marked_received' ) {
-                                        $status_display = 'Payment Received';
+                                        $status_display = $is_cad_released ? 'CAD released' : 'Payment Received';
                                     }
                                     
                                     // Supplier label (per wireframe: "Supplier #482")
@@ -15300,12 +15426,15 @@ class N88_RFQ_Auth {
                                                     <div style="font-size: 11px; color: #999;">Project: —</div>
                                                     <div style="font-size: 11px; color: #999;">Category: <?php echo esc_html( $category ); ?></div>
                                                     <?php
-                                                    // Show action hint when: (a) there are messages needing reply (effective_unread; designer unread excluded when CAD approved — no "1 clarification message"), or (b) designer approved CAD but operator has not sent to supplier
-                                                    if ( $effective_unread > 0 || $pending_release_to_supplier ) :
+                                                    // Show action hint when: (a) messages needing reply, (b) designer approved CAD but operator has not sent to supplier, or (c) operator has released CAD to supplier
+                                                    if ( $effective_unread > 0 || $pending_release_to_supplier || $is_cad_released ) :
                                                     ?>
                                                         <div style="font-size: 11px; color: #00ff00; margin-top: 4px;">
                                                             <?php
                                                             $action_lines = array();
+                                                            if ( $is_cad_released ) {
+                                                                $action_lines[] = 'CAD released';
+                                                            }
                                                             if ( $pending_release_to_supplier ) {
                                                                 $action_lines[] = 'Release CAD to supplier';
                                                             }
@@ -15392,7 +15521,7 @@ class N88_RFQ_Auth {
                                                             Message Threads
                                                         </button>
                                                         <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                                                            Mark Resolved
+                                                        Mark Clarification Resolved
                                                         </button>
                                                     </div>
                                                 </div>
@@ -15439,11 +15568,10 @@ class N88_RFQ_Auth {
                                                             Message Threads
                                                         </button>
                                                         <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                                                            Mark Resolved
-                                                        </button>
+                                                        Mark Clarification Resolved                                                        </button>
                                                         <?php if ( $request['status'] === 'requested' ) : ?>
                                                             <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                                                                Mark Payment Received
+                                                            View Payment Receipt
                                                             </button>
                                                         <?php else : ?>
                                                             <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
@@ -15474,7 +15602,9 @@ class N88_RFQ_Auth {
                                                                 onmouseover="this.style.backgroundColor='#000055';"
                                                                 onmouseout="this.style.backgroundColor='#000033';"
                                                             >
-                                                                Final Approved and Sent to Supplier
+                                                            Send Approved CAD to Supplier
+
+
                                                             </button>
                                                         <?php endif; ?>
                                                         <div style="font-size: 11px; color: #999; font-style: italic; padding-left: 0;">Send Notification (stub)</div>
@@ -15879,7 +16009,8 @@ class N88_RFQ_Auth {
             }
             
             // Render Thread Messages - WhatsApp Style
-            function renderThreadMessages(messages, container, threadType) {
+            function renderThreadMessages(messages, container, threadType, opts) {
+                opts = opts || {};
                 if (!messages || messages.length === 0) {
                     container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">No messages yet.</div>';
                     return;
@@ -15891,6 +16022,12 @@ class N88_RFQ_Auth {
                 });
                 
                 var html = '';
+                // Operator: show "Supplier confirmed clarification" when supplier has clicked Mark as clarified
+                if (threadType === 'supplier_operator' && opts.supplier_confirmed_at) {
+                    var confirmedDate = new Date(opts.supplier_confirmed_at);
+                    var confirmedStr = confirmedDate.toLocaleDateString() + ' ' + confirmedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    html += '<div style="margin-bottom: 12px; padding: 8px 12px; background-color: #003300; border: 1px solid #00aa00; border-radius: 4px; font-size: 11px; color: #00ff00;">✓ Supplier confirmed clarification on ' + confirmedStr + '</div>';
+                }
                 sortedMessages.forEach(function(msg) {
                     var isOperator = msg.sender_role === 'operator';
                     var senderName = isOperator ? 'Operator' : (threadType === 'designer_operator' ? 'Designer' : 'Supplier');
@@ -16320,11 +16457,15 @@ class N88_RFQ_Auth {
                             .then(function(d) {
                                 if (!listEl) return;
                                 if (d.success && d.data.receipts && d.data.receipts.length > 0) {
-                                    var parts = d.data.receipts.map(function(x) {
+                                    var receipts = d.data.receipts;
+                                    var parts = receipts.map(function(x, index) {
+                                        var isResubmitted = receipts.length > 1 && index < receipts.length - 1;
+                                        var tag = isResubmitted ? '<span style="display:inline-block;margin-right:8px;padding:2px 6px;font-size:10px;font-weight:600;background-color:#331100;color:#ff8800;border:1px solid #ff8800;border-radius:2px;">Resubmitted</span>' : '';
                                         var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                                        return '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>';
+                                        var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">— ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
+                                        return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>' + msg + '</div>';
                                     });
-                                    listEl.innerHTML = parts.join(', ');
+                                    listEl.innerHTML = parts.join('');
                                 } else {
                                     listEl.textContent = 'None uploaded.';
                                 }
@@ -16852,7 +16993,7 @@ class N88_RFQ_Auth {
             </div>
             <div style="margin-top: 12px;">
                 <button type="button" class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( ! empty( $payment['bid_id'] ) ? $payment['bid_id'] : '0' ); ?>" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                    Mark Resolved
+                Mark Clarification Resolved
                 </button>
             </div>
         </div>
@@ -17105,7 +17246,79 @@ class N88_RFQ_Auth {
             ARRAY_A
         );
 
-        wp_send_json_success( array( 'messages' => $messages ) );
+        $response = array( 'messages' => $messages );
+
+        // Supplier thread: add flags for "Mark as clarified" button
+        if ( $thread_type === 'supplier_operator' && $is_supplier && ! empty( $messages ) ) {
+            $has_operator_reply = false;
+            $thread_bid_id = null;
+            foreach ( $messages as $m ) {
+                if ( isset( $m['sender_role'] ) && $m['sender_role'] === 'operator' ) {
+                    $has_operator_reply = true;
+                }
+                if ( isset( $m['bid_id'] ) && $m['bid_id'] ) {
+                    $thread_bid_id = (int) $m['bid_id'];
+                }
+            }
+            $response['has_operator_reply'] = $has_operator_reply;
+            $response['bid_id'] = $thread_bid_id ?: 0;
+
+            $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+            $supplier_confirmed = false;
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                if ( $thread_bid_id ) {
+                    $supplier_confirmed = (bool) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id = %d AND actor_user_id = %d LIMIT 1",
+                        $item_id,
+                        $thread_bid_id,
+                        $current_user->ID
+                    ) );
+                } else {
+                    $supplier_confirmed = (bool) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL AND actor_user_id = %d LIMIT 1",
+                        $item_id,
+                        $current_user->ID
+                    ) );
+                }
+            }
+            $response['supplier_confirmed_clarification'] = $supplier_confirmed;
+        }
+
+        // Operator viewing supplier thread: show if supplier has confirmed clarification
+        if ( $thread_type === 'supplier_operator' && $is_operator && ! empty( $messages ) ) {
+            $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+            $supplier_id_for_thread = null;
+            $thread_bid_id_op = null;
+            foreach ( $messages as $m ) {
+                if ( isset( $m['supplier_id'] ) && $m['supplier_id'] ) {
+                    $supplier_id_for_thread = (int) $m['supplier_id'];
+                }
+                if ( isset( $m['bid_id'] ) && $m['bid_id'] ) {
+                    $thread_bid_id_op = (int) $m['bid_id'];
+                }
+            }
+            if ( $supplier_id_for_thread && $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                if ( $thread_bid_id_op ) {
+                    $confirmed_at = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT resolved_at FROM {$resolutions_table} WHERE item_id = %d AND bid_id = %d AND actor_user_id = %d ORDER BY resolved_at DESC LIMIT 1",
+                        $item_id,
+                        $thread_bid_id_op,
+                        $supplier_id_for_thread
+                    ) );
+                } else {
+                    $confirmed_at = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT resolved_at FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL AND actor_user_id = %d ORDER BY resolved_at DESC LIMIT 1",
+                        $item_id,
+                        $supplier_id_for_thread
+                    ) );
+                }
+                if ( $confirmed_at ) {
+                    $response['supplier_confirmed_at'] = $confirmed_at;
+                }
+            }
+        }
+
+        wp_send_json_success( $response );
     }
     
     /**
@@ -19325,6 +19538,104 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * AJAX: Supplier confirms that operator's reply clarified their question.
+     * Inserts into n88_rfq_case_resolutions (actor = supplier) so operator knows; optionally closes clarifications.
+     */
+    public function ajax_supplier_confirm_clarification() {
+        check_ajax_referer( 'n88_supplier_confirm_clarification', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_supplier_admin', $current_user->roles, true ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier only.' ) );
+            return;
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+        if ( $bid_id === 0 ) {
+            $bid_id = null;
+        }
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+            return;
+        }
+
+        global $wpdb;
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+        $clarifications_table = $wpdb->prefix . 'n88_rfq_clarifications';
+
+        // Ensure supplier is part of this thread (their messages exist for this item)
+        $supplier_in_thread = $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM {$messages_table} WHERE item_id = %d AND thread_type = 'supplier_operator' AND supplier_id = %d LIMIT 1",
+            $item_id,
+            $current_user->ID
+        ) );
+        if ( ! $supplier_in_thread ) {
+            wp_send_json_error( array( 'message' => 'Access denied. You do not have messages for this item.' ) );
+            return;
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) !== $resolutions_table ) {
+            wp_send_json_error( array( 'message' => 'System not ready. Please try again later.' ) );
+            return;
+        }
+
+        // Avoid duplicate: already confirmed by this supplier for this item/bid
+        if ( $bid_id === null ) {
+            $already = $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND actor_user_id = %d AND bid_id IS NULL LIMIT 1",
+                $item_id,
+                $current_user->ID
+            ) );
+        } else {
+            $already = $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND actor_user_id = %d AND bid_id = %d LIMIT 1",
+                $item_id,
+                $current_user->ID,
+                $bid_id
+            ) );
+        }
+        if ( $already ) {
+            wp_send_json_success( array( 'message' => 'Already marked as clarified.' ) );
+            return;
+        }
+
+        $wpdb->insert(
+            $resolutions_table,
+            array(
+                'item_id'        => $item_id,
+                'bid_id'         => $bid_id,
+                'actor_user_id'  => $current_user->ID,
+                'resolved_at'    => current_time( 'mysql' ),
+            ),
+            array( '%d', $bid_id === null ? null : '%d', '%d', '%s' )
+        );
+
+        // Close clarifications for this item so operator queue can clear
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$clarifications_table}'" ) === $clarifications_table ) {
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$clarifications_table} SET status = 'closed' WHERE item_id = %d",
+                $item_id
+            ) );
+        }
+
+        do_action( 'clarification_resolved', array(
+            'item_id'       => $item_id,
+            'bid_id'        => $bid_id,
+            'actor_user_id' => $current_user->ID,
+            'timestamp'     => current_time( 'mysql' ),
+        ) );
+
+        wp_send_json_success( array( 'message' => 'Marked as clarified. Operator will be notified.' ) );
+    }
+
+    /**
      * AJAX: Upload payment receipt (JPG/PDF) for a prototype payment.
      * Designer (payment's designer_user_id) can upload. Operator views in Mark Payment Received modal.
      */
@@ -19410,17 +19721,24 @@ class N88_RFQ_Auth {
         }
 
         $file_name = isset( $file['name'] ) ? sanitize_file_name( $file['name'] ) : wp_basename( $upload['file'] );
-        $wpdb->insert(
-            $receipts_table,
-            array(
-                'payment_id'   => $payment_id,
-                'attachment_id'=> $attach_id,
-                'file_name'    => $file_name,
-                'uploaded_by'  => $current_user->ID,
-                'uploaded_at'  => current_time( 'mysql' ),
-            ),
-            array( '%d', '%d', '%s', '%d', '%s' )
+        $message = isset( $_POST['receipt_message'] ) ? sanitize_textarea_field( wp_unslash( $_POST['receipt_message'] ) ) : '';
+        if ( strlen( $message ) > 500 ) {
+            $message = substr( $message, 0, 500 );
+        }
+        $receipt_cols = array(
+            'payment_id'    => $payment_id,
+            'attachment_id' => $attach_id,
+            'file_name'     => $file_name,
+            'uploaded_by'   => $current_user->ID,
+            'uploaded_at'   => current_time( 'mysql' ),
         );
+        $receipt_fmts = array( '%d', '%d', '%s', '%d', '%s' );
+        $receipts_cols = $wpdb->get_col( "DESCRIBE {$receipts_table}" );
+        if ( is_array( $receipts_cols ) && in_array( 'message', $receipts_cols, true ) ) {
+            $receipt_cols['message'] = $message;
+            $receipt_fmts[] = '%s';
+        }
+        $wpdb->insert( $receipts_table, $receipt_cols, $receipt_fmts );
 
         $url = wp_get_attachment_url( $attach_id );
         if ( ! $url ) {
@@ -19479,8 +19797,11 @@ class N88_RFQ_Auth {
             return;
         }
 
+        $has_message_col = $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table
+            && in_array( 'message', (array) $wpdb->get_col( "DESCRIBE {$receipts_table}" ), true );
+        $sel = $has_message_col ? "r.id, r.attachment_id, r.file_name, r.uploaded_at, r.message" : "r.id, r.attachment_id, r.file_name, r.uploaded_at";
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT r.id, r.attachment_id, r.file_name, r.uploaded_at
+            "SELECT {$sel}
              FROM {$receipts_table} r
              WHERE r.payment_id = %d
              ORDER BY r.uploaded_at DESC",
@@ -19490,13 +19811,17 @@ class N88_RFQ_Auth {
         $receipts = array();
         foreach ( $rows as $r ) {
             $url = wp_get_attachment_url( (int) $r['attachment_id'] );
-            $receipts[] = array(
-                'id'          => (int) $r['id'],
+            $entry = array(
+                'id'            => (int) $r['id'],
                 'attachment_id' => (int) $r['attachment_id'],
-                'file_name'   => $r['file_name'],
-                'url'         => $url ?: '',
-                'uploaded_at' => $r['uploaded_at'],
+                'file_name'     => $r['file_name'],
+                'url'           => $url ?: '',
+                'uploaded_at'   => $r['uploaded_at'],
             );
+            if ( $has_message_col && isset( $r['message'] ) && $r['message'] !== '' ) {
+                $entry['message'] = $r['message'];
+            }
+            $receipts[] = $entry;
         }
 
         wp_send_json_success( array( 'receipts' => $receipts ) );

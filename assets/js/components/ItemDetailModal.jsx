@@ -1574,7 +1574,7 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
 /**
  * ItemDetailModal - Designer Item Modal with Three States
  */
-const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false, onPriceRequest }) => {
+const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceRequested = false, onPriceRequest }) => {
     // Commit 2.6.1: Check if user is view-only team member
     const isViewOnly = window.n88BoardData?.isViewOnly || false;
     const updateLayout = useBoardStore((state) => state.updateLayout);
@@ -1614,7 +1614,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     const [paymentReceipts, setPaymentReceipts] = React.useState([]);
     const [paymentReceiptsLoading, setPaymentReceiptsLoading] = React.useState(false);
     const [paymentReceiptUploading, setPaymentReceiptUploading] = React.useState(false);
+    const [paymentReceiptSelectedFile, setPaymentReceiptSelectedFile] = React.useState(null);
+    const [paymentReceiptMessage, setPaymentReceiptMessage] = React.useState('');
+    const [showResubmitReceiptForm, setShowResubmitReceiptForm] = React.useState(false);
     const paymentReceiptInputRef = React.useRef(null);
+
+    // Project / Room assignment (Board Projects)
+    const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
+    const [boardProjects, setBoardProjects] = React.useState([]);
+    const [projectRooms, setProjectRooms] = React.useState([]);
+    const [projectsLoading, setProjectsLoading] = React.useState(false);
+    const [roomsLoading, setRoomsLoading] = React.useState(false);
+    const [assignmentSaving, setAssignmentSaving] = React.useState(false);
+    const [selectedProjectId, setSelectedProjectId] = React.useState(0);
+    const [selectedRoomId, setSelectedRoomId] = React.useState(0);
+    const roomsFetchProjectIdRef = React.useRef(0);
 
     // Commit 2.3.9.2B-D: Prototype section state
     const [prototypeSectionExpanded, setPrototypeSectionExpanded] = React.useState(false);
@@ -1727,22 +1741,30 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         }
     }, [showCadPrototypeForm, itemState.bids, selectedBidId]);
     
-    // Auto-expand bids in State C and set active tab; when Action Required (operator sent CAD or message): Mission Spec and auto-expand Designer–Operator Communication
+    // Auto-expand bids in State C and set active tab; when Action Required (operator sent CAD or message): Mission Spec and auto-expand Review and Message
     React.useEffect(() => {
         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
         if (skipNextTabSwitchFromCadActionRef.current) {
             skipNextTabSwitchFromCadActionRef.current = false;
             return;
         }
-        // Action Required: operator sent message, or operator submitted CAD for designer to review — auto-expand Designer–Operator Communication
+        // Action Required: operator sent message, or operator submitted CAD for designer to review — auto-expand Review and Message
         // Use item.action_required / item.has_unread_operator_messages so we behave correctly before fetchItemState completes.
         const hasUnread = !!(itemState.has_unread_operator_messages || item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 || item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1);
         const cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].includes(String(itemState.cad_status || '')));
         const hasActionRequired = hasUnread || cadPendingDesignerReview;
         if (hasActionRequired) {
-            setActiveTab('details'); // Mission Spec (CAD review and Designer–Operator Communication both live here)
+            setActiveTab('details'); // Mission Spec (Review and Message / CAD both live here)
             setShowDesignerMessageForm(true); // Auto-expand when operator sent CAD or message
             loadDesignerMessages();
+            // When operator sent CAD: scroll designer to CAD drawing in the message box
+            if (cadPendingDesignerReview) {
+                const scrollToCad = () => {
+                    const el = document.getElementById('n88-designer-messages-container');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                };
+                setTimeout(scrollToCad, 400);
+            }
             return;
         }
         if (currentState === 'C' && itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
@@ -1773,7 +1795,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
     };
     const itemId = getItemId();
     
-    // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Designer–Operator Communication so the tab effect can auto-expand it.
+    // Fetch item RFQ/bid state when modal opens. When Action Required (operator sent CAD/message), do NOT collapse Review and Message so the tab effect can auto-expand it.
     React.useEffect(() => {
         if (isOpen && itemId && itemId > 0) {
             const hasActionRequired = !!(
@@ -1860,6 +1882,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                     direction_keyword_ids: data.data.direction_keyword_ids || null,
                     loading: false,
                 });
+                // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
+                const cardUpdates = {};
+                if (data.data.cad_status !== undefined && data.data.cad_status !== null) cardUpdates.cad_status = data.data.cad_status;
+                if (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) cardUpdates.cad_current_version = data.data.cad_current_version;
+                if (data.data.prototype_payment_status !== undefined && data.data.prototype_payment_status !== null) cardUpdates.prototype_payment_status = data.data.prototype_payment_status;
+                if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
+                if (Object.keys(cardUpdates).length > 0 && typeof updateLayout === 'function') updateLayout(item.id, cardUpdates);
                 // When all bids withdrawn: item is State A; reset Launch Brief to show "Request Quote" (fresh form)
                 if ((data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids)) {
                     setShowRfqForm(false);
@@ -2110,6 +2139,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                 skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
                 setActiveTab('details'); // keep Mission Spec tab
                 setShowDesignerMessageForm(true); // keep message box open
+                updateLayout(item.id, { cad_status: 'approved' }); // so item card shows Pending Prototype Video
                 await fetchItemState();
             } else {
                 alert('Error: ' + (data.data?.message || 'Failed to approve CAD.'));
@@ -2120,7 +2150,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
         } finally {
             setIsCadActionBusy(false);
         }
-    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
+    }, [itemId, item.id, itemState.prototype_payment_id, loadDesignerMessages, fetchItemState, updateLayout]);
 
     // Fetch payment receipts when Payment Instructions modal opens
     const fetchPaymentReceipts = React.useCallback(async () => {
@@ -2148,38 +2178,234 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
 
     React.useEffect(() => {
         if (showPaymentInstructions && itemState.prototype_payment_id) fetchPaymentReceipts();
-        else if (!showPaymentInstructions) setPaymentReceipts([]);
+        else if (!showPaymentInstructions) {
+            setPaymentReceipts([]);
+            setPaymentReceiptSelectedFile(null);
+            setPaymentReceiptMessage('');
+            setShowResubmitReceiptForm(false);
+        }
     }, [showPaymentInstructions, itemState.prototype_payment_id, fetchPaymentReceipts]);
 
-    const handlePaymentReceiptUpload = React.useCallback(async (e) => {
+    // Initialize selected project/room from item when modal opens / item changes
+    React.useEffect(() => {
+        if (!isOpen) return;
+        const pid = Number(item.project_id || item.projectId || item.meta?.project_id || 0) || 0;
+        const rid = Number(item.room_id || item.roomId || item.meta?.room_id || 0) || 0;
+        setSelectedProjectId(pid);
+        setSelectedRoomId(rid);
+    }, [isOpen, item.id, item.project_id, item.room_id]);
+
+    // Fetch board projects when modal opens (use n88BoardNonce.nonce - projects/rooms endpoints expect 'n88-rfq-nonce')
+    React.useEffect(() => {
+        if (!isOpen) return;
+        if (!boardId || Number(boardId) <= 0) return;
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardNonce?.nonce || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) return;
+        setProjectsLoading(true);
+        fetch(`${ajaxUrl}?action=n88_get_board_projects&board_id=${encodeURIComponent(String(boardId))}&nonce=${encodeURIComponent(String(nonce))}`, {
+            method: 'GET',
+            credentials: 'same-origin',
+        })
+            .then((r) => r.json())
+            .then((d) => {
+                if (d && d.success && Array.isArray(d.data?.projects)) setBoardProjects(d.data.projects);
+                else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
+                else setBoardProjects([]);
+            })
+            .catch(() => setBoardProjects([]))
+            .finally(() => setProjectsLoading(false));
+    }, [isOpen, boardId]);
+
+    // Fetch rooms whenever selected project changes (use n88BoardNonce.nonce - rooms endpoint expects 'n88-rfq-nonce')
+    React.useEffect(() => {
+        if (!isOpen) return;
+        if (!selectedProjectId || selectedProjectId <= 0) {
+            setProjectRooms([]);
+            setRoomsLoading(false);
+            return;
+        }
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardNonce?.nonce || window.n88BoardData?.nonce || window.n88?.nonce || '';
+        if (!nonce) {
+            setProjectRooms([]);
+            return;
+        }
+        const pid = Number(selectedProjectId);
+        roomsFetchProjectIdRef.current = pid;
+        setProjectRooms([]);
+        setRoomsLoading(true);
+        const url = `${ajaxUrl}?action=n88_get_project_rooms&project_id=${encodeURIComponent(String(pid))}&nonce=${encodeURIComponent(String(nonce))}`;
+        fetch(url, { method: 'GET', credentials: 'same-origin' })
+            .then((r) => r.json())
+            .then((d) => {
+                const roomsRaw = (d && d.success && (d.data?.rooms ?? d.data?.data?.rooms ?? d.rooms));
+                const list = Array.isArray(roomsRaw)
+                    ? roomsRaw.map((r) => ({ id: r.id ?? r.room_id, name: r.name ?? r.room_name ?? String(r.id ?? r.room_id ?? '') }))
+                    : [];
+                if (roomsFetchProjectIdRef.current === pid) setProjectRooms(list);
+            })
+            .catch(() => { if (roomsFetchProjectIdRef.current === pid) setProjectRooms([]); })
+            .finally(() => setRoomsLoading(false));
+    }, [isOpen, selectedProjectId]);
+
+    const getSelectedProjectName = React.useCallback(() => {
+        const pid = Number(selectedProjectId || 0);
+        if (!pid) return '';
+        // Use item.project_name / item.room_name when available (e.g. from server) so label shows immediately
+        const itemProjectName = item.project_name || item.projectName || '';
+        const itemRoomName = item.room_name || item.roomName || '';
+        if (itemProjectName && pid === Number(item.project_id || item.projectId || 0)) {
+            const roomId = Number(selectedRoomId || 0);
+            if (roomId && itemRoomName && roomId === Number(item.room_id || item.roomId || 0)) {
+                return `${String(itemProjectName)} / ${String(itemRoomName)}`;
+            }
+            return String(itemProjectName);
+        }
+        const p = (boardProjects || []).find((x) => Number(x.id) === pid);
+        const projectName = p?.name ? String(p.name) : '';
+        const rid = Number(selectedRoomId || 0);
+        if (rid && projectName) {
+            const r = (projectRooms || []).find((x) => Number(x.id) === rid);
+            const roomName = r?.name ? String(r.name) : '';
+            if (roomName) return `${projectName} / ${roomName}`;
+        }
+        return projectName;
+    }, [selectedProjectId, selectedRoomId, boardProjects, projectRooms, item.project_id, item.projectId, item.room_id, item.roomId, item.project_name, item.projectName, item.room_name, item.roomName]);
+
+    const saveProjectRoomAssignment = React.useCallback(async (projectId, roomId) => {
+        if (!boardId || Number(boardId) <= 0) return;
+        const itemId = Number(item.id);
+        if (!itemId || itemId <= 0) return;
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardData?.nonce || window.n88?.nonce || window.n88BoardNonce?.nonce || '';
+        if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; }
+
+        setAssignmentSaving(true);
+        try {
+            const params = new URLSearchParams();
+            params.set('action', 'n88_save_item_facts');
+            params.set('board_id', String(boardId));
+            params.set('item_id', String(itemId));
+            params.set('nonce', String(nonce));
+            params.set('payload', JSON.stringify({})); // keep item facts unchanged
+            params.set('project_id', String(projectId || 0));
+            params.set('room_id', String(roomId || 0));
+
+            const r = await fetch(ajaxUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString(),
+            });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.data?.message || 'Failed to update project/room');
+
+            // Update store item immediately (so UI reflects without reload)
+            const store = window.N88StudioOS?.useBoardStore?.getState?.();
+            if (store && Array.isArray(store.items) && typeof store.setItems === 'function') {
+                const updated = store.items.map((it) => {
+                    const itId = typeof it.id === 'string' && it.id.startsWith('item-') ? Number(it.id.replace('item-', '')) : Number(it.id);
+                    if (itId === itemId) {
+                        return { ...it, project_id: Number(projectId || 0) || null, room_id: Number(roomId || 0) || null };
+                    }
+                    return it;
+                });
+                store.setItems(updated);
+            }
+
+            // Reload page to show item in filtered view (project/room)
+            // Preserve current project_id and room_id in URL so item appears in correct filter
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentProjectId = urlParams.get('project_id') || '';
+            const currentRoomId = urlParams.get('room_id') || '';
+            const boardIdParam = urlParams.get('board_id') || '';
+            
+            // Build reload URL with same filters
+            const reloadUrl = new URL(window.location.href);
+            reloadUrl.searchParams.set('board_id', boardIdParam || String(boardId));
+            if (projectId > 0) {
+                reloadUrl.searchParams.set('project_id', String(projectId));
+                if (roomId > 0) {
+                    reloadUrl.searchParams.set('room_id', String(roomId));
+                } else {
+                    reloadUrl.searchParams.delete('room_id');
+                }
+            } else {
+                reloadUrl.searchParams.delete('project_id');
+                reloadUrl.searchParams.delete('room_id');
+            }
+            
+            // Reload after a short delay to show success
+            setTimeout(() => {
+                window.location.href = reloadUrl.toString();
+            }, 300);
+        } catch (e) {
+            alert(e?.message || 'Failed to update project/room.');
+        } finally {
+            setAssignmentSaving(false);
+        }
+    }, [boardId, item.id]);
+
+    const handleSelectProject = React.useCallback((e) => {
+        const newProjectId = Number(e.target.value || 0) || 0;
+        setSelectedProjectId(newProjectId);
+        setSelectedRoomId(0);
+    }, []);
+
+    const handleSelectRoom = React.useCallback((e) => {
+        const newRoomId = Number(e.target.value || 0) || 0;
+        setSelectedRoomId(newRoomId);
+    }, []);
+
+    const handleUpdateProjectRoom = React.useCallback(async () => {
+        await saveProjectRoomAssignment(selectedProjectId, selectedRoomId);
+        setProjectMenuOpen(false);
+    }, [saveProjectRoomAssignment, selectedProjectId, selectedRoomId]);
+
+    const handlePaymentReceiptFileSelect = React.useCallback((e) => {
         const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].includes(file.type);
+        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
+        setPaymentReceiptSelectedFile(file);
+        e.target.value = '';
+    }, []);
+
+    const submitPaymentReceiptUpload = React.useCallback(async () => {
+        const file = paymentReceiptSelectedFile;
         if (!file) return;
         const pid = itemState.prototype_payment_id;
         if (!pid) return;
         const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || window.ajaxurl || '/wp-admin/admin-ajax.php';
         const nonce = window.n88BoardNonce?.nonce_upload_payment_receipt || '';
         if (!nonce) { alert('Upload not available.'); return; }
-        const ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].includes(file.type);
-        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
         setPaymentReceiptUploading(true);
         try {
             const fd = new FormData();
             fd.append('action', 'n88_upload_payment_receipt');
             fd.append('payment_id', String(pid));
             fd.append('receipt_file', file);
+            if (paymentReceiptMessage && paymentReceiptMessage.trim()) fd.append('receipt_message', paymentReceiptMessage.trim());
             fd.append('_ajax_nonce', nonce);
             const r = await fetch(ajaxUrl, { method: 'POST', body: fd });
             const d = await r.json();
-            if (d.success) await fetchPaymentReceipts();
-            else alert(d.data?.message || 'Upload failed.');
+            if (d.success) {
+                setPaymentReceiptSelectedFile(null);
+                setPaymentReceiptMessage('');
+                setShowResubmitReceiptForm(false);
+                await fetchPaymentReceipts();
+                if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
+                // Update item card status to "Awaiting payment confirmation"
+                updateLayout(item.id, { has_payment_receipt_uploaded: true });
+            } else {
+                alert(d.data?.message || 'Upload failed.');
+            }
         } catch (err) {
             alert('Upload failed.');
         } finally {
             setPaymentReceiptUploading(false);
-            e.target.value = '';
-            if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
         }
-    }, [itemState.prototype_payment_id, fetchPaymentReceipts]);
+    }, [paymentReceiptSelectedFile, paymentReceiptMessage, itemState.prototype_payment_id, fetchPaymentReceipts]);
     
     // Auto-scroll to bottom when messages load or new message is sent
     React.useEffect(() => {
@@ -3235,9 +3461,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                 ×
                             </button>
                             
-                            {/* Action Dropdown - Right */}
+                            {/* Action Dropdown - Right (Add to Project / Room) */}
                             <div style={{ position: 'relative' }}>
                                 <button
+                                    onClick={() => setProjectMenuOpen((v) => !v)}
                                     style={{
                                         background: '#111111',
                                         border: `1px solid ${darkBorder}`,
@@ -3250,12 +3477,128 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '8px',
+                                        opacity: boardId && Number(boardId) > 0 ? 1 : 0.5,
                                     }}
-                                    disabled
+                                    disabled={!boardId || Number(boardId) <= 0}
                                 >
-                                    Add to Project
+                                    {getSelectedProjectName() ? `Project: ${getSelectedProjectName()}` : 'Add to Project'}
                                     <span style={{ fontSize: '10px' }}>▼</span>
                                 </button>
+
+                                {projectMenuOpen && (
+                                    <div
+                                        style={{
+                                            position: 'absolute',
+                                            top: '110%',
+                                            right: 0,
+                                            width: '320px',
+                                            backgroundColor: '#0b0b0b',
+                                            border: `1px solid ${darkBorder}`,
+                                            borderRadius: '6px',
+                                            padding: '12px',
+                                            zIndex: 1000003,
+                                            boxShadow: '0 8px 20px rgba(0,0,0,0.45)',
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '6px' }}>
+                                            {projectsLoading ? 'Loading projects…' : 'Select a project'}
+                                        </div>
+                                        <select
+                                            value={String(selectedProjectId || 0)}
+                                            onChange={handleSelectProject}
+                                            disabled={projectsLoading || assignmentSaving}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px 10px',
+                                                borderRadius: '4px',
+                                                backgroundColor: '#111',
+                                                color: '#fff',
+                                                border: `1px solid ${darkBorder}`,
+                                                fontFamily: 'monospace',
+                                                fontSize: '12px',
+                                                marginBottom: '10px',
+                                            }}
+                                        >
+                                            <option value="0">— Not in a project —</option>
+                                            {(boardProjects || []).map((p) => (
+                                                <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                            ))}
+                                        </select>
+
+                                        {selectedProjectId > 0 && (
+                                            <>
+                                                <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '6px' }}>
+                                                    {roomsLoading ? 'Loading rooms…' : 'Select a room (optional)'}
+                                                </div>
+                                                <select
+                                                    value={String(selectedRoomId || 0)}
+                                                    onChange={handleSelectRoom}
+                                                    disabled={roomsLoading || assignmentSaving}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px 10px',
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111',
+                                                        color: '#fff',
+                                                        border: `1px solid ${darkBorder}`,
+                                                        fontFamily: 'monospace',
+                                                        fontSize: '12px',
+                                                    }}
+                                                >
+                                                    <option value="0">— No room —</option>
+                                                    {(projectRooms || []).map((r) => (
+                                                        <option key={r.id} value={String(r.id)}>{r.name}</option>
+                                                    ))}
+                                                </select>
+                                            </>
+                                        )}
+
+                                        {assignmentSaving && (
+                                            <div style={{ marginTop: '10px', fontSize: '11px', color: '#00ff00' }}>
+                                                Saving…
+                                            </div>
+                                        )}
+
+                                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={handleUpdateProjectRoom}
+                                                disabled={assignmentSaving}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 10px',
+                                                    backgroundColor: '#1a1a1a',
+                                                    border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                    color: '#fff',
+                                                    cursor: assignmentSaving ? 'not-allowed' : 'pointer',
+                                                    fontFamily: 'monospace',
+                                                    fontSize: '12px',
+                                                }}
+                                            >
+                                                Update
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setProjectMenuOpen(false)}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 10px',
+                                                    backgroundColor: '#111',
+                                                    border: `1px solid ${darkBorder}`,
+                                                    borderRadius: '4px',
+                                                    color: '#aaa',
+                                                    cursor: 'pointer',
+                                                    fontFamily: 'monospace',
+                                                    fontSize: '12px',
+                                                }}
+                                            >
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         
@@ -3624,8 +3967,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                 </div>
                                             )}
 
-                                            {/* Commit 2.3.9.1C-a: Designer–Operator Communication - allow CAD flow too */}
-                                            {/* Commit 2.6.1: Hide Designer–Operator Communication button for view-only team members */}
+                                            {/* Support (headphone icon) - CAD files, messages, operator support */}
+                                            {/* Commit 2.6.1: Hide for view-only team members */}
                                             {!isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && (
                                                     <div style={{
                                                     marginBottom: '24px',
@@ -3651,7 +3994,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                             onMouseOver={(e) => e.target.style.backgroundColor = '#1a1a1a'}
                                                             onMouseOut={(e) => e.target.style.backgroundColor = '#111111'}
                                                         >
-                                                            Designer–Operator Communication
+                                                            🎧 Review and Message
                                                         </button>
                                                     ) : (
                                                         <div style={{
@@ -3666,12 +4009,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                 alignItems: 'center',
                                                                 marginBottom: '16px',
                                                 }}>
-                                                    <div style={{
+                                                    <div>
+                                                        <div style={{
                                                         fontSize: '14px',
                                                                     fontWeight: '600',
                                                                     color: darkText,
                                                     }}>
-                                                                    Designer–Operator Communication
+                                                                    🎧 Review and Message
+                                                    </div>
+                                                        <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                                                            Check files for CAD · Check messages · Support below
+                                                        </div>
                                                     </div>
                                                                 <button
                                                                     onClick={() => setShowDesignerMessageForm(false)}
@@ -3767,7 +4115,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                                     opacity: isCadActionBusy ? 0.6 : 1,
                                                                                 }}
                                                                             >
-                                                                                Request Revision
+                                                                                Submit revised CAD
                                                                             </button>
                                                                             <button
                                                                                 type="button"
@@ -3908,7 +4256,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                                                                         opacity: revisionFiles.length === 0 ? 0.5 : 1,
                                                                                     }}
                                                                                 >
-                                                                                    {isCadActionBusy ? 'Requesting...' : 'Request Revision'}
+                                                                                    {isCadActionBusy ? 'Submitting...' : 'Submit revised CAD'}
                                                                                 </button>
                                                                             </div>
                                                                         </div>
@@ -4227,49 +4575,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
                                             }}
                                         >
                                             <option value="">-- Select Category --</option>
-                                                <option value="Indoor Furniture">Indoor Furniture</option>
-                                                <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                                <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                                <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                                <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                                <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                                <option value="Outdoor Seating">Outdoor Seating</option>
-                                                <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                                <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                                <option value="Pool Furniture">Pool Furniture</option>
-                                                <option value="Lighting">Lighting</option>
-                                            <option value="Decorative Lighting">Decorative Lighting</option>
-                                            <option value="Architectural Lighting">Architectural Lighting</option>
-                                            <option value="Electrical / LED Components">Electrical / LED Components</option>
-                                            <option value="Bathroom Fixtures">Bathroom Fixtures</option>
-                                            <option value="Kitchen Fixtures">Kitchen Fixtures</option>
-                                            <option value="Faucets / Hardware (Plumbing)">Faucets / Hardware (Plumbing)</option>
-                                            <option value="Sinks / Basins">Sinks / Basins</option>
-                                            <option value="Shower Systems / Accessories">Shower Systems / Accessories</option>
-                                            <option value="Marble / Stone">Marble / Stone</option>
-                                            <option value="Granite">Granite</option>
-                                            <option value="Quartz">Quartz</option>
-                                            <option value="Porcelain / Ceramic Slabs">Porcelain / Ceramic Slabs</option>
-                                            <option value="Tile (Wall / Floor)">Tile (Wall / Floor)</option>
-                                            <option value="Terrazzo">Terrazzo</option>
-                                            <option value="Rugs / Carpets">Rugs / Carpets</option>
-                                            <option value="Drapery">Drapery</option>
-                                            <option value="Window Treatments / Shades">Window Treatments / Shades</option>
-                                            <option value="Wallcoverings">Wallcoverings</option>
-                                            <option value="Acoustic Panels">Acoustic Panels</option>
-                                            <option value="Mirrors">Mirrors</option>
-                                            <option value="Artwork">Artwork</option>
-                                            <option value="Decorative Accessories">Decorative Accessories</option>
-                                            <option value="Planters">Planters</option>
-                                            <option value="Sculptural Objects">Sculptural Objects</option>
-                                            <option value="Railings">Railings</option>
-                                            <option value="Screens / Louvers">Screens / Louvers</option>
-                                            <option value="Pergola / Shade Components">Pergola / Shade Components</option>
-                                            <option value="Facade Materials">Facade Materials</option>
-                                                <option value="Material Sample Kit">Material Sample Kit</option>
-                                                <option value="Fabric Sample">Fabric Sample</option>
-                                            <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
+                                            <option value="UPHOLSTERY">UPHOLSTERY</option>
+                                            <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
+                                            <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
+                                            <option value="LIGHTING">LIGHTING</option>
+                                            <option value="STONE (MARBLE / GRANITE / QUARTZ)">STONE (MARBLE / GRANITE / QUARTZ)</option>
+                                            <option value="METALWORK">METALWORK</option>
+                                            <option value="MILLWORK / CABINETRY">MILLWORK / CABINETRY</option>
+                                            <option value="FLOORING">FLOORING</option>
+                                            <option value="DRAPERY / WINDOW TREATMENTS">DRAPERY / WINDOW TREATMENTS</option>
+                                            <option value="GLASS / MIRRORS">GLASS / MIRRORS</option>
+                                            <option value="HARDWARE / ACCESSORIES">HARDWARE / ACCESSORIES</option>
+                                            <option value="RUGS / CARPETS">RUGS / CARPETS</option>
+                                            <option value="WALLCOVERINGS / FINISHES">WALLCOVERINGS / FINISHES</option>
+                                            <option value="APPLIANCES">APPLIANCES</option>
+                                            <option value="OTHER">OTHER</option>
                                         </select>
                                     </div>
                                     
@@ -7054,30 +7374,95 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, priceRequested = false
 
                                     {/* Upload Payment Receipt (JPG/PDF) — operator sees these when marking received */}
                                     <div style={{ marginTop: '20px', padding: '12px', backgroundColor: '#0a1a0a', borderRadius: '4px', border: '1px solid #00ff00' }}>
-                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>Upload Payment Receipt</div>
-                                        <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>JPG or PDF. Operator will review before confirming payment.</p>
-                                        <input
-                                            ref={paymentReceiptInputRef}
-                                            type="file"
-                                            accept=".jpg,.jpeg,.pdf"
-                                            onChange={handlePaymentReceiptUpload}
-                                            disabled={paymentReceiptUploading}
-                                            style={{ display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' }}
-                                        />
-                                        {paymentReceiptUploading && <span style={{ fontSize: '11px', color: '#00ff00' }}>Uploading…</span>}
-                                        {paymentReceiptsLoading && <div style={{ fontSize: '12px', color: '#888' }}>Loading receipts…</div>}
-                                        {!paymentReceiptsLoading && paymentReceipts.length > 0 && (
-                                            <div style={{ marginTop: '10px' }}>
-                                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#00ff00', marginBottom: '6px' }}>Uploaded:</div>
-                                                <ul style={{ margin: 0, paddingLeft: '18px', color: '#ccc', fontSize: '12px' }}>
-                                                    {paymentReceipts.map((r) => (
-                                                        <li key={r.id}>
-                                                            <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: '#00ff00' }}>{r.file_name}</a>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
+                                        {(() => {
+                                            const paymentApproved = itemState.prototype_payment_status === 'marked_received';
+                                            const hasReceipts = paymentReceipts.length > 0;
+                                            const showForm = !hasReceipts || (hasReceipts && !paymentApproved && showResubmitReceiptForm);
+                                            // After submit: hide message box; show Resubmit only when payment not approved
+                                            if (showForm) {
+                                                return (
+                                                    <>
+                                                        {/* Message (optional) only when showing form (first time or resubmit) */}
+                                                        <div style={{ marginBottom: '14px' }}>
+                                                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#00ff00', marginBottom: '6px' }}>Message (optional):</label>
+                                                            <textarea
+                                                                value={paymentReceiptMessage}
+                                                                onChange={(e) => setPaymentReceiptMessage(e.target.value)}
+                                                                placeholder="e.g. Paid via Zelle, ref #123 or bank transfer confirmation"
+                                                                rows={2}
+                                                                maxLength={500}
+                                                                style={{ width: '100%', padding: '8px 10px', fontSize: '12px', color: '#fff', backgroundColor: '#0d1f0d', border: '1px solid #004400', borderRadius: '4px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
+                                                            />
+                                                        </div>
+                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>{hasReceipts ? 'Resubmit payment proof' : 'Upload Payment Receipt'}</div>
+                                                        <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>JPG or PDF. Operator will review before confirming payment.</p>
+                                                        <input
+                                                            ref={paymentReceiptInputRef}
+                                                            type="file"
+                                                            accept=".jpg,.jpeg,.pdf"
+                                                            onChange={handlePaymentReceiptFileSelect}
+                                                            disabled={paymentReceiptUploading}
+                                                            style={{ display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' }}
+                                                        />
+                                                        {paymentReceiptSelectedFile && (
+                                                            <div style={{ fontSize: '12px', color: '#00ff00', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#0d1f0d', borderRadius: '4px', border: '1px solid #004400' }}>
+                                                                Selected: {paymentReceiptSelectedFile.name}
+                                                            </div>
+                                                        )}
+                                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={submitPaymentReceiptUpload}
+                                                                disabled={!paymentReceiptSelectedFile || paymentReceiptUploading}
+                                                                style={{ padding: '6px 14px', backgroundColor: '#00ff00', color: '#0a1a0a', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
+                                                            >
+                                                                {hasReceipts ? 'Submit' : 'Submit'}
+                                                            </button>
+                                                            {hasReceipts && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setShowResubmitReceiptForm(false); setPaymentReceiptMessage(''); setPaymentReceiptSelectedFile(null); if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = ''; }}
+                                                                    style={{ padding: '6px 14px', backgroundColor: 'transparent', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace' }}
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            )}
+                                                            {paymentReceiptUploading && <span style={{ fontSize: '11px', color: '#00ff00' }}>Uploading…</span>}
+                                                        </div>
+                                                        {paymentReceiptsLoading && <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>Loading receipts…</div>}
+                                                    </>
+                                                );
+                                            }
+                                            // Has receipts: show list; if payment not approved, show Resubmit button (no message box)
+                                            return (
+                                                <>
+                                                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>Payment proof attachment: Uploaded</div>
+                                                    <ul style={{ margin: 0, paddingLeft: '18px', color: '#ccc', fontSize: '12px' }}>
+                                                        {paymentReceipts.map((r, index) => {
+                                                            const isResubmitted = paymentReceipts.length > 1 && index < paymentReceipts.length - 1;
+                                                            return (
+                                                                <li key={r.id} style={{ marginBottom: '6px' }}>
+                                                                    {isResubmitted && (
+                                                                        <span style={{ display: 'inline-block', marginRight: '8px', padding: '2px 6px', fontSize: '10px', fontWeight: '600', backgroundColor: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '2px' }}>Resubmitted</span>
+                                                                    )}
+                                                                    <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: '#00ff00' }}>{r.file_name}</a>
+                                                                    {r.message && <span style={{ display: 'block', marginTop: '4px', color: '#aaa', fontStyle: 'italic' }}>— {r.message}</span>}
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                    {!paymentApproved && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowResubmitReceiptForm(true)}
+                                                            style={{ marginTop: '12px', padding: '8px 16px', backgroundColor: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
+                                                        >
+                                                            Resubmit
+                                                        </button>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </div>

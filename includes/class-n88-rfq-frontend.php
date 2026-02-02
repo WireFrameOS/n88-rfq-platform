@@ -1527,49 +1527,21 @@ class N88_RFQ_Frontend {
                                 <label>Product Category <span class="required">*</span></label>
                                 <select name="pieces[${itemCount}][product_category]" required class="n88-item-field">
                                     <option value="">-- Select Category --</option>
-                                        <option value="Indoor Furniture">Indoor Furniture</option>
-                                        <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                        <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                        <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                        <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                        <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                        <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                        <option value="Outdoor Seating">Outdoor Seating</option>
-                                        <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                        <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                        <option value="Pool Furniture">Pool Furniture</option>
-                                        <option value="Lighting">Lighting</option>
-                                    <option value="Decorative Lighting">Decorative Lighting</option>
-                                    <option value="Architectural Lighting">Architectural Lighting</option>
-                                    <option value="Electrical / LED Components">Electrical / LED Components</option>
-                                    <option value="Bathroom Fixtures">Bathroom Fixtures</option>
-                                    <option value="Kitchen Fixtures">Kitchen Fixtures</option>
-                                    <option value="Faucets / Hardware (Plumbing)">Faucets / Hardware (Plumbing)</option>
-                                    <option value="Sinks / Basins">Sinks / Basins</option>
-                                    <option value="Shower Systems / Accessories">Shower Systems / Accessories</option>
-                                    <option value="Marble / Stone">Marble / Stone</option>
-                                    <option value="Granite">Granite</option>
-                                    <option value="Quartz">Quartz</option>
-                                    <option value="Porcelain / Ceramic Slabs">Porcelain / Ceramic Slabs</option>
-                                    <option value="Tile (Wall / Floor)">Tile (Wall / Floor)</option>
-                                    <option value="Terrazzo">Terrazzo</option>
-                                    <option value="Rugs / Carpets">Rugs / Carpets</option>
-                                    <option value="Drapery">Drapery</option>
-                                    <option value="Window Treatments / Shades">Window Treatments / Shades</option>
-                                    <option value="Wallcoverings">Wallcoverings</option>
-                                    <option value="Acoustic Panels">Acoustic Panels</option>
-                                    <option value="Mirrors">Mirrors</option>
-                                    <option value="Artwork">Artwork</option>
-                                    <option value="Decorative Accessories">Decorative Accessories</option>
-                                    <option value="Planters">Planters</option>
-                                    <option value="Sculptural Objects">Sculptural Objects</option>
-                                    <option value="Railings">Railings</option>
-                                    <option value="Screens / Louvers">Screens / Louvers</option>
-                                    <option value="Pergola / Shade Components">Pergola / Shade Components</option>
-                                    <option value="Facade Materials">Facade Materials</option>
-                                        <option value="Material Sample Kit">Material Sample Kit</option>
-                                        <option value="Fabric Sample">Fabric Sample</option>
-                                    <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
+                                    <option value="UPHOLSTERY">UPHOLSTERY</option>
+                                    <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
+                                    <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
+                                    <option value="LIGHTING">LIGHTING</option>
+                                    <option value="STONE (MARBLE / GRANITE / QUARTZ)">STONE (MARBLE / GRANITE / QUARTZ)</option>
+                                    <option value="METALWORK">METALWORK</option>
+                                    <option value="MILLWORK / CABINETRY">MILLWORK / CABINETRY</option>
+                                    <option value="FLOORING">FLOORING</option>
+                                    <option value="DRAPERY / WINDOW TREATMENTS">DRAPERY / WINDOW TREATMENTS</option>
+                                    <option value="GLASS / MIRRORS">GLASS / MIRRORS</option>
+                                    <option value="HARDWARE / ACCESSORIES">HARDWARE / ACCESSORIES</option>
+                                    <option value="RUGS / CARPETS">RUGS / CARPETS</option>
+                                    <option value="WALLCOVERINGS / FINISHES">WALLCOVERINGS / FINISHES</option>
+                                    <option value="APPLIANCES">APPLIANCES</option>
+                                    <option value="OTHER">OTHER</option>
                                 </select>
                                 <small class="description">This determines the production timeline for this item</small>
                             </div>
@@ -1988,28 +1960,21 @@ class N88_RFQ_Frontend {
                         ?>
                         <select name="pieces[<?php echo (int) $index; ?>][product_category]" <?php echo $field_locked ? 'readonly' : 'required'; ?> class="<?php echo $field_locked ? 'n88-field-locked' : ''; ?> n88-item-field">
                             <option value="">-- Select Category --</option>
-                            <optgroup label="Indoor Furniture (6-Step Timeline)">
-                                <option value="Indoor Furniture" <?php selected( $product_category, 'Indoor Furniture' ); ?>>Indoor Furniture</option>
-                                <option value="Sofas & Seating (Indoor)" <?php selected( $product_category, 'Sofas & Seating (Indoor)' ); ?>>Sofas & Seating (Indoor)</option>
-                                <option value="Chairs & Armchairs (Indoor)" <?php selected( $product_category, 'Chairs & Armchairs (Indoor)' ); ?>>Chairs & Armchairs (Indoor)</option>
-                                <option value="Dining Tables (Indoor)" <?php selected( $product_category, 'Dining Tables (Indoor)' ); ?>>Dining Tables (Indoor)</option>
-                                <option value="Cabinetry / Millwork (Custom)" <?php selected( $product_category, 'Cabinetry / Millwork (Custom)' ); ?>>Cabinetry / Millwork (Custom)</option>
-                                <option value="Casegoods (Beds, Nightstands, Desks, Consoles)" <?php selected( $product_category, 'Casegoods (Beds, Nightstands, Desks, Consoles)' ); ?>>Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                            </optgroup>
-                            <optgroup label="Outdoor Furniture (6-Step Timeline)">
-                                <option value="Outdoor Furniture" <?php selected( $product_category, 'Outdoor Furniture' ); ?>>Outdoor Furniture</option>
-                                <option value="Outdoor Seating" <?php selected( $product_category, 'Outdoor Seating' ); ?>>Outdoor Seating</option>
-                                <option value="Outdoor Dining Sets" <?php selected( $product_category, 'Outdoor Dining Sets' ); ?>>Outdoor Dining Sets</option>
-                                <option value="Outdoor Loungers & Daybeds" <?php selected( $product_category, 'Outdoor Loungers & Daybeds' ); ?>>Outdoor Loungers & Daybeds</option>
-                                <option value="Pool Furniture" <?php selected( $product_category, 'Pool Furniture' ); ?>>Pool Furniture</option>
-                            </optgroup>
-                            <optgroup label="Sourcing (4-Step Timeline)">
-                                <option value="Lighting" <?php selected( $product_category, 'Lighting' ); ?>>Lighting</option>
-                            </optgroup>
-                            <optgroup label="Other">
-                                <option value="Material Sample Kit" <?php selected( $product_category, 'Material Sample Kit' ); ?>>Material Sample Kit</option>
-                                <option value="Fabric Sample" <?php selected( $product_category, 'Fabric Sample' ); ?>>Fabric Sample</option>
-                            </optgroup>
+                            <option value="UPHOLSTERY" <?php selected( $product_category, 'UPHOLSTERY' ); ?>>UPHOLSTERY</option>
+                            <option value="INDOOR FURNITURE (CASEGOODS)" <?php selected( $product_category, 'INDOOR FURNITURE (CASEGOODS)' ); ?>>INDOOR FURNITURE (CASEGOODS)</option>
+                            <option value="OUTDOOR FURNITURE" <?php selected( $product_category, 'OUTDOOR FURNITURE' ); ?>>OUTDOOR FURNITURE</option>
+                            <option value="LIGHTING" <?php selected( $product_category, 'LIGHTING' ); ?>>LIGHTING</option>
+                            <option value="STONE (MARBLE / GRANITE / QUARTZ)" <?php selected( $product_category, 'STONE (MARBLE / GRANITE / QUARTZ)' ); ?>>STONE (MARBLE / GRANITE / QUARTZ)</option>
+                            <option value="METALWORK" <?php selected( $product_category, 'METALWORK' ); ?>>METALWORK</option>
+                            <option value="MILLWORK / CABINETRY" <?php selected( $product_category, 'MILLWORK / CABINETRY' ); ?>>MILLWORK / CABINETRY</option>
+                            <option value="FLOORING" <?php selected( $product_category, 'FLOORING' ); ?>>FLOORING</option>
+                            <option value="DRAPERY / WINDOW TREATMENTS" <?php selected( $product_category, 'DRAPERY / WINDOW TREATMENTS' ); ?>>DRAPERY / WINDOW TREATMENTS</option>
+                            <option value="GLASS / MIRRORS" <?php selected( $product_category, 'GLASS / MIRRORS' ); ?>>GLASS / MIRRORS</option>
+                            <option value="HARDWARE / ACCESSORIES" <?php selected( $product_category, 'HARDWARE / ACCESSORIES' ); ?>>HARDWARE / ACCESSORIES</option>
+                            <option value="RUGS / CARPETS" <?php selected( $product_category, 'RUGS / CARPETS' ); ?>>RUGS / CARPETS</option>
+                            <option value="WALLCOVERINGS / FINISHES" <?php selected( $product_category, 'WALLCOVERINGS / FINISHES' ); ?>>WALLCOVERINGS / FINISHES</option>
+                            <option value="APPLIANCES" <?php selected( $product_category, 'APPLIANCES' ); ?>>APPLIANCES</option>
+                            <option value="OTHER" <?php selected( $product_category, 'OTHER' ); ?>>OTHER</option>
                         </select>
                         <small class="description">This determines the production timeline for this item</small>
                     </div>

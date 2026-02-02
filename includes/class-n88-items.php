@@ -35,21 +35,22 @@ class N88_Items {
         'accessory',
         'art',
         'other',
-        // Commit 2.3.5.3: New category values
-        'Indoor Furniture',
-        'Sofas & Seating (Indoor)',
-        'Chairs & Armchairs (Indoor)',
-        'Dining Tables (Indoor)',
-        'Cabinetry / Millwork (Custom)',
-        'Casegoods (Beds, Nightstands, Desks, Consoles)',
-        'Outdoor Furniture',
-        'Outdoor Seating',
-        'Outdoor Dining Sets',
-        'Outdoor Loungers & Daybeds',
-        'Pool Furniture',
-        'Lighting',
-        'Material Sample Kit',
-        'Fabric Sample',
+        // Current category dropdown values
+        'UPHOLSTERY',
+        'INDOOR FURNITURE (CASEGOODS)',
+        'OUTDOOR FURNITURE',
+        'LIGHTING',
+        'STONE (MARBLE / GRANITE / QUARTZ)',
+        'METALWORK',
+        'MILLWORK / CABINETRY',
+        'FLOORING',
+        'DRAPERY / WINDOW TREATMENTS',
+        'GLASS / MIRRORS',
+        'HARDWARE / ACCESSORIES',
+        'RUGS / CARPETS',
+        'WALLCOVERINGS / FINISHES',
+        'APPLIANCES',
+        'OTHER',
     );
 
     /**
@@ -1278,6 +1279,11 @@ class N88_Items {
         $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $payload_json = isset( $_POST['payload'] ) ? wp_unslash( $_POST['payload'] ) : '';
+        // Optional: Board Projects assignment (project / room)
+        $project_id = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : 0;
+        $room_id = isset( $_POST['room_id'] ) ? absint( $_POST['room_id'] ) : 0;
+        $has_project_param = array_key_exists( 'project_id', $_POST );
+        $has_room_param = array_key_exists( 'room_id', $_POST );
         
         if ( ! $item_id ) {
             wp_send_json_error( array( 'message' => 'Item ID is required.' ) );
@@ -1329,6 +1335,81 @@ class N88_Items {
             $description = sanitize_textarea_field( $payload['description'] );
             $update_data['description'] = $description;
             $update_format[] = '%s';
+        }
+
+        // Commit: Board Projects — update project_id / room_id columns if provided
+        // Note: we do this before meta_json update so everything is saved in one UPDATE call.
+        if ( $has_project_param || $has_room_param ) {
+            $items_table_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table );
+            $items_columns = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+            $has_project_id_col = in_array( 'project_id', $items_columns, true );
+            $has_room_id_col = in_array( 'room_id', $items_columns, true );
+
+            // Validate project access (if assigning to a project or room)
+            if ( $project_id > 0 || $room_id > 0 ) {
+                $projects_table = $wpdb->prefix . 'n88_projects';
+                $rooms_table = $wpdb->prefix . 'n88_project_rooms';
+
+                // If room provided, load it and (optionally) infer project_id
+                if ( $room_id > 0 ) {
+                    $room_row = $wpdb->get_row(
+                        $wpdb->prepare(
+                            "SELECT id, project_id FROM {$rooms_table} WHERE id = %d AND deleted_at IS NULL",
+                            $room_id
+                        ),
+                        ARRAY_A
+                    );
+                    if ( ! $room_row ) {
+                        wp_send_json_error( array( 'message' => 'Room not found.' ), 404 );
+                        return;
+                    }
+                    if ( $project_id > 0 && (int) $room_row['project_id'] !== (int) $project_id ) {
+                        wp_send_json_error( array( 'message' => 'Room does not belong to selected project.' ), 400 );
+                        return;
+                    }
+                    if ( $project_id === 0 ) {
+                        $project_id = (int) $room_row['project_id'];
+                    }
+                }
+
+                if ( $project_id > 0 ) {
+                    $project_row = $wpdb->get_row(
+                        $wpdb->prepare(
+                            "SELECT id, board_id FROM {$projects_table} WHERE id = %d AND deleted_at IS NULL",
+                            $project_id
+                        ),
+                        ARRAY_A
+                    );
+                    if ( ! $project_row ) {
+                        wp_send_json_error( array( 'message' => 'Project not found.' ), 404 );
+                        return;
+                    }
+
+                    // Enforce: project must be on a board the user can access
+                    $board_for_project = N88_Authorization::get_board_for_user( (int) $project_row['board_id'], $user_id );
+                    if ( ! $board_for_project ) {
+                        wp_send_json_error( array( 'message' => 'Access denied for this project.' ), 403 );
+                        return;
+                    }
+
+                    // If board_id was provided with the request, enforce it matches the project's board_id
+                    if ( $board_id > 0 && (int) $project_row['board_id'] !== (int) $board_id ) {
+                        wp_send_json_error( array( 'message' => 'Project does not belong to this board.' ), 400 );
+                        return;
+                    }
+                }
+            }
+
+            if ( $has_project_id_col ) {
+                $update_data['project_id'] = $project_id > 0 ? $project_id : null;
+                $update_format[] = $project_id > 0 ? '%d' : '%s';
+                error_log('N88 Save Item Facts: Setting project_id=' . ($project_id > 0 ? $project_id : 'NULL') . ' for item_id=' . $item_id);
+            }
+            if ( $has_room_id_col ) {
+                $update_data['room_id'] = $room_id > 0 ? $room_id : null;
+                $update_format[] = $room_id > 0 ? '%d' : '%s';
+                error_log('N88 Save Item Facts: Setting room_id=' . ($room_id > 0 ? $room_id : 'NULL') . ' for item_id=' . $item_id);
+            }
         }
         
         // Get existing meta_json
@@ -1724,6 +1805,16 @@ class N88_Items {
         error_log( 'Item Facts Save - Verified meta_json after save: ' . wp_json_encode( $verify_meta ) );
         error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
         error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
+        
+        // Verify project_id and room_id were saved correctly
+        if ( $has_project_param || $has_room_param ) {
+            $items_columns_check = $wpdb->get_col( "DESCRIBE " . preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table ) );
+            $has_pr_cols = in_array( 'project_id', $items_columns_check, true ) && in_array( 'room_id', $items_columns_check, true );
+            if ( $has_pr_cols ) {
+                $saved_values = $wpdb->get_row( $wpdb->prepare( "SELECT project_id, room_id FROM {$items_table} WHERE id = %d", $item_id ), ARRAY_A );
+                error_log( 'N88 Save Item Facts: Verified saved values for item_id=' . $item_id . ' - project_id=' . ( $saved_values['project_id'] ?? 'NULL' ) . ', room_id=' . ( $saved_values['room_id'] ?? 'NULL' ) );
+            }
+        }
         
         // Commit 2.3.10: Recalculate delivery cost if dimensions, quantity, or delivery country changed
         $should_recalculate_delivery = false;

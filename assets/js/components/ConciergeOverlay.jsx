@@ -1,24 +1,24 @@
 /**
- * Concierge Overlay Component (K) - Updated terminology to "Message System Operator"
+ * Concierge Overlay Component (K) - Support (headphone icon + label)
  * 
  * Milestone 1.3.7: Read-only overlay showing sourcing agent info
  * 
- * Non-blocking overlay that displays sourcing agent name and avatar.
+ * Non-blocking overlay that displays Support label and headphone icon avatar.
  * Must not interfere with board interactions (pointer-events: none).
  */
 
 import React from 'react';
 
 /**
- * ConciergeOverlay - Persistent overlay showing sourcing agent information
+ * ConciergeOverlay - Persistent overlay showing Support with headphone icon
  * 
  * @param {Object} props
  * @param {Object} props.concierge - Sourcing agent data { name: string, avatarUrl: string }
  */
 const ConciergeOverlay = ({ concierge }) => {
-    // Default placeholder if sourcing agent data not provided
+    // Default: Support label, headphone icon when no avatar URL
     const conciergeData = concierge || {
-        name: 'Message System Operator',
+        name: 'Support',
         avatarUrl: '',
     };
 
@@ -64,7 +64,7 @@ const ConciergeOverlay = ({ concierge }) => {
                     }}
                 >
                     {!conciergeData.avatarUrl && (
-                        <span>{conciergeData.name.charAt(0).toUpperCase()}</span>
+                        <span aria-hidden="true">🎧</span>
                     )}
                 </div>
                 {/* Name */}

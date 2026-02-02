@@ -119,24 +119,48 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
         }
 
-        // Priority 5: CAD Approved (Fix #27, #5) — after CAD approved, before prototype approved
+        // Priority 5: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
         const hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
         const cadStatus = (item.cad_status || '').toLowerCase() || null;
         if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
-            return { text: 'CAD Approved', color: '#00ff00', dot: '#00ff00' };
+            return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
         }
 
-        // Priority 6: Awaiting Payment (prototype payment requested, status=requested) - Commit 2.3.9.1C, Fix #27
+        // Priority 6: Awaiting payment confirmation (designer uploaded receipt; operator has not yet marked received)
         const prototypePaymentStatus = item.prototype_payment_status || null;
+        const hasPaymentReceiptUploaded = item.has_payment_receipt_uploaded === true || item.has_payment_receipt_uploaded === 'true' || item.has_payment_receipt_uploaded === 1;
+        if (hasPrototypePayment && prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
+            return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
+        }
+        // Priority 6b: Awaiting Payment (prototype payment requested, no receipt yet) - Commit 2.3.9.1C, Fix #27
         if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
             return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
+        }
+        // Priority 6c: Payment confirmed — when operator sent CAD to designer, show Review CAD; when designer approved CAD, show Pending Prototype Video
+        if (hasPrototypePayment && prototypePaymentStatus === 'marked_received') {
+            if (cadStatus === 'approved' && ps !== 'approved') {
+                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+            }
+            const cadVersion = Number(item.cad_current_version) || 0;
+            const operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
+            if (operatorSentCad) {
+                return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
+            }
+            if (cadStatus && cadStatus !== 'approved') {
+                return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
+            }
+            return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
         }
         
         // Check if item has award_set (In Production)
         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
         }
-        
+        // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Bids Received
+        const actionRequired = item.action_required === true || item.action_required === 'true' || item.action_required === 1;
+        if (actionRequired) {
+            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+        }
         // Check if item has bids (Bids Received)
         const bidCount = item.bid_count || item.bids_count || 0;
         if (bidCount > 0 || item.has_bids === true || item.has_bids === 'true') {
@@ -678,6 +702,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 item={item}
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
+                boardId={boardId}
                 priceRequested={priceRequested}
                 onPriceRequest={() => setPriceRequested(true)}
                 onSave={async (itemId, payload) => {

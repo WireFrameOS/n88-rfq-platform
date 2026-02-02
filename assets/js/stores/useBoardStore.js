@@ -172,6 +172,10 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 'displayMode',
                 'prototype_status',
                 'action_required',
+                'has_payment_receipt_uploaded',
+                'cad_status',
+                'cad_current_version',
+                'prototype_payment_status',
             ];
 
             const filteredChanges = {};

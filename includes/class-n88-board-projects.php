@@ -21,6 +21,7 @@ class N88_Board_Projects {
         add_action( 'wp_ajax_n88_create_project_room', array( $this, 'ajax_create_room' ) );
         add_action( 'wp_ajax_n88_update_project_room', array( $this, 'ajax_update_room' ) );
         add_action( 'wp_ajax_n88_delete_project_room', array( $this, 'ajax_delete_room' ) );
+        add_action( 'wp_ajax_n88_delete_board_project', array( $this, 'ajax_delete_project' ) );
         add_action( 'wp_ajax_n88_reorder_project_rooms', array( $this, 'ajax_reorder_rooms' ) );
         add_action( 'wp_ajax_n88_get_project_rooms', array( $this, 'ajax_get_rooms' ) );
     }
@@ -319,6 +320,9 @@ class N88_Board_Projects {
         $rooms_table = $wpdb->prefix . 'n88_project_rooms';
         $projects_table = $wpdb->prefix . 'n88_projects';
         $items_table = $wpdb->prefix . 'n88_items';
+        $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
 
         $room = $wpdb->get_row(
             $wpdb->prepare(
@@ -341,17 +345,44 @@ class N88_Board_Projects {
             wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
         }
 
-        // Check if room has items
-        $item_count = $wpdb->get_var(
+        $board_id = (int) $room['board_id'];
+        $now = current_time( 'mysql' );
+
+        // Cascade: remove all items in this room from the board (and clean up), then delete room
+        $item_ids = $wpdb->get_col(
             $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$items_table}
-                 WHERE room_id = %d AND deleted_at IS NULL",
+                "SELECT id FROM {$items_table}
+                 WHERE room_id = %d AND (deleted_at IS NULL OR deleted_at = '')",
                 $room_id
             )
         );
 
-        if ( $item_count > 0 ) {
-            wp_send_json_error( array( 'message' => 'Cannot delete room with items. Please remove items first.' ), 400 );
+        if ( is_array( $item_ids ) && count( $item_ids ) > 0 ) {
+            foreach ( $item_ids as $item_id ) {
+                $item_id = (int) $item_id;
+                // Remove from board (soft delete board_items)
+                $wpdb->query(
+                    $wpdb->prepare(
+                        "UPDATE {$board_items_table} SET removed_at = %s
+                         WHERE board_id = %d AND item_id = %d AND (removed_at IS NULL OR removed_at = '')",
+                        $now,
+                        $board_id,
+                        $item_id
+                    )
+                );
+                // Delete RFQ routes for this item
+                $wpdb->delete( $rfq_routes_table, array( 'item_id' => $item_id ), array( '%d' ) );
+                // Delete delivery context for this item
+                $wpdb->delete( $item_delivery_context_table, array( 'item_id' => $item_id ), array( '%d' ) );
+                // Unassign item from room
+                $wpdb->update(
+                    $items_table,
+                    array( 'room_id' => null, 'updated_at' => $now ),
+                    array( 'id' => $item_id ),
+                    array( '%s', '%s' ),
+                    array( '%d' )
+                );
+            }
         }
 
         // Soft delete room
@@ -370,8 +401,133 @@ class N88_Board_Projects {
             wp_send_json_error( array( 'message' => 'Failed to delete room.' ), 500 );
         }
 
+        if ( function_exists( 'wp_cache_flush' ) ) {
+            wp_cache_flush();
+        }
+
         wp_send_json_success( array(
             'message' => 'Room deleted successfully.',
+        ) );
+    }
+
+    /**
+     * AJAX: Delete Project (and all its rooms and their items)
+     *
+     * Cascades: for each room, removes all items from the board and unassigns from room,
+     * soft-deletes each room, then soft-deletes the project.
+     */
+    public function ajax_delete_project() {
+        N88_RFQ_Helpers::verify_ajax_nonce();
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'You must be logged in.' ), 401 );
+        }
+
+        $user_id = get_current_user_id();
+        $project_id = isset( $_POST['project_id'] ) ? absint( $_POST['project_id'] ) : 0;
+
+        if ( $project_id === 0 ) {
+            wp_send_json_error( array( 'message' => 'Project ID is required.' ), 400 );
+        }
+
+        if ( ! $this->can_access_project( $project_id, $user_id ) ) {
+            wp_send_json_error( array( 'message' => 'Project not found or access denied.' ), 403 );
+        }
+
+        global $wpdb;
+        $projects_table = $wpdb->prefix . 'n88_projects';
+        $rooms_table = $wpdb->prefix . 'n88_project_rooms';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+
+        $project = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, board_id FROM {$projects_table} WHERE id = %d AND deleted_at IS NULL",
+                $project_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $project ) {
+            wp_send_json_error( array( 'message' => 'Project not found.' ), 404 );
+        }
+
+        $board_id = (int) $project['board_id'];
+        $now = current_time( 'mysql' );
+
+        // Get all rooms in this project
+        $rooms = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id FROM {$rooms_table} WHERE project_id = %d AND deleted_at IS NULL",
+                $project_id
+            ),
+            ARRAY_A
+        );
+
+        if ( is_array( $rooms ) ) {
+            foreach ( $rooms as $r ) {
+                $room_id = (int) $r['id'];
+                $item_ids = $wpdb->get_col(
+                    $wpdb->prepare(
+                        "SELECT id FROM {$items_table}
+                         WHERE room_id = %d AND (deleted_at IS NULL OR deleted_at = '')",
+                        $room_id
+                    )
+                );
+                if ( is_array( $item_ids ) && count( $item_ids ) > 0 ) {
+                    foreach ( $item_ids as $item_id ) {
+                        $item_id = (int) $item_id;
+                        $wpdb->query(
+                            $wpdb->prepare(
+                                "UPDATE {$board_items_table} SET removed_at = %s
+                                 WHERE board_id = %d AND item_id = %d AND (removed_at IS NULL OR removed_at = '')",
+                                $now,
+                                $board_id,
+                                $item_id
+                            )
+                        );
+                        $wpdb->delete( $rfq_routes_table, array( 'item_id' => $item_id ), array( '%d' ) );
+                        $wpdb->delete( $item_delivery_context_table, array( 'item_id' => $item_id ), array( '%d' ) );
+                        $wpdb->update(
+                            $items_table,
+                            array( 'room_id' => null, 'updated_at' => $now ),
+                            array( 'id' => $item_id ),
+                            array( '%s', '%s' ),
+                            array( '%d' )
+                        );
+                    }
+                }
+                $wpdb->update(
+                    $rooms_table,
+                    array( 'deleted_at' => $now, 'updated_at' => $now ),
+                    array( 'id' => $room_id ),
+                    array( '%s', '%s' ),
+                    array( '%d' )
+                );
+            }
+        }
+
+        // Soft delete project
+        $updated = $wpdb->update(
+            $projects_table,
+            array( 'deleted_at' => $now, 'updated_at' => $now ),
+            array( 'id' => $project_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+
+        if ( $updated === false ) {
+            wp_send_json_error( array( 'message' => 'Failed to delete project.' ), 500 );
+        }
+
+        if ( function_exists( 'wp_cache_flush' ) ) {
+            wp_cache_flush();
+        }
+
+        wp_send_json_success( array(
+            'message' => 'Project deleted successfully.',
         ) );
     }
 

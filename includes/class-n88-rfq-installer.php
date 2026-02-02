@@ -1204,6 +1204,7 @@ class N88_RFQ_Installer {
 
         // Payment receipts (designer upload JPG/PDF; operator views before mark received)
         self::create_payment_receipts_table( $charset_collate );
+        self::add_payment_receipt_message_column();
         
         // Commit 2.3.9.2B-S: Create prototype video submission tables
         self::create_phase_2_3_9_2b_tables( $charset_collate );
@@ -1784,7 +1785,8 @@ class N88_RFQ_Installer {
             'Glass / Mirrors',
             'Hardware / Accessories',
             'Wallcoverings / Finishes',
-            'Appliances'
+            'Appliances',
+            'Other'
         );
 
         $category_ids = array();
@@ -1811,8 +1813,9 @@ class N88_RFQ_Installer {
         }
 
         // Define keywords by category (Updated with new CAD + Prototype Video keywords)
+        // Must match dropdown: UPHOLSTERY, INDOOR FURNITURE (CASEGOODS), etc. DB stores category name as Title Case (e.g. Upholstery).
         $keywords_by_category = array(
-            'Indoor Furniture' => array(
+            'Upholstery' => array(
                 'HEIGHT-MEASUREMENT',
                 'STITCH-DETAIL',
                 'FIRMNESS-TEST',
@@ -1979,6 +1982,11 @@ class N88_RFQ_Installer {
                 'PEEL-STRENGTH',
                 'GRAIN-DIRECTION',
                 'SUBSTRATE-TEXTURE'
+            ),
+            'Other' => array(
+                'DIMENSION-OVERLAY',
+                'FINISH-DETAIL',
+                'MATERIAL-CLOSEUP'
             )
         );
 
@@ -1998,7 +2006,8 @@ class N88_RFQ_Installer {
             'Hardware / Accessories',
             'Rugs / Carpets',
             'Wallcoverings / Finishes',
-            'Appliances'
+            'Appliances',
+            'Other'
         );
 
         // Map old category names to new category names (for cleanup of renamed categories)
@@ -2938,6 +2947,21 @@ class N88_RFQ_Installer {
     }
 
     /**
+     * Add message column to n88_prototype_payment_receipts (designer note when uploading receipt).
+     */
+    private static function add_payment_receipt_message_column() {
+        global $wpdb;
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) !== $receipts_table ) {
+            return;
+        }
+        $columns = $wpdb->get_col( "DESCRIBE {$receipts_table}" );
+        if ( ! is_array( $columns ) || ! in_array( 'message', $columns, true ) ) {
+            $wpdb->query( "ALTER TABLE {$receipts_table} ADD COLUMN message TEXT NULL AFTER file_name" );
+        }
+    }
+
+    /**
      * Commit 2.3.9.2B-S: Create prototype video submission tables
      */
     private static function create_phase_2_3_9_2b_tables( $charset_collate ) {
@@ -3444,6 +3468,11 @@ class N88_RFQ_Installer {
                 'VENTILATION-GAP' => 'Show the ventilation gaps required for the build-in.',
                 'INDICATOR-LIGHTS' => 'Show all indicator lights and display functions.',
                 'SOUND-LEVEL' => 'Provide a video with sound to demonstrate operational noise.',
+            ),
+            'OTHER' => array(
+                'DIMENSION-OVERLAY' => 'Provide an overall width / depth / height overlay for scale.',
+                'FINISH-DETAIL' => 'Please reshoot showing finish detail in close-up.',
+                'MATERIAL-CLOSEUP' => 'Show material and construction in close-up.',
             ),
         );
         

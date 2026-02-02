@@ -2483,49 +2483,21 @@ class N88_RFQ_Admin {
                                 <td>
                                     <select id="item-type" name="item_type" style="width: 100%;">
                                         <option value="">-- Select Category --</option>
-                                        <option value="Indoor Furniture">Indoor Furniture</option>
-                                        <option value="Sofas & Seating (Indoor)">Sofas & Seating (Indoor)</option>
-                                        <option value="Chairs & Armchairs (Indoor)">Chairs & Armchairs (Indoor)</option>
-                                        <option value="Dining Tables (Indoor)">Dining Tables (Indoor)</option>
-                                        <option value="Cabinetry / Millwork (Custom)">Cabinetry / Millwork (Custom)</option>
-                                        <option value="Casegoods (Beds, Nightstands, Desks, Consoles)">Casegoods (Beds, Nightstands, Desks, Consoles)</option>
-                                        <option value="Outdoor Furniture">Outdoor Furniture</option>
-                                        <option value="Outdoor Seating">Outdoor Seating</option>
-                                        <option value="Outdoor Dining Sets">Outdoor Dining Sets</option>
-                                        <option value="Outdoor Loungers & Daybeds">Outdoor Loungers & Daybeds</option>
-                                        <option value="Pool Furniture">Pool Furniture</option>
-                                        <option value="Lighting">Lighting</option>
-                                        <option value="Decorative Lighting">Decorative Lighting</option>
-                                        <option value="Architectural Lighting">Architectural Lighting</option>
-                                        <option value="Electrical / LED Components">Electrical / LED Components</option>
-                                        <option value="Bathroom Fixtures">Bathroom Fixtures</option>
-                                        <option value="Kitchen Fixtures">Kitchen Fixtures</option>
-                                        <option value="Faucets / Hardware (Plumbing)">Faucets / Hardware (Plumbing)</option>
-                                        <option value="Sinks / Basins">Sinks / Basins</option>
-                                        <option value="Shower Systems / Accessories">Shower Systems / Accessories</option>
-                                        <option value="Marble / Stone">Marble / Stone</option>
-                                        <option value="Granite">Granite</option>
-                                        <option value="Quartz">Quartz</option>
-                                        <option value="Porcelain / Ceramic Slabs">Porcelain / Ceramic Slabs</option>
-                                        <option value="Tile (Wall / Floor)">Tile (Wall / Floor)</option>
-                                        <option value="Terrazzo">Terrazzo</option>
-                                        <option value="Rugs / Carpets">Rugs / Carpets</option>
-                                        <option value="Drapery">Drapery</option>
-                                        <option value="Window Treatments / Shades">Window Treatments / Shades</option>
-                                        <option value="Wallcoverings">Wallcoverings</option>
-                                        <option value="Acoustic Panels">Acoustic Panels</option>
-                                        <option value="Mirrors">Mirrors</option>
-                                        <option value="Artwork">Artwork</option>
-                                        <option value="Decorative Accessories">Decorative Accessories</option>
-                                        <option value="Planters">Planters</option>
-                                        <option value="Sculptural Objects">Sculptural Objects</option>
-                                        <option value="Railings">Railings</option>
-                                        <option value="Screens / Louvers">Screens / Louvers</option>
-                                        <option value="Pergola / Shade Components">Pergola / Shade Components</option>
-                                        <option value="Facade Materials">Facade Materials</option>
-                                        <option value="Material Sample Kit">Material Sample Kit</option>
-                                        <option value="Fabric Sample">Fabric Sample</option>
-                                        <option value="Custom Sourcing / Not Listed">Custom Sourcing / Not Listed</option>
+                                        <option value="UPHOLSTERY">UPHOLSTERY</option>
+                                        <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
+                                        <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
+                                        <option value="LIGHTING">LIGHTING</option>
+                                        <option value="STONE (MARBLE / GRANITE / QUARTZ)">STONE (MARBLE / GRANITE / QUARTZ)</option>
+                                        <option value="METALWORK">METALWORK</option>
+                                        <option value="MILLWORK / CABINETRY">MILLWORK / CABINETRY</option>
+                                        <option value="FLOORING">FLOORING</option>
+                                        <option value="DRAPERY / WINDOW TREATMENTS">DRAPERY / WINDOW TREATMENTS</option>
+                                        <option value="GLASS / MIRRORS">GLASS / MIRRORS</option>
+                                        <option value="HARDWARE / ACCESSORIES">HARDWARE / ACCESSORIES</option>
+                                        <option value="RUGS / CARPETS">RUGS / CARPETS</option>
+                                        <option value="WALLCOVERINGS / FINISHES">WALLCOVERINGS / FINISHES</option>
+                                        <option value="APPLIANCES">APPLIANCES</option>
+                                        <option value="OTHER">OTHER</option>
                                     </select>
                                 </td>
                             </tr>
@@ -3582,6 +3554,21 @@ class N88_RFQ_Admin {
                     error_log('WARNING: meta_json column does not exist in items table. Size preferences will not be saved/loaded.');
                     error_log('Please run the migration to add meta_json column, or deactivate/reactivate the plugin.');
                 }
+                $items_columns_check = $wpdb->get_col( "DESCRIBE {$items_table_safe}" );
+                $has_project_room = in_array( 'project_id', $items_columns_check, true ) && in_array( 'room_id', $items_columns_check, true );
+                if ( $has_project_room ) {
+                    $select_fields .= ", i.project_id, i.room_id";
+                }
+                $projects_table = $wpdb->prefix . 'n88_projects';
+                $rooms_table = $wpdb->prefix . 'n88_project_rooms';
+                $projects_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$projects_table}'" ) === $projects_table;
+                $rooms_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$rooms_table}'" ) === $rooms_table;
+                if ( $has_project_room && $projects_table_exists ) {
+                    $select_fields .= ", p.name AS project_name";
+                }
+                if ( $has_project_room && $rooms_table_exists ) {
+                    $select_fields .= ", r.name AS room_name";
+                }
                 
                 // Add a comprehensive cache flush to ensure fresh data (for both new items and deleted items)
                 // This is critical when redirecting immediately after item creation or deletion
@@ -3613,6 +3600,11 @@ class N88_RFQ_Admin {
                 $project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
                 $room_id = isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0;
                 
+                // Debug: Log filter parameters when room is selected
+                if ( $room_id > 0 ) {
+                    error_log('N88 Board: Loading items for room_id=' . $room_id . ', project_id=' . $project_id . ', board_id=' . $board_id);
+                }
+                
                 // If this is after item creation, log the query for debugging
                 if ( $is_after_item_creation ) {
                     error_log('PHP: Cache cleared, now querying database...');
@@ -3622,12 +3614,14 @@ class N88_RFQ_Admin {
                 if ( $project_id > 0 ) {
                     // Show items for selected project
                     if ( $room_id > 0 ) {
-                        // Fix 3: Filter by specific room
+                        // Fix 3: Filter by specific room (include JOINs for project/room names)
+                        $join_project = ( $has_project_room && $projects_table_exists ) ? " LEFT JOIN {$projects_table} p ON i.project_id = p.id" : '';
+                        $join_room = ( $has_project_room && $rooms_table_exists ) ? " LEFT JOIN {$rooms_table} r ON i.room_id = r.id" : '';
                         $board_items = $wpdb->get_results(
                             $wpdb->prepare(
                                 "SELECT {$select_fields}
                                  FROM {$board_items_table} bi
-                                 INNER JOIN {$items_table} i ON bi.item_id = i.id
+                                 INNER JOIN {$items_table} i ON bi.item_id = i.id{$join_project}{$join_room}
                                  WHERE bi.board_id = %d 
                                  AND i.project_id = %d
                                  AND i.room_id = %d
@@ -3639,13 +3633,50 @@ class N88_RFQ_Admin {
                                 $room_id
                             )
                         );
+                        
+                        // Debug: Log room query results
+                        error_log('N88 Room Query: Found ' . count( $board_items ) . ' items for room_id=' . $room_id . ', project_id=' . $project_id . ', board_id=' . $board_id);
+                        if ( count( $board_items ) > 0 ) {
+                            error_log('N88 Room Query: Item IDs: ' . implode( ', ', array_map( function( $item ) { return $item->item_id; }, $board_items ) ) );
+                        } else {
+                            // Debug: Check if items exist with this room_id but different conditions
+                            $debug_check = $wpdb->get_results(
+                                $wpdb->prepare(
+                                    "SELECT bi.item_id, bi.board_id, bi.removed_at, i.project_id, i.room_id, i.deleted_at
+                                     FROM {$board_items_table} bi
+                                     INNER JOIN {$items_table} i ON bi.item_id = i.id
+                                     WHERE i.room_id = %d
+                                     LIMIT 20",
+                                    $room_id
+                                )
+                            );
+                            if ( ! empty( $debug_check ) ) {
+                                error_log('N88 Room Query Debug: Found ' . count( $debug_check ) . ' items with room_id=' . $room_id . ' across all boards. Checking filters...');
+                                foreach ( $debug_check as $dbg ) {
+                                    $matches_board = (int) $dbg->board_id === (int) $board_id;
+                                    $matches_project = (int) $dbg->project_id === (int) $project_id;
+                                    $not_removed = empty( $dbg->removed_at );
+                                    $not_deleted = empty( $dbg->deleted_at );
+                                    $all_match = $matches_board && $matches_project && $not_removed && $not_deleted;
+                                    error_log('N88 Room Debug Item ' . $dbg->item_id . ': board=' . ($matches_board ? 'YES' : 'NO(' . $dbg->board_id . ')') . 
+                                             ', project=' . ($matches_project ? 'YES' : 'NO(' . $dbg->project_id . ')') . 
+                                             ', removed=' . ($not_removed ? 'NO' : 'YES') . 
+                                             ', deleted=' . ($not_deleted ? 'NO' : 'YES') . 
+                                             ', PASS=' . ($all_match ? 'YES' : 'NO'));
+                                }
+                            } else {
+                                error_log('N88 Room Query Debug: No items found with room_id=' . $room_id . ' in database at all.');
+                            }
+                        }
                     } else {
                         // Show all items for project (all rooms)
+                        $join_project = ( $has_project_room && $projects_table_exists ) ? " LEFT JOIN {$projects_table} p ON i.project_id = p.id" : '';
+                        $join_room = ( $has_project_room && $rooms_table_exists ) ? " LEFT JOIN {$rooms_table} r ON i.room_id = r.id" : '';
                         $board_items = $wpdb->get_results(
                             $wpdb->prepare(
                                 "SELECT {$select_fields}
                                  FROM {$board_items_table} bi
-                                 INNER JOIN {$items_table} i ON bi.item_id = i.id
+                                 INNER JOIN {$items_table} i ON bi.item_id = i.id{$join_project}{$join_room}
                                  WHERE bi.board_id = %d 
                                  AND i.project_id = %d
                                  AND bi.removed_at IS NULL
@@ -3658,11 +3689,13 @@ class N88_RFQ_Admin {
                     }
                 } else {
                     // Fix 1: Show only items WITHOUT project (exclude project items from main board)
+                    $join_project = ( $has_project_room && $projects_table_exists ) ? " LEFT JOIN {$projects_table} p ON i.project_id = p.id" : '';
+                    $join_room = ( $has_project_room && $rooms_table_exists ) ? " LEFT JOIN {$rooms_table} r ON i.room_id = r.id" : '';
                     $board_items = $wpdb->get_results(
                         $wpdb->prepare(
                             "SELECT {$select_fields}
                              FROM {$board_items_table} bi
-                             INNER JOIN {$items_table} i ON bi.item_id = i.id
+                             INNER JOIN {$items_table} i ON bi.item_id = i.id{$join_project}{$join_room}
                              WHERE bi.board_id = %d 
                              AND (i.project_id IS NULL OR i.project_id = 0)
                              AND bi.removed_at IS NULL
@@ -3967,18 +4000,25 @@ class N88_RFQ_Admin {
                             }
                         }
                         
-                        // Commit 2.3.9.1C: Check for prototype payment status
+                        // Commit 2.3.9.1C: Check for prototype payment status (existing items: include cad_status and cad_current_version for Review CAD)
                         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
                         $prototype_payment_status = null;
                         $has_prototype_payment = false;
                         $has_prototype_video_submitted = false;
+                        $has_payment_receipt_uploaded = false;
+                        $cad_status = null;
+                        $cad_current_version = null;
                         
                         // Check if prototype payments table exists
                         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
                         if ( $prototype_payments_table_exists ) {
-                            // Get the most recent prototype payment for this item and designer (need id for submission check)
+                            $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                            $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
+                            $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
+                            $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
+                            // Get the most recent prototype payment for this item and designer (include cad_status for Review CAD)
                             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                                "SELECT id, status 
+                                "SELECT {$sel_pp}
                                 FROM {$prototype_payments_table}
                                 WHERE item_id = %d
                                 AND designer_user_id = %d
@@ -3991,6 +4031,8 @@ class N88_RFQ_Admin {
                             if ( $prototype_payment ) {
                                 $has_prototype_payment = true;
                                 $prototype_payment_status = $prototype_payment['status'];
+                                $cad_status = ( $has_cad_col && isset( $prototype_payment['cad_status'] ) ) ? $prototype_payment['cad_status'] : null;
+                                $prototype_status = ( $has_ps_col && isset( $prototype_payment['prototype_status'] ) ) ? $prototype_payment['prototype_status'] : null;
                                 // Designer Action Required: supplier has submitted prototype video(s) — designer must review
                                 if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
                                     $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
@@ -4001,6 +4043,32 @@ class N88_RFQ_Admin {
                                             "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
                                             intval( $prototype_payment['id'] )
                                         ) );
+                                    }
+                                }
+                                // After designer uploads receipt: show "Awaiting payment confirmation" on item card
+                                if ( $prototype_payment_status === 'requested' && ! empty( $prototype_payment['id'] ) ) {
+                                    $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                                        $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                    }
+                                }
+                                // cad_current_version for Review CAD label when operator sent CAD
+                                if ( ! empty( $prototype_payment['id'] ) ) {
+                                    $item_files_table = $wpdb->prefix . 'n88_item_files';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+                                        $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT MAX(cad_version) FROM {$item_files_table}
+                                            WHERE item_id = %d AND payment_id = %d
+                                            AND attachment_type = 'cad' AND (detached_at IS NULL OR detached_at = '')",
+                                            $item_id,
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                        if ( $cad_current_version_raw !== null ) {
+                                            $cad_current_version = intval( $cad_current_version_raw );
+                                        }
                                     }
                                 }
                             }
@@ -4049,12 +4117,19 @@ class N88_RFQ_Admin {
                             'has_prototype_video_submitted' => $has_prototype_video_submitted,
                             'prototype_status' => $prototype_status,
                             'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ),
-                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved label
+                            // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved / Review CAD label
                             'has_prototype_payment' => $has_prototype_payment,
                             'prototype_payment_status' => $prototype_payment_status,
+                            'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
                             'cad_status' => $cad_status,
+                            'cad_current_version' => $cad_current_version,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
+                            // Project/room for Add to Project button label
+                            'project_id' => ( $has_project_room && isset( $board_item->project_id ) ) ? absint( $board_item->project_id ) : null,
+                            'room_id' => ( $has_project_room && isset( $board_item->room_id ) ) ? absint( $board_item->room_id ) : null,
+                            'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
+                            'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
                     } else {
                         // New item - no layout data yet, use defaults from item meta_json
@@ -4268,8 +4343,10 @@ class N88_RFQ_Admin {
                         $prototype_payment_status = null;
                         $prototype_status = null;
                         $cad_status = null;
+                        $cad_current_version = null;
                         $has_prototype_payment = false;
                         $has_prototype_video_submitted = false;
+                        $has_payment_receipt_uploaded = false;
                         
                         // Check if prototype payments table exists
                         $prototype_payments_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
@@ -4302,6 +4379,30 @@ class N88_RFQ_Admin {
                                             "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
                                             intval( $prototype_payment['id'] )
                                         ) );
+                                    }
+                                }
+                                if ( $prototype_payment_status === 'requested' && ! empty( $prototype_payment['id'] ) ) {
+                                    $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                                        $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                    }
+                                }
+                                if ( ! empty( $prototype_payment['id'] ) ) {
+                                    $item_files_table = $wpdb->prefix . 'n88_item_files';
+                                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+                                        $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
+                                            "SELECT MAX(cad_version) FROM {$item_files_table}
+                                            WHERE item_id = %d AND payment_id = %d
+                                            AND attachment_type = 'cad' AND (detached_at IS NULL OR detached_at = '')",
+                                            $item_id,
+                                            intval( $prototype_payment['id'] )
+                                        ) );
+                                        if ( $cad_current_version_raw !== null ) {
+                                            $cad_current_version = intval( $cad_current_version_raw );
+                                        }
                                     }
                                 }
                             }
@@ -4378,9 +4479,16 @@ class N88_RFQ_Admin {
                             // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved label
                             'has_prototype_payment' => $has_prototype_payment,
                             'prototype_payment_status' => $prototype_payment_status,
+                            'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
                             'cad_status' => $cad_status,
+                            'cad_current_version' => $cad_current_version,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
+                            // Project/room for Add to Project button label
+                            'project_id' => ( $has_project_room && isset( $board_item->project_id ) ) ? absint( $board_item->project_id ) : null,
+                            'room_id' => ( $has_project_room && isset( $board_item->room_id ) ) ? absint( $board_item->room_id ) : null,
+                            'project_name' => ( $has_project_room && $projects_table_exists && ! empty( $board_item->project_name ) ) ? sanitize_text_field( $board_item->project_name ) : null,
+                            'room_name' => ( $has_project_room && $rooms_table_exists && ! empty( $board_item->room_name ) ) ? sanitize_text_field( $board_item->room_name ) : null,
                         );
                         
                         error_log('Item ' . $item_id . ' - New item positioned at (' . $item_x . ', ' . $item_y . ') with size: ' . $default_size);
@@ -4684,6 +4792,9 @@ class N88_RFQ_Admin {
                     if ( $is_real_board && isset( $board ) && isset( $board->owner_user_id ) ) {
                         $is_own_board = ( intval( $board->owner_user_id ) === intval( $user_id ) );
                     }
+                    // Commit 2.6.1: view-only and hide buttons (used by Project dropdown and Controls row)
+                    $is_view_only_team = N88_RFQ_Auth::is_view_only_team_member( $user_id );
+                    $should_hide_buttons = $is_view_only_team || ( $is_real_board && ! $is_own_board );
                     // Determine active button:
                     // - If viewing own board: "My Board" is active
                     // - If viewing owner's board (team member): "Firm Board (View-Only)" is active
@@ -4743,6 +4854,12 @@ class N88_RFQ_Admin {
                             }
                             ?>
                         </select>
+                        <?php
+                        $sel_project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
+                        if ( $sel_project_id > 0 && ! $should_hide_buttons ) :
+                        ?>
+                        <button id="n88-delete-project-btn" type="button" data-project-id="<?php echo esc_attr( $sel_project_id ); ?>" style="padding: 4px 10px; background: #cc0000; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;" title="Delete this project and all its rooms and items">Delete project</button>
+                        <?php endif; ?>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 14px; color: #666;">Search:</span>
@@ -4752,12 +4869,6 @@ class N88_RFQ_Admin {
                 
                 <!-- K) Controls Row - Create Project and Add Item buttons left-aligned -->
                 <div style="display: flex; align-items: center; gap: 10px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
-                    <?php 
-                    // Commit 2.6.1: Check if user is view-only team member
-                    $is_view_only_team = N88_RFQ_Auth::is_view_only_team_member( $user_id );
-                    // Hide buttons if: user is view-only team member OR viewing someone else's board (not their own)
-                    $should_hide_buttons = $is_view_only_team || ( $is_real_board && ! $is_own_board );
-                    ?>
                     <?php if ( ! $should_hide_buttons ) : ?>
                         <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
                             + Create Project
@@ -5159,7 +5270,7 @@ class N88_RFQ_Admin {
                         e.stopPropagation();
                         var roomId = this.getAttribute('data-room-id');
                         
-                        if (!confirm('Are you sure you want to delete this room? Items in this room will not be deleted, but they will be unassigned from the room.')) {
+                        if (!confirm('Are you sure you want to delete this room? All items in this room will be removed from the board and the room will be deleted.')) {
                             return;
                         }
                         
@@ -5204,6 +5315,48 @@ class N88_RFQ_Admin {
                         });
                     });
                 });
+                
+                // Delete Project button handler
+                var deleteProjectBtn = document.getElementById('n88-delete-project-btn');
+                if (deleteProjectBtn) {
+                    deleteProjectBtn.addEventListener('click', function() {
+                        var projectId = this.getAttribute('data-project-id') || document.getElementById('n88-project-selector').value;
+                        if (!projectId || projectId === '') {
+                            alert('Please select a project first.');
+                            return;
+                        }
+                        if (!confirm('Are you sure you want to delete this project? All rooms and items in this project will be permanently removed.')) {
+                            return;
+                        }
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonce) {
+                            alert('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        var formData = new FormData();
+                        formData.append('action', 'n88_delete_board_project');
+                        formData.append('project_id', projectId);
+                        formData.append('_ajax_nonce', nonce);
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data.success) {
+                                    alert('Project deleted successfully.');
+                                    var u = new URLSearchParams(window.location.search);
+                                    u.delete('project_id');
+                                    u.delete('room_id');
+                                    window.location.search = u.toString();
+                                } else {
+                                    alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to delete project.'));
+                                }
+                            })
+                            .catch(function(err) {
+                                console.error('Error deleting project:', err);
+                                alert('An error occurred. Please try again.');
+                            });
+                    });
+                }
                 
                 // Commit 2.6.1: Invite Team Member button handler
                 var inviteTeamMemberBtn = document.getElementById('n88-invite-team-member-btn');
@@ -5391,7 +5544,8 @@ class N88_RFQ_Admin {
                     var container = document.getElementById('n88-board-canvas-container');
                     if (root && container) {
                         var hasChildren = root.children.length > 0;
-                        var hasAbsoluteItems = root.querySelectorAll('[style*="position: absolute"], [style*="position:absolute"], [style*="transform"]').length > 0;
+                        var absSel = '[style*="position: absolute"], [style*="position:absolute"], [style*="transform"]';
+                        var hasAbsoluteItems = root.querySelectorAll(absSel).length > 0;
                         
                         console.log('Checking board render - children:', root.children.length, 'absolute items:', hasAbsoluteItems);
                         
@@ -6065,7 +6219,7 @@ class N88_RFQ_Admin {
                     if (invitedCount > 0) {
                         // Toggle ON + supplier email(s) entered
                         messageDiv.style.display = 'block';
-                        messageDiv.textContent = 'Your invited maker(s) will receive this request first. WireFrame (OS) will invite additional makers after 24 hours.';
+                        messageDiv.textContent = 'Your invited maker(s) will receive this request first.';
                     } else {
                         // Toggle ON + NO supplier email entered - hide confirmation message
                         messageDiv.style.display = 'none';
@@ -6561,8 +6715,14 @@ class N88_RFQ_Admin {
                 ?>;
                 
                 // Debug: Log initial items to verify title and sizeKey
-                console.log('Initial items loaded:', initialItems.length);
+                var urlParamsDebug = new URLSearchParams(window.location.search);
+                var projectIdDebug = urlParamsDebug.get('project_id') || 'none';
+                var roomIdDebug = urlParamsDebug.get('room_id') || 'none';
+                console.log('Initial items loaded for project_id=' + projectIdDebug + ', room_id=' + roomIdDebug + ':', initialItems.length);
                 console.log('Initial items array:', initialItems);
+                if (roomIdDebug !== 'none' && initialItems.length === 0) {
+                    console.warn('WARNING: No items found for room_id=' + roomIdDebug + '. Check server logs for query details.');
+                }
                 if (initialItems.length > 0) {
                     console.log('First item sample:', initialItems[0]);
                     console.log('First item has title:', initialItems[0].title);
@@ -6609,7 +6769,7 @@ class N88_RFQ_Admin {
                     // TODO: Replace with actual concierge data source if available
                     // For now, use placeholder
                     echo wp_json_encode( array(
-                        'name' => 'Message System Operator',
+                        'name' => 'Support',
                         'avatarUrl' => '',
                     ) );
                 ?>;
@@ -6782,24 +6942,48 @@ class N88_RFQ_Admin {
                             return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
                         }
 
-                        // Priority 4: CAD Approved (Fix #27, #5) — after CAD approved, before prototype approved
+                        // Priority 4: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
                         var hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
                         var cadStatus = (item.cad_status || '').toLowerCase() || null;
                         if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
-                            return { text: 'CAD Approved', color: '#00ff00', dot: '#00ff00' };
+                            return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
                         }
 
-                        // Priority 6: Awaiting Payment (prototype payment requested, status=requested) - Commit 2.3.9.1C, Fix #27
+                        // Priority 6: Awaiting payment confirmation (designer uploaded receipt; operator has not yet marked received)
                         var prototypePaymentStatus = item.prototype_payment_status || null;
+                        var hasPaymentReceiptUploaded = item.has_payment_receipt_uploaded === true || item.has_payment_receipt_uploaded === 'true' || item.has_payment_receipt_uploaded === 1;
+                        if (hasPrototypePayment && prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
+                            return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
+                        }
+                        // Priority 6b: Awaiting Payment (prototype payment requested, no receipt yet) - Commit 2.3.9.1C, Fix #27
                         if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
                             return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
+                        }
+                        // Priority 6c: Payment confirmed — when operator sent CAD show Review CAD; when designer approved CAD show Pending Prototype Video
+                        if (hasPrototypePayment && prototypePaymentStatus === 'marked_received') {
+                            if (cadStatus === 'approved' && ps !== 'approved') {
+                                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                            }
+                            var cadVersion = Number(item.cad_current_version) || 0;
+                            var operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
+                            if (operatorSentCad) {
+                                return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
+                            }
+                            if (cadStatus && cadStatus !== 'approved') {
+                                return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
+                            }
+                            return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
                         }
                         
                         // Priority 7: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                         }
-                        
+                        // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Proposals received
+                        var actionRequiredFlag = item.action_required === true || item.action_required === 'true' || item.action_required === 1;
+                        if (actionRequiredFlag) {
+                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                        }
                         // Get valid bid count - only bids with status = 'submitted' and matching current revision
                         // For now, we'll use bid_count from backend which should already filter valid bids
                         var validBidCount = 0;
@@ -8937,6 +9121,42 @@ class N88_RFQ_Admin {
                     var _paymentReceiptUploadingState = React.useState(false);
                     var paymentReceiptUploading = _paymentReceiptUploadingState[0];
                     var setPaymentReceiptUploading = _paymentReceiptUploadingState[1];
+                    var _paymentReceiptSelectedFileState = React.useState(null);
+                    var paymentReceiptSelectedFile = _paymentReceiptSelectedFileState[0];
+                    var setPaymentReceiptSelectedFile = _paymentReceiptSelectedFileState[1];
+                    var _paymentReceiptMessageState = React.useState('');
+                    var paymentReceiptMessage = _paymentReceiptMessageState[0];
+                    var setPaymentReceiptMessage = _paymentReceiptMessageState[1];
+                    var _showResubmitReceiptFormState = React.useState(false);
+                    var showResubmitReceiptForm = _showResubmitReceiptFormState[0];
+                    var setShowResubmitReceiptForm = _showResubmitReceiptFormState[1];
+                    var paymentReceiptInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    
+                    // Add to Project / Room (Board Projects)
+                    var _projectMenuOpenState = React.useState(false);
+                    var projectMenuOpen = _projectMenuOpenState[0];
+                    var setProjectMenuOpen = _projectMenuOpenState[1];
+                    var _boardProjectsState = React.useState([]);
+                    var boardProjects = _boardProjectsState[0];
+                    var setBoardProjects = _boardProjectsState[1];
+                    var _projectRoomsState = React.useState([]);
+                    var projectRooms = _projectRoomsState[0];
+                    var setProjectRooms = _projectRoomsState[1];
+                    var _projectsLoadingState = React.useState(false);
+                    var projectsLoading = _projectsLoadingState[0];
+                    var setProjectsLoading = _projectsLoadingState[1];
+                    var _roomsLoadingState = React.useState(false);
+                    var roomsLoading = _roomsLoadingState[0];
+                    var setRoomsLoading = _roomsLoadingState[1];
+                    var _assignmentSavingState = React.useState(false);
+                    var assignmentSaving = _assignmentSavingState[0];
+                    var setAssignmentSaving = _assignmentSavingState[1];
+                    var _selectedProjectIdState = React.useState(0);
+                    var selectedProjectId = _selectedProjectIdState[0];
+                    var setSelectedProjectId = _selectedProjectIdState[1];
+                    var _selectedRoomIdState = React.useState(0);
+                    var selectedRoomId = _selectedRoomIdState[0];
+                    var setSelectedRoomId = _selectedRoomIdState[1];
                     
                     // Commit 2.3.9.2B-D: Prototype section state
                     var _prototypeSectionExpandedState = React.useState(false);
@@ -9160,7 +9380,7 @@ class N88_RFQ_Admin {
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     
-                    // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Designer–Operator Communication
+                    // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Review and Message
                     React.useEffect(function() {
                         if (itemState.loading) return;
                         // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
@@ -9170,9 +9390,15 @@ class N88_RFQ_Admin {
                         }
                         var cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].indexOf(String(itemState.cad_status || '')) !== -1);
                         if (itemState.has_unread_operator_messages || cadPendingDesignerReview) {
-                            setActiveTab('details'); // Mission Spec (CAD review and Designer–Operator Communication)
+                            setActiveTab('details'); // Mission Spec (Review and Message / CAD)
                             setShowDesignerMessageForm(true); // Auto-expand when operator sent CAD or message
                             if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
+                            if (cadPendingDesignerReview) {
+                                setTimeout(function() {
+                                    var el = document.getElementById('n88-designer-messages-container-admin');
+                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                }, 400);
+                            }
                             return;
                         }
                         if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
@@ -9463,6 +9689,15 @@ class N88_RFQ_Admin {
                                     direction_keyword_ids: data.data.direction_keyword_ids || null,
                                     loading: false,
                                 });
+                                // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
+                                if (updateLayout && item && item.id) {
+                                    var cardUpdates = {};
+                                    if (data.data.cad_status !== undefined && data.data.cad_status !== null) cardUpdates.cad_status = data.data.cad_status;
+                                    if (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) cardUpdates.cad_current_version = data.data.cad_current_version;
+                                    if (data.data.prototype_payment_status !== undefined && data.data.prototype_payment_status !== null) cardUpdates.prototype_payment_status = data.data.prototype_payment_status;
+                                    if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
+                                    if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
+                                }
                                 // When all bids withdrawn: item is State A; reset Launch Brief to show "Request Quote" (fresh form)
                                 if ( (data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids) ) {
                                     setShowRfqForm(false);
@@ -9575,6 +9810,7 @@ class N88_RFQ_Admin {
                                     skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
                                     setActiveTab('details');
                                     setShowDesignerMessageForm(true);
+                                    if (updateLayout && item && item.id) updateLayout(item.id, { cad_status: 'approved' }); // so item card shows Pending Prototype Video
                                     fetchItemState();
                                 } else {
                                     alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to approve CAD.'));
@@ -9592,7 +9828,7 @@ class N88_RFQ_Admin {
                             alert('An error occurred. Please try again.');
                             setIsCadActionBusy(false);
                         }
-                    }, [itemId, itemState.prototype_payment_id, loadDesignerMessages]);
+                    }, [itemId, item && item.id, itemState.prototype_payment_id, loadDesignerMessages, fetchItemState, updateLayout]);
                     
                     // Fetch payment receipts when Payment Instructions modal opens
                     var fetchPaymentReceipts = function() {
@@ -9623,6 +9859,9 @@ class N88_RFQ_Admin {
                             fetchPaymentReceipts();
                         } else if (!showPaymentInstructions) {
                             setPaymentReceipts([]);
+                            setPaymentReceiptSelectedFile(null);
+                            setPaymentReceiptMessage('');
+                            setShowResubmitReceiptForm(false);
                         }
                     }, [showPaymentInstructions, itemState.prototype_payment_id]);
                     
@@ -9633,29 +9872,196 @@ class N88_RFQ_Admin {
                         }
                     }, [itemState.prototype_submission]);
                     
-                    var handlePaymentReceiptUpload = function(e) {
+                    var handlePaymentReceiptFileSelect = function(e) {
                         var file = e.target && e.target.files && e.target.files[0];
+                        if (!file) return;
+                        var ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].indexOf(file.type) !== -1;
+                        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
+                        setPaymentReceiptSelectedFile(file);
+                        e.target.value = '';
+                    };
+                    var submitPaymentReceiptUpload = function() {
+                        var file = paymentReceiptSelectedFile;
                         if (!file) return;
                         var pid = itemState.prototype_payment_id;
                         if (!pid) return;
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_upload_payment_receipt) || '';
-                        if (!nonce) { alert('Upload not available.'); e.target.value = ''; return; }
-                        var ok = /\.(jpe?g|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','application/pdf'].indexOf(file.type) !== -1;
-                        if (!ok) { alert('Only JPG and PDF are allowed.'); e.target.value = ''; return; }
+                        if (!nonce) { alert('Upload not available.'); return; }
                         setPaymentReceiptUploading(true);
                         var fd = new FormData();
                         fd.append('action', 'n88_upload_payment_receipt');
                         fd.append('payment_id', String(pid));
                         fd.append('receipt_file', file);
+                        if (paymentReceiptMessage && String(paymentReceiptMessage).trim()) fd.append('receipt_message', String(paymentReceiptMessage).trim());
                         fd.append('_ajax_nonce', nonce);
                         fetch(ajaxUrl, { method: 'POST', body: fd })
                             .then(function(r) { return r.json(); })
                             .then(function(d) {
-                                if (d.success) { fetchPaymentReceipts(); } else { alert(d.data && d.data.message ? d.data.message : 'Upload failed.'); }
+                                if (d.success) {
+                                    setPaymentReceiptSelectedFile(null);
+                                    setPaymentReceiptMessage('');
+                                    setShowResubmitReceiptForm(false);
+                                    fetchPaymentReceipts();
+                                    if (paymentReceiptInputRef && paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
+                                } else {
+                                    alert(d.data && d.data.message ? d.data.message : 'Upload failed.');
+                                }
                             })
                             .catch(function() { alert('Upload failed.'); })
-                            .finally(function() { setPaymentReceiptUploading(false); e.target.value = ''; });
+                            .finally(function() { setPaymentReceiptUploading(false); });
+                    };
+                    
+                    // Init selected project/room from item when modal opens
+                    React.useEffect(function() {
+                        if (!isOpen) return;
+                        var pid = Number(item.project_id || item.projectId || (item.meta && item.meta.project_id) || 0) || 0;
+                        var rid = Number(item.room_id || item.roomId || (item.meta && item.meta.room_id) || 0) || 0;
+                        setSelectedProjectId(pid);
+                        setSelectedRoomId(rid);
+                    }, [isOpen, item.id, item.project_id, item.room_id]);
+                    
+                    // Fetch board projects when modal opens (use n88BoardNonce.nonce - projects/rooms expect 'n88-rfq-nonce')
+                    React.useEffect(function() {
+                        if (!isOpen) return;
+                        var bid = boardId ? Number(boardId) : 0;
+                        if (!bid || bid <= 0) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                        if (!nonce) return;
+                        setProjectsLoading(true);
+                        fetch(ajaxUrl + '?action=n88_get_board_projects&board_id=' + encodeURIComponent(String(bid)) + '&nonce=' + encodeURIComponent(String(nonce)), { method: 'GET', credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (d && d.success && Array.isArray(d.data && d.data.projects)) setBoardProjects(d.data.projects);
+                                else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
+                                else setBoardProjects([]);
+                            })
+                            .catch(function() { setBoardProjects([]); })
+                            .finally(function() { setProjectsLoading(false); });
+                    }, [isOpen, boardId]);
+                    
+                    // Fetch rooms when selected project changes (use n88BoardNonce.nonce - rooms endpoint expects 'n88-rfq-nonce')
+                    var roomsFetchProjectIdRef = React.useRef ? React.useRef(0) : { current: 0 };
+                    React.useEffect(function() {
+                        if (!isOpen) return;
+                        if (!selectedProjectId || selectedProjectId <= 0) { setProjectRooms([]); setRoomsLoading(false); return; }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                        if (!nonce) { setProjectRooms([]); return; }
+                        var pid = Number(selectedProjectId);
+                        roomsFetchProjectIdRef.current = pid;
+                        setProjectRooms([]);
+                        setRoomsLoading(true);
+                        var url = ajaxUrl + '?action=n88_get_project_rooms&project_id=' + encodeURIComponent(String(pid)) + '&nonce=' + encodeURIComponent(String(nonce));
+                        fetch(url, { method: 'GET', credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(res) {
+                                var raw = res && res.success && res.data ? res.data.rooms : (res && res.rooms ? res.rooms : null);
+                                var list = [];
+                                if (Array.isArray(raw)) {
+                                    for (var i = 0; i < raw.length; i++) {
+                                        var ro = raw[i];
+                                        list.push({ id: ro.id != null ? ro.id : ro.room_id, name: (ro.name != null ? ro.name : ro.room_name) || '' });
+                                    }
+                                }
+                                if (roomsFetchProjectIdRef.current === pid) setProjectRooms(list);
+                            })
+                            .catch(function() { if (roomsFetchProjectIdRef.current === pid) setProjectRooms([]); })
+                            .finally(function() { setRoomsLoading(false); });
+                    }, [isOpen, selectedProjectId]);
+                    
+                    var getSelectedProjectName = function() {
+                        var pid = Number(selectedProjectId || 0);
+                        if (!pid) return '';
+                        var itemProjectName = (item.project_name || item.projectName || '').toString();
+                        var itemRoomName = (item.room_name || item.roomName || '').toString();
+                        var itemPid = Number(item.project_id || item.projectId || 0);
+                        var itemRid = Number(item.room_id || item.roomId || 0);
+                        if (itemProjectName && pid === itemPid) {
+                            var rid = Number(selectedRoomId || 0);
+                            if (rid && itemRoomName && rid === itemRid) return itemProjectName + ' / ' + itemRoomName;
+                            return itemProjectName;
+                        }
+                        var p = (boardProjects || []).find(function(x) { return Number(x.id) === pid; });
+                        var projectName = (p && p.name) ? String(p.name) : '';
+                        var rid = Number(selectedRoomId || 0);
+                        if (rid && projectName) {
+                            var r = (projectRooms || []).find(function(x) { return Number(x.id) === rid; });
+                            var roomName = (r && r.name) ? String(r.name) : '';
+                            if (roomName) return projectName + ' / ' + roomName;
+                        }
+                        return projectName;
+                    };
+                    
+                    var saveProjectRoomAssignment = function(projectId, roomId) {
+                        var bid = boardId ? Number(boardId) : 0;
+                        if (!bid || bid <= 0) return;
+                        if (!itemId || itemId <= 0) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; }
+                        setAssignmentSaving(true);
+                        var params = new URLSearchParams();
+                        params.set('action', 'n88_save_item_facts');
+                        params.set('board_id', String(bid));
+                        params.set('item_id', String(itemId));
+                        params.set('nonce', String(nonce));
+                        params.set('payload', '{}');
+                        params.set('project_id', String(projectId || 0));
+                        params.set('room_id', String(roomId || 0));
+                        return fetch(ajaxUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (!d.success) throw new Error((d.data && d.data.message) || 'Failed to update project/room');
+                                var store = window.N88StudioOS && window.N88StudioOS.useBoardStore && window.N88StudioOS.useBoardStore.getState && window.N88StudioOS.useBoardStore.getState();
+                                if (store && Array.isArray(store.items) && typeof store.setItems === 'function') {
+                                    var updated = store.items.map(function(it) {
+                                        var itId = (typeof it.id === 'string' && it.id.indexOf('item-') === 0) ? parseInt(it.id.replace('item-', ''), 10) : parseInt(it.id, 10);
+                                        if (itId === itemId) return Object.assign({}, it, { project_id: Number(projectId || 0) || null, room_id: Number(roomId || 0) || null });
+                                        return it;
+                                    });
+                                    store.setItems(updated);
+                                }
+                                
+                                // Reload page to show item in filtered view (project/room)
+                                var urlParams = new URLSearchParams(window.location.search);
+                                var boardIdParam = urlParams.get('board_id') || '';
+                                var reloadUrl = new URL(window.location.href);
+                                reloadUrl.searchParams.set('board_id', boardIdParam || String(bid));
+                                if (projectId > 0) {
+                                    reloadUrl.searchParams.set('project_id', String(projectId));
+                                    if (roomId > 0) {
+                                        reloadUrl.searchParams.set('room_id', String(roomId));
+                                    } else {
+                                        reloadUrl.searchParams.delete('room_id');
+                                    }
+                                } else {
+                                    reloadUrl.searchParams.delete('project_id');
+                                    reloadUrl.searchParams.delete('room_id');
+                                }
+                                
+                                setTimeout(function() {
+                                    window.location.href = reloadUrl.toString();
+                                }, 300);
+                            })
+                            .catch(function(e) { alert((e && e.message) || 'Failed to update project/room.'); })
+                            .finally(function() { setAssignmentSaving(false); });
+                    };
+                    
+                    var handleSelectProject = function(e) {
+                        var newProjectId = Number(e.target.value || 0) || 0;
+                        setSelectedProjectId(newProjectId);
+                        setSelectedRoomId(0);
+                    };
+                    
+                    var handleSelectRoom = function(e) {
+                        var newRoomId = Number(e.target.value || 0) || 0;
+                        setSelectedRoomId(newRoomId);
+                    };
+                    
+                    var handleUpdateProjectRoom = function() {
+                        saveProjectRoomAssignment(selectedProjectId, selectedRoomId).then(function() { setProjectMenuOpen(false); });
                     };
                     
                     // Update inspiration when item changes (if modal is reopened with different item)
@@ -9800,7 +10206,7 @@ class N88_RFQ_Admin {
                     var updateSystemInvitesMessage = function() {
                         if (allowSystemInvites) {
                             if (invitedSuppliers.length > 0) {
-                                setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                setSystemInvitesMessage('');
                             } else {
                                 setSystemInvitesMessage('We will send your request on your behalf.');
                             }
@@ -10709,29 +11115,83 @@ class N88_RFQ_Admin {
                                         gap: '12px',
                                     }
                                 },
-                                    // Action Dropdown (read-only)
+                                    // Action Dropdown - Add to Project / Room (Board Projects)
                                     React.createElement('div', {
                                         style: { position: 'relative' }
                                     },
                                         React.createElement('button', {
+                                            onClick: function() { setProjectMenuOpen(function(v) { return !v; }); },
                                             style: {
                                                 background: '#111111',
                                                 border: '1px solid ' + darkBorder,
                                                 color: darkText,
                                                 fontSize: '12px',
                                                 padding: '8px 16px',
-                                                cursor: 'pointer',
+                                                cursor: (boardId && Number(boardId) > 0) ? 'pointer' : 'default',
                                                 fontFamily: 'monospace',
                                                 borderRadius: '4px',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 gap: '8px',
+                                                opacity: (boardId && Number(boardId) > 0) ? 1 : 0.5,
                                             },
-                                            disabled: true
+                                            disabled: !boardId || Number(boardId) <= 0
                                         },
-                                            'Add to Project',
+                                            getSelectedProjectName() ? ('Project: ' + getSelectedProjectName()) : 'Add to Project',
                                             React.createElement('span', { style: { fontSize: '10px' } }, '▼')
-                                        )
+                                        ),
+                                        projectMenuOpen ? React.createElement('div', {
+                                            style: {
+                                                position: 'absolute',
+                                                top: '110%',
+                                                right: 0,
+                                                width: '320px',
+                                                backgroundColor: '#0b0b0b',
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '6px',
+                                                padding: '12px',
+                                                zIndex: 1000003,
+                                                boxShadow: '0 8px 20px rgba(0,0,0,0.45)',
+                                            },
+                                            onClick: function(e) { e.stopPropagation(); }
+                                        },
+                                            React.createElement('div', { style: { fontSize: '11px', color: '#aaa', marginBottom: '6px' } }, projectsLoading ? 'Loading projects…' : 'Select a project'),
+                                            React.createElement('select', {
+                                                value: String(selectedProjectId || 0),
+                                                onChange: handleSelectProject,
+                                                disabled: projectsLoading || assignmentSaving,
+                                                style: { width: '100%', padding: '8px 10px', borderRadius: '4px', backgroundColor: '#111', color: '#fff', border: '1px solid ' + darkBorder, fontFamily: 'monospace', fontSize: '12px', marginBottom: '10px' }
+                                            },
+                                                React.createElement('option', { value: '0' }, '— Not in a project —'),
+                                                (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: String(p.id) }, p.name); })
+                                            ),
+                                            selectedProjectId > 0 ? React.createElement(React.Fragment, null,
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#aaa', marginBottom: '6px' } }, roomsLoading ? 'Loading rooms…' : 'Select a room (optional)'),
+                                                React.createElement('select', {
+                                                    value: String(selectedRoomId || 0),
+                                                    onChange: handleSelectRoom,
+                                                    disabled: roomsLoading || assignmentSaving,
+                                                    style: { width: '100%', padding: '8px 10px', borderRadius: '4px', backgroundColor: '#111', color: '#fff', border: '1px solid ' + darkBorder, fontFamily: 'monospace', fontSize: '12px' }
+                                                },
+                                                    React.createElement('option', { value: '0' }, '— No room —'),
+                                                    (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: String(r.id) }, r.name); })
+                                                )
+                                            ) : null,
+                                            assignmentSaving ? React.createElement('div', { style: { marginTop: '10px', fontSize: '11px', color: greenAccent } }, 'Saving…') : null,
+                                            React.createElement('div', { style: { marginTop: '12px', display: 'flex', gap: '8px' } },
+                                                React.createElement('button', {
+                                                    type: 'button',
+                                                    onClick: handleUpdateProjectRoom,
+                                                    disabled: assignmentSaving,
+                                                    style: { flex: 1, padding: '8px 10px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#fff', cursor: assignmentSaving ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontSize: '12px' }
+                                                }, 'Update'),
+                                                React.createElement('button', {
+                                                    type: 'button',
+                                                    onClick: function() { setProjectMenuOpen(false); },
+                                                    style: { flex: 1, padding: '8px 10px', backgroundColor: '#111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#aaa', cursor: 'pointer', fontFamily: 'monospace', fontSize: '12px' }
+                                                }, 'Close')
+                                            )
+                                        ) : null
                                     ),
                                     // Close Button - Right
                                     React.createElement('button', {
@@ -11122,7 +11582,7 @@ class N88_RFQ_Admin {
                                                     },
                                                     onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
                                                     onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
-                                                }, 'Message Operator') : React.createElement('div', {
+                                                }, '\uD83C\uDFA7 Support') : React.createElement('div', {
                                                     style: {
                                                         border: '1px solid ' + darkBorder,
                                                         borderRadius: '4px',
@@ -11144,7 +11604,7 @@ class N88_RFQ_Admin {
                                                                 fontWeight: '600',
                                                                 color: darkText,
                                                             }
-                                                        }, 'Designer–Operator Communication'),
+                                                        }, '\uD83C\uDFA7 Review and Message'),
                                                         React.createElement('button', {
                                                             onClick: function() { setShowDesignerMessageForm(false); },
                                                             style: {
@@ -11235,7 +11695,7 @@ class N88_RFQ_Admin {
                                                                             cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
                                                                             opacity: isCadActionBusy ? 0.6 : 1,
                                                                         }
-                                                                    }, 'Request Revision'),
+                                                                    }, 'Submit revised CAD'),
                                                                     React.createElement('button', {
                                                                         type: 'button',
                                                                         onClick: approveCad,
@@ -11371,7 +11831,7 @@ class N88_RFQ_Admin {
                                                                                 cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
                                                                                 opacity: revisionFiles.length === 0 ? 0.5 : 1,
                                                                             }
-                                                                        }, isCadActionBusy ? 'Requesting...' : 'Request Revision')
+                                                                        }, isCadActionBusy ? 'Submitting...' : 'Submit revised CAD')
                                                                     )
                                                                 )
                                                             ) : null
@@ -11660,49 +12120,21 @@ class N88_RFQ_Admin {
                                                         }
                                                     },
                                                         React.createElement('option', { value: '' }, '-- Select Category --'),
-                                                        React.createElement('option', { value: 'Indoor Furniture' }, 'Indoor Furniture'),
-                                                        React.createElement('option', { value: 'Sofas & Seating (Indoor)' }, 'Sofas & Seating (Indoor)'),
-                                                        React.createElement('option', { value: 'Chairs & Armchairs (Indoor)' }, 'Chairs & Armchairs (Indoor)'),
-                                                        React.createElement('option', { value: 'Dining Tables (Indoor)' }, 'Dining Tables (Indoor)'),
-                                                        React.createElement('option', { value: 'Cabinetry / Millwork (Custom)' }, 'Cabinetry / Millwork (Custom)'),
-                                                        React.createElement('option', { value: 'Casegoods (Beds, Nightstands, Desks, Consoles)' }, 'Casegoods (Beds, Nightstands, Desks, Consoles)'),
-                                                        React.createElement('option', { value: 'Outdoor Furniture' }, 'Outdoor Furniture'),
-                                                        React.createElement('option', { value: 'Outdoor Seating' }, 'Outdoor Seating'),
-                                                        React.createElement('option', { value: 'Outdoor Dining Sets' }, 'Outdoor Dining Sets'),
-                                                        React.createElement('option', { value: 'Outdoor Loungers & Daybeds' }, 'Outdoor Loungers & Daybeds'),
-                                                        React.createElement('option', { value: 'Pool Furniture' }, 'Pool Furniture'),
-                                                        React.createElement('option', { value: 'Lighting' }, 'Lighting'),
-                                                        React.createElement('option', { value: 'Decorative Lighting' }, 'Decorative Lighting'),
-                                                        React.createElement('option', { value: 'Architectural Lighting' }, 'Architectural Lighting'),
-                                                        React.createElement('option', { value: 'Electrical / LED Components' }, 'Electrical / LED Components'),
-                                                        React.createElement('option', { value: 'Bathroom Fixtures' }, 'Bathroom Fixtures'),
-                                                        React.createElement('option', { value: 'Kitchen Fixtures' }, 'Kitchen Fixtures'),
-                                                        React.createElement('option', { value: 'Faucets / Hardware (Plumbing)' }, 'Faucets / Hardware (Plumbing)'),
-                                                        React.createElement('option', { value: 'Sinks / Basins' }, 'Sinks / Basins'),
-                                                        React.createElement('option', { value: 'Shower Systems / Accessories' }, 'Shower Systems / Accessories'),
-                                                        React.createElement('option', { value: 'Marble / Stone' }, 'Marble / Stone'),
-                                                        React.createElement('option', { value: 'Granite' }, 'Granite'),
-                                                        React.createElement('option', { value: 'Quartz' }, 'Quartz'),
-                                                        React.createElement('option', { value: 'Porcelain / Ceramic Slabs' }, 'Porcelain / Ceramic Slabs'),
-                                                        React.createElement('option', { value: 'Tile (Wall / Floor)' }, 'Tile (Wall / Floor)'),
-                                                        React.createElement('option', { value: 'Terrazzo' }, 'Terrazzo'),
-                                                        React.createElement('option', { value: 'Rugs / Carpets' }, 'Rugs / Carpets'),
-                                                        React.createElement('option', { value: 'Drapery' }, 'Drapery'),
-                                                        React.createElement('option', { value: 'Window Treatments / Shades' }, 'Window Treatments / Shades'),
-                                                        React.createElement('option', { value: 'Wallcoverings' }, 'Wallcoverings'),
-                                                        React.createElement('option', { value: 'Acoustic Panels' }, 'Acoustic Panels'),
-                                                        React.createElement('option', { value: 'Mirrors' }, 'Mirrors'),
-                                                        React.createElement('option', { value: 'Artwork' }, 'Artwork'),
-                                                        React.createElement('option', { value: 'Decorative Accessories' }, 'Decorative Accessories'),
-                                                        React.createElement('option', { value: 'Planters' }, 'Planters'),
-                                                        React.createElement('option', { value: 'Sculptural Objects' }, 'Sculptural Objects'),
-                                                        React.createElement('option', { value: 'Railings' }, 'Railings'),
-                                                        React.createElement('option', { value: 'Screens / Louvers' }, 'Screens / Louvers'),
-                                                        React.createElement('option', { value: 'Pergola / Shade Components' }, 'Pergola / Shade Components'),
-                                                        React.createElement('option', { value: 'Facade Materials' }, 'Facade Materials'),
-                                                        React.createElement('option', { value: 'Material Sample Kit' }, 'Material Sample Kit'),
-                                                        React.createElement('option', { value: 'Fabric Sample' }, 'Fabric Sample'),
-                                                        React.createElement('option', { value: 'Custom Sourcing / Not Listed' }, 'Custom Sourcing / Not Listed')
+                                                        React.createElement('option', { value: 'UPHOLSTERY' }, 'UPHOLSTERY'),
+                                                        React.createElement('option', { value: 'INDOOR FURNITURE (CASEGOODS)' }, 'INDOOR FURNITURE (CASEGOODS)'),
+                                                        React.createElement('option', { value: 'OUTDOOR FURNITURE' }, 'OUTDOOR FURNITURE'),
+                                                        React.createElement('option', { value: 'LIGHTING' }, 'LIGHTING'),
+                                                        React.createElement('option', { value: 'STONE (MARBLE / GRANITE / QUARTZ)' }, 'STONE (MARBLE / GRANITE / QUARTZ)'),
+                                                        React.createElement('option', { value: 'METALWORK' }, 'METALWORK'),
+                                                        React.createElement('option', { value: 'MILLWORK / CABINETRY' }, 'MILLWORK / CABINETRY'),
+                                                        React.createElement('option', { value: 'FLOORING' }, 'FLOORING'),
+                                                        React.createElement('option', { value: 'DRAPERY / WINDOW TREATMENTS' }, 'DRAPERY / WINDOW TREATMENTS'),
+                                                        React.createElement('option', { value: 'GLASS / MIRRORS' }, 'GLASS / MIRRORS'),
+                                                        React.createElement('option', { value: 'HARDWARE / ACCESSORIES' }, 'HARDWARE / ACCESSORIES'),
+                                                        React.createElement('option', { value: 'RUGS / CARPETS' }, 'RUGS / CARPETS'),
+                                                        React.createElement('option', { value: 'WALLCOVERINGS / FINISHES' }, 'WALLCOVERINGS / FINISHES'),
+                                                        React.createElement('option', { value: 'APPLIANCES' }, 'APPLIANCES'),
+                                                        React.createElement('option', { value: 'OTHER' }, 'OTHER')
                                                     )
                                                 )
                                             ) : (currentState === 'B' || currentState === 'C') ? (
@@ -12424,7 +12856,7 @@ class N88_RFQ_Admin {
                                                             setTimeout(function() {
                                                                 if (e.target.checked) {
                                                                     if (invitedSuppliers.length > 0) {
-                                                                        setSystemInvitesMessage('We\'ll invite 2 additional makers in 24 hours.');
+                                                                        setSystemInvitesMessage('');
                                                     } else {
                                                                         setSystemInvitesMessage('We will send your request on your behalf.');
                                                             }
@@ -13932,7 +14364,7 @@ class N88_RFQ_Admin {
                                                                 e.stopPropagation();
                                                                 // Commit 2.3.6: Visual only - no action
                                                             }
-                                                        }, 'Get Sourcing Agent Help')
+                                                        }, '\uD83C\uDFA7 Support')
                                                     )
                                                 ) : null
                                             ) : React.createElement('div', {
@@ -14587,31 +15019,72 @@ class N88_RFQ_Admin {
                                                 border: '1px solid #00ff00',
                                             }
                                         },
-                                            React.createElement('div', {
-                                                style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }
-                                            }, 'Upload Payment Receipt'),
-                                            React.createElement('div', {
-                                                style: { fontSize: '12px', color: darkText, marginBottom: '10px' }
-                                            }, 'JPG or PDF. Operator will review before confirming payment.'),
-                                            React.createElement('input', {
-                                                type: 'file',
-                                                accept: '.jpg,.jpeg,.pdf',
-                                                onChange: handlePaymentReceiptUpload,
-                                                disabled: paymentReceiptUploading,
-                                                style: { display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' },
-                                            }),
-                                            paymentReceiptUploading ? React.createElement('div', { style: { fontSize: '12px', color: greenAccent, marginBottom: '8px' } }, 'Uploading…') : null,
-                                            paymentReceiptsLoading ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } }, 'Loading receipts…') : null,
-                                            (!paymentReceiptsLoading && paymentReceipts.length > 0) ? React.createElement('div', { style: { marginTop: '10px' } },
-                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '6px' } }, 'Uploaded:'),
-                                                React.createElement('ul', { style: { margin: 0, paddingLeft: '20px', color: darkText, fontSize: '12px' } },
-                                                    paymentReceipts.map(function(r) {
-                                                        return React.createElement('li', { key: r.id },
-                                                            React.createElement('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, r.file_name)
-                                                        );
-                                                    })
-                                                )
-                                            ) : null
+                                            (function() {
+                                                var paymentApproved = itemState.prototype_payment_status === 'marked_received';
+                                                var hasReceipts = paymentReceipts.length > 0;
+                                                var showForm = !hasReceipts || (hasReceipts && !paymentApproved && showResubmitReceiptForm);
+                                                if (showForm) {
+                                                    return React.createElement(React.Fragment, null,
+                                                        React.createElement('div', { style: { marginBottom: '14px' } },
+                                                            React.createElement('label', { style: { display: 'block', fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '6px' } }, 'Message (optional):'),
+                                                            React.createElement('textarea', {
+                                                                value: paymentReceiptMessage,
+                                                                onChange: function(e) { setPaymentReceiptMessage(e.target.value); },
+                                                                placeholder: 'e.g. Paid via Zelle, ref #123 or bank transfer confirmation',
+                                                                rows: 2,
+                                                                maxLength: 500,
+                                                                style: { width: '100%', padding: '8px 10px', fontSize: '12px', color: '#fff', backgroundColor: '#0d1f0d', border: '1px solid #004400', borderRadius: '4px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }
+                                                            })
+                                                        ),
+                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, hasReceipts ? 'Resubmit payment proof' : 'Upload Payment Receipt'),
+                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '10px' } }, 'JPG or PDF. Operator will review before confirming payment.'),
+                                                        React.createElement('input', {
+                                                            type: 'file',
+                                                            accept: '.jpg,.jpeg,.pdf',
+                                                            onChange: handlePaymentReceiptFileSelect,
+                                                            ref: paymentReceiptInputRef,
+                                                            disabled: paymentReceiptUploading,
+                                                            style: { display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' },
+                                                        }),
+                                                        paymentReceiptSelectedFile ? React.createElement('div', {
+                                                            style: { fontSize: '12px', color: greenAccent, marginBottom: '8px', padding: '6px 10px', backgroundColor: '#0d1f0d', borderRadius: '4px', border: '1px solid #004400' }
+                                                        }, 'Selected: ' + paymentReceiptSelectedFile.name) : null,
+                                                        React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: submitPaymentReceiptUpload,
+                                                                disabled: !paymentReceiptSelectedFile || paymentReceiptUploading,
+                                                                style: { padding: '6px 14px', backgroundColor: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }
+                                                            }, 'Submit'),
+                                                            hasReceipts ? React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() { setShowResubmitReceiptForm(false); setPaymentReceiptMessage(''); setPaymentReceiptSelectedFile(null); if (paymentReceiptInputRef && paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = ''; },
+                                                                style: { padding: '6px 14px', backgroundColor: 'transparent', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace' }
+                                                            }, 'Cancel') : null,
+                                                            paymentReceiptUploading ? React.createElement('span', { style: { fontSize: '11px', color: greenAccent } }, 'Uploading…') : null
+                                                        ),
+                                                        paymentReceiptsLoading ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px' } }, 'Loading receipts…') : null
+                                                    );
+                                                }
+                                                return React.createElement(React.Fragment, null,
+                                                    React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Payment proof attachment: Uploaded'),
+                                                    React.createElement('ul', { style: { margin: 0, paddingLeft: '20px', color: darkText, fontSize: '12px' } },
+                                                        paymentReceipts.map(function(r, index) {
+                                                            var isResubmitted = paymentReceipts.length > 1 && index < paymentReceipts.length - 1;
+                                                            return React.createElement('li', { key: r.id, style: { marginBottom: '6px' } },
+                                                                isResubmitted ? React.createElement('span', { style: { display: 'inline-block', marginRight: '8px', padding: '2px 6px', fontSize: '10px', fontWeight: '600', backgroundColor: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '2px' } }, 'Resubmitted') : null,
+                                                                React.createElement('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, r.file_name),
+                                                                r.message ? React.createElement('span', { style: { display: 'block', marginTop: '4px', color: '#aaa', fontStyle: 'italic' } }, '— ' + r.message) : null
+                                                            );
+                                                        })
+                                                    ),
+                                                    !paymentApproved ? React.createElement('button', {
+                                                        type: 'button',
+                                                        onClick: function() { setShowResubmitReceiptForm(true); },
+                                                        style: { marginTop: '12px', padding: '8px 16px', backgroundColor: '#003300', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }
+                                                    }, 'Resubmit') : null
+                                                );
+                                            })()
                                         )
                                     )
                                 )
@@ -14827,7 +15300,7 @@ class N88_RFQ_Admin {
                             fontWeight: 'bold',
                             flexShrink: 0,
                         },
-                    }, !conciergeData.avatarUrl && React.createElement('span', null, conciergeData.name.charAt(0).toUpperCase())), React.createElement('div', {
+                    }, !conciergeData.avatarUrl && React.createElement('span', { 'aria-hidden': 'true' }, '\uD83C\uDFA7')), React.createElement('div', {
                         style: {
                             fontSize: '14px',
                             fontWeight: '600',
@@ -15205,9 +15678,15 @@ class N88_RFQ_Admin {
         $board_items_table = $wpdb->prefix . 'n88_board_items';
         $items_table = $wpdb->prefix . 'n88_items';
         
+        $items_columns_real = $wpdb->get_col( "DESCRIBE " . preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table ) );
+        $has_pr_real = in_array( 'project_id', $items_columns_real, true ) && in_array( 'room_id', $items_columns_real, true );
+        $select_real = "bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id";
+        if ( $has_pr_real ) {
+            $select_real .= ", i.project_id, i.room_id";
+        }
         $board_items = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id
+                "SELECT {$select_real}
                  FROM {$board_items_table} bi
                  INNER JOIN {$items_table} i ON bi.item_id = i.id
                  WHERE bi.board_id = %d 
@@ -15255,7 +15734,7 @@ class N88_RFQ_Admin {
             
             if ( isset( $layout_items_map[ $item_id ] ) ) {
                 $layout_item = $layout_items_map[ $item_id ];
-                $items[] = array(
+                $item_row = array(
                     'id' => $item_id_string,
                     'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : floatval( 50 + ( count( $items ) * 250 ) ),
                     'y' => isset( $layout_item['y'] ) ? floatval( $layout_item['y'] ) : 50.0,
@@ -15268,8 +15747,15 @@ class N88_RFQ_Admin {
                     'description' => $description,
                     'imageUrl' => $image_url,
                 );
+                if ( $has_pr_real && isset( $board_item->project_id ) ) {
+                    $item_row['project_id'] = absint( $board_item->project_id );
+                }
+                if ( $has_pr_real && isset( $board_item->room_id ) ) {
+                    $item_row['room_id'] = absint( $board_item->room_id );
+                }
+                $items[] = $item_row;
             } else {
-                $items[] = array(
+                $item_row = array(
                     'id' => $item_id_string,
                     'x' => floatval( 50 + ( count( $items ) * 250 ) ),
                     'y' => 50.0,
@@ -15282,6 +15768,13 @@ class N88_RFQ_Admin {
                     'description' => $description,
                     'imageUrl' => $image_url,
                 );
+                if ( $has_pr_real && isset( $board_item->project_id ) ) {
+                    $item_row['project_id'] = absint( $board_item->project_id );
+                }
+                if ( $has_pr_real && isset( $board_item->room_id ) ) {
+                    $item_row['room_id'] = absint( $board_item->room_id );
+                }
+                $items[] = $item_row;
             }
         }
 
@@ -15378,7 +15871,7 @@ class N88_RFQ_Admin {
                 }
                 
                 const conciergeData = {
-                    name: 'Message System Operator',
+                    name: 'Support',
                     avatarUrl: ''
                 };
 
@@ -15436,7 +15929,7 @@ class N88_RFQ_Admin {
                                 zIndex: 1
                             }
                         }, items && items.length > 0 ? (items || []).map(function(item) {
-                            return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
+                            return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: boardId });
                         }) : React.createElement('div', { style: { padding: '20px', color: '#666' } }, 'No items on board'), 
                         React.createElement(ConciergeOverlay, { concierge: concierge })
                         ),
