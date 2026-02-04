@@ -2229,10 +2229,10 @@ class N88_RFQ_Auth {
             <?php endif; ?>
         </div>
         
-        <!-- Supplier RFQ Detail Modal (Commit 2.3.5.2: Dark theme) -->
+        <!-- Supplier RFQ Detail Modal - Contained layout with spacing and rounded corners (like designer modal) -->
         <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
-            <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 0; right: 0; width: 480px; max-width: 90vw; height: 100vh; background-color: #000 !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid #00ff00 !important;">
-                <!-- Modal content will be populated by JavaScript -->
+            <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 24px; left: 24px; right: 24px; bottom: 24px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); background-color: #000 !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+                <!-- Modal content will be populated by JavaScript: header, then left (images) + right (tabs) -->
             </div>
         </div>
         
@@ -2336,8 +2336,8 @@ class N88_RFQ_Auth {
                 var formContainer = document.getElementById('n88-supplier-clarification-form-' + itemId);
                 if (!formContainer) return;
                 
-                if (formContainer.style.display === 'none') {
-                    formContainer.style.display = 'block';
+                if (formContainer.style.display === 'none' || !formContainer.style.display) {
+                    formContainer.style.display = 'flex';
                     loadSupplierMessagesInline(itemId);
                 } else {
                     formContainer.style.display = 'none';
@@ -2980,36 +2980,19 @@ class N88_RFQ_Auth {
                         refImagesHTMLDark = '<div style="color: #999; font-size: 12px; padding: 8px; font-family: monospace;">No reference images available</div>';
                     }
                     
-                    // Build modal HTML - Commit 2.3.5.4: Clean header (item title only)
-                    var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #00ff00; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
-                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
-                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
-                        '</div>' +
-                        '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
-                        '<div style="padding: 20px; font-family: monospace;">' +
-                        
-                        // Item Image
-                        (item.image_url || item.primary_image_url ? (function() {
-                            var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
-                            return '<div style="margin-bottom: 16px; text-align: center;">' +
-                                '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 250px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,255,0,0.3);" onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" title="Click to enlarge" />' +
-                                '</div>';
-                        })() : '') +
-                        
-                        // Commit 2.3.5.4: Inspiration/Reference Images + PDFs (only at top, no duplicates)
-                        (refImages && refImages.length > 0 ? 
-                            '<div style="margin-bottom: 24px;">' +
-                            '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Inspiration / References / Sketch Drawings:</label>' +
-                            refImagesHTMLDark +
-                            '</div>' : ''
-                        ) +
-                        
-                        // Warning Banner
-                        (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
+                    // Build modal HTML - Full-width: left images + right tabs (Item Overview, Messages, Bid, Prototype)
+                    var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+                    var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                    var leftColImages = (item.image_url || item.primary_image_url ? (function() {
+                        var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
+                        return '<div style="margin-bottom: 16px;">' +
+                            '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,255,0,0.3);" onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" title="Click to enlarge" />' +
+                            '</div>' +
+                            (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '');
+                    })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
+                    var overviewTabHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
                             '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
-                        
-                        // Commit 2.3.5.4: Item Context Block (exact order as specified)
                         '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
                         '<div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
@@ -3036,23 +3019,19 @@ class N88_RFQ_Auth {
                         ) +
                         '</div>' +
                         '</div>' +
-                        
-                        (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '') +
-                        
-                        // Commit 2.3.9.1C-a: Support (Operator–Supplier Messages) Section – headset icon (support, not music)
-                        '<div style="margin-top: 16px; margin-bottom: 16px;">' +
-                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
+                        (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '');
+                    var messagesTabHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;">' +
+                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="flex-shrink: 0; width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
                         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;flex-shrink:0;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support' +
                         '</button>' +
-                        '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px;">' +
-                        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">' +
+                        '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; flex: 1; min-height: 0; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; flex-direction: column; overflow: hidden;">' +
+                        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
                         '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
                         '</div>' +
-                        // Category Dropdown at Top
-                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');">' +
+                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
-                        '<div style="margin-bottom: 12px;">' +
+                        '<div style="margin-bottom: 12px; flex-shrink: 0;">' +
                         '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Category (Optional):</label>' +
                         '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 8px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px; border-radius: 4px;">' +
                         '<option value="">-- Select Category --</option>' +
@@ -3063,25 +3042,120 @@ class N88_RFQ_Auth {
                         '<option value="Other">Other</option>' +
                         '</select>' +
                         '</div>' +
-                        // WhatsApp-Style Messages Container
-                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="height: 400px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #00ff00; display: flex; flex-direction: column;">' +
+                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex: 1; min-height: 120px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #00ff00; display: flex; flex-direction: column;">' +
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
-                        // Message Input at Bottom
-                        '<div style="display: flex; gap: 8px; align-items: flex-end;">' +
+                        '<div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">' +
                         '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #00ff00; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
-                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">' +
-                        'Send' +
-                        '</button>' +
+                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">Send</button>' +
                         '</div>' +
                         '</form>' +
-                        '</div>' +
-                        '</div>' +
-                        
-                        // Bid Details Box (only shown when bid is submitted)
-                        ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data ? (function() {
+                        '</div></div>';
+                        // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
+                        var bidAndPrototype = ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data ? (function() {
                             var bid = item.bid_data;
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
+                            var prototypeBlockHTML = (bid.payment_notification ? (function() {
+                                var notif = bid.payment_notification;
+                                var keywordsHTML = '';
+                                if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
+                                    keywordsHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
+                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Video Direction Keywords:</div>' +
+                                        '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
+                                    notif.keywords.forEach(function(keyword) {
+                                        if (keyword && String(keyword).trim() !== '') {
+                                            keywordsHTML += '<span style="display: inline-block; padding: 4px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 12px; font-size: 11px; color: #00ff00; font-family: monospace;">' + String(keyword).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                                        }
+                                    });
+                                    keywordsHTML += '</div></div>';
+                                }
+                                var noteHTML = '';
+                                if (notif.note && notif.note.trim()) {
+                                    noteHTML = '<div style="margin-top: 12px; padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px;">' +
+                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px; font-weight: 600;">Note:</div>' +
+                                        '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                        '</div>';
+                                }
+                                var cadFilesHTML = '';
+                                if (notif.cad_status === 'approved' && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
+                                    cadFilesHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
+                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
+                                        '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                                    notif.cad_files.forEach(function(file) {
+                                        var isPdf = file.ext === 'pdf';
+                                        var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
+                                        var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                                        cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
+                                            '<span style="font-size: 16px;">' + icon + '</span>' +
+                                            '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (file.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                                            '<span style="font-size: 9px; color: #00ff00;">Open →</span>' +
+                                            '</a>';
+                                    });
+                                    cadFilesHTML += '</div></div>';
+                                }
+                                var isCadApprovedAndReleased = notif.cad_status === 'approved' && notif.cad_released_to_supplier_at && notif.cad_released_to_supplier_at.trim() !== '' && notif.cad_files && notif.cad_files.length > 0;
+                                var statusText = isCadApprovedAndReleased ? 'Payment Received — CAD Approved' : 'Payment Received — CAD Pending';
+                                var statusMessage = isCadApprovedAndReleased ?
+                                    'Payment has been confirmed. CAD has been approved and released. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.' :
+                                    'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
+                                var baseBlock = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
+                                    '<div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">' + statusText + '</div>' +
+                                    '<div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
+                                    '<div style="font-size: 11px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
+                                    '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
+                                    '</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
+                                if (!isCadApprovedAndReleased || !notif.payment_id) return baseBlock;
+                                var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
+                                if (hasSubmission) {
+                                    var submission = notif.prototype_video_submission;
+                                    var submissionDate = submission.created_at ? new Date(submission.created_at).toLocaleDateString() : 'N/A';
+                                    var linksHTML = '';
+                                    if (submission.links && submission.links.length > 0) {
+                                        linksHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;"><div style="font-size: 11px; color: #999; margin-bottom: 8px;">Submitted Links (v' + submission.version + '):</div><div style="display: flex; flex-direction: column; gap: 6px;">';
+                                        submission.links.forEach(function(link) {
+                                            linksHTML += '<a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; text-decoration: none; color: #fff; font-size: 11px;">' +
+                                                '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (link.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                                                '<span style="font-size: 10px; color: #888;">Open →</span></a>';
+                                        });
+                                        linksHTML += '</div></div>';
+                                    }
+                                    var statusBadge = '';
+                                    var viewChangesBtn = '';
+                                    var statusMessage = 'Awaiting designer review';
+                                    var helpMessage = '';
+                                    if (notif.prototype_status === 'changes_requested' && notif.prototype_feedback && notif.prototype_feedback.keywords) {
+                                        statusBadge = '<div style="font-size: 11px; color: #ff8800; margin-bottom: 8px; padding: 6px 10px; background-color: #331100; border: 1px solid #ff8800; border-radius: 4px; display: inline-block;">⚠️ Changes Requested</div>';
+                                        statusMessage = 'Designer has requested changes. Please review feedback and submit an updated version.';
+                                        helpMessage = '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">Review the feedback and submit an updated version.</div>';
+                                        var feedbackId = 'feedback_' + (notif.payment_id || '') + '_' + Date.now();
+                                        if (typeof window.prototypeFeedbackData === 'undefined') window.prototypeFeedbackData = {};
+                                        window.prototypeFeedbackData[feedbackId] = notif.prototype_feedback;
+                                        window.prototypeFeedbackData[feedbackId].payment_id = notif.payment_id;
+                                        window.prototypeFeedbackData[feedbackId].item_id = notif.item_id;
+                                        window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
+                                        viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer;">View Changes</button>';
+                                    } else if (notif.prototype_status === 'approved') {
+                                        statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
+                                        statusMessage = 'Prototype video has been approved by the designer.';
+                                    }
+                                    return baseBlock + '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
+                                        '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' + statusBadge +
+                                        '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — ' + statusMessage + '</div>' + helpMessage + linksHTML + viewChangesBtn + '</div>';
+                                }
+                                var submissionHTML = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
+                                    '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 12px;">Submit Prototype Video</div>' +
+                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submit 1-3 video links (YouTube, Vimeo, or Loom only)</div>' +
+                                    '<form id="n88-submit-prototype-video-form-' + (notif.payment_id || '') + '" data-payment-id="' + (notif.payment_id || '') + '" data-item-id="' + (notif.item_id || '') + '" data-bid-id="' + (notif.bid_id || '') + '" style="display: flex; flex-direction: column; gap: 10px;">' +
+                                    '<div id="n88-video-links-container-' + (notif.payment_id || '') + '">' +
+                                    '<div class="n88-video-link-row" style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+                                    '<select class="n88-video-provider" style="flex: 0 0 120px; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;">' +
+                                    '<option value="youtube">YouTube</option><option value="vimeo">Vimeo</option><option value="loom">Loom</option></select>' +
+                                    '<input type="url" class="n88-video-url" placeholder="https://..." style="flex: 1; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;" required />' +
+                                    '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer; display: none;">Remove</button></div></div>' +
+                                    '<button type="button" id="n88-add-link-btn-' + (notif.payment_id || '') + '" class="n88-add-link-btn" style="padding: 6px 12px; background-color: #000; color: #888; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 10px; cursor: pointer; align-self: flex-start;">+ Add Link (max 3)</button>' +
+                                    '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;">Submit Prototype Video</button></form></div>';
+                                return baseBlock + submissionHTML;
+                            })() : '');
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
                                 bid.video_links.forEach(function(link, index) {
@@ -3218,154 +3292,6 @@ class N88_RFQ_Auth {
                                     '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
                                     '</div>' : '') +
                                 (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">Prototype Requested — Awaiting Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div></div>' : '') +
-                                // Commit 2.3.9.1E: Payment Received Notification
-                                (bid.payment_notification ? (function() {
-                                    var notif = bid.payment_notification;
-                                    var keywordsHTML = '';
-                                    if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
-                                        keywordsHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
-                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Video Direction Keywords:</div>' +
-                                            '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
-                                        notif.keywords.forEach(function(keyword) {
-                                            if (keyword && String(keyword).trim() !== '') {
-                                                keywordsHTML += '<span style="display: inline-block; padding: 4px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 12px; font-size: 11px; color: #00ff00; font-family: monospace;">' + String(keyword).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
-                                            }
-                                        });
-                                        keywordsHTML += '</div></div>';
-                                    }
-                                    var noteHTML = '';
-                                    if (notif.note && notif.note.trim()) {
-                                        noteHTML = '<div style="margin-top: 12px; padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px;">' +
-                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px; font-weight: 600;">Note:</div>' +
-                                            '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
-                                            '</div>';
-                                    }
-                                    var cadFilesHTML = '';
-                                    // Show CAD files if CAD is approved and files exist (regardless of release status)
-                                    if (notif.cad_status === 'approved' && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
-                                        cadFilesHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
-                                            '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
-                                            '<div style="display: flex; flex-direction: column; gap: 6px;">';
-                                        notif.cad_files.forEach(function(file) {
-                                            var isPdf = file.ext === 'pdf';
-                                            var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
-                                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
-                                            cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
-                                                '<span style="font-size: 16px;">' + icon + '</span>' +
-                                                '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (file.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                                                '<span style="font-size: 9px; color: #00ff00;">Open →</span>' +
-                                                '</a>';
-                                        });
-                                        cadFilesHTML += '</div></div>';
-                                    }
-                                    // Check if CAD is approved and released (show approved status)
-                                    var isCadApprovedAndReleased = notif.cad_status === 'approved' && 
-                                                                   notif.cad_released_to_supplier_at && 
-                                                                   notif.cad_released_to_supplier_at.trim() !== '' &&
-                                                                   notif.cad_files && 
-                                                                   notif.cad_files.length > 0;
-                                    
-                                    var statusText = isCadApprovedAndReleased ? 
-                                        'Payment Received — CAD Approved' : 
-                                        'Payment Received — CAD Pending';
-                                    var statusMessage = isCadApprovedAndReleased ?
-                                        'Payment has been confirmed. CAD has been approved and released. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.' :
-                                        'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
-                                    return '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
-                                        '<div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">' + statusText + '</div>' +
-                                        '<div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
-                                        '<div style="font-size: 11px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
-                                        '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
-                                        '</div>' +
-                                        cadFilesHTML +
-                                        keywordsHTML +
-                                        noteHTML +
-                                        '</div>' +
-                                        // Commit 2.3.9.2B-S: Prototype Video Submission Form (only when CAD approved and released)
-                                        (isCadApprovedAndReleased && notif.payment_id ? (function() {
-                                            var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
-                                            
-                                            if (hasSubmission) {
-                                                // Show submission status instead of form
-                                                var submission = notif.prototype_video_submission;
-                                                var submissionDate = submission.created_at ? new Date(submission.created_at).toLocaleDateString() : 'N/A';
-                                                var linksHTML = '';
-                                                if (submission.links && submission.links.length > 0) {
-                                                    linksHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
-                                                        '<div style="font-size: 11px; color: #999; margin-bottom: 8px;">Submitted Links (v' + submission.version + '):</div>' +
-                                                        '<div style="display: flex; flex-direction: column; gap: 6px;">';
-                                                    submission.links.forEach(function(link) {
-                                                        var providerIcon = link.provider === 'youtube' ? '▶️' : (link.provider === 'vimeo' ? '▶️' : '▶️');
-                                                        linksHTML += '<a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; text-decoration: none; color: #fff; font-size: 11px; transition: all 0.2s;" onmouseover="this.style.borderColor=\'#888\';" onmouseout="this.style.borderColor=\'#444\';">' +
-                                                            '<span style="font-size: 14px;">' + providerIcon + '</span>' +
-                                                            '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (link.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                                                            '<span style="font-size: 10px; color: #888;">Open →</span>' +
-                                                            '</a>';
-                                                    });
-                                                    linksHTML += '</div></div>';
-                                                }
-                                                
-                                                var statusBadge = '';
-                                                var viewChangesBtn = '';
-                                                var statusMessage = 'Awaiting designer review';
-                                                var helpMessage = '';
-                                                
-                                                // Check if changes were requested
-                                                if (notif.prototype_status === 'changes_requested' && notif.prototype_feedback && notif.prototype_feedback.keywords) {
-                                                    statusBadge = '<div style="font-size: 11px; color: #ff8800; margin-bottom: 8px; padding: 6px 10px; background-color: #331100; border: 1px solid #ff8800; border-radius: 4px; display: inline-block;">⚠️ Changes Requested</div>';
-                                                    statusMessage = 'Designer has requested changes. Please review feedback and submit an updated version.';
-                                                    helpMessage = '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">Review the feedback and submit an updated version.</div>';
-                                                    // Store feedback data in a data attribute and use a unique ID
-                                                    var feedbackId = 'feedback_' + (notif.payment_id || '') + '_' + Date.now();
-                                                    if (typeof window.prototypeFeedbackData === 'undefined') {
-                                                        window.prototypeFeedbackData = {};
-                                                    }
-                                                    window.prototypeFeedbackData[feedbackId] = notif.prototype_feedback;
-                                                    // Store payment info for resubmission
-                                                    window.prototypeFeedbackData[feedbackId].payment_id = notif.payment_id;
-                                                    window.prototypeFeedbackData[feedbackId].item_id = notif.item_id;
-                                                    window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
-                                                    viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#442200\'; this.style.borderColor=\'#ffaa00\';" onmouseout="this.style.backgroundColor=\'#331100\'; this.style.borderColor=\'#ff8800\';">View Changes</button>';
-                                                } else if (notif.prototype_status === 'approved') {
-                                                    statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
-                                                    statusMessage = 'Prototype video has been approved by the designer.';
-                                                    helpMessage = ''; // No help message when approved
-                                                }
-                                                
-                                                return '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
-                                                    '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' +
-                                                    statusBadge +
-                                                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — ' + statusMessage + '</div>' +
-                                                    helpMessage +
-                                                    linksHTML +
-                                                    viewChangesBtn +
-                                                    '</div>';
-                                            }
-                                            
-                                            // Show submission form if not yet submitted
-                                            var submissionHTML = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
-                                                '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 12px;">Submit Prototype Video</div>' +
-                                                '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submit 1-3 video links (YouTube, Vimeo, or Loom only)</div>' +
-                                                '<form id="n88-submit-prototype-video-form-' + (notif.payment_id || '') + '" data-payment-id="' + (notif.payment_id || '') + '" data-item-id="' + (notif.item_id || '') + '" data-bid-id="' + (notif.bid_id || '') + '" style="display: flex; flex-direction: column; gap: 10px;">' +
-                                                '<div id="n88-video-links-container-' + (notif.payment_id || '') + '">' +
-                                                '<div class="n88-video-link-row" style="display: flex; gap: 8px; margin-bottom: 8px;">' +
-                                                '<select class="n88-video-provider" style="flex: 0 0 120px; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;">' +
-                                                '<option value="youtube">YouTube</option>' +
-                                                '<option value="vimeo">Vimeo</option>' +
-                                                '<option value="loom">Loom</option>' +
-                                                '</select>' +
-                                                '<input type="url" class="n88-video-url" placeholder="https://..." style="flex: 1; padding: 8px; background-color: #000; color: #fff; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 11px;" required />' +
-                                                '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer; display: none;">Remove</button>' +
-                                                '</div>' +
-                                                '</div>' +
-                                                '<button type="button" id="n88-add-link-btn-' + (notif.payment_id || '') + '" class="n88-add-link-btn" style="padding: 6px 12px; background-color: #000; color: #888; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 10px; cursor: pointer; align-self: flex-start;" onmouseover="this.style.borderColor=\'#aaa\'; this.style.color=\'#aaa\';" onmouseout="this.style.borderColor=\'#888\'; this.style.color=\'#888\';">+ Add Link (max 3)</button>' +
-                                                '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;" onmouseover="this.style.backgroundColor=\'#777\';" onmouseout="this.style.backgroundColor=\'#666\';">Submit Prototype Video</button>' +
-                                                '</form>' +
-                                                '</div>';
-                                            return submissionHTML;
-                                        })() : '') +
-                                        '</div>';
-                                })() : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
@@ -3381,13 +3307,11 @@ class N88_RFQ_Auth {
                                     return unitPriceHtml;
                                 })() : '') +
                                 smartAltHTML +
-                            '</div>' +
-                                '</div>';
-                        })() : '') +
-                        
-                        '</div>' +
-                        // Footer - Start Bid / Continue Bid / Withdraw Bid / Resubmit Bid button
-                        '<div style="padding: 20px; border-top: 1px solid #00ff00; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
+                            '</div></div>';
+                            return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML };
+                        })() : { bidBox: '', prototypeBlock: '' });
+                    var bidTabHTML = bidAndPrototype.bidBox +
+                        '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
                         ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
                             // Normal submitted/awarded state - check if resubmission
                             '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
@@ -3406,27 +3330,45 @@ class N88_RFQ_Auth {
                             )
                         ) +
                         '</div>' +
-                        // Expandable Bid Form Section (hidden by default)
-                        '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #00ff00;">' +
-                        '<div id="n88-bid-form-content-' + item.item_id + '"></div>' +
-                        '</div>';
+                        '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555;">' +
+                        '<div id="n88-bid-form-content-' + item.item_id + '"></div></div>';
+                    var prototypeTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a bid and, if awarded, prototype steps will appear here.</div>';
+                    var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
+                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
+                        '</div>' +
+                        '<div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">' +
+                        '<div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
+                        '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
+                        '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + tabActiveStyle + '">Item Overview</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'messages\');" id="n88-supplier-tab-messages" style="' + tabStyle + '">Messages</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + tabStyle + '">Bid</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">Prototype</button>' +
+                        '</div>' +
+                        '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
+                        '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto;">' + overviewTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-messages" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden;">' + messagesTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + bidTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeTabHTML + '</div>' +
+                        '</div></div></div>';
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Auto-expand Operator–Supplier Messages when operator has sent (e.g. CAD approved, clarification, new message) — only expand when collapsed, never collapse
-                    if (item.has_operator_supplier_messages && typeof toggleSupplierClarification === 'function') {
+                    // Auto-switch to Messages tab and expand when operator has sent (e.g. CAD approved, clarification)
+                    if (item.has_operator_supplier_messages) {
                         setTimeout(function() {
-                            var fc = document.getElementById('n88-supplier-clarification-form-' + itemId);
-                            if (fc && fc.style.display === 'none') { toggleSupplierClarification(itemId); }
+                            if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('messages');
+                            if (typeof toggleSupplierClarification === 'function') {
+                                var fc = document.getElementById('n88-supplier-clarification-form-' + itemId);
+                                if (fc && fc.style.display === 'none') toggleSupplierClarification(itemId);
+                            }
                         }, 80);
                     }
                     
-                    // Commit 2.3.5.4: Ensure bid form visible without scrolling - scroll to top on modal open
                     setTimeout(function() {
-                        var modalScrollContainer = modalContent.querySelector('div[style*="overflow-y: auto"]');
-                        if (modalScrollContainer) {
-                            modalScrollContainer.scrollTop = 0;
-                        }
+                        var tabContent = document.getElementById('n88-supplier-tab-content');
+                        if (tabContent) tabContent.scrollTop = 0;
                     }, 100);
                     
                     // Commit 2.3.9.2B-S: Initialize prototype video submission forms
@@ -3689,6 +3631,24 @@ class N88_RFQ_Auth {
                     document.body.style.overflow = '';
                 }
             }
+            
+            window.n88SupplierModalSwitchTab = function(tabName) {
+                var tabs = ['overview', 'messages', 'bid', 'prototype'];
+                var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                tabs.forEach(function(name) {
+                    var btn = document.getElementById('n88-supplier-tab-' + name);
+                    var panel = document.getElementById('n88-supplier-panel-' + name);
+                    if (btn) { btn.style.cssText = name === tabName ? tabActiveStyle : tabStyle; }
+                    if (panel) {
+                        if (name === tabName) {
+                            panel.style.display = (name === 'messages') ? 'flex' : 'block';
+                        } else {
+                            panel.style.display = 'none';
+                        }
+                    }
+                });
+            };
             
             // Toggle bid form section inside the modal
             function toggleBidForm(itemId) {
