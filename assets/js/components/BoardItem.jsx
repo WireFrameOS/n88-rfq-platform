@@ -46,6 +46,9 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     
     // Commit 1.3.8: Modal state
     const [isModalOpen, setIsModalOpen] = React.useState(false);
+    // Context menu (three-dots) open state
+    const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
+    const contextMenuRef = React.useRef(null);
     
     // HIGH APPROACH: Cooldown period after drag - block clicks for 2 seconds after drag ends
     const isDraggingRef = React.useRef(false); // Track if currently dragging
@@ -514,6 +517,20 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         };
     }, []);
 
+    // Close context menu when clicking outside
+    React.useEffect(() => {
+        if (!contextMenuOpen) return;
+        const handleClickOutside = (e) => {
+            if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
+                setContextMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [contextMenuOpen]);
+
+    const itemTitle = item.title || item.description || 'Untitled';
+
     return (
         <motion.div
             layoutId={`board-item-${item.id}`}
@@ -537,31 +554,32 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 layout: { duration: 0.3, ease: 'easeOut' },
             }}
         >
-            {/* Main tile container - Photo-First Design */}
+            {/* Main tile container - card design: white, rounded, image ~2/3 + title/status ~1/3 */}
             <div
+                ref={contextMenuRef}
                 style={{
                     width: '100%',
                     height: '100%',
                     backgroundColor: '#ffffff',
-                    border: '1px solid #e0e0e0',
+                    border: 'none',
                     borderRadius: '8px',
-                    overflow: 'hidden',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                    overflow: 'visible',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
                     position: 'relative',
                     display: 'flex',
                     flexDirection: 'column',
                     boxSizing: 'border-box',
                 }}
             >
-                {/* Photo Section - 75% of card (100% when photo_only mode) */}
+                {/* Photo Section - ~2/3 when footer visible, 100% in photo_only */}
                 <div
                     onPointerDown={handleImagePointerDown}
                     onPointerUp={handleImagePointerUp}
                     style={{
                         width: '100%',
-                        flex: item.displayMode === 'photo_only' ? '0 0 100%' : '0 0 75%',
+                        flex: item.displayMode === 'photo_only' ? '0 0 100%' : '0 0 66%',
                         minHeight: 0,
-                        backgroundColor: '#e0e0e0',
+                        backgroundColor: '#e8e8e8',
                         backgroundImage: item.imageUrl ? `url(${item.imageUrl})` : 'none',
                         backgroundSize: 'cover',
                         backgroundPosition: 'center',
@@ -571,130 +589,159 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                         cursor: 'pointer',
                     }}
                 >
-                    {/* Delete button - top right */}
+                    {/* Three-dots menu - top right, light grey square with black dots */}
                     <button
+                        type="button"
                         onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            handleDeleteItem();
+                            setContextMenuOpen((v) => !v);
                         }}
                         style={{
                             position: 'absolute',
                             top: '8px',
                             right: '8px',
-                            width: '24px',
-                            height: '24px',
+                            width: '28px',
+                            height: '28px',
                             padding: 0,
                             fontSize: '16px',
-                            fontWeight: 'bold',
+                            lineHeight: '1',
+                            letterSpacing: '0.02em',
                             cursor: 'pointer',
-                            backgroundColor: '#d32f2f',
-                            color: '#fff',
+                            backgroundColor: 'rgba(200,200,200,0.85)',
+                            color: '#333',
                             border: 'none',
-                            borderRadius: '50%',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                            transition: 'all 0.2s',
-                            zIndex: 20,
+                            borderRadius: '4px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            lineHeight: '1',
+                            zIndex: 20,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                         }}
-                        onMouseEnter={(e) => {
-                            e.target.style.backgroundColor = '#b71c1c';
-                            e.target.style.transform = 'scale(1.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.target.style.backgroundColor = '#d32f2f';
-                            e.target.style.transform = 'scale(1)';
-                        }}
-                        title="Delete item"
+                        title="Options"
+                        aria-label="Open menu"
                     >
-                        ×
+                        ⋮
                     </button>
-                    {item.displayMode !== 'photo_only' && (
-                <div
-                    style={{
-                        width: '100%',
-                        flex: '0 0 25%',
-                        minHeight: 0,
-                        backgroundColor: '#ffffff',
-                        borderTop: '1px solid #e0e0e0',
-                        padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                        boxSizing: 'border-box',
-                        flexShrink: 0,
-                    }}
-                >
-                    {/* Status Text with Dot */}
+                </div>
+                {/* Context menu - right side of card, outside card box */}
+                {contextMenuOpen && (
                     <div
                         style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px',
-                            color: '#333',
+                            position: 'absolute',
+                            left: '100%',
+                            top: '0',
+                            marginLeft: '8px',
+                            minWidth: '220px',
+                            padding: '12px 14px',
+                            backgroundColor: '#3a3a3a',
+                            border: 'none',
+                            borderRadius: '4px',
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                            zIndex: 25,
+                            fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+                            fontSize: '13px',
+                            color: '#fff',
                         }}
                     >
-                        <span
-                            style={{
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                backgroundColor: itemStatus.dot,
-                                display: 'inline-block',
-                            }}
-                        />
-                        <span style={{ fontWeight: 500 }}>{itemStatus.text}</span>
-                    </div>
-
-                    {/* Sizes Button Row - Show all sizes inline */}
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} data-sizes-container>
-                        {['S', 'D', 'L', 'XL'].map((size) => (
+                        <div style={{ marginBottom: '8px', color: '#fff' }}>Card size:</div>
+                        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                            {['S', 'D', 'L', 'XL'].map((size) => (
+                                <button
+                                    key={size}
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSizeChange(size, e);
+                                    }}
+                                    style={{
+                                        padding: '4px 10px',
+                                        fontSize: '12px',
+                                        cursor: 'pointer',
+                                        backgroundColor: 'transparent',
+                                        color: currentSize === size ? '#e91e8c' : '#fff',
+                                        border: 'none',
+                                        borderRadius: '2px',
+                                        fontWeight: currentSize === size ? 600 : 400,
+                                    }}
+                                >
+                                    [{size}]
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' }}>
                             <button
-                                key={size}
+                                type="button"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    e.preventDefault();
-                                    handleSizeChange(size, e);
+                                    setContextMenuOpen(false);
+                                    setIsModalOpen(true);
                                 }}
                                 style={{
-                                    padding: (currentSize === 'S' || currentSize === 'D') ? '3px 6px' : '4px 8px',
-                                    fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
-                                    fontWeight: currentSize === size ? 'bold' : 'normal',
+                                    display: 'block',
+                                    width: '100%',
+                                    padding: '6px 0',
+                                    textAlign: 'left',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#fff',
                                     cursor: 'pointer',
-                                    backgroundColor: currentSize === size ? '#0073aa' : '#f0f0f0',
-                                    color: currentSize === size ? '#fff' : '#333',
-                                    border: `1px solid ${currentSize === size ? '#0073aa' : '#ccc'}`,
-                                    borderRadius: '3px',
-                                    transition: 'all 0.2s',
-                                    minWidth: (currentSize === 'S' || currentSize === 'D') ? '24px' : '28px',
-                                    flex: 1,
+                                    fontSize: '13px',
                                 }}
-                                onMouseEnter={(e) => {
-                                    if (currentSize !== size) {
-                                        e.target.style.backgroundColor = '#e0e0e0';
-                                    }
-                                }}
-                                onMouseLeave={(e) => {
-                                    if (currentSize !== size) {
-                                        e.target.style.backgroundColor = '#f0f0f0';
-                                    }
-                                }}
-                                title={`Set size to ${size}`}
                             >
-                                {size}
+                                Move to project / room
                             </button>
-                        ))}
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setContextMenuOpen(false);
+                                    handleDeleteItem();
+                                }}
+                                style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    padding: '6px 0',
+                                    textAlign: 'left',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#e91e8c',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    marginTop: '4px',
+                                }}
+                            >
+                                Delete
+                            </button>
+                        </div>
                     </div>
-                </div>
                 )}
-                </div>
-
-                {/* Status Strip - 25% of card - Only show when not in photo_only mode */}
-               
+                {/* Card footer: Title + Status (only when not photo_only) - ~1/3, bold title + grey bullet status */}
+                {item.displayMode !== 'photo_only' && (
+                    <div
+                        style={{
+                            width: '100%',
+                            flex: '0 0 34%',
+                            minHeight: 0,
+                            backgroundColor: '#ffffff',
+                            borderTop: '1px solid rgba(0,0,0,0.06)',
+                            padding: (currentSize === 'S' || currentSize === 'D') ? '6px 10px' : '10px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            gap: '2px',
+                            boxSizing: 'border-box',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {itemTitle}
+                        </div>
+                        <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', color: '#888' }}>
+                            • {itemStatus.text}
+                        </div>
+                    </div>
+                )}
             </div>
             
             {/* Commit 1.3.8: Item Detail Modal */}

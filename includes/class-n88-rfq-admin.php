@@ -4658,16 +4658,68 @@ class N88_RFQ_Admin {
                 height: 100vh !important;
             }
             
-            /* Sticky header - behind modal when modal is open */
+            /* Sticky header - WireFrame OS dark theme */
             #n88-board-header {
                 position: fixed;
                 top: 0;
                 left: 0;
                 right: 0;
-                background-color: #fff;
+                background-color: #1e1e1e;
                 z-index: 1000;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                box-shadow: 0 1px 0 rgba(255,255,255,0.06);
+                font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
             }
+            #n88-board-header .n88-header-top { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
+            #n88-board-header .n88-header-title { font-size: 15px; font-weight: 500; color: #e0e0e0; }
+            #n88-board-header .n88-header-title .n88-back { color: #e0e0e0; text-decoration: none; margin-right: 6px; }
+            #n88-board-header .n88-user-trigger { font-size: 14px; color: #e0e0e0; cursor: pointer; padding: 6px 12px; border-radius: 4px; }
+            #n88-board-header .n88-user-trigger:hover { background-color: rgba(255,255,255,0.08); }
+            #n88-board-header .n88-breadcrumb-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 20px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+            #n88-board-header .n88-breadcrumb { padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; color: #e0e0e0; background: transparent; border: none; }
+            #n88-board-header .n88-breadcrumb:hover { background: rgba(255,255,255,0.06); }
+            #n88-board-header .n88-breadcrumb.active { color: #e91e8c; }
+            #n88-board-header .n88-actions-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: nowrap; gap: 10px; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); width: 100%; box-sizing: border-box; }
+            #n88-board-header .n88-actions-row .n88-actions-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+            #n88-board-header .n88-actions-row .n88-support-wrap { flex-shrink: 0; margin-left: auto; }
+            #n88-board-header .n88-btn-bracket { padding: 6px 14px; font-size: 13px; cursor: pointer; font-weight: 500; background: transparent; color: #e91e8c; border: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+            #n88-board-header .n88-btn-bracket:hover { background: rgba(255,255,255,0.06); }
+            #n88-board-header .n88-btn-bracket a { color: #e91e8c; text-decoration: none; }
+            #n88-board-header .n88-btn-bracket.n88-invite-btn,
+            #n88-board-header .n88-btn-bracket.n88-support-btn { color: #fff; }
+            #n88-board-header .n88-btn-bracket.n88-invite-btn:hover,
+            #n88-board-header .n88-btn-bracket.n88-support-btn:hover { background: rgba(255,255,255,0.08); }
+            #n88-board-header .n88-btn-bracket.n88-support-btn a { color: #fff; }
+            #n88-board-header .n88-filter-row { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+            #n88-board-header .n88-project-select {
+                padding: 6px 32px 6px 12px;
+                background: #2d2d2d;
+                border: 1px solid rgba(255,255,255,0.12);
+                border-radius: 4px;
+                font-size: 13px;
+                color: #e0e0e0;
+                min-width: 180px;
+                cursor: pointer;
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e0e0e0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 10px center;
+            }
+            #n88-board-header .n88-search-wrap { display: flex; align-items: center; position: relative; }
+            #n88-board-header .n88-search-wrap input { width: 260px; padding: 6px 12px 6px 36px; background: #2d2d2d; border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; font-size: 13px; color: #e0e0e0; }
+            #n88-board-header .n88-search-wrap input::placeholder { color: #888; }
+            #n88-board-header .n88-search-wrap .n88-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: #888; pointer-events: none; }
+            #n88-board-header .n88-search-wrap .n88-search-icon svg { width: 100%; height: 100%; fill: currentColor; }
+            #n88-board-header .n88-profile-dropdown { background: #2d2d2d !important; border: 1px solid rgba(255,255,255,0.12) !important; }
+            #n88-board-header .n88-profile-dropdown a { color: #e0e0e0 !important; }
+            #n88-board-header .n88-profile-dropdown a:hover { background: rgba(255,255,255,0.08) !important; }
+            #n88-board-header .n88-rooms-section { background: #252525 !important; border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+            #n88-board-header .n88-rooms-section .n88-rooms-heading { color: #e0e0e0 !important; font-weight: 600; }
+            #n88-board-header .n88-room-tab { background-color: #2d2d2d !important; color: #e91e8c !important; border: 1px solid rgba(255,255,255,0.12) !important; }
+            #n88-board-header .n88-room-tab.n88-room-tab-active { background-color: #e91e8c !important; color: #fff !important; border-color: #e91e8c !important; }
+            body.n88-board-page #wpcontent { background: #1e1e1e !important; }
+            body.n88-board-page .wrap { background: #1e1e1e !important; }
             
             /* K) Modal should cover full page height, header visible behind */
             body.n88-modal-open #n88-board-header {
@@ -4695,7 +4747,7 @@ class N88_RFQ_Admin {
                 height: 0 !important;
             }
             
-            /* Board canvas container - relative positioning with proper scrolling */
+            /* Board canvas container - dark theme with dotted grid */
             #n88-board-canvas-container {
                 position: relative !important;
                 top: 180px !important;
@@ -4704,7 +4756,9 @@ class N88_RFQ_Admin {
                 bottom: 0 !important;
                 overflow-x: hidden !important;
                 overflow-y: auto !important;
-                background-color: #f5f5f5 !important;
+                background-color: #1e1e1e !important;
+                background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px) !important;
+                background-size: 20px 20px !important;
                 z-index: 1 !important;
                 width: 100% !important;
                 height: calc(100vh - 200px) !important;
@@ -4718,7 +4772,7 @@ class N88_RFQ_Admin {
                 height: calc(100vh - 300px) !important;
             }
             
-            /* Board canvas root - expands to fit all items */
+            /* Board canvas root - transparent so grey dotted background shows */
             #n88-board-demo-root {
                 position: relative !important;
                 min-width: 100% !important;
@@ -4727,9 +4781,10 @@ class N88_RFQ_Admin {
                 height: 100% !important;
                 overflow: visible !important;
                 display: block !important;
+                background: transparent !important;
             }
             
-            /* Ensure the React-rendered canvas div is visible */
+            /* React-rendered canvas div - transparent */
             #n88-board-demo-root > div {
                 position: relative !important;
                 overflow: visible !important;
@@ -4738,6 +4793,7 @@ class N88_RFQ_Admin {
                 height: 100% !important;
                 display: block !important;
                 visibility: visible !important;
+                background: transparent !important;
             }
             
             /* Prevent page scroll when interacting with board items */
@@ -4762,57 +4818,304 @@ class N88_RFQ_Admin {
             #n88-board-canvas-container {
                 contain: layout style paint;
             }
+            
+            /* Add Item Modal - dark theme per design; light backdrop so board stays visible behind */
+            #n88-add-item-modal-backdrop {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.35);
+                z-index: 10000000;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            #n88-add-item-modal-backdrop.n88-modal-open {
+                display: flex;
+            }
+            #n88-add-item-modal {
+                background: #323232;
+                border-radius: 8px;
+                max-width: 520px;
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+                overflow-x: hidden;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+            #n88-add-item-modal::-webkit-scrollbar { display: none; }
+            #n88-add-item-modal .n88-add-item-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 20px 12px;
+                border-bottom: 1px solid rgba(255,255,255,0.12);
+            }
+            #n88-add-item-modal .n88-add-item-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #fff;
+            }
+            #n88-add-item-modal .n88-add-item-close {
+                background: none;
+                border: none;
+                color: #fff;
+                font-size: 22px;
+                cursor: pointer;
+                padding: 2px 6px;
+                line-height: 1;
+            }
+            #n88-add-item-modal .n88-add-item-close:hover { color: #e0e0e0; }
+            #n88-add-item-modal .n88-add-item-body { padding: 20px 20px 16px; }
+            #n88-add-item-modal .n88-field {
+                margin-bottom: 16px;
+            }
+            #n88-add-item-modal .n88-field:last-of-type { margin-bottom: 0; }
+            #n88-add-item-modal .n88-field label {
+                display: block;
+                font-size: 13px;
+                color: #fff;
+                margin-bottom: 6px;
+            }
+            #n88-add-item-modal .n88-field label .n88-required { color: #e91e8c; }
+            #n88-add-item-modal .n88-field .n88-hint {
+                font-size: 12px;
+                color: #aaa;
+                margin-top: 2px;
+                margin-bottom: 6px;
+            }
+            #n88-add-item-modal input[type="text"],
+            #n88-add-item-modal input[type="number"],
+            #n88-add-item-modal textarea,
+            #n88-add-item-modal select {
+                width: 100% !important;
+                max-width: 100%;
+                padding: 10px 12px;
+                background: #2d2d2d;
+                border: 1px solid rgba(255,255,255,0.25);
+                border-radius: 4px;
+                font-size: 14px;
+                color: #e0e0e0;
+                box-sizing: border-box;
+            }
+            #n88-add-item-modal select {
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                padding-right: 36px;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e0e0e0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 12px center;
+                background-color: #2d2d2d;
+            }
+            #n88-add-item-modal input::placeholder,
+            #n88-add-item-modal textarea::placeholder { color: #888; }
+            #n88-add-item-modal textarea { min-height: 80px; resize: vertical; }
+            #n88-add-item-modal .n88-dims-row {
+                display: flex;
+                gap: 10px;
+                align-items: flex-end;
+                flex-wrap: wrap;
+            }
+            #n88-add-item-modal .n88-dims-row .n88-field { flex: 1; min-width: 70px; margin-bottom: 0; }
+            #n88-add-item-modal .n88-dims-row .n88-field:last-child { min-width: 64px; }
+            #n88-add-item-modal .n88-quantity-wrap {
+                display: flex;
+                align-items: stretch;
+                gap: 0;
+                width: 100%;
+                border: 1px solid rgba(255,255,255,0.25);
+                border-radius: 4px;
+                background: #2d2d2d;
+                overflow: hidden;
+                box-sizing: border-box;
+            }
+            #n88-add-item-modal .n88-quantity-wrap button {
+                width: 40px;
+                flex-shrink: 0;
+                background: #2d2d2d;
+                border: none;
+                border-right: 1px solid rgba(255,255,255,0.2);
+                color: #e0e0e0;
+                font-size: 18px;
+                cursor: pointer;
+                padding: 0;
+                line-height: 1;
+            }
+            #n88-add-item-modal .n88-quantity-wrap button:last-of-type { border-right: none; border-left: 1px solid rgba(255,255,255,0.2); }
+            #n88-add-item-modal .n88-quantity-wrap button:hover { background: #3d3d3d; }
+            #n88-add-item-modal .n88-quantity-wrap input {
+                flex: 1;
+                min-width: 50px;
+                text-align: center;
+                margin: 0;
+                border: none;
+                border-radius: 0;
+                background: transparent;
+            }
+            #n88-add-item-modal .n88-upload-zone {
+                border: 1px solid rgba(255,255,255,0.25);
+                border-radius: 4px;
+                background: #2d2d2d;
+                padding: 20px 16px;
+                text-align: center;
+                color: #888;
+                font-size: 13px;
+            }
+            #n88-add-item-modal .n88-upload-zone.has-file { color: #e0e0e0; }
+            #n88-add-item-modal .n88-upload-zone input[type="file"] { display: none; }
+            #n88-add-item-modal .n88-upload-icon { font-size: 26px; margin-bottom: 6px; display: block; color: #aaa; }
+            #n88-add-item-modal .n88-image-preview-wrap {
+                margin-top: 10px;
+                display: none;
+            }
+            #n88-add-item-modal .n88-image-preview-wrap.visible { display: block; }
+            #n88-add-item-modal .n88-image-preview-wrap img {
+                max-width: 100%;
+                max-height: 180px;
+                width: auto;
+                height: auto;
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 4px;
+                object-fit: contain;
+                display: block;
+            }
+            #n88-add-item-modal .n88-add-item-footer {
+                padding: 14px 20px 18px;
+                border-top: 1px solid rgba(255,255,255,0.12);
+            }
+            #n88-add-item-modal .n88-btn-add-item {
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 500;
+                background: transparent;
+                color: #fff;
+                border: 1px solid #e91e8c;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            #n88-add-item-modal .n88-btn-add-item:hover { background: rgba(233,30,140,0.2); }
+            #n88-add-item-modal .n88-result { margin-top: 10px; font-size: 13px; }
+            #n88-add-item-modal .n88-result.success { color: #7cba7c; }
+            #n88-add-item-modal .n88-result.error { color: #e88; }
+            
+            /* Add Project / Add Room modals - same look as Add Item */
+            #n88-add-project-modal-backdrop,
+            #n88-add-room-modal-backdrop,
+            #n88-invite-team-member-modal-backdrop {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.35);
+                z-index: 10000000;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            #n88-add-project-modal-backdrop.n88-modal-open,
+            #n88-add-room-modal-backdrop.n88-modal-open,
+            #n88-invite-team-member-modal-backdrop.n88-modal-open {
+                display: flex;
+            }
+            /* Modals above canvas: higher z-index; when moved to body they always show on top */
+            body > #n88-add-item-modal-backdrop,
+            body > #n88-add-project-modal-backdrop,
+            body > #n88-add-room-modal-backdrop,
+            body > #n88-invite-team-member-modal-backdrop {
+                z-index: 10000002 !important;
+            }
+            .n88-board-modal-box {
+                background: #323232;
+                border-radius: 8px;
+                max-width: 520px;
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+                overflow-x: hidden;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+            .n88-board-modal-box .n88-add-item-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 20px 12px;
+                border-bottom: 1px solid rgba(255,255,255,0.12);
+            }
+            .n88-board-modal-box .n88-add-item-title { font-size: 18px; font-weight: 600; color: #fff; }
+            .n88-board-modal-box .n88-add-item-close {
+                background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; padding: 2px 6px; line-height: 1;
+            }
+            .n88-board-modal-box .n88-add-item-close:hover { color: #e0e0e0; }
+            .n88-board-modal-box .n88-add-item-body { padding: 20px 20px 16px; }
+            .n88-board-modal-box .n88-field { margin-bottom: 16px; }
+            .n88-board-modal-box .n88-field label { display: block; font-size: 13px; color: #fff; margin-bottom: 6px; }
+            .n88-board-modal-box .n88-field label .n88-required { color: #e91e8c; }
+            .n88-board-modal-box input[type="text"],
+            .n88-board-modal-box input[type="number"],
+            .n88-board-modal-box input[type="email"] {
+                width: 100% !important; max-width: 100%; padding: 10px 12px;
+                background: #2d2d2d; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px;
+                font-size: 14px; color: #e0e0e0; box-sizing: border-box;
+            }
+            .n88-board-modal-box .n88-add-item-footer {
+                padding: 14px 20px 18px;
+                border-top: 1px solid rgba(255,255,255,0.12);
+            }
+            .n88-board-modal-box .n88-btn-add-item {
+                padding: 10px 20px; font-size: 13px; font-weight: 500;
+                background: transparent; color: #fff; border: 1px solid #e91e8c; border-radius: 4px; cursor: pointer;
+            }
+            .n88-board-modal-box .n88-btn-add-item:hover { background: rgba(233,30,140,0.2); }
+            .n88-board-modal-box .n88-btn-add-item:disabled { opacity: 0.6; cursor: wait; }
+            .n88-board-modal-box .n88-result { margin-top: 10px; font-size: 13px; }
+            .n88-board-modal-box .n88-result.success { color: #7cba7c; }
+            .n88-board-modal-box .n88-result.error { color: #e88; }
         </style>
         
         <div class="wrap">
-            <!-- Sticky Header -->
+            <!-- Sticky Header - WireFrame OS dark theme -->
             <div id="n88-board-header">
-            <!-- Top Bar -->
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #ddd;">
-                <div style="font-size: 16px; font-weight: 500; color: #333;">
-                        WireFrame OS / Workspace
-                </div>
-                <div style="position: relative;">
-                    <div id="n88-profile-dropdown-trigger" style="font-size: 14px; color: #666; cursor: pointer; padding: 6px 12px; border-radius: 4px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f0f0f0';" onmouseout="this.style.backgroundColor='transparent';">
-                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                <div class="n88-header-top">
+                    <div class="n88-header-title">
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" class="n88-back" aria-label="Back">←</a>
+                        WireFrame (OS) / Workspace
                     </div>
-                        <div id="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); min-width: 150px; z-index: 1001;">
-                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="display: block; padding: 10px 16px; color: #dc3545; text-decoration: none; font-size: 14px;" onmouseover="this.style.backgroundColor='#f8f8f8';" onmouseout="this.style.backgroundColor='transparent';">
-                            Logout
-                        </a>
+                    <div style="position: relative;">
+                        <div id="n88-profile-dropdown-trigger" class="n88-user-trigger">
+                            <?php echo esc_html( $current_user->display_name ); ?> ▼
+                        </div>
+                        <div id="n88-profile-dropdown" class="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); min-width: 150px; z-index: 1001;">
+                            <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="display: block; padding: 10px 16px; text-decoration: none; font-size: 14px;">
+                                Logout
+                            </a>
                         </div>
                     </div>
                 </div>
-                
-                <!-- Tabs Row - Project dropdown and search left-aligned after Firm Board -->
-                <div style="display: flex; align-items: center; gap: 20px; padding: 10px 20px; border-bottom: 1px solid #ddd;">
+                <!-- Row 1: My Board, Firm Board (left) | All Items, Search (right end) -->
+                <div class="n88-breadcrumb-row">
                     <?php
-                    // Check if current user owns the board being viewed
                     $is_own_board = false;
                     if ( $is_real_board && isset( $board ) && isset( $board->owner_user_id ) ) {
                         $is_own_board = ( intval( $board->owner_user_id ) === intval( $user_id ) );
                     }
-                    // Commit 2.6.1: view-only and hide buttons (used by Project dropdown and Controls row)
                     $is_view_only_team = N88_RFQ_Auth::is_view_only_team_member( $user_id );
                     $should_hide_buttons = $is_view_only_team || ( $is_real_board && ! $is_own_board );
-                    // Determine active button:
-                    // - If viewing own board: "My Board" is active
-                    // - If viewing owner's board (team member): "Firm Board (View-Only)" is active
-                    // - If demo board: "My Board" is active by default
                     $my_board_active = $is_own_board || ! $is_real_board;
                     $firm_board_active = ! $is_own_board && $is_real_board;
                     ?>
-                    <span style="margin-right: 10px; padding: 8px 15px; background-color: <?php echo $my_board_active ? '#0073aa' : '#f0f0f0'; ?>; color: <?php echo $my_board_active ? '#fff' : '#666'; ?>; border-radius: 4px; font-size: 14px; cursor: pointer;">
-                        My Board
-                    </span>
-                    <span style="margin-right: 10px; padding: 8px 15px; background-color: <?php echo $firm_board_active ? '#0073aa' : '#f0f0f0'; ?>; color: <?php echo $firm_board_active ? '#fff' : '#666'; ?>; border-radius: 4px; font-size: 14px; cursor: pointer;">
-                        Firm Board (View-Only)
-                    </span>
-                    <!-- K) Project dropdown and search left-aligned right after Firm Board -->
-                    <div style="display: flex; align-items: center; gap: 10px; margin-left: 10px;">
-                        <span style="font-size: 14px; color: #666;">Project:</span>
-                        <select id="n88-project-selector" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px; cursor: pointer;">
-                            <option value="">All Items (No Project)</option>
+                    <span class="n88-breadcrumb<?php echo $my_board_active ? ' active' : ''; ?>" data-tab="my">[ My Board ]</span>
+                    <span class="n88-breadcrumb<?php echo $firm_board_active ? ' active' : ''; ?>" data-tab="firm">[ Firm Board ]</span>
+                    <div class="n88-filter-row">
+                        <select id="n88-project-selector" class="n88-project-select">
+                            <option value="">All Items</option>
                             <?php
                             // Load projects for this board
                             if ( $is_real_board && isset( $board_id ) && $board_id > 0 ) {
@@ -4858,35 +5161,34 @@ class N88_RFQ_Admin {
                         $sel_project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
                         if ( $sel_project_id > 0 && ! $should_hide_buttons ) :
                         ?>
-                        <button id="n88-delete-project-btn" type="button" data-project-id="<?php echo esc_attr( $sel_project_id ); ?>" style="padding: 4px 10px; background: #cc0000; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;" title="Delete this project and all its rooms and items">Delete project</button>
+                        <button id="n88-delete-project-btn" type="button" data-project-id="<?php echo esc_attr( $sel_project_id ); ?>" style="padding: 4px 10px; background: #8b1538; color: #fff; border: 1px solid #e91e8c; border-radius: 4px; font-size: 12px; cursor: pointer;" title="Delete this project and all its rooms and items">Delete project</button>
                         <?php endif; ?>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 14px; color: #666;">Search:</span>
-                        <input type="text" id="n88-board-search" placeholder="Search items…" style="width: 300px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        <div class="n88-search-wrap">
+                            <span class="n88-search-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+                            <input type="text" id="n88-board-search" placeholder="Search items" autocomplete="off">
+                        </div>
                     </div>
                 </div>
-                
-                <!-- K) Controls Row - Create Project and Add Item buttons left-aligned -->
-                <div style="display: flex; align-items: center; gap: 10px; padding: 15px 20px; border-bottom: 1px solid #ddd;">
-                    <?php if ( ! $should_hide_buttons ) : ?>
-                        <button id="n88-create-project-btn" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
-                            + Create Project
-                        </button>
+                <!-- Row 2: Create Project, Add Item, Invite (left) | Support widget (right end) -->
+                <?php if ( $should_hide_buttons ) : ?>
+                <div class="n88-actions-row"><span style="color: #888; font-size: 13px;">View-Only Mode</span></div>
+                <?php else : ?>
+                <div class="n88-actions-row">
+                    <div class="n88-actions-left">
+                        <button type="button" id="n88-create-project-btn" class="n88-btn-bracket">[ + Create Project ]</button>
                         <?php if ( $is_real_board ) : ?>
-                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" 
-                               style="padding: 8px 16px; background-color: #000; color: #fff; text-decoration: none; border: none; border-radius: 4px; font-size: 14px; display: inline-block; font-weight: 500;">
-                                + Add Item
-                            </a>
-                            <!-- Commit 2.6.1: Invite Team Member Button -->
-                            <button id="n88-invite-team-member-btn" style="padding: 8px 16px; background-color: #4caf50; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500;">
-                                + Invite Team Member
-                            </button>
+                        <button type="button" id="n88-add-item-btn" class="n88-btn-bracket">[ + Add Item ]</button>
+                        <button type="button" id="n88-invite-team-member-btn" class="n88-btn-bracket n88-invite-btn">[ + Invite Team Member ]</button>
+                        <?php if ( isset( $_GET['project_id'] ) && absint( $_GET['project_id'] ) > 0 ) : ?>
+                        <button id="n88-create-room-btn" class="n88-btn-bracket" type="button">[ + Add Room ]</button>
                         <?php endif; ?>
-                    <?php else : ?>
-                        <span style="padding: 8px 16px; color: #666; font-size: 14px; font-weight: 500;">View-Only Mode</span>
-                    <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                    <div class="n88-support-wrap">
+                        <button type="button" class="n88-btn-bracket n88-support-btn" id="n88-header-support-widget" title="Message System Operator">🎧 [ Support ]</button>
+                    </div>
                 </div>
+                <?php endif; ?>
                 
                 <!-- Commit 2.5.2: Rooms Section (shown when project is selected) -->
                 <?php
@@ -4908,37 +5210,31 @@ class N88_RFQ_Admin {
                 }
                 ?>
                 <?php if ( $selected_project_id > 0 && ! $should_hide_buttons ) : ?>
-                <div id="n88-rooms-section" style="padding: 15px 20px; border-bottom: 1px solid #ddd; background-color: #f9f9f9;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #333;">Rooms</h3>
-                        <button id="n88-create-room-btn" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer;">
-                            + Add Room
-                        </button>
+                <div id="n88-rooms-section" class="n88-rooms-section" style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <div style="margin-bottom: 12px;">
+                        <h3 class="n88-rooms-heading" style="margin: 0; font-size: 16px; font-weight: 600;">[ Room ]</h3>
                     </div>
-                    <!-- Fix 3: Rooms as switchable tabs -->
                     <?php
                     $selected_room_id = isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0;
-                    $all_items_active = $selected_room_id === 0 ? 'background-color: #0073aa; color: #fff;' : 'background-color: #f0f0f0; color: #666;';
+                    $all_items_active = $selected_room_id === 0;
                     ?>
                     <div id="n88-rooms-tabs" style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
-                        <button class="n88-room-tab" data-room-id="0" style="padding: 8px 16px; <?php echo $all_items_active; ?> border: none; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;">
-                            All Items
+                        <button class="n88-room-tab <?php echo $all_items_active ? 'n88-room-tab-active' : ''; ?>" data-room-id="0" type="button" style="padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;">
+                            [ All Items ]
                         </button>
                         <?php if ( ! empty( $project_rooms ) ) : ?>
                             <?php foreach ( $project_rooms as $room ) : ?>
-                                <?php
-                                $room_active = ( $selected_room_id > 0 && intval( $selected_room_id ) === intval( $room['id'] ) ) ? 'background-color: #0073aa; color: #fff;' : 'background-color: #f0f0f0; color: #666;';
-                                ?>
-                                <button class="n88-room-tab" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" style="padding: 8px 16px; <?php echo $room_active; ?> border: none; border-radius: 4px; font-size: 13px; cursor: pointer; position: relative;">
-                                    <span class="n88-room-name"><?php echo esc_html( $room['name'] ); ?></span>
+                                <?php $room_active = ( $selected_room_id > 0 && intval( $selected_room_id ) === intval( $room['id'] ) ); ?>
+                                <button class="n88-room-tab <?php echo $room_active ? 'n88-room-tab-active' : ''; ?>" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" type="button" style="padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; position: relative;">
+                                    <span class="n88-room-name">[ <?php echo esc_html( $room['name'] ); ?> ]</span>
                                     <span class="n88-room-actions" style="margin-left: 8px; display: inline-flex; gap: 4px;">
-                                        <button class="n88-edit-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" data-room-name="<?php echo esc_attr( $room['name'] ); ?>" style="padding: 2px 6px; background: #fff; border: 1px solid #ddd; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Edit">✎</button>
-                                        <button class="n88-delete-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" style="padding: 2px 6px; background: #ff4444; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Delete">×</button>
+                                        <button class="n88-edit-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" data-room-name="<?php echo esc_attr( $room['name'] ); ?>" type="button" style="padding: 2px 6px; background: #2d2d2d; color: #e0e0e0; border: 1px solid rgba(255,255,255,0.12); border-radius: 2px; cursor: pointer; font-size: 10px;" title="Edit">✎</button>
+                                        <button class="n88-delete-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" type="button" style="padding: 2px 6px; background: #8b1538; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Delete">×</button>
                                     </span>
                                 </button>
                             <?php endforeach; ?>
                         <?php else : ?>
-                            <p style="color: #666; font-size: 14px; margin: 0; width: 100%;">No rooms yet. Click "+ Add Room" to create one.</p>
+                            <p style="color: #888; font-size: 14px; margin: 0; width: 100%;">No rooms yet. Click "+ Add Room" to create one.</p>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -4971,65 +5267,92 @@ class N88_RFQ_Admin {
                     });
                 }
                 
-                // Commit 2.5.2: Create Project button handler
+                // Message System Operator: scroll to Concierge overlay in canvas
+                var msgOpBtn = document.getElementById('n88-message-system-operator');
+                if (msgOpBtn) {
+                    msgOpBtn.addEventListener('click', function() {
+                        var el = document.getElementById('n88-concierge-overlay');
+                        var container = document.getElementById('n88-board-canvas-container');
+                        if (el && container) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                }
+                
+                // Commit 2.5.2: Create Project / Add Room / Invite - open modal on click. Init when DOM ready.
+                function initAddProjectAndRoomModals() {
+                // Move modal backdrops to body so they appear above canvas (fix: modal behind canvas / white space)
+                [ 'n88-add-project-modal-backdrop', 'n88-add-room-modal-backdrop', 'n88-invite-team-member-modal-backdrop' ].forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el && el.parentNode && el.parentNode !== document.body) document.body.appendChild(el);
+                });
                 var createProjectBtn = document.getElementById('n88-create-project-btn');
-                if (createProjectBtn) {
-                    createProjectBtn.addEventListener('click', function() {
-                        var projectName = prompt('Enter project name:');
-                        if (!projectName || !projectName.trim()) {
+                var addProjectBackdrop = document.getElementById('n88-add-project-modal-backdrop');
+                var addProjectCloseBtn = document.getElementById('n88-add-project-modal-close');
+                var addProjectSubmitBtn = document.getElementById('n88-modal-create-project-submit');
+                var addProjectNameInput = document.getElementById('n88-modal-project-name');
+                var addProjectResultEl = document.getElementById('n88-add-project-modal-result');
+                
+                function openAddProjectModal() {
+                    if (addProjectBackdrop) {
+                        addProjectBackdrop.classList.add('n88-modal-open');
+                        addProjectBackdrop.setAttribute('aria-hidden', 'false');
+                        document.body.classList.add('n88-modal-open');
+                        if (addProjectNameInput) { addProjectNameInput.value = ''; addProjectNameInput.focus(); }
+                        if (addProjectResultEl) { addProjectResultEl.textContent = ''; addProjectResultEl.className = 'n88-result'; }
+                    }
+                }
+                function closeAddProjectModal() {
+                    if (addProjectBackdrop) {
+                        addProjectBackdrop.classList.remove('n88-modal-open');
+                        addProjectBackdrop.setAttribute('aria-hidden', 'true');
+                        document.body.classList.remove('n88-modal-open');
+                    }
+                }
+                
+                if (createProjectBtn) createProjectBtn.addEventListener('click', openAddProjectModal);
+                if (addProjectCloseBtn) addProjectCloseBtn.addEventListener('click', closeAddProjectModal);
+                if (addProjectBackdrop) addProjectBackdrop.addEventListener('click', function(e) { if (e.target === addProjectBackdrop) closeAddProjectModal(); });
+                
+                if (addProjectSubmitBtn && addProjectNameInput) {
+                    addProjectSubmitBtn.addEventListener('click', function() {
+                        var projectName = (addProjectNameInput.value || '').trim();
+                        if (!projectName) {
+                            if (addProjectResultEl) { addProjectResultEl.textContent = 'Please enter a project name.'; addProjectResultEl.className = 'n88-result error'; }
                             return;
                         }
                         
-                        projectName = projectName.trim();
-                        
-                        // Get nonce and board_id
-                        var nonce = '';
-                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
-                            nonce = window.n88BoardNonce.nonce;
-                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                            nonce = window.n88BoardData.nonce;
-                        }
-                        
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
                         if (!nonce) {
-                            alert('Security token missing. Please refresh the page and try again.');
+                            if (addProjectResultEl) { addProjectResultEl.textContent = 'Security token missing. Please refresh the page and try again.'; addProjectResultEl.className = 'n88-result error'; }
                             return;
                         }
-                        
-                        // Get board_id from URL
                         var urlParams = new URLSearchParams(window.location.search);
                         var boardId = urlParams.get('board_id') || 0;
-                        
                         if (!boardId || boardId === '0') {
-                            alert('Board ID not found. Please refresh the page and try again.');
+                            if (addProjectResultEl) { addProjectResultEl.textContent = 'Board ID not found. Please refresh the page and try again.'; addProjectResultEl.className = 'n88-result error'; }
                             return;
                         }
                         
-                        // Disable button during request
-                        createProjectBtn.disabled = true;
-                        createProjectBtn.textContent = 'Creating...';
+                        addProjectSubmitBtn.disabled = true;
+                        var prevProjectBtnText = addProjectSubmitBtn.textContent;
+                        addProjectSubmitBtn.textContent = 'Creating...';
+                        if (addProjectResultEl) { addProjectResultEl.textContent = ''; addProjectResultEl.className = 'n88-result'; }
                         
                         var formData = new FormData();
                         formData.append('action', 'n88_create_board_project');
                         formData.append('board_id', boardId);
                         formData.append('name', projectName);
                         formData.append('_ajax_nonce', nonce);
-                        
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                         
-                        fetch(ajaxUrl, {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(function(response) {
-                            return response.json();
-                        })
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                        .then(function(response) { return response.json(); })
                         .then(function(data) {
-                            createProjectBtn.disabled = false;
-                            createProjectBtn.textContent = '+ Create Project';
-                            
+                            addProjectSubmitBtn.disabled = false;
+                            addProjectSubmitBtn.textContent = prevProjectBtnText || '[ Create Project ]';
                             if (data.success) {
-                                alert('Project created successfully!');
-                                // Redirect to the new project board (same board_id + project_id) when user clicks OK
+                                closeAddProjectModal();
                                 var newProjectId = data.data && data.data.project_id ? data.data.project_id : null;
                                 if (newProjectId) {
                                     var cur = new URLSearchParams(window.location.search);
@@ -5040,14 +5363,14 @@ class N88_RFQ_Admin {
                                     window.location.reload();
                                 }
                             } else {
-                                alert('Error: ' + (data.data.message || 'Failed to create project'));
+                                if (addProjectResultEl) { addProjectResultEl.textContent = 'Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to create project'); addProjectResultEl.className = 'n88-result error'; }
                             }
                         })
                         .catch(function(error) {
-                            createProjectBtn.disabled = false;
-                            createProjectBtn.textContent = '+ Create Project';
+                            addProjectSubmitBtn.disabled = false;
+                            addProjectSubmitBtn.textContent = prevProjectBtnText || '[ Create Project ]';
                             console.error('Error creating project:', error);
-                            alert('An error occurred. Please try again.');
+                            if (addProjectResultEl) { addProjectResultEl.textContent = 'An error occurred. Please try again.'; addProjectResultEl.className = 'n88-result error'; }
                         });
                     });
                 }
@@ -5126,64 +5449,73 @@ class N88_RFQ_Admin {
                     }
                 });
                 
-                // Commit 2.5.2: Rooms Management Handlers
+                // Commit 2.5.2: Add Room button handler - open modal instead of prompt
                 var createRoomBtn = document.getElementById('n88-create-room-btn');
-                if (createRoomBtn) {
-                    createRoomBtn.addEventListener('click', function() {
-                        var roomName = prompt('Enter room name (e.g., Bedroom, Kitchen, Living Room):');
-                        if (!roomName || !roomName.trim()) {
+                var addRoomBackdrop = document.getElementById('n88-add-room-modal-backdrop');
+                var addRoomCloseBtn = document.getElementById('n88-add-room-modal-close');
+                var addRoomSubmitBtn = document.getElementById('n88-modal-add-room-submit');
+                var addRoomNameInput = document.getElementById('n88-modal-room-name');
+                var addRoomResultEl = document.getElementById('n88-add-room-modal-result');
+                
+                function openAddRoomModal() {
+                    if (addRoomBackdrop) {
+                        addRoomBackdrop.classList.add('n88-modal-open');
+                        addRoomBackdrop.setAttribute('aria-hidden', 'false');
+                        document.body.classList.add('n88-modal-open');
+                        if (addRoomNameInput) { addRoomNameInput.value = ''; addRoomNameInput.focus(); }
+                        if (addRoomResultEl) { addRoomResultEl.textContent = ''; addRoomResultEl.className = 'n88-result'; }
+                    }
+                }
+                function closeAddRoomModal() {
+                    if (addRoomBackdrop) {
+                        addRoomBackdrop.classList.remove('n88-modal-open');
+                        addRoomBackdrop.setAttribute('aria-hidden', 'true');
+                        document.body.classList.remove('n88-modal-open');
+                    }
+                }
+                
+                if (createRoomBtn) createRoomBtn.addEventListener('click', openAddRoomModal);
+                if (addRoomCloseBtn) addRoomCloseBtn.addEventListener('click', closeAddRoomModal);
+                if (addRoomBackdrop) addRoomBackdrop.addEventListener('click', function(e) { if (e.target === addRoomBackdrop) closeAddRoomModal(); });
+                
+                if (addRoomSubmitBtn && addRoomNameInput) {
+                    addRoomSubmitBtn.addEventListener('click', function() {
+                        var roomName = (addRoomNameInput.value || '').trim();
+                        if (!roomName) {
+                            if (addRoomResultEl) { addRoomResultEl.textContent = 'Please enter a room name.'; addRoomResultEl.className = 'n88-result error'; }
                             return;
                         }
                         
-                        roomName = roomName.trim();
-                        
-                        // Get nonce and project_id
-                        var nonce = '';
-                        if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
-                            nonce = window.n88BoardNonce.nonce;
-                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                            nonce = window.n88BoardData.nonce;
-                        }
-                        
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
                         if (!nonce) {
-                            alert('Security token missing. Please refresh the page and try again.');
+                            if (addRoomResultEl) { addRoomResultEl.textContent = 'Security token missing. Please refresh the page and try again.'; addRoomResultEl.className = 'n88-result error'; }
                             return;
                         }
-                        
                         var urlParams = new URLSearchParams(window.location.search);
                         var projectId = urlParams.get('project_id') || 0;
-                        
                         if (!projectId || projectId === '0') {
-                            alert('Please select a project first.');
+                            if (addRoomResultEl) { addRoomResultEl.textContent = 'Please select a project first.'; addRoomResultEl.className = 'n88-result error'; }
                             return;
                         }
                         
-                        // Disable button during request
-                        createRoomBtn.disabled = true;
-                        createRoomBtn.textContent = 'Creating...';
+                        addRoomSubmitBtn.disabled = true;
+                        var prevRoomBtnText = addRoomSubmitBtn.textContent;
+                        addRoomSubmitBtn.textContent = 'Adding...';
+                        if (addRoomResultEl) { addRoomResultEl.textContent = ''; addRoomResultEl.className = 'n88-result'; }
                         
                         var formData = new FormData();
                         formData.append('action', 'n88_create_project_room');
                         formData.append('project_id', projectId);
                         formData.append('name', roomName);
-                        formData.append('_ajax_nonce', nonce);
-                        
+                        formData.append('nonce', nonce);
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                         
-                        fetch(ajaxUrl, {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(function(response) {
-                            return response.json();
-                        })
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                        .then(function(response) { return response.json(); })
                         .then(function(data) {
-                            createRoomBtn.disabled = false;
-                            createRoomBtn.textContent = '+ Add Room';
-                            
+                            addRoomSubmitBtn.disabled = false;
                             if (data.success) {
-                                alert('Room created successfully!');
-                                // Redirect to the new room (keep board_id, project_id; set room_id) when user clicks OK
+                                closeAddRoomModal();
                                 var newRoomId = data.data && data.data.room_id ? data.data.room_id : null;
                                 if (newRoomId) {
                                     var cur = new URLSearchParams(window.location.search);
@@ -5193,16 +5525,94 @@ class N88_RFQ_Admin {
                                     window.location.reload();
                                 }
                             } else {
-                                alert('Error: ' + (data.data.message || 'Failed to create room'));
+                                if (addRoomResultEl) { addRoomResultEl.textContent = 'Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to create room'); addRoomResultEl.className = 'n88-result error'; }
                             }
                         })
                         .catch(function(error) {
-                            createRoomBtn.disabled = false;
-                            createRoomBtn.textContent = '+ Add Room';
+                            addRoomSubmitBtn.disabled = false;
+                            addRoomSubmitBtn.textContent = prevRoomBtnText || '[ Add Room ]';
                             console.error('Error creating room:', error);
-                            alert('An error occurred. Please try again.');
+                            if (addRoomResultEl) { addRoomResultEl.textContent = 'An error occurred. Please try again.'; addRoomResultEl.className = 'n88-result error'; }
                         });
                     });
+                }
+                // Invite Team Member modal - same as Create Project / Add Room
+                var inviteTeamMemberBtn = document.getElementById('n88-invite-team-member-btn');
+                var inviteBackdrop = document.getElementById('n88-invite-team-member-modal-backdrop');
+                var inviteCloseBtn = document.getElementById('n88-invite-team-member-modal-close');
+                var inviteSubmitBtn = document.getElementById('n88-modal-invite-team-member-submit');
+                var inviteEmailInput = document.getElementById('n88-modal-invite-email');
+                var inviteResultEl = document.getElementById('n88-invite-team-member-modal-result');
+                function openInviteTeamMemberModal() {
+                    if (inviteBackdrop) {
+                        inviteBackdrop.classList.add('n88-modal-open');
+                        inviteBackdrop.setAttribute('aria-hidden', 'false');
+                        document.body.classList.add('n88-modal-open');
+                        if (inviteEmailInput) { inviteEmailInput.value = ''; inviteEmailInput.focus(); }
+                        if (inviteResultEl) { inviteResultEl.textContent = ''; inviteResultEl.className = 'n88-result'; }
+                    }
+                }
+                function closeInviteTeamMemberModal() {
+                    if (inviteBackdrop) {
+                        inviteBackdrop.classList.remove('n88-modal-open');
+                        inviteBackdrop.setAttribute('aria-hidden', 'true');
+                        document.body.classList.remove('n88-modal-open');
+                    }
+                }
+                if (inviteTeamMemberBtn) inviteTeamMemberBtn.addEventListener('click', openInviteTeamMemberModal);
+                if (inviteCloseBtn) inviteCloseBtn.addEventListener('click', closeInviteTeamMemberModal);
+                if (inviteBackdrop) inviteBackdrop.addEventListener('click', function(e) { if (e.target === inviteBackdrop) closeInviteTeamMemberModal(); });
+                if (inviteSubmitBtn && inviteEmailInput) {
+                    inviteSubmitBtn.addEventListener('click', function() {
+                        var email = (inviteEmailInput.value || '').trim();
+                        if (!email) {
+                            if (inviteResultEl) { inviteResultEl.textContent = 'Please enter an email address.'; inviteResultEl.className = 'n88-result error'; }
+                            return;
+                        }
+                        var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                        if (!emailRegex.test(email)) {
+                            if (inviteResultEl) { inviteResultEl.textContent = 'Please enter a valid email address.'; inviteResultEl.className = 'n88-result error'; }
+                            return;
+                        }
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_invite_team_member) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonce) {
+                            if (inviteResultEl) { inviteResultEl.textContent = 'Security token missing. Please refresh the page and try again.'; inviteResultEl.className = 'n88-result error'; }
+                            return;
+                        }
+                        inviteSubmitBtn.disabled = true;
+                        var prevInviteBtnText = inviteSubmitBtn.textContent;
+                        inviteSubmitBtn.textContent = 'Sending...';
+                        if (inviteResultEl) { inviteResultEl.textContent = ''; inviteResultEl.className = 'n88-result'; }
+                        var formData = new FormData();
+                        formData.append('action', 'n88_invite_team_member');
+                        formData.append('email', email);
+                        formData.append('_ajax_nonce', nonce);
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                        .then(function(response) { return response.json(); })
+                        .then(function(data) {
+                            inviteSubmitBtn.disabled = false;
+                            inviteSubmitBtn.textContent = prevInviteBtnText || '[ Invite Team Member ]';
+                            if (data.success) {
+                                if (inviteResultEl) { inviteResultEl.textContent = 'Invitation sent successfully to ' + email + '!'; inviteResultEl.className = 'n88-result success'; }
+                                setTimeout(function() { closeInviteTeamMemberModal(); }, 1500);
+                            } else {
+                                if (inviteResultEl) { inviteResultEl.textContent = (data.data && data.data.message) ? data.data.message : 'Failed to send invitation.'; inviteResultEl.className = 'n88-result error'; }
+                            }
+                        })
+                        .catch(function(error) {
+                            inviteSubmitBtn.disabled = false;
+                            inviteSubmitBtn.textContent = prevInviteBtnText || '[ Invite Team Member ]';
+                            console.error('Error inviting team member:', error);
+                            if (inviteResultEl) { inviteResultEl.textContent = 'Error sending invitation. Please try again.'; inviteResultEl.className = 'n88-result error'; }
+                        });
+                    });
+                }
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initAddProjectAndRoomModals);
+                } else {
+                    initAddProjectAndRoomModals();
                 }
                 
                 // Edit Room handlers
@@ -5358,74 +5768,6 @@ class N88_RFQ_Admin {
                     });
                 }
                 
-                // Commit 2.6.1: Invite Team Member button handler
-                var inviteTeamMemberBtn = document.getElementById('n88-invite-team-member-btn');
-                if (inviteTeamMemberBtn) {
-                    inviteTeamMemberBtn.addEventListener('click', function() {
-                        var email = prompt('Enter email address to invite:');
-                        if (!email || !email.trim()) {
-                            return;
-                        }
-                        
-                        email = email.trim();
-                        
-                        // Basic email validation
-                        var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                        if (!emailRegex.test(email)) {
-                            alert('Please enter a valid email address.');
-                            return;
-                        }
-                        
-                        // Get nonce
-                        var nonce = '';
-                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_invite_team_member) {
-                            nonce = window.n88BoardNonce.nonce_invite_team_member;
-                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                            nonce = window.n88BoardData.nonce;
-                        }
-                        
-                        if (!nonce) {
-                            alert('Security token missing. Please refresh the page and try again.');
-                            return;
-                        }
-                        
-                        // Disable button during request
-                        inviteTeamMemberBtn.disabled = true;
-                        inviteTeamMemberBtn.textContent = 'Sending...';
-                        
-                        var formData = new FormData();
-                        formData.append('action', 'n88_invite_team_member');
-                        formData.append('email', email);
-                        formData.append('_ajax_nonce', nonce);
-                        
-                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
-                        
-                        fetch(ajaxUrl, {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(function(response) {
-                            return response.json();
-                        })
-                        .then(function(data) {
-                            inviteTeamMemberBtn.disabled = false;
-                            inviteTeamMemberBtn.textContent = '+ Invite Team Member';
-                            
-                            if (data.success) {
-                                alert('Invitation sent successfully to ' + email + '!');
-                            } else {
-                                alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send invitation.'));
-                            }
-                        })
-                        .catch(function(error) {
-                            inviteTeamMemberBtn.disabled = false;
-                            inviteTeamMemberBtn.textContent = '+ Invite Team Member';
-                            console.error('Error inviting team member:', error);
-                            alert('Error sending invitation. Please try again.');
-                        });
-                    });
-                }
-                
                 // Add body class to prevent scrolling
                 if (document.body) {
                     document.body.classList.add('n88-board-page');
@@ -5473,6 +5815,409 @@ class N88_RFQ_Admin {
             <div id="n88-board-canvas-container">
                 <div id="n88-board-demo-root"></div>
             </div>
+            
+            <!-- Add Item Modal (same fields/functionality as page=n88-rfq-items-boards-test) -->
+            <?php
+            $add_item_modal_board_id = $is_real_board && isset( $board_id ) && $board_id > 0 ? $board_id : 0;
+            $add_item_modal_projects = array();
+            if ( $add_item_modal_board_id > 0 ) {
+                global $wpdb;
+                $projects_table = $wpdb->prefix . 'n88_projects';
+                $table_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $projects_table ) ) === $projects_table;
+                if ( $table_exists ) {
+                    $add_item_modal_projects = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT id, name FROM {$projects_table} WHERE board_id = %d AND deleted_at IS NULL ORDER BY created_at ASC",
+                            $add_item_modal_board_id
+                        ),
+                        OBJECT
+                    );
+                }
+            }
+            $add_item_nonce = wp_create_nonce( 'n88-rfq-nonce' );
+            ?>
+            <div id="n88-add-item-modal-backdrop" aria-hidden="true">
+                <div id="n88-add-item-modal" role="dialog" aria-labelledby="n88-add-item-title" aria-modal="true">
+                    <div class="n88-add-item-header">
+                        <h2 class="n88-add-item-title" id="n88-add-item-title">Add Item</h2>
+                        <button type="button" class="n88-add-item-close" id="n88-add-item-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <form id="n88-add-item-modal-form" class="n88-add-item-body">
+                        <div class="n88-field">
+                            <label for="n88-modal-item-title">Title <span class="n88-required">*</span></label>
+                            <input type="text" id="n88-modal-item-title" name="title" required placeholder="Curved Lobby Sofa">
+                        </div>
+                        <div class="n88-field">
+                            <label for="n88-modal-item-description">Description</label>
+                            <textarea id="n88-modal-item-description" name="description" rows="4" placeholder="Tell us what you're sourcing"></textarea>
+                        </div>
+                        <div class="n88-field">
+                            <label for="n88-modal-item-type">Category</label>
+                            <select id="n88-modal-item-type" name="item_type">
+                                <option value="">Select Category</option>
+                                <option value="UPHOLSTERY">UPHOLSTERY</option>
+                                <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
+                                <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
+                                <option value="LIGHTING">LIGHTING</option>
+                                <option value="STONE (MARBLE / GRANITE / QUARTZ)">STONE (MARBLE / GRANITE / QUARTZ)</option>
+                                <option value="METALWORK">METALWORK</option>
+                                <option value="MILLWORK / CABINETRY">MILLWORK / CABINETRY</option>
+                                <option value="FLOORING">FLOORING</option>
+                                <option value="DRAPERY / WINDOW TREATMENTS">DRAPERY / WINDOW TREATMENTS</option>
+                                <option value="GLASS / MIRRORS">GLASS / MIRRORS</option>
+                                <option value="HARDWARE / ACCESSORIES">HARDWARE / ACCESSORIES</option>
+                                <option value="RUGS / CARPETS">RUGS / CARPETS</option>
+                                <option value="WALLCOVERINGS / FINISHES">WALLCOVERINGS / FINISHES</option>
+                                <option value="APPLIANCES">APPLIANCES</option>
+                                <option value="OTHER">OTHER</option>
+                            </select>
+                        </div>
+                        <div class="n88-field">
+                            <label for="n88-modal-item-quantity">Quantity</label>
+                            <div class="n88-quantity-wrap">
+                                <button type="button" id="n88-modal-qty-minus" aria-label="Decrease">−</button>
+                                <input type="number" id="n88-modal-item-quantity" name="quantity" min="1" value="1">
+                                <button type="button" id="n88-modal-qty-plus" aria-label="Increase">+</button>
+                            </div>
+                        </div>
+                        <div class="n88-field">
+                            <label>Dimensions</label>
+                            <p class="n88-hint">Provide ideal dimensions when applicable</p>
+                            <div class="n88-dims-row">
+                                <div class="n88-field">
+                                    <label for="n88-modal-item-width" style="font-size:11px;">Width</label>
+                                    <input type="number" id="n88-modal-item-width" name="width" step="0.01" placeholder="W">
+                                </div>
+                                <div class="n88-field">
+                                    <label for="n88-modal-item-depth" style="font-size:11px;">Depth</label>
+                                    <input type="number" id="n88-modal-item-depth" name="depth" step="0.01" placeholder="D">
+                                </div>
+                                <div class="n88-field">
+                                    <label for="n88-modal-item-height" style="font-size:11px;">Height</label>
+                                    <input type="number" id="n88-modal-item-height" name="height" step="0.01" placeholder="H">
+                                </div>
+                                <div class="n88-field">
+                                    <label for="n88-modal-item-dimension-unit" style="font-size:11px;">Unit</label>
+                                    <select id="n88-modal-item-dimension-unit" name="dimension_unit">
+                                        <option value="in" selected>in</option>
+                                        <option value="cm">cm</option>
+                                        <option value="mm">mm</option>
+                                        <option value="m">m</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="n88-field">
+                            <label>Image</label>
+                            <div class="n88-upload-zone" id="n88-modal-upload-zone">
+                                <span class="n88-upload-icon">↑</span>
+                                <span id="n88-modal-upload-text">Upload an image from your device</span>
+                                <input type="file" id="n88-modal-item-image-file" accept="image/*,.heic,.heif">
+                            </div>
+                            <div class="n88-image-preview-wrap" id="n88-modal-image-preview-wrap">
+                                <img id="n88-modal-image-preview-img" src="" alt="Preview">
+                            </div>
+                            <input type="hidden" id="n88-modal-item-image-id" name="image_id">
+                        </div>
+                        <div class="n88-field">
+                            <label for="n88-modal-item-size">Default Size</label>
+                            <select id="n88-modal-item-size" name="size">
+                                <option value="S">S (160×200px)</option>
+                                <option value="D">D (200×250px)</option>
+                                <option value="L" selected>L (280×350px) - Default</option>
+                                <option value="XL">XL (360×450px)</option>
+                            </select>
+                        </div>
+                        <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
+                        <?php if ( $add_item_modal_board_id > 0 ) : ?>
+                        <div class="n88-field">
+                            <label for="n88-modal-item-project">Project</label>
+                            <select id="n88-modal-item-project" name="project_id">
+                                <option value="">Select a project to organize this item</option>
+                                <?php foreach ( $add_item_modal_projects as $proj ) : ?>
+                                    <option value="<?php echo esc_attr( $proj->id ); ?>"><?php echo esc_html( $proj->name ); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="n88-field" id="n88-modal-room-row" style="display:none;">
+                            <label for="n88-modal-item-room">Room</label>
+                            <select id="n88-modal-item-room" name="room_id">
+                                <option value="">Select Room</option>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+                    </form>
+                    <div class="n88-add-item-footer">
+                        <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item">[ Add Item ]</button>
+                        <div id="n88-add-item-modal-result" class="n88-result"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Add Project Modal -->
+            <div id="n88-add-project-modal-backdrop" aria-hidden="true" class="n88-board-modal-backdrop">
+                <div id="n88-add-project-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-add-project-title" aria-modal="true">
+                    <div class="n88-add-item-header">
+                        <h2 class="n88-add-item-title" id="n88-add-project-title">Create Project</h2>
+                        <button type="button" class="n88-add-item-close" id="n88-add-project-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <div class="n88-add-item-body">
+                        <div class="n88-field">
+                            <label for="n88-modal-project-name">Project name <span class="n88-required">*</span></label>
+                            <input type="text" id="n88-modal-project-name" placeholder="Enter project name" autocomplete="off">
+                        </div>
+                        <div id="n88-add-project-modal-result" class="n88-result"></div>
+                    </div>
+                    <div class="n88-add-item-footer">
+                        <button type="button" id="n88-modal-create-project-submit" class="n88-btn-add-item">[ Create Project ]</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Add Room Modal -->
+            <div id="n88-add-room-modal-backdrop" aria-hidden="true" class="n88-board-modal-backdrop">
+                <div id="n88-add-room-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-add-room-title" aria-modal="true">
+                    <div class="n88-add-item-header">
+                        <h2 class="n88-add-item-title" id="n88-add-room-title">Add Room</h2>
+                        <button type="button" class="n88-add-item-close" id="n88-add-room-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <div class="n88-add-item-body">
+                        <div class="n88-field">
+                            <label for="n88-modal-room-name">Room name <span class="n88-required">*</span></label>
+                            <input type="text" id="n88-modal-room-name" placeholder="e.g., Bedroom, Kitchen, Living Room" autocomplete="off">
+                        </div>
+                        <div id="n88-add-room-modal-result" class="n88-result"></div>
+                    </div>
+                    <div class="n88-add-item-footer">
+                        <button type="button" id="n88-modal-add-room-submit" class="n88-btn-add-item">[ Add Room ]</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Invite Team Member Modal (same as Add Project / Add Room) -->
+            <div id="n88-invite-team-member-modal-backdrop" aria-hidden="true" class="n88-board-modal-backdrop">
+                <div id="n88-invite-team-member-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-invite-team-member-title" aria-modal="true">
+                    <div class="n88-add-item-header">
+                        <h2 class="n88-add-item-title" id="n88-invite-team-member-title">Invite Team Member</h2>
+                        <button type="button" class="n88-add-item-close" id="n88-invite-team-member-modal-close" aria-label="Close">×</button>
+                    </div>
+                    <div class="n88-add-item-body">
+                        <div class="n88-field">
+                            <label for="n88-modal-invite-email">Email address <span class="n88-required">*</span></label>
+                            <input type="email" id="n88-modal-invite-email" placeholder="Enter email address to invite" autocomplete="email">
+                        </div>
+                        <div id="n88-invite-team-member-modal-result" class="n88-result"></div>
+                    </div>
+                    <div class="n88-add-item-footer">
+                        <button type="button" id="n88-modal-invite-team-member-submit" class="n88-btn-add-item">[ Invite Team Member ]</button>
+                    </div>
+                </div>
+            </div>
+            
+            <script>
+            (function() {
+                var addItemBackdrop = document.getElementById('n88-add-item-modal-backdrop');
+                if (addItemBackdrop && addItemBackdrop.parentNode && addItemBackdrop.parentNode !== document.body) document.body.appendChild(addItemBackdrop);
+                var addItemBtn = document.getElementById('n88-add-item-btn');
+                var backdrop = document.getElementById('n88-add-item-modal-backdrop');
+                var closeBtn = document.getElementById('n88-add-item-modal-close');
+                var modal = document.getElementById('n88-add-item-modal');
+                var form = document.getElementById('n88-add-item-modal-form');
+                var submitBtn = document.getElementById('n88-modal-add-item-submit');
+                var resultEl = document.getElementById('n88-add-item-modal-result');
+                
+                function openAddItemModal() {
+                    if (backdrop) {
+                        backdrop.classList.add('n88-modal-open');
+                        backdrop.setAttribute('aria-hidden', 'false');
+                        document.body.classList.add('n88-modal-open');
+                    }
+                }
+                function closeAddItemModal() {
+                    if (backdrop) {
+                        backdrop.classList.remove('n88-modal-open');
+                        backdrop.setAttribute('aria-hidden', 'true');
+                        document.body.classList.remove('n88-modal-open');
+                    }
+                }
+                
+                if (addItemBtn) addItemBtn.addEventListener('click', openAddItemModal);
+                if (closeBtn) closeBtn.addEventListener('click', closeAddItemModal);
+                if (backdrop) {
+                    backdrop.addEventListener('click', function(e) {
+                        if (e.target === backdrop) closeAddItemModal();
+                    });
+                }
+                if (modal) modal.addEventListener('click', function(e) { e.stopPropagation(); });
+                
+                var qtyInput = document.getElementById('n88-modal-item-quantity');
+                var qtyMinus = document.getElementById('n88-modal-qty-minus');
+                var qtyPlus = document.getElementById('n88-modal-qty-plus');
+                if (qtyMinus && qtyInput) qtyMinus.addEventListener('click', function() {
+                    var v = parseInt(qtyInput.value, 10) || 1;
+                    if (v > 1) qtyInput.value = v - 1;
+                });
+                if (qtyPlus && qtyInput) qtyPlus.addEventListener('click', function() {
+                    var v = parseInt(qtyInput.value, 10) || 1;
+                    qtyInput.value = v + 1;
+                });
+                
+                var uploadZone = document.getElementById('n88-modal-upload-zone');
+                var uploadText = document.getElementById('n88-modal-upload-text');
+                var fileInput = document.getElementById('n88-modal-item-image-file');
+                var previewWrap = document.getElementById('n88-modal-image-preview-wrap');
+                var previewImg = document.getElementById('n88-modal-image-preview-img');
+                if (uploadZone && fileInput) {
+                    uploadZone.addEventListener('click', function() { fileInput.click(); });
+                    fileInput.addEventListener('change', function() {
+                        if (fileInput.files && fileInput.files[0]) {
+                            var file = fileInput.files[0];
+                            uploadZone.classList.add('has-file');
+                            if (uploadText) uploadText.textContent = file.name;
+                            if (previewWrap && previewImg) {
+                                var name = (file.name || '').toLowerCase();
+                                var isHeic = name.endsWith('.heic') || name.endsWith('.heif');
+                                if (!isHeic && file.type.indexOf('image/') === 0) {
+                                    var url = URL.createObjectURL(file);
+                                    previewImg.src = url;
+                                    previewImg.onload = function() { URL.revokeObjectURL(url); };
+                                    previewWrap.classList.add('visible');
+                                } else {
+                                    previewWrap.classList.remove('visible');
+                                    previewImg.src = '';
+                                }
+                            }
+                        } else {
+                            uploadZone.classList.remove('has-file');
+                            if (uploadText) uploadText.textContent = 'Upload an image from your device';
+                            if (previewWrap) previewWrap.classList.remove('visible');
+                            if (previewImg) previewImg.src = '';
+                        }
+                    });
+                }
+                
+                var projectSelect = document.getElementById('n88-modal-item-project');
+                var roomRow = document.getElementById('n88-modal-room-row');
+                var roomSelect = document.getElementById('n88-modal-item-room');
+                if (projectSelect && roomRow && roomSelect) {
+                    projectSelect.addEventListener('change', function() {
+                        var pid = projectSelect.value;
+                        if (!pid) {
+                            roomRow.style.display = 'none';
+                            roomSelect.innerHTML = '<option value="">Select Room</option>';
+                            return;
+                        }
+                        roomRow.style.display = 'block';
+                        roomSelect.innerHTML = '<option value="">Loading...</option>';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                        var url = ajaxUrl + '?action=n88_get_project_rooms&project_id=' + encodeURIComponent(pid) + '&nonce=' + encodeURIComponent(nonce);
+                        fetch(url).then(function(r) { return r.json(); }).then(function(res) {
+                            var opts = '<option value="">Select Room</option>';
+                            if (res.success && res.data && res.data.rooms) {
+                                res.data.rooms.forEach(function(room) {
+                                    opts += '<option value="' + room.id + '">' + (room.name || '') + '</option>';
+                                });
+                            }
+                            roomSelect.innerHTML = opts;
+                        }).catch(function() {
+                            roomSelect.innerHTML = '<option value="">Error loading rooms</option>';
+                        });
+                    });
+                }
+                
+                function dataURLtoBlob(dataurl) {
+                    var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1], bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+                    while (n--) u8arr[n] = bstr.charCodeAt(n);
+                    return new Blob([u8arr], { type: mime });
+                }
+                
+                if (submitBtn && form) {
+                    submitBtn.addEventListener('click', function() {
+                        var titleEl = document.getElementById('n88-modal-item-title');
+                        if (!titleEl || !titleEl.value.trim()) {
+                            resultEl.textContent = 'Title is required.';
+                            resultEl.className = 'n88-result error';
+                            return;
+                        }
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!nonce) {
+                            resultEl.textContent = 'Security token missing. Please refresh the page.';
+                            resultEl.className = 'n88-result error';
+                            return;
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                        var boardId = document.getElementById('n88-modal-item-board') ? document.getElementById('n88-modal-item-board').value : '';
+                        var formData = new FormData();
+                        formData.append('action', 'n88_create_item');
+                        formData.append('nonce', nonce);
+                        formData.append('title', titleEl.value.trim());
+                        formData.append('description', document.getElementById('n88-modal-item-description').value);
+                        formData.append('item_type', document.getElementById('n88-modal-item-type').value);
+                        formData.append('status', 'active');
+                        formData.append('size', document.getElementById('n88-modal-item-size').value);
+                        formData.append('board_id', boardId);
+                        var projectId = (projectSelect && projectSelect.value) ? projectSelect.value : '';
+                        var roomId = (roomSelect && roomSelect.value) ? roomSelect.value : '';
+                        if (projectId) formData.append('project_id', projectId);
+                        if (roomId) formData.append('room_id', roomId);
+                        var qty = document.getElementById('n88-modal-item-quantity').value;
+                        if (qty) formData.append('quantity', qty);
+                        var w = document.getElementById('n88-modal-item-width').value;
+                        var d = document.getElementById('n88-modal-item-depth').value;
+                        var h = document.getElementById('n88-modal-item-height').value;
+                        var unit = document.getElementById('n88-modal-item-dimension-unit').value || 'in';
+                        if (w || d || h) {
+                            formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
+                        }
+                        if (fileInput && fileInput.files && fileInput.files[0]) formData.append('image_file', fileInput.files[0]);
+                        else {
+                            var imgId = document.getElementById('n88-modal-item-image-id').value;
+                            if (imgId && parseInt(imgId, 10) > 0) formData.append('image_id', imgId);
+                        }
+                        
+                        submitBtn.disabled = true;
+                        resultEl.textContent = 'Adding item...';
+                        resultEl.className = 'n88-result';
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                            .then(function(r) { return r.json(); })
+                            .then(function(res) {
+                                submitBtn.disabled = false;
+                                if (res.success) {
+                                    resultEl.textContent = 'Item created successfully.';
+                                    resultEl.className = 'n88-result success';
+                                    var redirectBoardId = (res.data && res.data.board_id) ? res.data.board_id : boardId;
+                                    <?php if ( $is_designer && $is_real_board ) : ?>
+                                    if (redirectBoardId) {
+                                        var params = new URLSearchParams(window.location.search);
+                                        params.set('page', 'n88-rfq-board-demo');
+                                        params.set('board_id', String(redirectBoardId));
+                                        params.set('item_added', '1');
+                                        if (projectId) params.set('project_id', projectId);
+                                        if (roomId) params.set('room_id', roomId);
+                                        window.location.href = '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>?' + params.toString();
+                                    }
+                                    <?php else : ?>
+                                    form.reset();
+                                    if (uploadZone) { uploadZone.classList.remove('has-file'); if (uploadText) uploadText.textContent = 'Upload an image from your device'; }
+                                    if (fileInput) fileInput.value = '';
+                                    if (previewWrap) previewWrap.classList.remove('visible');
+                                    if (previewImg) previewImg.src = '';
+                                    <?php endif; ?>
+                                } else {
+                                    resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
+                                    resultEl.className = 'n88-result error';
+                                }
+                            })
+                            .catch(function() {
+                                submitBtn.disabled = false;
+                                resultEl.textContent = 'Request failed. Please try again.';
+                                resultEl.className = 'n88-result error';
+                            });
+                    });
+                }
+            })();
+            </script>
             
             <script>
             // Ensure board container expands to fit all items horizontally
@@ -6864,6 +7609,30 @@ class N88_RFQ_Admin {
                     var _modalState = React.useState(false);
                     var isModalOpen = _modalState[0];
                     var setIsModalOpen = _modalState[1];
+                    // Context menu (kebab) state and ref
+                    var _contextMenuState = React.useState(false);
+                    var contextMenuOpen = _contextMenuState[0];
+                    var setContextMenuOpen = _contextMenuState[1];
+                    var contextMenuRef = React.useRef(null);
+                    // Move to project/room panel state
+                    var _movePanelState = React.useState(false);
+                    var movePanelOpen = _movePanelState[0];
+                    var setMovePanelOpen = _movePanelState[1];
+                    var _moveProjState = React.useState(0);
+                    var selectedProjectId = _moveProjState[0];
+                    var setSelectedProjectId = _moveProjState[1];
+                    var _moveRoomState = React.useState(0);
+                    var selectedRoomId = _moveRoomState[0];
+                    var setSelectedRoomId = _moveRoomState[1];
+                    var _boardProjectsState = React.useState([]);
+                    var boardProjects = _boardProjectsState[0];
+                    var setBoardProjects = _boardProjectsState[1];
+                    var _projectRoomsState = React.useState([]);
+                    var projectRooms = _projectRoomsState[0];
+                    var setProjectRooms = _projectRoomsState[1];
+                    var _moveUpdateLoadingState = React.useState(false);
+                    var moveUpdateLoading = _moveUpdateLoadingState[0];
+                    var setMoveUpdateLoading = _moveUpdateLoadingState[1];
                     
                     var x = useMotionValue(item.x);
                     var y = useMotionValue(item.y);
@@ -6886,6 +7655,55 @@ class N88_RFQ_Admin {
                             }
                         };
                     }, []);
+
+                    // Close context menu when clicking outside
+                    React.useEffect(function() {
+                        if (!contextMenuOpen) return;
+                        function handleClickOutside(e) {
+                            if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
+                                setContextMenuOpen(false);
+                            }
+                        }
+                        document.addEventListener('mousedown', handleClickOutside);
+                        return function() { document.removeEventListener('mousedown', handleClickOutside); };
+                    }, [contextMenuOpen]);
+
+                    // When move panel opens: init from item and fetch projects
+                    React.useEffect(function() {
+                        if (!movePanelOpen) return;
+                        setSelectedProjectId(Number(item.project_id || item.projectId || 0) || 0);
+                        setSelectedRoomId(Number(item.room_id || item.roomId || 0) || 0);
+                        var bid = props.boardId ? Number(props.boardId) : 0;
+                        if (!bid || bid <= 0) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonce) return;
+                        fetch(ajaxUrl + '?action=n88_get_board_projects&board_id=' + encodeURIComponent(String(bid)) + '&nonce=' + encodeURIComponent(nonce), { method: 'GET', credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (d && d.success && Array.isArray(d.data && d.data.projects)) setBoardProjects(d.data.projects);
+                                else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
+                                else setBoardProjects([]);
+                            })
+                            .catch(function() { setBoardProjects([]); });
+                    }, [movePanelOpen]);
+                    // When project changes in move panel: fetch rooms
+                    React.useEffect(function() {
+                        if (!movePanelOpen) return;
+                        var pid = Number(selectedProjectId || 0);
+                        if (!pid || pid <= 0) { setProjectRooms([]); return; }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!nonce) { setProjectRooms([]); return; }
+                        fetch(ajaxUrl + '?action=n88_get_project_rooms&project_id=' + encodeURIComponent(String(pid)) + '&nonce=' + encodeURIComponent(nonce), { method: 'GET', credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(res) {
+                                var raw = (res && res.success && res.data && res.data.rooms) || (res && res.rooms) || [];
+                                var list = Array.isArray(raw) ? raw.map(function(ro) { return { id: ro.id != null ? ro.id : ro.room_id, name: (ro.name != null ? ro.name : ro.room_name) || '' }; }) : [];
+                                setProjectRooms(list);
+                            })
+                            .catch(function() { setProjectRooms([]); });
+                    }, [movePanelOpen, selectedProjectId]);
 
                     // Determine current size preset based on item dimensions
                     // Prefer sizeKey if available (for forward compatibility), otherwise match by dimensions
@@ -7288,6 +8106,90 @@ class N88_RFQ_Admin {
                         }, 100);
                     };
 
+                    var handleMoveUpdate = function() {
+                        if (moveUpdateLoading) return;
+                        var bid = props.boardId ? Number(props.boardId) : 0;
+                        var itemId = item.id;
+                        if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) itemId = parseInt(itemId.replace('item-', ''), 10);
+                        else itemId = Number(itemId);
+                        if (!bid || bid <= 0 || !itemId || itemId <= 0) { alert('Missing board or item.'); return; }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardData && window.n88BoardData.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!nonce) { alert('Security token missing. Refresh the page.'); return; }
+                        var pid = Number(selectedProjectId || 0);
+                        var rid = Number(selectedRoomId || 0);
+                        setMoveUpdateLoading(true);
+                        var doFetch = function() {
+                        var params = new URLSearchParams();
+                        params.set('action', 'n88_save_item_facts');
+                        params.set('board_id', String(bid));
+                        params.set('item_id', String(itemId));
+                        params.set('nonce', nonce);
+                        params.set('payload', '{}');
+                        params.set('project_id', String(pid));
+                        params.set('room_id', String(rid));
+                        fetch(ajaxUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString(), credentials: 'same-origin' })
+                            .then(function(r) { return r.text().then(function(t) { try { return { ok: r.ok, data: JSON.parse(t) }; } catch (e) { return { ok: false, data: null, raw: t }; } }); })
+                            .then(function(out) {
+                                var d = out.data;
+                                setMoveUpdateLoading(false);
+                                if (out.ok && d && d.success) {
+                                    var store = window.N88StudioOS && window.N88StudioOS.useBoardStore && window.N88StudioOS.useBoardStore.getState && window.N88StudioOS.useBoardStore.getState();
+                                    if (store && store.items && typeof store.setItems === 'function') {
+                                        var updated = store.items.map(function(it) {
+                                            var n = typeof it.id === 'string' && it.id.indexOf('item-') === 0 ? parseInt(it.id.replace('item-', ''), 10) : Number(it.id);
+                                            if (n === itemId) return Object.assign({}, it, { project_id: pid || null, room_id: rid || null });
+                                            return it;
+                                        });
+                                        store.setItems(updated);
+                                    }
+                                    setMovePanelOpen(false);
+                                    setContextMenuOpen(false);
+                                    if (typeof onLayoutChanged === 'function') onLayoutChanged();
+                                    var u = new URL(window.location.href);
+                                    if (bid > 0) u.searchParams.set('board_id', String(bid));
+                                    if (pid > 0) { u.searchParams.set('project_id', String(pid)); if (rid > 0) u.searchParams.set('room_id', String(rid)); } else { u.searchParams.delete('project_id'); u.searchParams.delete('room_id'); }
+                                    window.location.href = u.toString();
+                                } else {
+                                    var msg = (d && d.data && d.data.message) || (d && d.message) || (out.raw ? 'Server error. Check console.' : 'Failed to update.');
+                                    alert(msg);
+                                }
+                            })
+                            .catch(function(err) { setMoveUpdateLoading(false); console.error('Move update error', err); alert('Error updating project/room. Check console.'); });
+                        };
+                        setTimeout(doFetch, 0);
+                    };
+
+                    var handleDeleteItem = function() {
+                        setContextMenuOpen(false);
+                        if (!window.confirm('Are you sure you want to delete this item?')) return;
+                        var boardId = props.boardId || 0;
+                        if (!boardId || boardId === 0) { alert('Cannot delete item: Board ID is missing.'); return; }
+                        var itemId = item.id;
+                        if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) itemId = parseInt(itemId.replace('item-', ''), 10);
+                        else if (typeof itemId === 'string') itemId = parseInt(itemId, 10);
+                        if (isNaN(itemId) || itemId <= 0) { alert('Invalid item ID.'); return; }
+                        fetch(window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : '/wp-admin/admin-ajax.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'n88_remove_item_from_board', board_id: boardId, item_id: itemId, nonce: window.n88BoardData && window.n88BoardData.nonce ? window.n88BoardData.nonce : '' }),
+                        }).then(function(r) { return r.json(); }).then(function(data) {
+                            if (data.success) {
+                                var deletedId = data.data && data.data.item_id ? parseInt(data.data.item_id, 10) : null;
+                                var cur = window.N88StudioOS.useBoardStore.getState().items;
+                                var toRemove = deletedId || itemId;
+                                var next = cur.filter(function(i) {
+                                    var n = typeof i.id === 'string' && i.id.indexOf('item-') === 0 ? parseInt(i.id.replace('item-', ''), 10) : (typeof i.id === 'string' ? parseInt(i.id, 10) : parseInt(i.id, 10));
+                                    return n !== toRemove;
+                                });
+                                window.N88StudioOS.useBoardStore.getState().setItems(next);
+                                var el = document.querySelector('span[data-item-count]');
+                                if (el) el.textContent = next.length;
+                                if (typeof onLayoutChanged === 'function') onLayoutChanged();
+                            } else { alert(data.data && data.data.message ? data.data.message : 'Failed to delete.'); }
+                        }).catch(function(err) { console.error(err); alert('Error deleting item.'); });
+                    };
+
                     return React.createElement(motion.div, {
                         layoutId: 'board-item-' + item.id,
                         style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: 'grab', overflow: 'visible' },
@@ -7313,14 +8215,15 @@ class N88_RFQ_Admin {
                             }
                         }
                     }, React.createElement('div', {
+                        ref: contextMenuRef,
                         style: { 
                             width: '100%', 
                             height: '100%', 
                             backgroundColor: '#ffffff', 
-                            border: '1px solid #e0e0e0', 
+                            border: 'none', 
                             borderRadius: '8px', 
                             overflow: 'visible', 
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', 
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)', 
                             position: 'relative',
                             display: 'flex',
                             flexDirection: 'column',
@@ -7342,137 +8245,24 @@ class N88_RFQ_Admin {
                             backgroundRepeat: 'no-repeat',
                             position: 'relative',
                             boxSizing: 'border-box',
-                            overflow: 'hidden',
+                            overflow: 'visible',
                             borderTopLeftRadius: '8px',
                             borderTopRightRadius: '8px',
                             cursor: 'pointer'
                         }
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
-                    // Delete button - always visible
-                    React.createElement('button', {
-                        onClick: function(e) {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            if (window.confirm('Are you sure you want to delete this item?')) {
-                                var boardId = props.boardId || 0;
-                                if (!boardId || boardId === 0) {
-                                    alert('Cannot delete item: Board ID is missing.');
-                                    return;
-                                }
-                                
-                                // Extract numeric ID from item.id (handles both "item-5" and "5" formats)
-                                var itemId = item.id;
-                                if (typeof itemId === 'string' && itemId.indexOf('item-') === 0) {
-                                    itemId = parseInt(itemId.replace('item-', ''), 10);
-                                } else if (typeof itemId === 'string') {
-                                    itemId = parseInt(itemId, 10);
-                                }
-                                
-                                if (isNaN(itemId) || itemId <= 0) {
-                                    alert('Invalid item ID. Cannot delete item.');
-                                    return;
-                                }
-                                
-                                fetch(window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : '/wp-admin/admin-ajax.php', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                    body: new URLSearchParams({
-                                        action: 'n88_remove_item_from_board',
-                                        board_id: boardId,
-                                        item_id: itemId,
-                                        nonce: window.n88BoardData && window.n88BoardData.nonce ? window.n88BoardData.nonce : '',
-                                    }),
-                                }).then(function(response) {
-                                    return response.json();
-                                }).then(function(data) {
-                                    if (data.success) {
-                                        // Remove item from store - use the item_id from response for accurate matching
-                                        var deletedItemId = data.data && data.data.item_id ? parseInt(data.data.item_id, 10) : null;
-                                        var currentItems = window.N88StudioOS.useBoardStore.getState().items;
-                                        
-                                        // If we have the deleted item ID from response, use it; otherwise fall back to item.id
-                                        var itemIdToRemove = deletedItemId || itemId;
-                                        
-                                        // Filter out the deleted item by comparing numeric IDs
-                                        var updatedItems = currentItems.filter(function(i) {
-                                            // Extract numeric ID from item.id (handles "item-5", "5", or 5)
-                                            var currentNumericId = null;
-                                            if (typeof i.id === 'string' && i.id.indexOf('item-') === 0) {
-                                                currentNumericId = parseInt(i.id.replace('item-', ''), 10);
-                                            } else if (typeof i.id === 'string') {
-                                                currentNumericId = parseInt(i.id, 10);
-                                            } else {
-                                                currentNumericId = parseInt(i.id, 10);
-                                            }
-                                            
-                                            // Compare with deleted item ID
-                                            return currentNumericId !== itemIdToRemove;
-                                        });
-                                        
-                                        // Update store with filtered items
-                                        window.N88StudioOS.useBoardStore.getState().setItems(updatedItems);
-                                        
-                                        // Update item count display immediately
-                                        var countElement = document.querySelector('span[data-item-count]');
-                                        if (countElement) {
-                                            countElement.textContent = updatedItems.length;
-                                        }
-                                        
-                                        // Force a re-render by triggering layout update
-                                        if (typeof onLayoutChanged === 'function') {
-                                            onLayoutChanged();
-                                        }
-                                    } else {
-                                        alert(data.data && data.data.message ? data.data.message : 'Failed to delete item. Please try again.');
-                                    }
-                                }).catch(function(error) {
-                                    console.error('Error deleting item:', error);
-                                    alert('An error occurred while deleting the item. Please try again.');
-                                });
-                            }
-                        },
-                        style: {
-                            position: 'absolute',
-                            top: '10px',
-                            right: '10px',
-                            width: '24px',
-                            height: '24px',
-                            padding: 0,
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            backgroundColor: '#d32f2f',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '50%',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                            transition: 'all 0.2s',
-                            zIndex: 20,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            lineHeight: '1',
-                        },
-                        onMouseEnter: function(e) {
-                            e.target.style.backgroundColor = '#b71c1c';
-                            e.target.style.transform = 'scale(1.1)';
-                        },
-                        onMouseLeave: function(e) {
-                            e.target.style.backgroundColor = '#d32f2f';
-                            e.target.style.transform = 'scale(1)';
-                        },
-                        title: 'Delete item'
-                    }, '×')
+                    React.createElement('button', { type: 'button', title: 'Options', 'aria-label': 'Open menu', onClick: function(e) { e.stopPropagation(); e.preventDefault(); setContextMenuOpen(function(v) { return !v; }); }, style: { position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px', padding: 0, margin: 0, fontSize: '16px', lineHeight: '28px', textAlign: 'center', cursor: 'pointer', backgroundColor: contextMenuOpen ? '#000' : '#E5E5E5', color: '#e91e8c', border: '1px solid #e91e8c', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', zIndex: 20, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' } }, '\u22EE'),
+                    contextMenuOpen ? React.createElement('div', { style: { position: 'absolute', left: '100%', top: '0', marginLeft: '8px', minWidth: '220px', padding: '12px 14px', backgroundColor: '#3a3a3a', borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 25, fontSize: '13px', color: '#fff' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '8px' } }, 'Card size:'), React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } }, ['S', 'D', 'L', 'XL'].map(function(sz) { return React.createElement('button', { key: sz, type: 'button', onClick: function(ev) { ev.stopPropagation(); handleSizeChange(sz, ev); }, style: { padding: '4px 10px', fontSize: '12px', cursor: 'pointer', backgroundColor: 'transparent', color: currentSize === sz ? '#e91e8c' : '#fff', border: 'none', borderRadius: '2px', fontWeight: currentSize === sz ? 600 : 400 } }, '[' + sz + ']'); })), React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(function(v) { return !v; }); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Move to project / room'), movePanelOpen ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.2)' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a project'), React.createElement('select', { value: selectedProjectId || '', onChange: function(e) { setSelectedProjectId(Number(e.target.value) || 0); setSelectedRoomId(0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No project'), (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: p.id }, p.name || (p.project_name || '')); })), React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a room (optional)'), React.createElement('select', { value: selectedRoomId || '', onChange: function(e) { setSelectedRoomId(Number(e.target.value) || 0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No room'), (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: r.id }, r.name || ''); })), React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', disabled: moveUpdateLoading, onClick: function(ev) { ev.preventDefault(); ev.stopPropagation(); if (!moveUpdateLoading) handleMoveUpdate(); }, style: { flex: 1, padding: '6px 10px', backgroundColor: moveUpdateLoading ? '#999' : '#e91e8c', color: '#fff', border: 'none', borderRadius: '4px', cursor: moveUpdateLoading ? 'wait' : 'pointer', fontSize: '12px' } }, moveUpdateLoading ? 'Updating...' : 'Update'), React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(false); }, style: { padding: '6px 10px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } }, 'Close'))) : null, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); handleDeleteItem(); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#e91e8c', cursor: 'pointer', fontSize: '13px', marginTop: '4px' } }, 'Delete'))) : null
                     )
                     ,
-                    // Status Strip - 25% of card, below the image
+                    // Status Strip - 25% of card: title + status (match screenshot)
                     React.createElement('div', {
                         style: {
                             width: '100%',
                             flex: '0 0 25%',
                             backgroundColor: '#ffffff',
-                            borderTop: '1px solid #e0e0e0',
+                            borderTop: '1px solid rgba(0,0,0,0.06)',
                             padding: (currentSize === 'S' || currentSize === 'D') ? '6px 8px' : '8px 12px',
                             display: 'flex',
                             flexDirection: 'column',
@@ -7485,7 +8275,7 @@ class N88_RFQ_Admin {
                             borderBottomRightRadius: '8px'
                         }
                     },
-                        // Status Text with Dot
+                        React.createElement('div', { style: { fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '1.2' } }, item.title || item.description || ('Item ' + item.id)),
                         React.createElement('div', {
                             style: {
                                 display: 'flex',
@@ -7527,10 +8317,10 @@ class N88_RFQ_Admin {
                                 title: 'Action Required'
                             }, '⚠') : null
                         ),
-                        // Sizes Button Row - Show all sizes inline
+                        // Sizes Button Row - hidden (use context menu for size)
                         React.createElement('div', {
                             style: {
-                                display: 'flex',
+                                display: 'none',
                                 gap: '4px',
                                 alignItems: 'center'
                             },
@@ -15548,7 +16338,7 @@ class N88_RFQ_Admin {
                                 minHeight: '100%',
                                 height: '100%',
                                 overflow: 'visible', 
-                                backgroundColor: '#f5f5f5',
+                                backgroundColor: 'transparent',
                                 padding: '20px',
                                 zIndex: 1,
                                 boxSizing: 'border-box',
@@ -15557,9 +16347,7 @@ class N88_RFQ_Admin {
                         }, items && items.length > 0 ? items.map(function(item) {
                             console.log('Rendering item:', item.id, 'at position', item.x, item.y, 'size', item.width, 'x', item.height);
                             return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: testBoardId });
-                        }) : React.createElement('div', { style: { padding: '20px', color: '#666', fontSize: '16px' } }, 'No items on board. Items count: ' + (items ? items.length : 0)), 
-                        // Concierge Overlay - read-only, non-blocking
-                        React.createElement(ConciergeOverlay, { concierge: conciergeData })),
+                        }) : React.createElement('div', { style: { padding: '20px', color: '#888', fontSize: '16px', fontFamily: 'ui-monospace, monospace' } }, 'No items on board. Items count: ' + (items ? items.length : 0))),
                         // Welcome Modal - shown once per user
                         React.createElement(WelcomeModal, { userId: currentUserId }),
                         // UnsyncedToast removed - no longer showing "Changes not saved" notification
@@ -15924,15 +16712,13 @@ class N88_RFQ_Admin {
                                 minHeight: '100%',
                                 height: '100%',
                                 overflow: 'visible', 
-                                backgroundColor: '#f5f5f5',
+                                backgroundColor: 'transparent',
                                 padding: '20px',
                                 zIndex: 1
                             }
                         }, items && items.length > 0 ? (items || []).map(function(item) {
                             return React.createElement(BoardItemWrapper, { key: item.id, item: item, onLayoutChanged: handleLayoutChanged, boardId: boardId });
-                        }) : React.createElement('div', { style: { padding: '20px', color: '#666' } }, 'No items on board'), 
-                        React.createElement(ConciergeOverlay, { concierge: concierge })
-                        ),
+                        }) : React.createElement('div', { style: { padding: '20px', color: '#888', fontFamily: 'ui-monospace, monospace' } }, 'No items on board')),
                         React.createElement(WelcomeModal, { userId: currentUserId }),
                         // UnsyncedToast removed - no longer showing "Changes not saved" notification
                         null

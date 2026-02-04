@@ -16,20 +16,20 @@ import React from 'react';
  * @param {Object} props.concierge - Sourcing agent data { name: string, avatarUrl: string }
  */
 const ConciergeOverlay = ({ concierge }) => {
-    // Default: Support label, headphone icon when no avatar URL
     const conciergeData = concierge || {
-        name: 'Support',
+        name: 'Message System Operator',
         avatarUrl: '',
     };
 
     return (
         <div
+            id="n88-concierge-overlay"
             style={{
                 position: 'absolute',
                 top: '20px',
                 left: '20px',
-                zIndex: 10000, // Above tiles (tiles use z-index up to ~1000)
-                pointerEvents: 'none', // Non-blocking - allows clicks to pass through
+                zIndex: 10000,
+                pointerEvents: 'none',
             }}
         >
             <div
@@ -37,20 +37,20 @@ const ConciergeOverlay = ({ concierge }) => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '12px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    backgroundColor: '#2d2d2d',
                     padding: '12px 16px',
-                    borderRadius: '8px',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                    border: '1px solid rgba(0, 0, 0, 0.1)',
+                    borderRadius: '6px',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    fontFamily: 'ui-monospace, monospace',
                 }}
             >
-                {/* Avatar */}
                 <div
                     style={{
-                        width: '40px',
-                        height: '40px',
+                        width: '36px',
+                        height: '36px',
                         borderRadius: '50%',
-                        backgroundColor: conciergeData.avatarUrl ? 'transparent' : '#0073aa',
+                        backgroundColor: conciergeData.avatarUrl ? 'transparent' : '#e91e8c',
                         backgroundImage: conciergeData.avatarUrl ? `url(${conciergeData.avatarUrl})` : 'none',
                         backgroundSize: 'cover',
                         backgroundPosition: 'center',
@@ -58,8 +58,7 @@ const ConciergeOverlay = ({ concierge }) => {
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: '#fff',
-                        fontSize: '18px',
-                        fontWeight: 'bold',
+                        fontSize: '16px',
                         flexShrink: 0,
                     }}
                 >
@@ -67,12 +66,11 @@ const ConciergeOverlay = ({ concierge }) => {
                         <span aria-hidden="true">🎧</span>
                     )}
                 </div>
-                {/* Name */}
                 <div
                     style={{
-                        fontSize: '14px',
+                        fontSize: '13px',
                         fontWeight: '600',
-                        color: '#333',
+                        color: '#e0e0e0',
                     }}
                 >
                     {conciergeData.name}

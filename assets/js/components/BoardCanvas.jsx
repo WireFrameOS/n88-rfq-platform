@@ -10,7 +10,6 @@
 import React from 'react';
 import BoardItem from './BoardItem';
 import UnsyncedToast from './UnsyncedToast';
-import ConciergeOverlay from './ConciergeOverlay';
 import WelcomeModal from './WelcomeModal';
 
 // Access Zustand store from global namespace (WordPress UMD pattern)
@@ -65,7 +64,7 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                     width: '100%',
                     minHeight: '100%',
                     height: '100%',
-                    backgroundColor: '#f5f5f5',
+                    backgroundColor: 'transparent',
                     zIndex: 1, // Lower than modal (20000) to ensure modal appears on top
                     padding: '20px',
                 }}
@@ -80,10 +79,8 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                         />
                     ))
                 ) : (
-                    <div style={{ padding: '20px', color: '#666' }}>No items on board</div>
+                    <div style={{ padding: '20px', color: '#888', fontFamily: 'ui-monospace, monospace' }}>No items on board</div>
                 )}
-                {/* Concierge Overlay - read-only, non-blocking */}
-                <ConciergeOverlay concierge={concierge} />
             </div>
             {/* Welcome Modal - shown once per user */}
             <WelcomeModal userId={userId} />
