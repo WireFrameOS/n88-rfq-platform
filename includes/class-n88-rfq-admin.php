@@ -10170,6 +10170,29 @@ class N88_RFQ_Admin {
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
                     var skipNextTabSwitchFromCadActionRef = React.useRef(false);
                     
+                    // Commit 3.A.1: Item timeline state (operator queue - dynamic workflow)
+                    var _timelineDataState = React.useState(null);
+                    var timelineData = _timelineDataState[0];
+                    var setTimelineData = _timelineDataState[1];
+                    var _timelineLoadingState = React.useState(false);
+                    var timelineLoading = _timelineLoadingState[0];
+                    var setTimelineLoading = _timelineLoadingState[1];
+                    var _timelineErrorState = React.useState(null);
+                    var timelineError = _timelineErrorState[0];
+                    var setTimelineError = _timelineErrorState[1];
+                    var _selectedStepIndexState = React.useState(0);
+                    var selectedStepIndex = _selectedStepIndexState[0];
+                    var setSelectedStepIndex = _selectedStepIndexState[1];
+                    var _isOperatorTimelineState = React.useState(true);
+                    var isOperatorTimeline = _isOperatorTimelineState[0];
+                    var setIsOperatorTimeline = _isOperatorTimelineState[1];
+                    var _evidenceBlockedModalState = React.useState(null);
+                    var evidenceBlockedModal = _evidenceBlockedModalState[0];
+                    var setEvidenceBlockedModal = _evidenceBlockedModalState[1];
+                    var _timelineActionBusyState = React.useState(false);
+                    var timelineActionBusy = _timelineActionBusyState[0];
+                    var setTimelineActionBusy = _timelineActionBusyState[1];
+                    
                     // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Review and Message
                     React.useEffect(function() {
                         if (itemState.loading) return;
@@ -10390,6 +10413,45 @@ class N88_RFQ_Admin {
                             }, 100);
                         }
                     }, [showDesignerMessageForm, designerMessages]);
+                    
+                    // Commit 3.A.1: Fetch item timeline when Workflow tab is selected (operator queue)
+                    var fetchTimeline = React.useCallback(function() {
+                        if (!itemId || isNaN(itemId) || itemId <= 0) return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                        if (!nonce) { setTimelineError('Session expired. Please refresh.'); return; }
+                        setTimelineLoading(true);
+                        setTimelineError(null);
+                        var formData = new FormData();
+                        formData.append('action', 'n88_get_item_timeline');
+                        formData.append('item_id', String(itemId));
+                        formData.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: formData })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data.success && data.data && data.data.timeline) {
+                                    setTimelineData(data.data.timeline);
+                                    setIsOperatorTimeline(!!(data.data.is_operator));
+                                    setTimelineError(null);
+                                } else {
+                                    setTimelineData(null);
+                                    setTimelineError(data.message || 'Failed to load timeline.');
+                                }
+                            })
+                            .catch(function(err) {
+                                setTimelineData(null);
+                                setTimelineError('Failed to load timeline.');
+                            })
+                            .finally(function() { setTimelineLoading(false); });
+                    }, [itemId]);
+                    React.useEffect(function() {
+                        if (activeTab === 'timeline' && itemId && !timelineData && !timelineLoading && !timelineError) fetchTimeline();
+                    }, [activeTab, itemId, timelineData, timelineLoading, timelineError, fetchTimeline]);
+                    React.useEffect(function() {
+                        setTimelineData(null);
+                        setTimelineError(null);
+                        setSelectedStepIndex(0);
+                    }, [itemId]);
                     
                     // Commit 2.3.9.2A: CAD workflow actions state
                     var _isCadActionBusyState = React.useState(false);
@@ -15161,323 +15223,205 @@ class N88_RFQ_Admin {
                                                 style: { padding: '24px', textAlign: 'center', color: darkText, fontSize: '14px' }
                                             }, 'No proposals received yet.')
                                         ) : null,
-                                        // Tab 4: The Workflow (Read-only)
-                                        activeTab === 'timeline' ? React.createElement('div', null,
-                                            React.createElement('div', {
-                                                style: {
-                                                    fontSize: '16px',
-                                                    fontWeight: '600',
-                                                    marginBottom: '20px',
-                                                    color: darkText
-                                                }
-                                            }, 'The Workflow'),
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
+                                        // Tab 4: The Workflow (Commit 3.A.1 — dynamic 6-step timeline; operator controls)
+                                        activeTab === 'timeline' ? React.createElement('div', { style: { fontFamily: 'monospace' } },
+                                            React.createElement('div', { style: { marginBottom: '16px', fontSize: '11px', color: darkText } },
+                                                'Timeline type: [ Furniture 6-Step ] · Status: [ ' + (isOperatorTimeline ? 'Operator — can start/complete steps' : 'Read-only') + ' ]'
+                                            ),
+                                            timelineLoading ? React.createElement('div', { style: { padding: '24px', textAlign: 'center', color: darkText } }, 'Loading timeline…') : null,
+                                            timelineError ? React.createElement('div', { style: { padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' } }, timelineError) : null,
+                                            !timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 ? React.createElement(React.Fragment, null,
+                                                React.createElement('div', {
+                                                    style: {
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        justifyContent: 'space-between',
+                                                        gap: 0,
+                                                        marginBottom: '24px',
+                                                        paddingBottom: '12px',
+                                                        borderBottom: '1px solid ' + darkBorder,
+                                                    }
+                                                }, (function() {
+                                                    var stepEls = [];
+                                                    timelineData.steps.forEach(function(step, idx) {
+                                                        var isActive = step.display_status === 'in_progress' || step.display_status === 'delayed';
+                                                        var isCompleted = step.display_status === 'completed';
+                                                        var isSelected = selectedStepIndex === idx;
+                                                        stepEls.push(React.createElement('div', {
+                                                            key: step.step_id || idx,
+                                                            onClick: function() { setSelectedStepIndex(idx); },
+                                                            style: {
+                                                                flex: 1,
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                alignItems: 'center',
+                                                                cursor: 'pointer',
+                                                                minWidth: 0,
+                                                            }
+                                                        },
+                                                            React.createElement('div', {
+                                                                style: {
+                                                                    width: '28px',
+                                                                    height: '28px',
+                                                                    borderRadius: '50%',
+                                                                    border: '2px solid ' + (isCompleted ? greenAccent : isActive ? greenAccent : darkBorder),
+                                                                    background: isCompleted ? greenAccent : isActive ? 'rgba(0,255,0,0.15)' : 'transparent',
+                                                                    color: isCompleted ? '#0a0a0a' : isActive ? greenAccent : darkText,
+                                                                    fontSize: '12px',
+                                                                    fontWeight: '600',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    marginBottom: '6px',
+                                                                }
+                                                            }, step.step_number),
+                                                            React.createElement('div', {
+                                                                style: {
+                                                                    fontSize: '10px',
+                                                                    color: isSelected ? greenAccent : darkText,
+                                                                    textAlign: 'center',
+                                                                    lineHeight: 1.2,
+                                                                    overflow: 'hidden',
+                                                                    textOverflow: 'ellipsis',
+                                                                    display: '-webkit-box',
+                                                                    WebkitLineClamp: 2,
+                                                                    WebkitBoxOrient: 'vertical',
+                                                                }
+                                                            }, step.label),
+                                                            step.is_delayed ? React.createElement('span', { style: { fontSize: '9px', color: '#ff6666', marginTop: '2px' } }, '[ ! Delayed ]') : null
+                                                        ));
+                                                        if (idx < timelineData.steps.length - 1) {
+                                                            stepEls.push(React.createElement('div', {
+                                                                key: 'conn-' + idx,
+                                                                style: { flex: '0 0 20px', alignSelf: 'center', height: '2px', background: darkBorder, marginBottom: '20px' },
+                                                                'aria-hidden': true
+                                                            }));
+                                                        }
+                                                    });
+                                                    return stepEls;
+                                                })()),
+                                                timelineData.steps[selectedStepIndex] ? (function() {
+                                                    var s = timelineData.steps[selectedStepIndex];
+                                                    var statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
+                                                    return React.createElement('div', {
+                                                        style: {
+                                                            padding: '16px',
+                                                            border: '1px solid ' + darkBorder,
+                                                            borderRadius: '4px',
+                                                            backgroundColor: 'rgba(0,0,0,0.2)',
+                                                        }
+                                                    },
+                                                        React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '12px' } }, s.step_number + '. ' + s.label),
+                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
+                                                            '· State: ',
+                                                            React.createElement('span', { style: { color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText } }, statusLabel)
+                                                        ),
+                                                        s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + s.started_at) : null,
+                                                        s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + s.completed_at) : null,
+                                                        s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Expected by: ' + s.expected_by) : null,
+                                                        isOperatorTimeline && !timelineActionBusy ? React.createElement('div', { style: { marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                            s.status === 'pending' ? React.createElement('button', {
+                                                                onClick: function() {
+                                                                    setTimelineActionBusy(true);
+                                                                    var fd = new FormData();
+                                                                    fd.append('action', 'n88_timeline_start_step');
+                                                                    fd.append('item_id', String(itemId));
+                                                                    fd.append('step_number', String(s.step_number));
+                                                                    fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                                                                    fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                                                                        .then(function(r) { return r.json(); })
+                                                                        .then(function(res) {
+                                                                            if (res.success) { fetchTimeline(); } else { alert(res.message || 'Failed.'); }
+                                                                        })
+                                                                        .finally(function() { setTimelineActionBusy(false); });
+                                                                },
+                                                                style: { padding: '6px 12px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
+                                                            }, 'Start Step') : null,
+                                                            s.status === 'in_progress' ? React.createElement('button', {
+                                                                onClick: function() {
+                                                                    setTimelineActionBusy(true);
+                                                                    var fd = new FormData();
+                                                                    fd.append('action', 'n88_timeline_complete_step');
+                                                                    fd.append('item_id', String(itemId));
+                                                                    fd.append('step_number', String(s.step_number));
+                                                                    fd.append('evidence_override', '0');
+                                                                    fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                                                                    fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                                                                        .then(function(r) { return r.json(); })
+                                                                        .then(function(res) {
+                                                                            if (res.success) { fetchTimeline(); setEvidenceBlockedModal(null); }
+                                                                            else if (res.data && res.data.blocked) { setEvidenceBlockedModal({ step: s, stepNumber: s.step_number }); }
+                                                                            else { alert((res.data && res.data.message) || res.message || 'Failed.'); }
+                                                                        })
+                                                                        .finally(function() { setTimelineActionBusy(false); });
+                                                                },
+                                                                style: { padding: '6px 12px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
+                                                            }, 'Mark Completed') : null,
+                                                            s.status === 'in_progress' && s.evidence_required && !s.evidence_verified_at ? React.createElement('button', {
+                                                                onClick: function() {
+                                                                    setTimelineActionBusy(true);
+                                                                    var fd = new FormData();
+                                                                    fd.append('action', 'n88_timeline_set_evidence_verified');
+                                                                    fd.append('item_id', String(itemId));
+                                                                    fd.append('step_number', String(s.step_number));
+                                                                    fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                                                                    fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                                                                        .then(function(r) { return r.json(); })
+                                                                        .then(function(res) {
+                                                                            if (res.success) { fetchTimeline(); }
+                                                                            else { alert(res.message || 'Failed.'); }
+                                                                        })
+                                                                        .finally(function() { setTimelineActionBusy(false); });
+                                                                },
+                                                                style: { padding: '6px 12px', background: '#333', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'monospace' }
+                                                            }, 'Mark Evidence Verified') : null
+                                                        ) : null
+                                                    );
+                                                })() : null,
+                                                timelineData.show_prototype_mini ? React.createElement('div', {
+                                                    style: { marginTop: '20px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '11px', color: darkText }
+                                                },
+                                                    React.createElement('div', { style: { marginBottom: '8px', color: greenAccent } }, 'Prototype Mini-Timeline (visual only)'),
+                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                                                        'Requested', '→', 'Paid', '→', 'CAD Approved', '→', 'Prototype Submitted', '→', 'Approved'
+                                                    ),
+                                                    React.createElement('div', { style: { marginTop: '6px', opacity: 0.8, fontSize: '10px' } }, 'Appears after prototype payment evidence is cleared.')
+                                                ) : null
+                                            ) : null,
+                                            evidenceBlockedModal ? React.createElement('div', {
+                                                style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }
                                             },
                                                 React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
+                                                    style: { background: '#111', border: '2px solid #ff6666', borderRadius: '8px', padding: '24px', maxWidth: '400px', fontFamily: 'monospace' }
                                                 },
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'Timeline Type: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, '[ Furniture 6-Step ▼ ]')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'Status: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, '[ Read-only (Phase 2) ]')
+                                                    React.createElement('div', { style: { fontSize: '16px', fontWeight: '600', color: '#ff6666', marginBottom: '12px' } }, 'Evidence required to complete this step.'),
+                                                    React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '20px' } }, 'Step ' + (evidenceBlockedModal.stepNumber || '') + ' cannot be marked completed until required evidence exists. Use "Mark Evidence Verified" when evidence is present, or ensure the step evidence gate is met.'),
+                                                    React.createElement('div', { style: { display: 'flex', gap: '12px', justifyContent: 'flex-end' } },
+                                                        React.createElement('button', {
+                                                            onClick: function() {
+                                                                setTimelineActionBusy(true);
+                                                                var fd = new FormData();
+                                                                fd.append('action', 'n88_timeline_set_evidence_verified');
+                                                                fd.append('item_id', String(itemId));
+                                                                fd.append('step_number', String(evidenceBlockedModal.stepNumber));
+                                                                fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                                                                fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                                                                    .then(function(r) { return r.json(); })
+                                                                    .then(function(res) {
+                                                                        if (res.success) { fetchTimeline(); setEvidenceBlockedModal(null); }
+                                                                        else { alert(res.message || 'Failed.'); }
+                                                                    })
+                                                                    .finally(function() { setTimelineActionBusy(false); });
+                                                            },
+                                                            style: { padding: '8px 16px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
+                                                        }, 'Mark Evidence Verified'),
+                                                        React.createElement('button', {
+                                                            onClick: function() { setEvidenceBlockedModal(null); },
+                                                            style: { padding: '8px 16px', background: 'transparent', color: darkText, border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'monospace' }
+                                                        }, 'Cancel')
+                                                    )
                                                 )
-                                            ),
-                                            // Step 1: Design & Specifications
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '1) Design & Specifications'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            ),
-                                            // Step 2: Technical Review & Documentation
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '2) Technical Review & Documentation'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            ),
-                                            // Step 3: Pre-Production Approval
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '3) Pre-Production Approval'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Prototype: [ Not requested ]'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            ),
-                                            // Step 4: Production / Fabrication
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '4) Production / Fabrication'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            ),
-                                            // Step 5: Quality Review & Packing
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '5) Quality Review & Packing'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            ),
-                                            // Step 6: Ready for Delivery
-                                            React.createElement('div', {
-                                                style: {
-                                                    marginBottom: '16px',
-                                                    padding: '12px',
-                                                    backgroundColor: '#111111',
-                                                    border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                        fontWeight: '600',
-                                                        marginBottom: '12px',
-                                                        color: darkText
-                                                    }
-                                                }, '6) Ready for Delivery'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText
-                                                    }
-                                                },
-                                                    React.createElement('span', { style: { marginRight: '8px' } }, '●'),
-                                                    React.createElement('span', { style: { opacity: 0.7 } }, 'State: '),
-                                                    React.createElement('span', { style: { color: greenAccent } }, 'Pending')
-                                                ),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        marginBottom: '8px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Evidence: 0'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '12px',
-                                                        color: darkText,
-                                                        opacity: 0.7
-                                                    }
-                                                }, '(Future) Notes: 0')
-                                            )
+                                            ) : null
                                         ) : null
                                     )
                                 )

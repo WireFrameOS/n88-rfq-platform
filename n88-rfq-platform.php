@@ -70,6 +70,7 @@ $includes = array(
     'includes/class-n88-rfq-timeline.php',
     'includes/class-n88-rfq-timeline-events.php',
     'includes/class-n88-events.php',
+    'includes/class-n88-item-timeline.php', // Commit 3.A.1: Item timeline spine
     'includes/class-n88-authorization.php',
     'includes/class-n88-intelligence.php',
     'includes/class-n88-items.php',
