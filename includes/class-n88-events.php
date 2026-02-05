@@ -65,10 +65,6 @@ class N88_Events {
         // Commit 2.3.9.2B-D: Designer prototype review events
         'prototype_video_changes_requested',
         'prototype_video_approved',
-        // Commit 3.A.1: Item timeline spine events
-        'timeline_created',
-        'timeline_step_started',
-        'timeline_step_completed',
     );
 
     /**

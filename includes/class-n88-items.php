@@ -382,11 +382,6 @@ class N88_Items {
             )
         );
 
-        // Commit 3.A.1: Ensure immutable 6-step timeline exists for item
-        if ( class_exists( 'N88_Item_Timeline' ) ) {
-            N88_Item_Timeline::ensure_timeline_for_item( $item_id );
-        }
-
         // Ensure designer profile exists (lazy creation)
         $this->ensure_designer_profile( $user_id );
 

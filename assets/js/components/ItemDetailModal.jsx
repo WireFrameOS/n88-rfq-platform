@@ -1731,11 +1731,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Tab state for new layout
     const [activeTab, setActiveTab] = React.useState('details');
-    // Commit 3.A.1: Item timeline (read-only for designer)
-    const [timelineData, setTimelineData] = React.useState(null);
-    const [timelineLoading, setTimelineLoading] = React.useState(false);
-    const [timelineError, setTimelineError] = React.useState(null);
-    const [selectedStepIndex, setSelectedStepIndex] = React.useState(0);
     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
     const skipNextTabSwitchFromCadActionRef = React.useRef(false);
     
@@ -1907,55 +1902,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             setItemState(prev => ({ ...prev, loading: false }));
         }
     };
-
-    // Commit 3.A.1: Fetch item timeline when Workflow tab is selected
-    const fetchTimeline = React.useCallback(async () => {
-        const id = getItemId();
-        if (!id) return;
-        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-        let nonce = '';
-        if (window.n88BoardData && window.n88BoardData.nonce) nonce = window.n88BoardData.nonce;
-        else if (window.n88 && window.n88.nonce) nonce = window.n88.nonce;
-        else if (window.n88BoardNonce && window.n88BoardNonce.nonce) nonce = window.n88BoardNonce.nonce;
-        if (!nonce) {
-            setTimelineError('Session expired. Please refresh.');
-            return;
-        }
-        setTimelineLoading(true);
-        setTimelineError(null);
-        try {
-            const formData = new FormData();
-            formData.append('action', 'n88_get_item_timeline');
-            formData.append('item_id', String(id));
-            formData.append('_ajax_nonce', nonce);
-            const response = await fetch(ajaxUrl, { method: 'POST', body: formData });
-            const data = await response.json();
-            if (data.success && data.data && data.data.timeline) {
-                setTimelineData(data.data.timeline);
-                setTimelineError(null);
-            } else {
-                setTimelineData(null);
-                setTimelineError(data.message || 'Failed to load timeline.');
-            }
-        } catch (err) {
-            console.error('Timeline fetch error:', err);
-            setTimelineData(null);
-            setTimelineError('Failed to load timeline.');
-        } finally {
-            setTimelineLoading(false);
-        }
-    }, []);
-    React.useEffect(() => {
-        if (activeTab === 'workflow' && itemId && !timelineData && !timelineLoading && !timelineError) {
-            fetchTimeline();
-        }
-    }, [activeTab, itemId, timelineData, timelineLoading, timelineError, fetchTimeline]);
-    // Reset timeline when item changes so next open fetches fresh
-    React.useEffect(() => {
-        setTimelineData(null);
-        setTimelineError(null);
-        setSelectedStepIndex(0);
-    }, [itemId]);
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
     React.useEffect(() => {
@@ -3956,23 +3902,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     >
                                         Launch Brief
                                     </button>
-                                    <button
-                                        onClick={() => setActiveTab('workflow')}
-                                        style={{
-                                            flex: 1,
-                                            padding: '12px 16px',
-                                            background: activeTab === 'workflow' ? '#111111' : 'transparent',
-                                            border: 'none',
-                                            borderBottom: activeTab === 'workflow' ? `2px solid ${greenAccent}` : 'none',
-                                            color: activeTab === 'workflow' ? greenAccent : darkText,
-                                            fontSize: '12px',
-                                            fontWeight: activeTab === 'workflow' ? '600' : '400',
-                                            cursor: 'pointer',
-                                            fontFamily: 'monospace',
-                                        }}
-                                    >
-                                        The Workflow
-                                    </button>
                                     {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
                                         <button
                                             onClick={() => setActiveTab('bids')}
@@ -4870,151 +4799,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             )}
                                         </div>
                                     )}
-
-                                    {/* Tab: The Workflow (Commit 3.A.1 — read-only 6-step timeline) */}
-                                    {activeTab === 'workflow' && (
-                                        <div style={{ fontFamily: 'monospace' }}>
-                                            <div style={{ marginBottom: '16px', fontSize: '11px', color: darkText }}>
-                                                Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]
-                                            </div>
-                                            {timelineLoading && (
-                                                <div style={{ padding: '24px', textAlign: 'center', color: darkText }}>Loading timeline…</div>
-                                            )}
-                                            {timelineError && (
-                                                <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
-                                            )}
-                                            {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
-                                                <>
-                                                    {/* Horizontal 6-step row with connector lines between steps */}
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        alignItems: 'flex-start',
-                                                        justifyContent: 'space-between',
-                                                        gap: 0,
-                                                        marginBottom: '24px',
-                                                        paddingBottom: '12px',
-                                                        borderBottom: `1px solid ${darkBorder}`,
-                                                    }}>
-                                                        {timelineData.steps.flatMap((step, idx) => {
-                                                            const isActive = step.display_status === 'in_progress' || step.display_status === 'delayed';
-                                                            const isCompleted = step.display_status === 'completed';
-                                                            const isSelected = selectedStepIndex === idx;
-                                                            const stepEl = (
-                                                                <div
-                                                                    key={step.step_id ?? idx}
-                                                                    onClick={() => setSelectedStepIndex(idx)}
-                                                                    style={{
-                                                                        flex: 1,
-                                                                        display: 'flex',
-                                                                        flexDirection: 'column',
-                                                                        alignItems: 'center',
-                                                                        cursor: 'pointer',
-                                                                        minWidth: 0,
-                                                                    }}
-                                                                >
-                                                                    <div style={{
-                                                                        width: '28px',
-                                                                        height: '28px',
-                                                                        borderRadius: '50%',
-                                                                        border: `2px solid ${isCompleted ? greenAccent : isActive ? greenAccent : darkBorder}`,
-                                                                        background: isCompleted ? greenAccent : isActive ? 'rgba(0,255,0,0.15)' : 'transparent',
-                                                                        color: isCompleted ? '#0a0a0a' : isActive ? greenAccent : darkText,
-                                                                        fontSize: '12px',
-                                                                        fontWeight: '600',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        marginBottom: '6px',
-                                                                    }}>
-                                                                        {step.step_number}
-                                                                    </div>
-                                                                    <div style={{
-                                                                        fontSize: '10px',
-                                                                        color: isSelected ? greenAccent : darkText,
-                                                                        textAlign: 'center',
-                                                                        lineHeight: 1.2,
-                                                                        overflow: 'hidden',
-                                                                        textOverflow: 'ellipsis',
-                                                                        display: '-webkit-box',
-                                                                        WebkitLineClamp: 2,
-                                                                        WebkitBoxOrient: 'vertical',
-                                                                    }}>
-                                                                        {step.label}
-                                                                    </div>
-                                                                    {step.is_delayed && (
-                                                                        <span style={{ fontSize: '9px', color: '#ff6666', marginTop: '2px' }}>[ ! Delayed ]</span>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                            const connector = idx < timelineData.steps.length - 1 ? (
-                                                                <div
-                                                                    key={`conn-${idx}`}
-                                                                    style={{ flex: '0 0 20px', alignSelf: 'center', height: '2px', background: darkBorder, marginBottom: '20px' }}
-                                                                    aria-hidden={true}
-                                                                />
-                                                            ) : null;
-                                                            return [stepEl, connector].filter(Boolean);
-                                                        })}
-                                                    </div>
-                                                    {/* Selected step detail */}
-                                                    {timelineData.steps[selectedStepIndex] && (() => {
-                                                        const s = timelineData.steps[selectedStepIndex];
-                                                        const statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                                        return (
-                                                            <div style={{
-                                                                padding: '16px',
-                                                                border: `1px solid ${darkBorder}`,
-                                                                borderRadius: '4px',
-                                                                backgroundColor: 'rgba(0,0,0,0.2)',
-                                                            }}>
-                                                                <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>
-                                                                    {s.step_number}. {s.label}
-                                                                </div>
-                                                                <div style={{ fontSize: '12px', color: darkText, marginBottom: '4px' }}>
-                                                                    · State: <span style={{ color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText }}>{statusLabel}</span>
-                                                                </div>
-                                                                {s.started_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Started: {s.started_at}</div>
-                                                                )}
-                                                                {s.completed_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Completed: {s.completed_at}</div>
-                                                                )}
-                                                                {s.expected_by && (
-                                                                    <div style={{ fontSize: '11px', color: darkText }}>Expected by: {s.expected_by}</div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                    {/* Prototype mini-timeline under Step 3 */}
-                                                    {timelineData.show_prototype_mini && (
-                                                        <div style={{
-                                                            marginTop: '20px',
-                                                            padding: '12px',
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            fontSize: '11px',
-                                                            color: darkText,
-                                                        }}>
-                                                            <div style={{ marginBottom: '8px', color: greenAccent }}>Prototype Mini-Timeline (visual only)</div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                                <span>Requested</span>
-                                                                <span>→</span>
-                                                                <span>Paid</span>
-                                                                <span>→</span>
-                                                                <span>CAD Approved</span>
-                                                                <span>→</span>
-                                                                <span>Prototype Submitted</span>
-                                                                <span>→</span>
-                                                                <span>Approved</span>
-                                                            </div>
-                                                            <div style={{ marginTop: '6px', opacity: 0.8, fontSize: '10px' }}>Appears after prototype payment evidence is cleared.</div>
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-
+                                    
                                     {/* Tab 2: Launch Brief */}
                                     {activeTab === 'rfq' && (
                                         <div>
