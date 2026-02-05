@@ -1231,6 +1231,9 @@ class N88_RFQ_Installer {
         // Commit 3.A.3: Evidence Comments (anchored to evidence_id; immutable, append-only)
         self::create_phase_3_a_3_evidence_comments_table( $charset_collate );
 
+        // Commit 3.A.2S: Supplier step evidence (video links only, append-only, versioned)
+        self::create_phase_3_a_2s_supplier_step_evidence_tables( $charset_collate );
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -3369,6 +3372,62 @@ class N88_RFQ_Installer {
 
         if ( ! self::foreign_key_exists( $comments_table, 'fk_evidence_comment_evidence' ) ) {
             self::safe_add_foreign_key( $comments_table, 'fk_evidence_comment_evidence', 'evidence_id', $evidence_table, 'id', 'CASCADE' );
+        }
+    }
+
+    /**
+     * Commit 3.A.2S: Supplier step evidence — video links only (YouTube/Vimeo/Loom), append-only, versioned per (item, step, supplier).
+     */
+    private static function create_phase_3_a_2s_supplier_step_evidence_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $submissions_table = $wpdb->prefix . 'n88_step_evidence_submissions';
+        $links_table       = $wpdb->prefix . 'n88_step_evidence_links';
+        $items_table       = $wpdb->prefix . 'n88_items';
+        $steps_table       = $wpdb->prefix . 'n88_item_timeline_steps';
+        $users_table       = $wpdb->prefix . 'users';
+
+        $sql_sub = "CREATE TABLE {$submissions_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            timeline_step_id BIGINT UNSIGNED NOT NULL,
+            supplier_id BIGINT UNSIGNED NOT NULL,
+            bid_id BIGINT UNSIGNED NULL,
+            version INT UNSIGNED NOT NULL DEFAULT 1,
+            link_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY item_step_supplier_version (item_id, timeline_step_id, supplier_id, version),
+            KEY item_step (item_id, timeline_step_id),
+            KEY supplier_id (supplier_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        $sql_links = "CREATE TABLE {$links_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            submission_id BIGINT UNSIGNED NOT NULL,
+            provider VARCHAR(20) NOT NULL DEFAULT 'youtube',
+            url VARCHAR(500) NOT NULL,
+            sort_order TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (id),
+            KEY submission_id (submission_id)
+        ) {$charset_collate};";
+
+        dbDelta( $sql_sub );
+        dbDelta( $sql_links );
+
+        if ( ! self::foreign_key_exists( $submissions_table, 'fk_step_ev_item' ) ) {
+            self::safe_add_foreign_key( $submissions_table, 'fk_step_ev_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $submissions_table, 'fk_step_ev_step' ) ) {
+            self::safe_add_foreign_key( $submissions_table, 'fk_step_ev_step', 'timeline_step_id', $steps_table, 'step_id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $submissions_table, 'fk_step_ev_supplier' ) ) {
+            self::safe_add_foreign_key( $submissions_table, 'fk_step_ev_supplier', 'supplier_id', $users_table, 'ID', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $links_table, 'fk_step_ev_link_submission' ) ) {
+            self::safe_add_foreign_key( $links_table, 'fk_step_ev_link_submission', 'submission_id', $submissions_table, 'id', 'CASCADE' );
         }
     }
     

@@ -133,6 +133,10 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_add_evidence_comment', array( $this, 'ajax_add_evidence_comment' ) );
         add_action( 'wp_ajax_n88_get_evidence_comments', array( $this, 'ajax_get_evidence_comments' ) );
 
+        // Commit 3.A.2S: Supplier step evidence (video links, append-only)
+        add_action( 'wp_ajax_n88_supplier_submit_step_evidence', array( $this, 'ajax_supplier_submit_step_evidence' ) );
+        add_action( 'wp_ajax_n88_get_step_evidence', array( $this, 'ajax_get_step_evidence' ) );
+
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
 
@@ -3726,6 +3730,30 @@ class N88_RFQ_Auth {
                         var darkText = '#ccc';
                         var darkBorder = '#555';
                         var selectedIdx = 0;
+                        var supplierEvidenceByStep = data.data.supplier_step_evidence_by_step || {};
+                        function buildSupplierStepEvidenceBlock(sel, itemId) {
+                            if (!sel || !sel.step_id) return '';
+                            var stepId = sel.step_id;
+                            var ev = supplierEvidenceByStep[stepId] || supplierEvidenceByStep[String(stepId)];
+                            var canSubmit = sel.display_status === 'in_progress' || sel.display_status === 'completed';
+                            var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>';
+                            if (ev && ev.links && ev.links.length) {
+                                block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Evidence submitted (v' + (ev.version || '') + ')</div>';
+                                block += '<ul style="margin: 0 0 10px 18px; padding: 0; font-size: 11px;">';
+                                for (var k = 0; k < ev.links.length; k++) {
+                                    var link = ev.links[k];
+                                    block += '<li><a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">' + (link.provider || 'Link') + '</a></li>';
+                                }
+                                block += '</ul>';
+                                if (canSubmit) block += '<button type="button" onclick="n88SupplierOpenStepEvidenceForm(' + itemId + ',' + stepId + ', true);" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Submit New Version ]</button>';
+                            } else if (canSubmit) {
+                                block += '<button type="button" onclick="n88SupplierOpenStepEvidenceForm(' + itemId + ',' + stepId + ', false);" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Submit Step Video ]</button>';
+                            } else {
+                                block += '<div style="font-size: 11px; color: #888;">Submit evidence when step is In Progress or Completed.</div>';
+                            }
+                            block += '<div id="n88-supplier-step-evidence-form-wrap" style="display: none; margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: #0a0a0a;"></div></div>';
+                            return block;
+                        }
                         window.n88SupplierTimelineSelectStep = function(idx) {
                             var w = document.getElementById('n88-supplier-workflow-timeline-wrap');
                             if (!w || !w._n88StepsData) return;
@@ -3734,13 +3762,15 @@ class N88_RFQ_Auth {
                             var sel = st[idx];
                             if (!sel) return;
                             var detEl = document.getElementById('n88-supplier-timeline-detail');
+                            var itemId = w.getAttribute('data-item-id');
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
                                 detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                     '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#00ff00' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
-                                    (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '');
+                                    (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
+                                    buildSupplierStepEvidenceBlock(sel, itemId);
                             }
                             var btns = document.querySelectorAll('[data-n88-step-btn]');
                             for (var j = 0; j < btns.length; j++) {
@@ -3776,6 +3806,7 @@ class N88_RFQ_Auth {
                         if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                         if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                         if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                        detail += buildSupplierStepEvidenceBlock(sel, itemId);
                         detail += '</div>';
                         if (t.show_prototype_mini) {
                             detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
@@ -3791,7 +3822,71 @@ class N88_RFQ_Auth {
                         container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">Failed to load timeline.</div>';
                     });
             };
-            
+
+            window.n88SupplierOpenStepEvidenceForm = function(itemId, stepId, isNewVersion) {
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                var formWrap = document.getElementById('n88-supplier-step-evidence-form-wrap');
+                if (!formWrap) return;
+                var darkBorder = '#555';
+                var green = '#00ff00';
+                var darkText = '#ccc';
+                formWrap.style.display = 'block';
+                formWrap.innerHTML = '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Allowed: YouTube / Vimeo / Loom</p>' +
+                    '<div id="n88-step-evidence-url-rows" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">' +
+                    '<input type="url" id="n88-step-evidence-url-1" placeholder="https://..." style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />' +
+                    '<input type="url" id="n88-step-evidence-url-2" placeholder="https://..." style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />' +
+                    '<input type="url" id="n88-step-evidence-url-3" placeholder="https://..." style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />' +
+                    '</div>' +
+                    '<div style="display: flex; gap: 8px;">' +
+                    '<button type="button" id="n88-step-evidence-submit-btn" style="padding: 8px 16px; font-size: 12px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Submit Evidence</button>' +
+                    '<button type="button" id="n88-step-evidence-cancel-btn" style="padding: 8px 16px; font-size: 12px; background: #333; color: #ccc; border: 1px solid ' + darkBorder + '; border-radius: 4px; cursor: pointer; font-family: monospace;">Cancel</button>' +
+                    '</div>';
+                document.getElementById('n88-step-evidence-cancel-btn').onclick = function() {
+                    formWrap.style.display = 'none';
+                    formWrap.innerHTML = '';
+                };
+                document.getElementById('n88-step-evidence-submit-btn').onclick = function() {
+                    var u1 = (document.getElementById('n88-step-evidence-url-1').value || '').trim();
+                    var u2 = (document.getElementById('n88-step-evidence-url-2').value || '').trim();
+                    var u3 = (document.getElementById('n88-step-evidence-url-3').value || '').trim();
+                    var urls = [u1, u2, u3].filter(function(u) { return u.length > 0; });
+                    if (urls.length < 1 || urls.length > 3) {
+                        alert('Please enter between 1 and 3 video links (YouTube, Vimeo, or Loom).');
+                        return;
+                    }
+                    var btn = this;
+                    btn.disabled = true;
+                    btn.textContent = 'Submitting…';
+                    var formData = new FormData();
+                    formData.append('action', 'n88_supplier_submit_step_evidence');
+                    formData.append('item_id', String(itemId));
+                    formData.append('step_id', String(stepId));
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                    if (urls[0]) formData.append('url_1', urls[0]);
+                    if (urls[1]) formData.append('url_2', urls[1]);
+                    if (urls[2]) formData.append('url_3', urls[2]);
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.success) {
+                                formWrap.style.display = 'none';
+                                formWrap.innerHTML = '';
+                                if (wrap) wrap.removeAttribute('data-timeline-loaded');
+                                if (typeof window.n88LoadSupplierWorkflowTimeline === 'function') window.n88LoadSupplierWorkflowTimeline();
+                            } else {
+                                alert(data.data && data.data.message ? data.data.message : 'Failed to submit evidence.');
+                                btn.disabled = false;
+                                btn.textContent = 'Submit Evidence';
+                            }
+                        })
+                        .catch(function() {
+                            alert('Request failed. Please try again.');
+                            btn.disabled = false;
+                            btn.textContent = 'Submit Evidence';
+                        });
+                };
+            };
+
             // Toggle bid form section inside the modal
             function toggleBidForm(itemId) {
                 var formSection = document.getElementById('n88-bid-form-section-' + itemId);
@@ -16641,12 +16736,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         var darkText = '#ccc';
                         var darkBorder = '#555';
                         var selectedIdx = 0;
+                        var stepsWithSupplierEvidence = (data.data && data.data.steps_with_supplier_evidence) ? data.data.steps_with_supplier_evidence : {};
+                        wrap._n88StepsWithSupplierEvidence = stepsWithSupplierEvidence;
                         function buildEvidenceBlockHtml() {
                             return '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>' +
                                 '<div id="n88-operator-step-evidence-list" style="min-height: 24px; font-size: 11px; color: ' + darkText + '; margin-bottom: 12px;">Loading…</div>' +
                                 '<form id="n88-operator-add-evidence-form" enctype="multipart/form-data" style="font-size: 11px;"><div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">File (image/PDF)</label><input type="file" name="evidence_file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf" style="width:100%; max-width:280px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
                                 '<div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">Or YouTube URL</label><input type="url" name="youtube_url" placeholder="https://youtube.com/..." style="width:100%; max-width:280px; padding:4px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
                                 '<button type="submit" id="n88-operator-add-evidence-btn" style="padding: 6px 12px; background: ' + green + '; color: #000; border: none; font-weight: 600; cursor: pointer;">Add evidence</button></form></div>';
+                        }
+                        function buildSupplierEvidenceBlockHtml(stepId) {
+                            if (!stepId) return '';
+                            var hasSup = stepsWithSupplierEvidence[stepId] || stepsWithSupplierEvidence[String(stepId)];
+                            if (!hasSup) return '';
+                            return '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Supplier Evidence Received</div>' +
+                                '<button type="button" class="n88-operator-view-supplier-evidence-btn" data-step-id="' + String(stepId).replace(/"/g, '&quot;') + '" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ View Step Evidence ]</button>' +
+                                '<div id="n88-operator-supplier-evidence-content-' + String(stepId).replace(/"/g, '') + '" style="margin-top: 8px; min-height: 20px; font-size: 11px; color: ' + darkText + ';"></div></div>';
                         }
                         function updateOperatorStepDetail(idx) {
                             selectedIdx = idx;
@@ -16661,7 +16766,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
-                                    buildEvidenceBlockHtml();
+                                    buildEvidenceBlockHtml() +
+                                    buildSupplierEvidenceBlockHtml(sel.step_id);
                             }
                             var btns = wrap.querySelectorAll('[data-n88-operator-step-btn]');
                             for (var j = 0; j < btns.length; j++) {
@@ -16698,6 +16804,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                         if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
                         detail += buildEvidenceBlockHtml();
+                        detail += buildSupplierEvidenceBlockHtml(sel.step_id);
                         detail += '</div>';
                         if (t.show_prototype_mini) {
                             detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
@@ -16791,6 +16898,35 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             });
                         });
                         if (itemId && window.n88LoadOperatorStepEvidence) window.n88LoadOperatorStepEvidence(itemId, steps[0].step_id);
+                        wrap.addEventListener('click', function(ev) {
+                            if (!ev.target || !ev.target.classList || !ev.target.classList.contains('n88-operator-view-supplier-evidence-btn')) return;
+                            var stepId = ev.target.getAttribute('data-step-id');
+                            var itemIdClick = wrap.getAttribute('data-item-id');
+                            var contentEl = document.getElementById('n88-operator-supplier-evidence-content-' + stepId);
+                            if (!contentEl || !itemIdClick) return;
+                            contentEl.innerHTML = 'Loading…';
+                            var fd = new FormData();
+                            fd.append('action', 'n88_get_step_evidence');
+                            fd.append('item_id', itemIdClick);
+                            fd.append('step_id', stepId);
+                            fd.append('_ajax_nonce', typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '');
+                            fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(res) {
+                                if (!contentEl) return;
+                                if (!res.success || !res.data || !res.data.for_step) { contentEl.innerHTML = 'No data.'; return; }
+                                var d = res.data.for_step;
+                                var subs = d.submissions || [];
+                                var h = '';
+                                for (var si = 0; si < subs.length; si++) {
+                                    var links = subs[si].links || [];
+                                    for (var li = 0; li < links.length; li++) {
+                                        var url = (links[li].url || '#').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                                        var prov = (links[li].provider || 'Link').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                        h += '<div style="margin-bottom:4px;"><a href="' + url + '" target="_blank" rel="noopener" style="color:' + green + ';">' + prov + '</a></div>';
+                                    }
+                                }
+                                contentEl.innerHTML = h || 'No links.';
+                            }).catch(function() { if (contentEl) contentEl.innerHTML = 'Error loading.'; });
+                        });
                         wrap.setAttribute('data-timeline-loaded', '1');
                     })
                     .catch(function(err) {
@@ -19376,11 +19512,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
         $can_add_evidence_comment = $this->user_is_designer_owner_of_item( $item_id );
+        $steps_with_supplier_evidence = array();
+        $supplier_step_evidence_by_step = array();
+        if ( class_exists( 'N88_Step_Evidence_Submissions' ) ) {
+            $steps_with_supplier_evidence = N88_Step_Evidence_Submissions::get_steps_with_supplier_evidence( $item_id );
+            $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+            if ( $is_supplier && $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                $supplier_step_evidence_by_step = N88_Step_Evidence_Submissions::get_by_item_for_supplier( $item_id, $current_user->ID );
+            }
+        }
         wp_send_json_success( array(
-            'timeline'                  => $timeline,
-            'is_operator'               => $is_operator,
-            'evidence_by_step'          => $evidence_by_step,
-            'can_add_evidence_comment'  => $can_add_evidence_comment,
+            'timeline'                       => $timeline,
+            'is_operator'                    => $is_operator,
+            'evidence_by_step'               => $evidence_by_step,
+            'can_add_evidence_comment'       => $can_add_evidence_comment,
+            'steps_with_supplier_evidence'   => $steps_with_supplier_evidence,
+            'supplier_step_evidence_by_step' => $supplier_step_evidence_by_step,
         ) );
     }
 
@@ -19746,6 +19893,112 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         $comments = N88_Evidence_Comments::get_comments_for_evidence( $evidence_id );
         wp_send_json_success( array( 'comments' => $comments ) );
+    }
+
+    /**
+     * Commit 3.A.2S: Supplier submit step evidence (1–3 video links). Supplier must be routed; step in_progress or completed.
+     */
+    public function ajax_supplier_submit_step_evidence() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Supplier access required.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_id = isset( $_POST['step_id'] ) ? absint( $_POST['step_id'] ) : 0;
+        $bid_id  = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : null;
+        if ( ! $item_id || ! $step_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'You are not routed to this item.' ), 403 );
+        }
+        if ( ! class_exists( 'N88_Step_Evidence_Submissions' ) ) {
+            wp_send_json_error( array( 'message' => 'Step evidence not available.' ) );
+        }
+        if ( ! N88_Step_Evidence_Submissions::step_allows_submission( $step_id ) ) {
+            wp_send_json_error( array( 'message' => 'Evidence can only be submitted when the step is In Progress or Completed.' ), 403 );
+        }
+        $urls = array();
+        if ( ! empty( $_POST['url_1'] ) ) {
+            $urls[] = trim( (string) $_POST['url_1'] );
+        }
+        if ( ! empty( $_POST['url_2'] ) ) {
+            $urls[] = trim( (string) $_POST['url_2'] );
+        }
+        if ( ! empty( $_POST['url_3'] ) ) {
+            $urls[] = trim( (string) $_POST['url_3'] );
+        }
+        $result = N88_Step_Evidence_Submissions::submit( $item_id, $step_id, $current_user->ID, $bid_id, $urls );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'submission_id' => isset( $result['submission_id'] ) ? $result['submission_id'] : 0, 'version' => isset( $result['version'] ) ? $result['version'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Submit failed.' ) );
+    }
+
+    /**
+     * Commit 3.A.2S: Get step evidence. Supplier: own only (by_item or by step). Designer: has_evidence + links (no identity). Operator: full.
+     */
+    public function ajax_get_step_evidence() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_id = isset( $_POST['step_id'] ) ? absint( $_POST['step_id'] ) : 0;
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_admin   = current_user_can( 'manage_options' );
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ) );
+        }
+        if ( ! class_exists( 'N88_Step_Evidence_Submissions' ) ) {
+            wp_send_json_success( array( 'by_step' => array(), 'for_step' => null ) );
+            return;
+        }
+
+        if ( $is_supplier ) {
+            if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+            }
+            if ( $step_id ) {
+                $latest = N88_Step_Evidence_Submissions::get_latest_for_supplier_step( $item_id, $step_id, $current_user->ID );
+                wp_send_json_success( array( 'for_step' => $latest ) );
+            }
+            $by_step = N88_Step_Evidence_Submissions::get_by_item_for_supplier( $item_id, $current_user->ID );
+            wp_send_json_success( array( 'by_step' => $by_step ) );
+        }
+
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        $for_designer = ! $is_operator && ! $is_admin;
+        if ( $step_id ) {
+            $data = N88_Step_Evidence_Submissions::get_for_step_view( $item_id, $step_id, $for_designer );
+            wp_send_json_success( array( 'for_step' => $data ) );
+        }
+        wp_send_json_success( array( 'for_step' => null ) );
+    }
+
+    /**
+     * Commit 3.A.2S: True if supplier has a non-expired route to the item.
+     */
+    private function supplier_has_route_to_item( $item_id, $supplier_id ) {
+        global $wpdb;
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        $this->check_and_update_expired_routes( $item_id, $supplier_id );
+        $count = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d AND (status IS NULL OR status != 'expired')",
+            $item_id,
+            $supplier_id
+        ) );
+        return $count > 0;
     }
     
     /**

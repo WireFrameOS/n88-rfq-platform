@@ -1736,6 +1736,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [timelineLoading, setTimelineLoading] = React.useState(false);
     const [timelineError, setTimelineError] = React.useState(null);
     const [selectedStepIndex, setSelectedStepIndex] = React.useState(0);
+    // Commit 3.A.2S: Designer view of supplier step evidence (View Step Evidence)
+    const [supplierStepEvidenceView, setSupplierStepEvidenceView] = React.useState(null);
+    const [supplierStepEvidenceLoading, setSupplierStepEvidenceLoading] = React.useState(false);
     // Commit 3.A.3: Evidence comment drafts and submit state
     const [evidenceCommentDrafts, setEvidenceCommentDrafts] = React.useState({});
     const [evidenceCommentSubmitting, setEvidenceCommentSubmitting] = React.useState(false);
@@ -1940,6 +1943,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     ...data.data.timeline,
                     evidence_by_step: data.data.evidence_by_step || {},
                     can_add_evidence_comment: !!data.data.can_add_evidence_comment,
+                    steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {},
                 });
                 setTimelineError(null);
             } else {
@@ -1964,6 +1968,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         setTimelineData(null);
         setTimelineError(null);
         setSelectedStepIndex(0);
+        setSupplierStepEvidenceView(null);
     }, [itemId]);
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
@@ -4372,7 +4377,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             return new Date(a.created_at) - new Date(b.created_at);
                                                         }).map((msg, idx) => {
                                                             const isDesigner = msg.sender_role === 'designer';
-                                                            const senderName = isDesigner ? 'You' : 'Operator';
+                                                            // When operator is viewing, show "Comment by designer" for designer messages
+                                                            const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                                                            const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
                                                             
                                                             const date = new Date(msg.created_at);
                                                             const dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -4911,7 +4918,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             const stepEl = (
                                                                 <div
                                                                     key={step.step_id ?? idx}
-                                                                    onClick={() => setSelectedStepIndex(idx)}
+                                                                    onClick={() => { setSelectedStepIndex(idx); setSupplierStepEvidenceView(null); }}
                                                                     style={{
                                                                         flex: 1,
                                                                         display: 'flex',
@@ -5070,6 +5077,62 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                     </div>
                                                                                 ))}
                                                                             </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                                {/* Commit 3.A.2S: Supplier step evidence (designer read-only — Evidence Received + View Step Evidence) */}
+                                                                {(() => {
+                                                                    const stepsWithEvidence = timelineData.steps_with_supplier_evidence || {};
+                                                                    const hasSupplierEvidence = stepsWithEvidence[s.step_id] || stepsWithEvidence[String(s.step_id)];
+                                                                    if (!hasSupplierEvidence) return null;
+                                                                    const viewingThis = supplierStepEvidenceView && supplierStepEvidenceView.stepId === s.step_id;
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Supplier Evidence Received</div>
+                                                                            {!viewingThis ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={supplierStepEvidenceLoading}
+                                                                                    onClick={async () => {
+                                                                                        if (!nonce || !getItemId()) return;
+                                                                                        setSupplierStepEvidenceLoading(true);
+                                                                                        try {
+                                                                                            const fd = new FormData();
+                                                                                            fd.append('action', 'n88_get_step_evidence');
+                                                                                            fd.append('item_id', String(getItemId()));
+                                                                                            fd.append('step_id', String(s.step_id));
+                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                            const data = await res.json();
+                                                                                            if (data.success && data.data && data.data.for_step) {
+                                                                                                setSupplierStepEvidenceView({ stepId: s.step_id, data: data.data.for_step });
+                                                                                            }
+                                                                                        } finally {
+                                                                                            setSupplierStepEvidenceLoading(false);
+                                                                                        }
+                                                                                    }}
+                                                                                    style={{ padding: '6px 12px', fontSize: '11px', background: '#111', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
+                                                                                >
+                                                                                    {supplierStepEvidenceLoading ? 'Loading…' : '[ View Step Evidence ]'}
+                                                                                </button>
+                                                                            ) : (
+                                                                                <div>
+                                                                                    {supplierStepEvidenceView.data.submissions && supplierStepEvidenceView.data.submissions.length > 0 ? (
+                                                                                        <ul style={{ margin: '8px 0 0 18px', padding: 0, fontSize: '11px', color: darkText }}>
+                                                                                            {supplierStepEvidenceView.data.submissions.flatMap((sub, i) => (sub.links || []).map((link, j) => (
+                                                                                                <li key={`${i}-${j}`} style={{ marginBottom: '4px' }}>
+                                                                                                    <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{link.provider || 'Link'}</a>
+                                                                                                </li>
+                                                                                            )))}
+                                                                                        </ul>
+                                                                                    ) : (
+                                                                                        <div style={{ fontSize: '11px', color: darkText }}>No links.</div>
+                                                                                    )}
+                                                                                    <button type="button" onClick={() => setSupplierStepEvidenceView(null)} style={{ marginTop: '8px', padding: '4px 10px', fontSize: '11px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>Close</button>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     );
                                                                 })()}

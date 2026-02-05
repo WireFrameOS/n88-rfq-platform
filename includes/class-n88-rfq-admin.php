@@ -4602,6 +4602,8 @@ class N88_RFQ_Admin {
         
         // Commit 2.6.1: Check if current user is view-only team member
         $is_view_only = N88_RFQ_Auth::is_view_only_team_member( $user_id );
+        $current_user = wp_get_current_user();
+        $is_operator = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
         
         // Localize script for board data (AJAX URL and nonce for item modal)
         wp_localize_script( 'n88-debounced-save', 'n88BoardData', array(
@@ -4609,6 +4611,7 @@ class N88_RFQ_Admin {
             'nonce' => wp_create_nonce( 'n88_get_item_rfq_state' ),
             'boardName' => $board_name,
             'isViewOnly' => $is_view_only, // Commit 2.6.1: View-only flag for team members
+            'isOperator' => $is_operator, // So designer messages show "Comment by designer" when operator views
         ) );
         ?>
         <style>
@@ -10198,6 +10201,13 @@ class N88_RFQ_Admin {
                     var _evidenceCommentSubmittingState = React.useState(false);
                     var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
                     var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
+                    // Commit 3.A.2S: Designer read-only supplier step evidence (View Step Evidence)
+                    var _supplierStepEvidenceViewState = React.useState(null);
+                    var supplierStepEvidenceView = _supplierStepEvidenceViewState[0];
+                    var setSupplierStepEvidenceView = _supplierStepEvidenceViewState[1];
+                    var _supplierStepEvidenceLoadingState = React.useState(false);
+                    var supplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[0];
+                    var setSupplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[1];
                     
                     // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Review and Message
                     React.useEffect(function() {
@@ -10439,7 +10449,8 @@ class N88_RFQ_Admin {
                                     setTimelineData({
                                         ...data.data.timeline,
                                         evidence_by_step: data.data.evidence_by_step || {},
-                                        can_add_evidence_comment: !!(data.data.can_add_evidence_comment)
+                                        can_add_evidence_comment: !!(data.data.can_add_evidence_comment),
+                                        steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {}
                                     });
                                     setIsOperatorTimeline(!!(data.data.is_operator));
                                     setTimelineError(null);
@@ -10461,6 +10472,7 @@ class N88_RFQ_Admin {
                         setTimelineData(null);
                         setTimelineError(null);
                         setSelectedStepIndex(0);
+                        setSupplierStepEvidenceView(null);
                     }, [itemId]);
                     
                     // Commit 2.3.9.2A: CAD workflow actions state
@@ -15379,6 +15391,46 @@ class N88_RFQ_Admin {
                                                                             ) : null
                                                                         );
                                                                     })
+                                                                )
+                                                            );
+                                                        })(),
+                                                        // Commit 3.A.2S: Supplier step evidence (designer read-only — Evidence Received + View Step Evidence)
+                                                        (function() {
+                                                            var stepsWithEvidence = timelineData.steps_with_supplier_evidence || {};
+                                                            var hasSupplierEvidence = stepsWithEvidence[s.step_id] || stepsWithEvidence[String(s.step_id)];
+                                                            if (!hasSupplierEvidence) return null;
+                                                            var viewingThis = supplierStepEvidenceView && supplierStepEvidenceView.stepId === s.step_id;
+                                                            var ajaxUrlEv = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                                                            var nonceEv = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                                                            return React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Supplier Evidence Received'),
+                                                                !viewingThis ? React.createElement('button', {
+                                                                    type: 'button',
+                                                                    disabled: supplierStepEvidenceLoading,
+                                                                    onClick: function() {
+                                                                        if (!nonceEv || !itemId) return;
+                                                                        setSupplierStepEvidenceLoading(true);
+                                                                        var fd = new FormData();
+                                                                        fd.append('action', 'n88_get_step_evidence');
+                                                                        fd.append('item_id', String(itemId));
+                                                                        fd.append('step_id', String(s.step_id));
+                                                                        fd.append('_ajax_nonce', nonceEv);
+                                                                        fetch(ajaxUrlEv, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
+                                                                            if (data.success && data.data && data.data.for_step) {
+                                                                                setSupplierStepEvidenceView({ stepId: s.step_id, data: data.data.for_step });
+                                                                            }
+                                                                        }).finally(function() { setSupplierStepEvidenceLoading(false); });
+                                                                    },
+                                                                    style: { padding: '6px 12px', fontSize: '11px', background: '#111', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }
+                                                                }, supplierStepEvidenceLoading ? 'Loading…' : '[ View Step Evidence ]') : React.createElement('div', null,
+                                                                    supplierStepEvidenceView.data.submissions && supplierStepEvidenceView.data.submissions.length > 0 ? React.createElement('ul', { style: { margin: '8px 0 0 18px', padding: 0, fontSize: '11px', color: darkText } },
+                                                                        supplierStepEvidenceView.data.submissions.map(function(sub, i) { return (sub.links || []).map(function(link, j) {
+                                                                            return React.createElement('li', { key: i + '-' + j, style: { marginBottom: '4px' } },
+                                                                                React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, link.provider || 'Link')
+                                                                            );
+                                                                        }); }).flat()
+                                                                    ) : React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'No links.'),
+                                                                    React.createElement('button', { type: 'button', onClick: function() { setSupplierStepEvidenceView(null); }, style: { marginTop: '8px', padding: '4px 10px', fontSize: '11px', background: 'transparent', color: darkText, border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Close')
                                                                 )
                                                             );
                                                         })(),

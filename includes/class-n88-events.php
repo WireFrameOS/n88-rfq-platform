@@ -69,6 +69,8 @@ class N88_Events {
         'timeline_created',
         'timeline_step_started',
         'timeline_step_completed',
+        // Commit 3.A.2S: Supplier step evidence
+        'step_evidence_submitted',
     );
 
     /**
