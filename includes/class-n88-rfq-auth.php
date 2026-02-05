@@ -118,6 +118,17 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_request_prototype_changes', array( $this, 'ajax_request_prototype_changes' ) );
         add_action( 'wp_ajax_n88_get_keyword_phrases', array( $this, 'ajax_get_keyword_phrases' ) );
 
+        // Commit 3.A.1: Item timeline spine (read-only for designer/supplier; operator can start/complete)
+        add_action( 'wp_ajax_n88_get_item_timeline', array( $this, 'ajax_get_item_timeline' ) );
+        add_action( 'wp_ajax_n88_timeline_start_step', array( $this, 'ajax_timeline_start_step' ) );
+        add_action( 'wp_ajax_n88_timeline_complete_step', array( $this, 'ajax_timeline_complete_step' ) );
+        add_action( 'wp_ajax_n88_timeline_set_evidence_verified', array( $this, 'ajax_timeline_set_evidence_verified' ) );
+
+        // Commit 3.A.2: Timeline step evidence (upload, list, serve watermarked)
+        add_action( 'wp_ajax_n88_upload_timeline_step_evidence', array( $this, 'ajax_upload_timeline_step_evidence' ) );
+        add_action( 'wp_ajax_n88_get_timeline_step_evidence', array( $this, 'ajax_get_timeline_step_evidence' ) );
+        add_action( 'wp_ajax_n88_serve_timeline_evidence', array( $this, 'ajax_serve_timeline_evidence' ) );
+
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
 
@@ -3052,11 +3063,13 @@ class N88_RFQ_Auth {
                         '</form>' +
                         '</div></div>';
                         // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
-                        var bidAndPrototype = ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data ? (function() {
-                            var bid = item.bid_data;
+                        // Commit 2.3.9.2: Prototype block uses item.payment_notification OR bid_data.payment_notification so tab shows whenever CAD/prototype request exists
+                        var paymentNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
+                        var bidAndPrototype = (function() {
+                            var bid = item.bid_data || {};
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
-                            var prototypeBlockHTML = (bid.payment_notification ? (function() {
-                                var notif = bid.payment_notification;
+                            var prototypeBlockHTML = (paymentNotif ? (function() {
+                                var notif = paymentNotif;
                                 var keywordsHTML = '';
                                 if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
                                     keywordsHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
@@ -3093,18 +3106,25 @@ class N88_RFQ_Auth {
                                     });
                                     cadFilesHTML += '</div></div>';
                                 }
-                                var isCadApprovedAndReleased = notif.cad_status === 'approved' && notif.cad_released_to_supplier_at && notif.cad_released_to_supplier_at.trim() !== '' && notif.cad_files && notif.cad_files.length > 0;
-                                var statusText = isCadApprovedAndReleased ? 'Payment Received — CAD Approved' : 'Payment Received — CAD Pending';
-                                var statusMessage = isCadApprovedAndReleased ?
-                                    'Payment has been confirmed. CAD has been approved and released. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.' :
-                                    'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
+                                var isCadApprovedForSubmit = notif.cad_status === 'approved' && notif.payment_id && (notif.cad_files && notif.cad_files.length > 0 || (notif.cad_approved_version && notif.cad_approved_version > 0));
+                                var statusText, statusMessage;
+                                if (notif.status === 'requested' || (notif.status !== 'marked_received' && notif.cad_status !== 'approved')) {
+                                    statusText = 'CAD Request Pending Payment';
+                                    statusMessage = 'A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction keywords before filming begins.';
+                                } else if (notif.cad_status === 'approved') {
+                                    statusText = 'Payment Received — CAD Approved';
+                                    statusMessage = 'Payment has been confirmed. CAD has been approved. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.';
+                                } else {
+                                    statusText = 'Payment Received — CAD Pending';
+                                    statusMessage = 'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
+                                }
                                 var baseBlock = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
                                     '<div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">' + statusText + '</div>' +
                                     '<div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
                                     '<div style="font-size: 11px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
                                     '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
                                     '</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
-                                if (!isCadApprovedAndReleased || !notif.payment_id) return baseBlock;
+                                if (!isCadApprovedForSubmit) return baseBlock;
                                 var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
                                 if (hasSubmission) {
                                     var submission = notif.prototype_video_submission;
@@ -3156,6 +3176,7 @@ class N88_RFQ_Auth {
                                     '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;">Submit Prototype Video</button></form></div>';
                                 return baseBlock + submissionHTML;
                             })() : '');
+                            var bidBoxHTML = ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data) ? (function() {
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
                                 bid.video_links.forEach(function(link, index) {
@@ -3291,7 +3312,7 @@ class N88_RFQ_Auth {
                                     '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #00ff00; font-weight: 600;">Awarded</span></div>' +
                                     '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
                                     '</div>' : '') +
-                                (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">Prototype Requested — Awaiting Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">Awaiting payment confirmation and final CAD approval. You will receive approved CAD + direction before filming begins.</div></div>' : '') +
+                                (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
@@ -3308,8 +3329,9 @@ class N88_RFQ_Auth {
                                 })() : '') +
                                 smartAltHTML +
                             '</div></div>';
+                            })() : '';
                             return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML };
-                        })() : { bidBox: '', prototypeBlock: '' });
+                        })();
                     var bidTabHTML = bidAndPrototype.bidBox +
                         '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
                         ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
@@ -3329,10 +3351,13 @@ class N88_RFQ_Auth {
                                 )
                             )
                         ) +
-                        '</div>' +
+                        '</div>' +  
                         '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555;">' +
                         '<div id="n88-bid-form-content-' + item.item_id + '"></div></div>';
-                    var prototypeTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a bid and, if awarded, prototype steps will appear here.</div>';
+                    var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" style="margin-bottom: 24px; padding-bottom: 20px;">' +
+                        '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>' +
+                        '<div id="n88-supplier-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div></div>';
+                    var prototypeOnlyTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a bid and, if awarded, prototype steps will appear here.</div>';
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
@@ -3344,13 +3369,15 @@ class N88_RFQ_Auth {
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + tabActiveStyle + '">Item Overview</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'messages\');" id="n88-supplier-tab-messages" style="' + tabStyle + '">Messages</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + tabStyle + '">Bid</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">WorkFlow</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + tabStyle + '">WorkFlow</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">Prototype</button>' +
                         '</div>' +
                         '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
                         '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto;">' + overviewTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-messages" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden;">' + messagesTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + bidTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-workflow" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + workflowTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeOnlyTabHTML + '</div>' +
                         '</div></div></div>';
                     
                     modalContent.innerHTML = modalHTML;
@@ -3364,6 +3391,13 @@ class N88_RFQ_Auth {
                                 if (fc && fc.style.display === 'none') toggleSupplierClarification(itemId);
                             }
                         }, 80);
+                    }
+                    // Auto-switch to Prototype tab when CAD approved and prototype video submission pending (supplier can submit)
+                    var payNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
+                    if (payNotif && payNotif.cad_status === 'approved' && !(payNotif.prototype_video_submission && payNotif.prototype_video_submission.version)) {
+                        setTimeout(function() {
+                            if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('prototype');
+                        }, 100);
                     }
                     
                     setTimeout(function() {
@@ -3633,7 +3667,7 @@ class N88_RFQ_Auth {
             }
             
             window.n88SupplierModalSwitchTab = function(tabName) {
-                var tabs = ['overview', 'messages', 'bid', 'prototype'];
+                var tabs = ['overview', 'messages', 'bid', 'workflow', 'prototype'];
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                 var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 tabs.forEach(function(name) {
@@ -3643,11 +3677,115 @@ class N88_RFQ_Auth {
                     if (panel) {
                         if (name === tabName) {
                             panel.style.display = (name === 'messages') ? 'flex' : 'block';
+                            if (name === 'workflow' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
+                                window.n88LoadSupplierWorkflowTimeline();
+                            }
+                            if (name === 'prototype' && typeof window.initPrototypeVideoForms === 'function') {
+                                window.initPrototypeVideoForms();
+                            }
                         } else {
                             panel.style.display = 'none';
                         }
                     }
                 });
+            };
+
+            window.n88LoadSupplierWorkflowTimeline = function() {
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                var container = document.getElementById('n88-supplier-workflow-timeline');
+                if (!wrap || !container) return;
+                if (wrap.getAttribute('data-timeline-loaded') === '1') return;
+                var itemId = wrap.getAttribute('data-item-id');
+                if (!itemId) return;
+                var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                if (!nonce) return;
+                container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                var formData = new FormData();
+                formData.append('action', 'n88_get_item_timeline');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', nonce);
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success || !data.data || !data.data.timeline) {
+                            container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">' + (data.message || 'Failed to load timeline.') + '</div>';
+                            return;
+                        }
+                        var t = data.data.timeline;
+                        var steps = t.steps || [];
+                        if (steps.length < 6) {
+                            container.innerHTML = '<div style="padding: 12px; color: #888;">Timeline data incomplete.</div>';
+                            wrap.setAttribute('data-timeline-loaded', '1');
+                            return;
+                        }
+                        var green = '#00ff00';
+                        var darkText = '#ccc';
+                        var darkBorder = '#555';
+                        var selectedIdx = 0;
+                        window.n88SupplierTimelineSelectStep = function(idx) {
+                            var w = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                            if (!w || !w._n88StepsData) return;
+                            w._n88SelectedStep = idx;
+                            var st = w._n88StepsData;
+                            var sel = st[idx];
+                            if (!sel) return;
+                            var detEl = document.getElementById('n88-supplier-timeline-detail');
+                            if (detEl) {
+                                var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#00ff00' : '#ccc') + ';">' + sl + '</span></div>' +
+                                    (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
+                                    (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
+                                    (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '');
+                            }
+                            var btns = document.querySelectorAll('[data-n88-step-btn]');
+                            for (var j = 0; j < btns.length; j++) {
+                                var b = btns[j];
+                                var bidx = parseInt(b.getAttribute('data-idx'), 10);
+                                b.style.borderColor = 'transparent';
+                                b.style.color = bidx === idx ? green : darkText;
+                                var lbl = b.querySelector('.n88-step-label');
+                                if (lbl) lbl.style.color = bidx === idx ? green : darkText;
+                            }
+                        };
+                        var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        for (var i = 0; i < steps.length; i++) {
+                            var s = steps[i];
+                            var isActive = s.display_status === 'in_progress' || s.display_status === 'delayed';
+                            var isCompleted = s.display_status === 'completed';
+                            var isSelected = selectedIdx === i;
+                            row += '<div onclick="if(typeof n88SupplierTimelineSelectStep===\'function\')n88SupplierTimelineSelectStep(' + i + ');" data-n88-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
+                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : isActive ? 'rgba(0,255,0,0.15)' : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                            row += '<div class="n88-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
+                            row += '</div>';
+                            if (i < steps.length - 1) {
+                                row += '<div style="flex: 0 0 20px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 20px;" aria-hidden="true"></div>';
+                            }
+                        }
+                        row += '</div>';
+                        var sel = steps[0];
+                        var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                        var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
+                        detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                        detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
+                        if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
+                        if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
+                        if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                        detail += '</div>';
+                        if (t.show_prototype_mini) {
+                            detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
+                            detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
+                            detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
+                        }
+                        container.innerHTML = row + detail;
+                        wrap._n88SelectedStep = 0;
+                        wrap._n88StepsData = steps;
+                        wrap.setAttribute('data-timeline-loaded', '1');
+                    })
+                    .catch(function(err) {
+                        container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">Failed to load timeline.</div>';
+                    });
             };
             
             // Toggle bid form section inside the modal
@@ -9511,6 +9649,7 @@ class N88_RFQ_Auth {
         $bid_data = null;
         $bid_status = null; // Initialize bid_status
         $bid_revision = null; // Initialize bid_revision to prevent undefined variable
+        $item_level_payment_notification = null; // Commit 2.3.9.2: Prototype tab — always send when supplier has prototype request
         if ( ! $is_system_operator ) {
             // Check if meta_json column exists in bids table
             $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
@@ -9655,13 +9794,13 @@ class N88_RFQ_Auth {
                 // CRITICAL: Priority must be SUBMITTED/AWARDED bid > Draft (user meta or database)
                 // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
                 // If there's a submitted or awarded bid, always use that status (ignore drafts)
-                if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awarded' ) {
+if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awarded' ) {
                     // Submitted or awarded bid exists - use it (drafts are irrelevant when bid is submitted/awarded)
                     $bid_status = $existing_bid['status']; // Keep the actual status (submitted or awarded)
                     $bid_created_at = $existing_bid['created_at'];
                     $has_submitted_bid = true; // Treat awarded as submitted for display purposes
                     
-                    // Populate bid_data for submitted bid (needed for "Your Submitted Bid" box display)
+                    // Populate bid_data for submitted bid (needed for "Your Submitted Bid" box display)                
                     $bid_id = intval( $existing_bid['bid_id'] );
                     
                     // Get video links for submitted bid
@@ -9696,26 +9835,58 @@ class N88_RFQ_Auth {
                         }
                     }
                     
-                    // Commit 2.3.9.1B: Check if CAD prototype request exists for this bid
+                    // Commit 2.3.9.1B: Check if CAD prototype request exists for this item + supplier
+                    // Use item_id + supplier_id (not bid_id) so we find the record even when bid_id
+                    // in prototype_payments differs from current submitted bid (e.g. resubmission)
                     $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
                     $has_prototype_request = false;
                     $prototype_request_status = null;
                     $payment_notification = null; // Commit 2.3.9.1E: Payment notification data
                     if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
                         $prototype_request = $wpdb->get_row( $wpdb->prepare(
-                            "SELECT status, video_direction_json, notifications_sent_at, cad_status, cad_approved_version, cad_released_to_supplier_at FROM {$prototype_payments_table}
-                            WHERE bid_id = %d AND item_id = %d
+                            "SELECT id, bid_id, status, video_direction_json, notifications_sent_at, cad_status, cad_approved_version, cad_released_to_supplier_at FROM {$prototype_payments_table}
+                            WHERE item_id = %d AND supplier_id = %d
                             ORDER BY created_at DESC
                             LIMIT 1",
-                            $bid_id,
-                            $item_id
+                            $item_id,
+                            $current_user->ID
                         ), ARRAY_A );
+                        // Fallback: if no match by supplier_id, try by bid_id (catches payments linked to awarded bid where supplier_id may differ)
+                        if ( ! $prototype_request && $bid_id > 0 ) {
+                            $prototype_request = $wpdb->get_row( $wpdb->prepare(
+                                "SELECT id, bid_id, status, video_direction_json, notifications_sent_at, cad_status, cad_approved_version, cad_released_to_supplier_at FROM {$prototype_payments_table}
+                                WHERE item_id = %d AND bid_id = %d
+                                ORDER BY created_at DESC
+                                LIMIT 1",
+                                $item_id,
+                                $bid_id
+                            ), ARRAY_A );
+                        }
                         if ( $prototype_request ) {
                             $has_prototype_request = true;
                             $prototype_request_status = $prototype_request['status'];
-                            
-                            // Commit 2.3.9.1E: If payment is marked_received and notifications sent, include notification data
-                            if ( $prototype_request['status'] === 'marked_received' && ! empty( $prototype_request['notifications_sent_at'] ) ) {
+                            $cad_status = isset( $prototype_request['cad_status'] ) ? $prototype_request['cad_status'] : null;
+                            $cad_approved_version = isset( $prototype_request['cad_approved_version'] ) ? intval( $prototype_request['cad_approved_version'] ) : null;
+                            $cad_released_to_supplier_at = isset( $prototype_request['cad_released_to_supplier_at'] ) ? $prototype_request['cad_released_to_supplier_at'] : null;
+                            $payment_id_from_pp = isset( $prototype_request['id'] ) ? intval( $prototype_request['id'] ) : 0;
+                            $pp_bid_id = isset( $prototype_request['bid_id'] ) ? intval( $prototype_request['bid_id'] ) : $bid_id;
+
+                            // Commit 2.3.9.1E + Prototype tab: ALWAYS build payment_notification when prototype_request exists
+                            // so Prototype tab can show: CAD Request Pending Payment | keywords after payment | CAD Approved + video box
+                            $keywords_list = array();
+                            $note = '';
+                            $cad_files = array();
+                            $payment_id_for_notification = $payment_id_from_pp;
+                            $latest_submission = null;
+                            $submission_links = array();
+                            $prototype_status = null;
+                            $prototype_feedback = null;
+
+                            // Full data (keywords, CAD files, submission) when payment received (with or without notifications_sent_at) or CAD approved
+                            // Commit 2.3.9.2B: Show keywords as soon as payment is marked_received so supplier sees direction after payment
+                            $fetch_full_data = ( $prototype_request['status'] === 'marked_received' )
+                                || ( $cad_status === 'approved' );
+                            if ( $fetch_full_data ) {
                                 $video_direction_json = $prototype_request['video_direction_json'];
                                 $video_direction = array();
                                 if ( ! empty( $video_direction_json ) ) {
@@ -9723,10 +9894,9 @@ class N88_RFQ_Auth {
                                 }
                                 $selected_keywords = isset( $video_direction['selected_keywords'] ) ? $video_direction['selected_keywords'] : array();
                                 $note = isset( $video_direction['note'] ) ? $video_direction['note'] : '';
-                                
+
                                 // Get keyword names from keywords table
                                 $keywords_table = $wpdb->prefix . 'n88_keywords';
-                                $keywords_list = array();
                                 if ( ! empty( $selected_keywords ) && is_array( $selected_keywords ) ) {
                                     $keyword_ids = array_map( 'intval', $selected_keywords );
                                     $keyword_ids = array_filter( $keyword_ids ); // Remove any zeros or invalid IDs
@@ -9751,19 +9921,9 @@ class N88_RFQ_Auth {
                                 }
                                 
                                 // Commit 2.3.9.2A: Get CAD approved files if CAD is approved (fetch files when approved, regardless of release status)
-                                $cad_files = array();
-                                $cad_status = isset( $prototype_request['cad_status'] ) ? $prototype_request['cad_status'] : null;
-                                $cad_approved_version = isset( $prototype_request['cad_approved_version'] ) ? intval( $prototype_request['cad_approved_version'] ) : null;
-                                $cad_released_to_supplier_at = isset( $prototype_request['cad_released_to_supplier_at'] ) ? $prototype_request['cad_released_to_supplier_at'] : null;
-                                
-                                // Fetch CAD files if CAD is approved (even if not yet released to supplier)
                                 if ( $cad_status === 'approved' && $cad_approved_version && $cad_approved_version > 0 ) {
                                     $item_files_table = $wpdb->prefix . 'n88_item_files';
-                                    $payment_id = $wpdb->get_var( $wpdb->prepare(
-                                        "SELECT id FROM {$prototype_payments_table} WHERE bid_id = %d AND item_id = %d ORDER BY created_at DESC LIMIT 1",
-                                        $bid_id,
-                                        $item_id
-                                    ) );
+                                    $payment_id = $payment_id_from_pp;
                                     
                                     if ( $payment_id ) {
                                         $cad_file_records = $wpdb->get_results( $wpdb->prepare(
@@ -9791,14 +9951,7 @@ class N88_RFQ_Auth {
                                         }
                                     }
                                 }
-                                
-                                // Commit 2.3.9.2B-S: Get payment_id for prototype video submission
-                                $payment_id_for_notification = $wpdb->get_var( $wpdb->prepare(
-                                    "SELECT id FROM {$prototype_payments_table} WHERE bid_id = %d AND item_id = %d ORDER BY created_at DESC LIMIT 1",
-                                    $bid_id,
-                                    $item_id
-                                ) );
-                                
+
                                 // Commit 2.3.9.2B-S: Get latest prototype video submission if exists
                                 $latest_submission = null;
                                 $submission_links = array();
@@ -9920,11 +10073,14 @@ class N88_RFQ_Auth {
                                         }
                                     }
                                 }
-                                
-                                $payment_notification = array(
+                            }
+
+                            // Always set payment_notification when prototype_request exists (for Prototype tab)
+                            $payment_notification = array(
+                                    'status' => $prototype_request['status'], // requested | marked_received
                                     'payment_id' => $payment_id_for_notification ? intval( $payment_id_for_notification ) : null,
                                     'item_id' => $item_id,
-                                    'bid_id' => $bid_id,
+                                    'bid_id' => $pp_bid_id,
                                     'keywords' => $keywords_list,
                                     'note' => $note,
                                     'cad_status' => $cad_status,
@@ -9940,6 +10096,7 @@ class N88_RFQ_Auth {
                                         'links' => $submission_links,
                                     ) : null,
                                 );
+                            $item_level_payment_notification = $payment_notification; // Commit 2.3.9.2: for Prototype tab (item-level)
                             }
                         }
                     }
@@ -10185,11 +10342,10 @@ class N88_RFQ_Auth {
                     }
                     // If no submitted bid exists (all withdrawn), no warning should show
                 }
-            }
 
-        // Commit 2.3.5.5: Always prioritize LATEST item meta values (from n88_items) over RFQ submission values
-        // This ensures supplier always sees current dims/qty after designer edits
-        $dims = null;
+            // Commit 2.3.5.5: Always prioritize LATEST item meta values (from n88_items) over RFQ submission values
+            // This ensures supplier always sees current dims/qty after designer edits
+            $dims = null;
         // Always check item meta first (current item facts)
         if ( isset( $meta['dims'] ) && is_array( $meta['dims'] ) ) {
             $dims = $meta['dims'];
@@ -10540,6 +10696,95 @@ class N88_RFQ_Auth {
             }
         }
         
+        // Commit 2.3.9.2: When supplier has a prototype request but we didn't set item_level_payment_notification (e.g. no submitted/awarded bid in this path), fetch it so Prototype tab always shows
+        if ( $is_supplier && $item_level_payment_notification === null ) {
+            $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+                $standalone_pp = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT id, bid_id, status, video_direction_json, cad_status, cad_approved_version, cad_released_to_supplier_at FROM {$prototype_payments_table}
+                    WHERE item_id = %d AND supplier_id = %d
+                    ORDER BY created_at DESC
+                    LIMIT 1",
+                    $item_id,
+                    $current_user->ID
+                ), ARRAY_A );
+                if ( $standalone_pp ) {
+                    $item_level_payment_notification = array(
+                        'status' => $standalone_pp['status'],
+                        'payment_id' => isset( $standalone_pp['id'] ) ? intval( $standalone_pp['id'] ) : null,
+                        'item_id' => $item_id,
+                        'bid_id' => isset( $standalone_pp['bid_id'] ) ? intval( $standalone_pp['bid_id'] ) : null,
+                        'keywords' => array(),
+                        'note' => '',
+                        'cad_status' => isset( $standalone_pp['cad_status'] ) ? $standalone_pp['cad_status'] : null,
+                        'cad_approved_version' => isset( $standalone_pp['cad_approved_version'] ) ? intval( $standalone_pp['cad_approved_version'] ) : null,
+                        'cad_released_to_supplier_at' => isset( $standalone_pp['cad_released_to_supplier_at'] ) ? $standalone_pp['cad_released_to_supplier_at'] : null,
+                        'cad_files' => array(),
+                        'prototype_status' => null,
+                        'prototype_feedback' => null,
+                        'prototype_video_submission' => null,
+                    );
+                    // Load keywords/note/cad_files/submission when payment received or CAD approved (same as main path)
+                    $fetch_full = ( $standalone_pp['status'] === 'marked_received' ) || ( isset( $standalone_pp['cad_status'] ) && $standalone_pp['cad_status'] === 'approved' );
+                    if ( $fetch_full && ! empty( $standalone_pp['video_direction_json'] ) ) {
+                        $vd = json_decode( $standalone_pp['video_direction_json'], true );
+                        if ( is_array( $vd ) ) {
+                            $item_level_payment_notification['note'] = isset( $vd['note'] ) ? $vd['note'] : '';
+                            $kw_ids = isset( $vd['selected_keywords'] ) ? array_map( 'intval', (array) $vd['selected_keywords'] ) : array();
+                            $kw_ids = array_filter( $kw_ids );
+                            if ( ! empty( $kw_ids ) ) {
+                                $keywords_table = $wpdb->prefix . 'n88_keywords';
+                                $ids_str = implode( ',', array_map( 'intval', $kw_ids ) );
+                                $kw_rows = $wpdb->get_results( "SELECT keyword FROM {$keywords_table} WHERE keyword_id IN ({$ids_str}) AND is_active = 1", ARRAY_A );
+                                foreach ( $kw_rows as $kw ) {
+                                    if ( ! empty( $kw['keyword'] ) ) {
+                                        $item_level_payment_notification['keywords'][] = sanitize_text_field( $kw['keyword'] );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if ( $fetch_full && isset( $standalone_pp['cad_status'] ) && $standalone_pp['cad_status'] === 'approved' && ! empty( $standalone_pp['cad_approved_version'] ) ) {
+                        $item_files_table = $wpdb->prefix . 'n88_item_files';
+                        $cad_records = $wpdb->get_results( $wpdb->prepare(
+                            "SELECT f.file_id, f.attachment_type, a.guid, a.post_title FROM {$item_files_table} f INNER JOIN {$wpdb->posts} a ON f.file_id = a.ID WHERE f.item_id = %d AND f.payment_id = %d AND f.attachment_type = 'cad' AND f.cad_version = %d AND f.detached_at IS NULL ORDER BY f.id ASC",
+                            $item_id,
+                            $standalone_pp['id'],
+                            intval( $standalone_pp['cad_approved_version'] )
+                        ), ARRAY_A );
+                        foreach ( $cad_records as $fr ) {
+                            $url = isset( $fr['guid'] ) ? esc_url_raw( $fr['guid'] ) : '';
+                            $name = isset( $fr['post_title'] ) ? sanitize_file_name( $fr['post_title'] ) : '';
+                            if ( $url && $name ) {
+                                $item_level_payment_notification['cad_files'][] = array( 'name' => $name, 'url' => $url, 'ext' => strtolower( pathinfo( $name, PATHINFO_EXTENSION ) ) );
+                            }
+                        }
+                    }
+                    $pp_columns = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+                    if ( in_array( 'prototype_status', $pp_columns, true ) ) {
+                        $ps_row = $wpdb->get_row( $wpdb->prepare( "SELECT prototype_status FROM {$prototype_payments_table} WHERE id = %d", $standalone_pp['id'] ), ARRAY_A );
+                        if ( $ps_row ) {
+                            $item_level_payment_notification['prototype_status'] = $ps_row['prototype_status'];
+                        }
+                    }
+                    $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table ) {
+                        $lat = $wpdb->get_row( $wpdb->prepare( "SELECT id, version, link_count, created_at FROM {$submissions_table} WHERE payment_id = %d ORDER BY version DESC LIMIT 1", $standalone_pp['id'] ), ARRAY_A );
+                        if ( $lat ) {
+                            $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+                            $links = $wpdb->get_results( $wpdb->prepare( "SELECT provider, url, sort_order FROM {$links_table} WHERE submission_id = %d ORDER BY sort_order ASC", $lat['id'] ), ARRAY_A );
+                            $item_level_payment_notification['prototype_video_submission'] = array(
+                                'version' => intval( $lat['version'] ),
+                                'link_count' => intval( $lat['link_count'] ),
+                                'created_at' => $lat['created_at'],
+                                'links' => $links ? $links : array(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
@@ -10574,6 +10819,7 @@ class N88_RFQ_Auth {
             'bid_status' => $bid_status, // Commit 2.3.5 - bid status: 'draft' (Continue Bid), 'submitted' (Bid Submitted), or null (Start Bid)
             'show_dims_qty_warning' => $show_dims_qty_warning, // Commit 2.3.5.1 Addendum: Flag to show warning banner
             'bid_data' => $bid_data, // Bid details when bid is submitted
+            'payment_notification' => $item_level_payment_notification, // Commit 2.3.9.2: Prototype tab — always when supplier has prototype request (item-level so tab shows even without bid_data)
             'rfq_revision_current' => isset( $item_current_revision ) ? $item_current_revision : null, // G) Current item revision
             'bid_revision' => isset( $bid_revision ) ? $bid_revision : null, // G) Supplier's bid revision (ensure it's always set)
             'has_revision_mismatch' => $has_revision_mismatch, // G) Flag for "Specs Changed" banner
@@ -14406,6 +14652,10 @@ class N88_RFQ_Auth {
                 ),
             )
         );
+        // Commit 3.A.1: Timeline step 1 start when designer requests CAD/prototype
+        if ( class_exists( 'N88_Item_Timeline' ) ) {
+            N88_Item_Timeline::sync_from_cad_prototype_requested( $item_id );
+        }
 
         // Event 2: video_direction_submitted
         n88_log_event(
@@ -15752,6 +16002,8 @@ class N88_RFQ_Auth {
         </div>
 
         <script>
+        var n88OperatorTimelineNonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+        var n88OperatorEvidenceNonce = '<?php echo esc_js( wp_create_nonce( 'n88_timeline_step_evidence' ) ); ?>';
         (function() {
             // Filter persistence and update
             function updateOperatorQueueURL() {
@@ -16336,6 +16588,10 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (data.success && caseModalContent) {
                         caseModalContent.innerHTML = data.data.html;
+                        var opWrap = document.getElementById('n88-operator-workflow-timeline-wrap');
+                        if (opWrap && opWrap.getAttribute('data-item-id') && typeof window.n88LoadOperatorWorkflowTimeline === 'function') {
+                            window.n88LoadOperatorWorkflowTimeline();
+                        }
                     } else {
                         if (caseModalContent) {
                             caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data.data?.message || 'Unknown error') + '</div>';
@@ -16349,6 +16605,183 @@ class N88_RFQ_Auth {
                     }
                 });
             }
+
+            window.n88LoadOperatorWorkflowTimeline = function() {
+                var wrap = document.getElementById('n88-operator-workflow-timeline-wrap');
+                var container = document.getElementById('n88-operator-workflow-timeline');
+                if (!wrap || !container) return;
+                if (wrap.getAttribute('data-timeline-loaded') === '1') return;
+                var itemId = wrap.getAttribute('data-item-id');
+                if (!itemId) return;
+                var nonce = typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '';
+                container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                var formData = new FormData();
+                formData.append('action', 'n88_get_item_timeline');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', nonce);
+                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success || !data.data || !data.data.timeline) {
+                            container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">' + (data.message || 'Failed to load timeline.') + '</div>';
+                            return;
+                        }
+                        var t = data.data.timeline;
+                        var steps = t.steps || [];
+                        if (steps.length < 6) {
+                            container.innerHTML = '<div style="padding: 12px; color: #888;">Timeline data incomplete.</div>';
+                            wrap.setAttribute('data-timeline-loaded', '1');
+                            return;
+                        }
+                        var green = '#00ff00';
+                        var darkText = '#ccc';
+                        var darkBorder = '#555';
+                        var selectedIdx = 0;
+                        function buildEvidenceBlockHtml() {
+                            return '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>' +
+                                '<div id="n88-operator-step-evidence-list" style="min-height: 24px; font-size: 11px; color: ' + darkText + '; margin-bottom: 12px;">Loading…</div>' +
+                                '<form id="n88-operator-add-evidence-form" enctype="multipart/form-data" style="font-size: 11px;"><div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">File (image/PDF)</label><input type="file" name="evidence_file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf" style="width:100%; max-width:280px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
+                                '<div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">Or YouTube URL</label><input type="url" name="youtube_url" placeholder="https://youtube.com/..." style="width:100%; max-width:280px; padding:4px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
+                                '<button type="submit" id="n88-operator-add-evidence-btn" style="padding: 6px 12px; background: ' + green + '; color: #000; border: none; font-weight: 600; cursor: pointer;">Add evidence</button></form></div>';
+                        }
+                        function updateOperatorStepDetail(idx) {
+                            selectedIdx = idx;
+                            wrap._n88OpSelectedIdx = idx;
+                            var sel = steps[idx];
+                            if (!sel) return;
+                            var detEl = document.getElementById('n88-operator-timeline-detail');
+                            if (detEl) {
+                                var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#00ff00' : '#ccc') + ';">' + sl + '</span></div>' +
+                                    (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
+                                    (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
+                                    (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
+                                    buildEvidenceBlockHtml();
+                            }
+                            var btns = wrap.querySelectorAll('[data-n88-operator-step-btn]');
+                            for (var j = 0; j < btns.length; j++) {
+                                var b = btns[j];
+                                var bidx = parseInt(b.getAttribute('data-idx'), 10);
+                                var lbl = b.querySelector('.n88-operator-step-label');
+                                if (lbl) lbl.style.color = bidx === idx ? green : darkText;
+                            }
+                            var itemId = wrap.getAttribute('data-item-id');
+                            if (itemId && typeof window.n88LoadOperatorStepEvidence === 'function') window.n88LoadOperatorStepEvidence(itemId, sel.step_id);
+                        }
+                        var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        for (var i = 0; i < steps.length; i++) {
+                            var s = steps[i];
+                            var isActive = s.display_status === 'in_progress' || s.display_status === 'delayed';
+                            var isCompleted = s.display_status === 'completed';
+                            var isSelected = selectedIdx === i;
+                            row += '<div onclick="(function(idx){ var w=document.getElementById(\'n88-operator-workflow-timeline-wrap\'); if(w._n88OpUpdateDetail) w._n88OpUpdateDetail(idx); })(' + i + ');" data-n88-operator-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
+                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : isActive ? 'rgba(0,255,0,0.15)' : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                            row += '<div class="n88-operator-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
+                            row += '</div>';
+                            if (i < steps.length - 1) {
+                                row += '<div style="flex: 0 0 20px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 20px;" aria-hidden="true"></div>';
+                            }
+                        }
+                        row += '</div>';
+                        var sel = steps[0];
+                        var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                        var detail = '<div id="n88-operator-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
+                        detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                        detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
+                        if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
+                        if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
+                        if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                        detail += buildEvidenceBlockHtml();
+                        detail += '</div>';
+                        if (t.show_prototype_mini) {
+                            detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
+                            detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
+                            detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
+                        }
+                        container.innerHTML = row + detail;
+                        wrap._n88OpUpdateDetail = updateOperatorStepDetail;
+                        wrap._n88StepsData = steps;
+                        wrap._n88OpSelectedIdx = 0;
+                        var ajaxUrl = '<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>';
+                        window.n88LoadOperatorStepEvidence = function(itId, stId) {
+                            var listEl = document.getElementById('n88-operator-step-evidence-list');
+                            if (!listEl) return;
+                            listEl.innerHTML = 'Loading…';
+                            var fd = new FormData();
+                            fd.append('action', 'n88_get_timeline_step_evidence');
+                            fd.append('item_id', itId);
+                            fd.append('step_id', stId);
+                            fd.append('_ajax_nonce', typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '');
+                            fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(data) {
+                                if (!data.success || !data.data) { listEl.innerHTML = 'No evidence'; return; }
+                                var arr = data.data.evidence || [];
+                                var h = '';
+                                for (var i = 0; i < arr.length; i++) {
+                                    var e = arr[i];
+                                    var url = e.view_url || e.original_url || '#';
+                                    var mt = e.media_type || 'file';
+                                    var ca = e.created_at || '';
+                                    if (mt === 'youtube') h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">YouTube</a> ' + ca + '</div>';
+                                    else if (mt === 'image') h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';"><img src="' + url.replace(/"/g, '&quot;') + '" alt="" style="max-width:120px;max-height:80px;object-fit:contain;vertical-align:middle;margin-right:8px;"></a> ' + ca + '</div>';
+                                    else h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">' + mt + '</a> ' + ca + '</div>';
+                                }
+                                listEl.innerHTML = h || 'No evidence for this step.';
+                            }).catch(function() { listEl.innerHTML = 'Error loading evidence.'; });
+                        };
+                        wrap.addEventListener('submit', function(ev) {
+                            if (ev.target.id !== 'n88-operator-add-evidence-form') return;
+                            ev.preventDefault();
+                            var form = ev.target;
+                            var btn = form.querySelector('#n88-operator-add-evidence-btn');
+                            var itId = wrap.getAttribute('data-item-id');
+                            var st = wrap._n88StepsData && wrap._n88StepsData[wrap._n88OpSelectedIdx];
+                            if (!itId || !st) return;
+                            var stepId = st.step_id;
+                            var fd = new FormData();
+                            fd.append('action', 'n88_upload_timeline_step_evidence');
+                            fd.append('_ajax_nonce', typeof n88OperatorEvidenceNonce !== 'undefined' ? n88OperatorEvidenceNonce : '');
+                            fd.append('item_id', itId);
+                            fd.append('step_id', stepId);
+                            var yUrl = (form.querySelector('input[name="youtube_url"]') || {}).value;
+                            var fileInput = form.querySelector('input[name="evidence_file"]');
+                            if (yUrl && yUrl.trim()) {
+                                fd.append('media_type', 'youtube');
+                                fd.append('youtube_url', yUrl.trim());
+                            } else if (fileInput && fileInput.files && fileInput.files[0]) {
+                                fd.append('evidence_file', fileInput.files[0]);
+                                var fname = (fileInput.files[0].name || '').toLowerCase();
+                                fd.append('media_type', fname.indexOf('.pdf') !== -1 ? 'pdf' : 'image');
+                            } else {
+                                alert('Please choose a file or enter a YouTube URL.');
+                                return;
+                            }
+                            if (btn) { btn.textContent = 'Uploading…'; btn.disabled = true; }
+                            fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(data) {
+                                var b = form.querySelector('#n88-operator-add-evidence-btn');
+                                if (b) { b.textContent = 'Add evidence'; b.disabled = false; }
+                                if (data.success) {
+                                    if (fileInput) fileInput.value = '';
+                                    var yIn = form.querySelector('input[name="youtube_url"]');
+                                    if (yIn) yIn.value = '';
+                                    if (typeof window.n88LoadOperatorStepEvidence === 'function') window.n88LoadOperatorStepEvidence(itId, stepId);
+                                } else {
+                                    alert(data.data && data.data.message ? data.data.message : 'Upload failed.');
+                                }
+                            }).catch(function() {
+                                var b = form.querySelector('#n88-operator-add-evidence-btn');
+                                if (b) { b.textContent = 'Add evidence'; b.disabled = false; }
+                                alert('Upload failed.');
+                            });
+                        });
+                        if (itemId && window.n88LoadOperatorStepEvidence) window.n88LoadOperatorStepEvidence(itemId, steps[0].step_id);
+                        wrap.setAttribute('data-timeline-loaded', '1');
+                    })
+                    .catch(function(err) {
+                        container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">Failed to load timeline.</div>';
+                    });
+            };
 
             // Commit 2.3.9.1D: Mark Payment Received with Confirmation Modal
             var paymentConfirmModal = document.getElementById('n88-payment-confirm-modal');
@@ -17025,8 +17458,14 @@ class N88_RFQ_Auth {
             </div>
         </div>
 
-        <!-- Commit 2.3.9.1C-a: Two-Column Message Threads -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
+        <!-- Workflow Timeline (Furniture 6-Step) - same as supplier queue -->
+        <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" style="margin-bottom: 24px; padding-bottom: 20px;">
+            <div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>
+            <div id="n88-operator-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div>
+        </div>
+
+        <!-- Commit 2.3.9.1C-a: Two-Column Message Threads (hidden in View Case modal) -->
+        <div id="n88-operator-case-message-threads" style="display: none; margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
             <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px;">Message Threads</div>
             
             <div style="display: flex; gap: 20px; min-height: 400px;">
@@ -17727,6 +18166,10 @@ class N88_RFQ_Auth {
                 )
             );
         }
+        // Commit 3.A.1: Timeline step 2 starts when operator sends CAD to designer
+        if ( class_exists( 'N88_Item_Timeline' ) ) {
+            N88_Item_Timeline::sync_from_cad_uploaded( $item_id );
+        }
 
         wp_send_json_success( array(
             'cad_version' => $next_version,
@@ -18048,6 +18491,10 @@ class N88_RFQ_Auth {
                     ),
                 )
             );
+        }
+        // Commit 3.A.1: Timeline step 2 complete, step 3 start
+        if ( class_exists( 'N88_Item_Timeline' ) ) {
+            N88_Item_Timeline::sync_from_cad_approved( $item_id );
         }
 
         wp_send_json_success( array(
@@ -18572,6 +19019,10 @@ class N88_RFQ_Auth {
                 )
             );
         }
+        // Commit 3.A.1: Timeline step 3 complete
+        if ( class_exists( 'N88_Item_Timeline' ) ) {
+            N88_Item_Timeline::sync_from_prototype_approved( $item_id );
+        }
         
         wp_send_json_success( array(
             'message' => 'Prototype approved successfully.',
@@ -18817,6 +19268,325 @@ class N88_RFQ_Auth {
             'keyword_names' => $keyword_names,
         ) );
     }
+
+    /**
+     * Commit 3.A.1: Return true if current user can view item timeline (designer owner, operator, or supplier with route/bid/prototype).
+     */
+    private function user_can_view_item_timeline( $item_id ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            return false;
+        }
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        if ( $is_operator || current_user_can( 'manage_options' ) ) {
+            return true;
+        }
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+            $item_id
+        ) );
+        if ( ! $item ) {
+            return false;
+        }
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        if ( $is_designer && (int) $item->owner_user_id === $user_id ) {
+            return true;
+        }
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+        if ( $is_supplier ) {
+            $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+            $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+            $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+
+            $has_route = $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM {$rfq_routes_table} WHERE item_id = %d AND supplier_id = %d LIMIT 1",
+                $item_id,
+                $user_id
+            ) );
+            if ( $has_route ) {
+                return true;
+            }
+            $has_bid = $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d LIMIT 1",
+                $item_id,
+                $user_id
+            ) );
+            if ( $has_bid ) {
+                return true;
+            }
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+                $has_prototype = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT 1 FROM {$prototype_payments_table} WHERE item_id = %d AND supplier_id = %d LIMIT 1",
+                    $item_id,
+                    $user_id
+                ) );
+                if ( $has_prototype ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Commit 3.A.1: AJAX get item timeline (read-only). Designer, supplier, operator.
+     */
+    public function ajax_get_item_timeline() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        if ( ! class_exists( 'N88_Item_Timeline' ) ) {
+            wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
+        }
+        $timeline = N88_Item_Timeline::get_timeline_for_item( $item_id );
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $evidence_by_step = array();
+        if ( class_exists( 'N88_Timeline_Step_Evidence' ) ) {
+            $for_designer = ! $is_operator && ! current_user_can( 'manage_options' );
+            $evidence_by_step = N88_Timeline_Step_Evidence::get_evidence_for_item( $item_id, $for_designer );
+        }
+        wp_send_json_success( array(
+            'timeline'         => $timeline,
+            'is_operator'      => $is_operator,
+            'evidence_by_step' => $evidence_by_step,
+        ) );
+    }
+
+    /**
+     * Commit 3.A.1: AJAX timeline start step (operator only).
+     */
+    public function ajax_timeline_start_step() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator only.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        if ( ! $item_id || $step_number < 1 || $step_number > 6 ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( ! class_exists( 'N88_Item_Timeline' ) ) {
+            wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
+        }
+        $result = N88_Item_Timeline::start_step( $item_id, $step_number, $current_user->ID );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'] ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Action failed.' ) );
+    }
+
+    /**
+     * Commit 3.A.1: AJAX timeline complete step (operator only). Evidence enforced.
+     */
+    public function ajax_timeline_complete_step() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator only.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        $evidence_override = isset( $_POST['evidence_override'] ) && $_POST['evidence_override'] === '1';
+        if ( ! $item_id || $step_number < 1 || $step_number > 6 ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( ! class_exists( 'N88_Item_Timeline' ) ) {
+            wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
+        }
+        $result = N88_Item_Timeline::complete_step( $item_id, $step_number, $current_user->ID, $evidence_override );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'] ) );
+        }
+        wp_send_json_error( array(
+            'message' => isset( $result['message'] ) ? $result['message'] : 'Action failed.',
+            'blocked' => ! empty( $result['blocked'] ),
+        ) );
+    }
+
+    /**
+     * Commit 3.A.1: AJAX timeline set evidence verified (operator only).
+     */
+    public function ajax_timeline_set_evidence_verified() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator only.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        if ( ! $item_id || $step_number < 1 || $step_number > 6 ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( ! class_exists( 'N88_Item_Timeline' ) ) {
+            wp_send_json_error( array( 'message' => 'Timeline not available.' ) );
+        }
+        $result = N88_Item_Timeline::set_evidence_verified( $item_id, $step_number, $current_user->ID );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'] ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Action failed.' ) );
+    }
+
+    /**
+     * Commit 3.A.2: Upload timeline step evidence (operator/admin only). Append-only.
+     */
+    public function ajax_upload_timeline_step_evidence() {
+        check_ajax_referer( 'n88_timeline_step_evidence', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_admin   = current_user_can( 'manage_options' );
+        if ( ! $is_operator && ! $is_admin ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator or Admin only.' ), 403 );
+        }
+        $item_id   = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_id   = isset( $_POST['step_id'] ) ? absint( $_POST['step_id'] ) : 0;
+        $media_type = isset( $_POST['media_type'] ) ? sanitize_text_field( $_POST['media_type'] ) : 'image';
+        if ( ! $item_id || ! $step_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step.' ) );
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Evidence' ) ) {
+            wp_send_json_error( array( 'message' => 'Evidence not available.' ) );
+        }
+        // Commit 3.A.2: Evidence automatically goes to media library and material bank (no optional flags).
+        $options = array(
+            'add_to_media_library' => true,
+            'add_to_material_bank' => true,
+        );
+        if ( $media_type === 'youtube' ) {
+            $options['youtube_url'] = isset( $_POST['youtube_url'] ) ? esc_url_raw( trim( $_POST['youtube_url'] ) ) : '';
+            $result = N88_Timeline_Step_Evidence::add_evidence( $item_id, $step_id, 'youtube', $options, $current_user->ID );
+        } else {
+            $allowed_image = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+            $allowed_pdf  = array( 'application/pdf' );
+            if ( ! empty( $_FILES['evidence_file']['tmp_name'] ) && is_uploaded_file( $_FILES['evidence_file']['tmp_name'] ) ) {
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+                require_once ABSPATH . 'wp-admin/includes/media.php';
+                $file = $_FILES['evidence_file'];
+                $type = wp_check_filetype( $file['name'], null )['type'];
+                $is_image = in_array( $type, $allowed_image, true );
+                $is_pdf   = in_array( $type, $allowed_pdf, true );
+                if ( ! $is_image && ! $is_pdf ) {
+                    wp_send_json_error( array( 'message' => 'Allowed: images (JPEG, PNG, GIF, WebP) or PDF.' ) );
+                }
+                $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+                if ( isset( $upload['error'] ) ) {
+                    wp_send_json_error( array( 'message' => $upload['error'] ) );
+                }
+                $attachment = array(
+                    'post_mime_type' => $upload['type'],
+                    'post_title'     => sanitize_file_name( $file['name'] ),
+                    'post_content'   => '',
+                    'post_status'   => 'inherit',
+                );
+                $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                if ( is_wp_error( $attach_id ) ) {
+                    wp_send_json_error( array( 'message' => $attach_id->get_error_message() ) );
+                }
+                $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                if ( is_array( $attach_data ) ) {
+                    wp_update_attachment_metadata( $attach_id, $attach_data );
+                }
+                $options['attachment_id'] = $attach_id;
+                $options['file_path']     = null;
+                $result = N88_Timeline_Step_Evidence::add_evidence( $item_id, $step_id, $is_pdf ? 'pdf' : 'image', $options, $current_user->ID );
+            } else {
+                wp_send_json_error( array( 'message' => 'Upload a file or provide a YouTube URL.' ) );
+            }
+        }
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'evidence_id' => isset( $result['evidence_id'] ) ? $result['evidence_id'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Upload failed.' ) );
+    }
+
+    /**
+     * Commit 3.A.2: Get timeline step evidence. Designers get watermarked view URLs only.
+     */
+    public function ajax_get_timeline_step_evidence() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_id = isset( $_POST['step_id'] ) ? absint( $_POST['step_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ) );
+        }
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Evidence' ) ) {
+            wp_send_json_success( array( 'evidence' => array(), 'by_step' => array() ) );
+            return;
+        }
+        $current_user = wp_get_current_user();
+        $for_designer = ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' );
+        if ( $step_id ) {
+            $evidence = N88_Timeline_Step_Evidence::get_evidence_for_step( $item_id, $step_id, $for_designer );
+            wp_send_json_success( array( 'evidence' => $evidence ) );
+        }
+        $by_step = N88_Timeline_Step_Evidence::get_evidence_for_item( $item_id, $for_designer );
+        wp_send_json_success( array( 'by_step' => $by_step ) );
+    }
+
+    /**
+     * Commit 3.A.2: Serve evidence file (watermarked for designers, original for operator/admin).
+     */
+    public function ajax_serve_timeline_evidence() {
+        $evidence_id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+        $nonce = isset( $_GET['nonce'] ) ? sanitize_text_field( $_GET['nonce'] ) : '';
+        if ( ! $evidence_id || ! wp_verify_nonce( $nonce, 'n88_serve_timeline_evidence_' . $evidence_id ) ) {
+            status_header( 404 );
+            exit;
+        }
+        if ( ! is_user_logged_in() ) {
+            status_header( 403 );
+            exit;
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Evidence' ) ) {
+            status_header( 404 );
+            exit;
+        }
+        $row = N88_Timeline_Step_Evidence::get_evidence_by_id( $evidence_id );
+        if ( ! $row ) {
+            status_header( 404 );
+            exit;
+        }
+        $item_id = (int) $row['item_id'];
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            status_header( 403 );
+            exit;
+        }
+        $current_user = wp_get_current_user();
+        $force_watermark = ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' );
+        N88_Timeline_Step_Evidence::serve_evidence( $evidence_id, $force_watermark );
+    }
     
     /**
      * AJAX handler to mark payment as received (Commit 2.3.9.1D)
@@ -18989,6 +19759,10 @@ class N88_RFQ_Auth {
                         array( '%s' ),
                         array( '%d' )
                     );
+                }
+                // Commit 3.A.1: Timeline step 1 complete, step 2 start
+                if ( class_exists( 'N88_Item_Timeline' ) ) {
+                    N88_Item_Timeline::sync_from_payment_marked_received( $item_id );
                 }
             }
         }

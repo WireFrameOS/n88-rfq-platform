@@ -1222,6 +1222,12 @@ class N88_RFQ_Installer {
         // Commit 2.6.1: Migrate firm_members table for pending invitations
         self::migrate_firm_members_for_invitations();
 
+        // Commit 3.A.1: Item Timeline Spine (immutable 6-step per item)
+        self::create_phase_3_a_1_item_timeline_tables( $charset_collate );
+
+        // Commit 3.A.2: Timeline Step Evidence (media bound to item + step; append-only)
+        self::create_phase_3_a_2_timeline_step_evidence_table( $charset_collate );
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -3243,6 +3249,95 @@ class N88_RFQ_Installer {
         if ( ! $column_exists ) {
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
                 ADD COLUMN direction_keyword_ids JSON NULL AFTER video_direction_json" );
+        }
+    }
+
+    /**
+     * Commit 3.A.1: Item Timeline Spine — n88_item_timelines + n88_item_timeline_steps
+     */
+    private static function create_phase_3_a_1_item_timeline_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $timelines_table = $wpdb->prefix . 'n88_item_timelines';
+        $steps_table     = $wpdb->prefix . 'n88_item_timeline_steps';
+        $items_table     = $wpdb->prefix . 'n88_items';
+
+        $sql_timelines = "CREATE TABLE {$timelines_table} (
+            timeline_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (timeline_id),
+            UNIQUE KEY item_id (item_id)
+        ) {$charset_collate};";
+
+        $sql_steps = "CREATE TABLE {$steps_table} (
+            step_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            timeline_id BIGINT UNSIGNED NOT NULL,
+            step_number TINYINT UNSIGNED NOT NULL,
+            label VARCHAR(255) NOT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            started_at DATETIME NULL,
+            completed_at DATETIME NULL,
+            expected_by DATE NULL,
+            evidence_required TINYINT(1) NOT NULL DEFAULT 1,
+            evidence_verified_at DATETIME NULL,
+            evidence_verified_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (step_id),
+            UNIQUE KEY timeline_step (timeline_id, step_number),
+            KEY timeline_id (timeline_id),
+            KEY status (status)
+        ) {$charset_collate};";
+
+        dbDelta( $sql_timelines );
+        dbDelta( $sql_steps );
+
+        if ( ! self::foreign_key_exists( $timelines_table, 'fk_item_timeline_item' ) ) {
+            self::safe_add_foreign_key( $timelines_table, 'fk_item_timeline_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $steps_table, 'fk_timeline_step_timeline' ) ) {
+            self::safe_add_foreign_key( $steps_table, 'fk_timeline_step_timeline', 'timeline_id', $timelines_table, 'timeline_id', 'CASCADE' );
+        }
+    }
+
+    /**
+     * Commit 3.A.2: Timeline Step Evidence — media bound to item_id + timeline_step_id (append-only).
+     */
+    private static function create_phase_3_a_2_timeline_step_evidence_table( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $evidence_table  = $wpdb->prefix . 'n88_timeline_step_evidence';
+        $steps_table     = $wpdb->prefix . 'n88_item_timeline_steps';
+        $items_table     = $wpdb->prefix . 'n88_items';
+
+        $sql = "CREATE TABLE {$evidence_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            step_id BIGINT UNSIGNED NOT NULL,
+            media_type VARCHAR(20) NOT NULL DEFAULT 'image',
+            attachment_id BIGINT UNSIGNED NULL,
+            file_path VARCHAR(500) NULL,
+            youtube_url VARCHAR(500) NULL,
+            add_to_media_library TINYINT(1) NOT NULL DEFAULT 0,
+            add_to_material_bank TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by BIGINT UNSIGNED NULL,
+            hidden TINYINT(1) NOT NULL DEFAULT 0,
+            PRIMARY KEY (id),
+            KEY item_id (item_id),
+            KEY step_id (step_id),
+            KEY item_step (item_id, step_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql );
+
+        if ( ! self::foreign_key_exists( $evidence_table, 'fk_evidence_item' ) ) {
+            self::safe_add_foreign_key( $evidence_table, 'fk_evidence_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $evidence_table, 'fk_evidence_step' ) ) {
+            self::safe_add_foreign_key( $evidence_table, 'fk_evidence_step', 'step_id', $steps_table, 'step_id', 'CASCADE' );
         }
     }
     
