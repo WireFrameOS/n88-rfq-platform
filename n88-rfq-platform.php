@@ -72,6 +72,7 @@ $includes = array(
     'includes/class-n88-events.php',
     'includes/class-n88-item-timeline.php', // Commit 3.A.1: Item timeline spine
     'includes/class-n88-timeline-step-evidence.php', // Commit 3.A.2: Timeline step evidence (media binding + watermark)
+    'includes/class-n88-evidence-comments.php', // Commit 3.A.3: Evidence comments (anchored, immutable)
     'includes/class-n88-authorization.php',
     'includes/class-n88-intelligence.php',
     'includes/class-n88-items.php',

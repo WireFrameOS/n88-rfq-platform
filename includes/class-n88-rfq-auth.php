@@ -129,6 +129,10 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_get_timeline_step_evidence', array( $this, 'ajax_get_timeline_step_evidence' ) );
         add_action( 'wp_ajax_n88_serve_timeline_evidence', array( $this, 'ajax_serve_timeline_evidence' ) );
 
+        // Commit 3.A.3: Evidence comments (designer add; designer + operator/admin view)
+        add_action( 'wp_ajax_n88_add_evidence_comment', array( $this, 'ajax_add_evidence_comment' ) );
+        add_action( 'wp_ajax_n88_get_evidence_comments', array( $this, 'ajax_get_evidence_comments' ) );
+
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
 
@@ -16718,14 +16722,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 if (!data.success || !data.data) { listEl.innerHTML = 'No evidence'; return; }
                                 var arr = data.data.evidence || [];
                                 var h = '';
+                                var darkBorder = '#555';
+                                var darkText = '#ccc';
                                 for (var i = 0; i < arr.length; i++) {
                                     var e = arr[i];
                                     var url = e.view_url || e.original_url || '#';
                                     var mt = e.media_type || 'file';
                                     var ca = e.created_at || '';
-                                    if (mt === 'youtube') h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">YouTube</a> ' + ca + '</div>';
-                                    else if (mt === 'image') h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';"><img src="' + url.replace(/"/g, '&quot;') + '" alt="" style="max-width:120px;max-height:80px;object-fit:contain;vertical-align:middle;margin-right:8px;"></a> ' + ca + '</div>';
-                                    else h += '<div style="margin-bottom:6px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">' + mt + '</a> ' + ca + '</div>';
+                                    h += '<div style="margin-bottom:12px; padding:8px; border:1px solid ' + darkBorder + '; border-radius:4px; background:rgba(0,0,0,0.2);">';
+                                    if (mt === 'youtube') h += '<div style="margin-bottom:4px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">YouTube</a> ' + ca + '</div>';
+                                    else if (mt === 'image') h += '<div style="margin-bottom:4px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';"><img src="' + url.replace(/"/g, '&quot;') + '" alt="" style="max-width:120px;max-height:80px;object-fit:contain;display:block;"></a> ' + ca + '</div>';
+                                    else h += '<div style="margin-bottom:4px;"><a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:' + green + ';">' + mt + '</a> ' + ca + '</div>';
+                                    if (e.comments && e.comments.length) {
+                                        h += '<div style="margin-top:8px; padding-top:8px; border-top:1px solid ' + darkBorder + '; font-size:10px; color:' + darkText + ';">Comments:</div>';
+                                        for (var j = 0; j < e.comments.length; j++) {
+                                            var c = e.comments[j];
+                                            h += '<div style="font-size:11px; color:' + darkText + '; margin-top:4px; white-space:pre-wrap;">' + (c.comment_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + (c.created_at ? '<div style="font-size:10px; opacity:0.8;">' + c.created_at + '</div>' : '') + '</div>';
+                                        }
+                                    }
+                                    h += '</div>';
                                 }
                                 listEl.innerHTML = h || 'No evidence for this step.';
                             }).catch(function() { listEl.innerHTML = 'Error loading evidence.'; });
@@ -19356,12 +19371,31 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( class_exists( 'N88_Timeline_Step_Evidence' ) ) {
             $for_designer = ! $is_operator && ! current_user_can( 'manage_options' );
             $evidence_by_step = N88_Timeline_Step_Evidence::get_evidence_for_item( $item_id, $for_designer );
+            if ( class_exists( 'N88_Evidence_Comments' ) ) {
+                $evidence_by_step = $this->evidence_attach_comments( $evidence_by_step );
+            }
         }
+        $can_add_evidence_comment = $this->user_is_designer_owner_of_item( $item_id );
         wp_send_json_success( array(
-            'timeline'         => $timeline,
-            'is_operator'      => $is_operator,
-            'evidence_by_step' => $evidence_by_step,
+            'timeline'                  => $timeline,
+            'is_operator'               => $is_operator,
+            'evidence_by_step'          => $evidence_by_step,
+            'can_add_evidence_comment'  => $can_add_evidence_comment,
         ) );
+    }
+
+    /**
+     * Commit 3.A.3: True if current user is the designer (item owner) who may add evidence comments.
+     */
+    private function user_is_designer_owner_of_item( $item_id ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        if ( ! $item_id || ! $user_id ) {
+            return false;
+        }
+        $items_table = $wpdb->prefix . 'n88_items';
+        $owner = $wpdb->get_var( $wpdb->prepare( "SELECT owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL", $item_id ) );
+        return $owner && (int) $owner === (int) $user_id;
     }
 
     /**
@@ -19549,10 +19583,68 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $for_designer = ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' );
         if ( $step_id ) {
             $evidence = N88_Timeline_Step_Evidence::get_evidence_for_step( $item_id, $step_id, $for_designer );
+            if ( class_exists( 'N88_Evidence_Comments' ) ) {
+                $evidence = $this->evidence_attach_comments_list( $evidence );
+            }
             wp_send_json_success( array( 'evidence' => $evidence ) );
         }
         $by_step = N88_Timeline_Step_Evidence::get_evidence_for_item( $item_id, $for_designer );
+        if ( class_exists( 'N88_Evidence_Comments' ) ) {
+            $by_step = $this->evidence_attach_comments( $by_step );
+        }
         wp_send_json_success( array( 'by_step' => $by_step ) );
+    }
+
+    /**
+     * Commit 3.A.3: Attach comments to evidence_by_step (step_id => list of evidence). Mutates and returns.
+     */
+    private function evidence_attach_comments( $evidence_by_step ) {
+        if ( ! is_array( $evidence_by_step ) || ! class_exists( 'N88_Evidence_Comments' ) ) {
+            return $evidence_by_step;
+        }
+        $all_ids = array();
+        foreach ( $evidence_by_step as $list ) {
+            foreach ( $list as $ev ) {
+                if ( ! empty( $ev['id'] ) ) {
+                    $all_ids[] = (int) $ev['id'];
+                }
+            }
+        }
+        if ( empty( $all_ids ) ) {
+            return $evidence_by_step;
+        }
+        $comments_by_evidence = N88_Evidence_Comments::get_comments_for_evidence_batch( $all_ids );
+        foreach ( $evidence_by_step as $step_id => $list ) {
+            foreach ( $list as $i => $ev ) {
+                $eid = isset( $ev['id'] ) ? (int) $ev['id'] : 0;
+                $evidence_by_step[ $step_id ][ $i ]['comments'] = isset( $comments_by_evidence[ $eid ] ) ? $comments_by_evidence[ $eid ] : array();
+            }
+        }
+        return $evidence_by_step;
+    }
+
+    /**
+     * Commit 3.A.3: Attach comments to a flat evidence list.
+     */
+    private function evidence_attach_comments_list( $evidence_list ) {
+        if ( ! is_array( $evidence_list ) || ! class_exists( 'N88_Evidence_Comments' ) ) {
+            return $evidence_list;
+        }
+        $all_ids = array();
+        foreach ( $evidence_list as $ev ) {
+            if ( ! empty( $ev['id'] ) ) {
+                $all_ids[] = (int) $ev['id'];
+            }
+        }
+        if ( empty( $all_ids ) ) {
+            return $evidence_list;
+        }
+        $comments_by_evidence = N88_Evidence_Comments::get_comments_for_evidence_batch( $all_ids );
+        foreach ( $evidence_list as $i => $ev ) {
+            $eid = isset( $ev['id'] ) ? (int) $ev['id'] : 0;
+            $evidence_list[ $i ]['comments'] = isset( $comments_by_evidence[ $eid ] ) ? $comments_by_evidence[ $eid ] : array();
+        }
+        return $evidence_list;
     }
 
     /**
@@ -19586,6 +19678,74 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $current_user = wp_get_current_user();
         $force_watermark = ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' );
         N88_Timeline_Step_Evidence::serve_evidence( $evidence_id, $force_watermark );
+    }
+
+    /**
+     * Commit 3.A.3: Add comment to evidence. Designer (item owner) only. Immutable.
+     */
+    public function ajax_add_evidence_comment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $evidence_id  = isset( $_POST['evidence_id'] ) ? absint( $_POST['evidence_id'] ) : 0;
+        $comment_text = isset( $_POST['comment_text'] ) ? trim( (string) $_POST['comment_text'] ) : '';
+        if ( ! $evidence_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid evidence.' ) );
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Evidence' ) || ! class_exists( 'N88_Evidence_Comments' ) ) {
+            wp_send_json_error( array( 'message' => 'Comments not available.' ) );
+        }
+        $row = N88_Timeline_Step_Evidence::get_evidence_by_id( $evidence_id );
+        if ( ! $row ) {
+            wp_send_json_error( array( 'message' => 'Evidence not found.' ) );
+        }
+        $item_id = (int) $row['item_id'];
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        $current_user = wp_get_current_user();
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item = $wpdb->get_row( $wpdb->prepare( "SELECT owner_user_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL", $item_id ), ARRAY_A );
+        $is_designer_owner = $item && (int) $item['owner_user_id'] === (int) $current_user->ID;
+        if ( ! $is_designer_owner ) {
+            wp_send_json_error( array( 'message' => 'Only the item owner (designer) may add comments.' ), 403 );
+        }
+        $result = N88_Evidence_Comments::add_comment( $evidence_id, $comment_text, $current_user->ID );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'comment_id' => isset( $result['comment_id'] ) ? $result['comment_id'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Failed to add comment.' ) );
+    }
+
+    /**
+     * Commit 3.A.3: Get comments for evidence. Designer + Operator/Admin (anyone who can view item timeline).
+     */
+    public function ajax_get_evidence_comments() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $evidence_id = isset( $_POST['evidence_id'] ) ? absint( $_POST['evidence_id'] ) : 0;
+        if ( ! $evidence_id ) {
+            wp_send_json_success( array( 'comments' => array() ) );
+            return;
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Evidence' ) || ! class_exists( 'N88_Evidence_Comments' ) ) {
+            wp_send_json_success( array( 'comments' => array() ) );
+            return;
+        }
+        $row = N88_Timeline_Step_Evidence::get_evidence_by_id( $evidence_id );
+        if ( ! $row ) {
+            wp_send_json_error( array( 'message' => 'Evidence not found.' ) );
+        }
+        $item_id = (int) $row['item_id'];
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        $comments = N88_Evidence_Comments::get_comments_for_evidence( $evidence_id );
+        wp_send_json_success( array( 'comments' => $comments ) );
     }
     
     /**

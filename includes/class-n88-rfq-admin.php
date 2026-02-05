@@ -10192,6 +10192,12 @@ class N88_RFQ_Admin {
                     var _timelineActionBusyState = React.useState(false);
                     var timelineActionBusy = _timelineActionBusyState[0];
                     var setTimelineActionBusy = _timelineActionBusyState[1];
+                    var _evidenceCommentDraftsState = React.useState({});
+                    var evidenceCommentDrafts = _evidenceCommentDraftsState[0];
+                    var setEvidenceCommentDrafts = _evidenceCommentDraftsState[1];
+                    var _evidenceCommentSubmittingState = React.useState(false);
+                    var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
+                    var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
                     
                     // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Review and Message
                     React.useEffect(function() {
@@ -10432,7 +10438,8 @@ class N88_RFQ_Admin {
                                 if (data.success && data.data && data.data.timeline) {
                                     setTimelineData({
                                         ...data.data.timeline,
-                                        evidence_by_step: data.data.evidence_by_step || {}
+                                        evidence_by_step: data.data.evidence_by_step || {},
+                                        can_add_evidence_comment: !!(data.data.can_add_evidence_comment)
                                     });
                                     setIsOperatorTimeline(!!(data.data.is_operator));
                                     setTimelineError(null);
@@ -15325,14 +15332,51 @@ class N88_RFQ_Admin {
                                                         (function() {
                                                             var byStep = timelineData.evidence_by_step || {};
                                                             var evidenceList = byStep[s.step_id] || byStep[String(s.step_id)] || [];
+                                                            var canAddComment = !!(timelineData.can_add_evidence_comment);
+                                                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                                                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                                                             if (!evidenceList.length) return null;
                                                             return React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Evidence'),
-                                                                React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '16px' } },
                                                                     evidenceList.map(function(ev) {
-                                                                        return React.createElement('div', { key: ev.id || ev.view_url, style: { fontSize: '11px' } },
+                                                                        var commentDraft = evidenceCommentDrafts[ev.id];
+                                                                        return React.createElement('div', { key: ev.id || ev.view_url, style: { fontSize: '11px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '10px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                                             ev.media_type === 'youtube' ? React.createElement('a', { href: ev.view_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, 'YouTube') : ev.media_type === 'image' ? React.createElement('a', { href: ev.view_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, React.createElement('img', { src: ev.view_url, alt: '', style: { maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', marginBottom: '4px' } })) : React.createElement('a', { href: ev.view_url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, ev.media_type || 'File'),
-                                                                            ev.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, ev.created_at) : null
+                                                                            ev.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, ev.created_at) : null,
+                                                                            ev.comments && ev.comments.length ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                                React.createElement('div', { style: { fontSize: '10px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Comments'),
+                                                                                ev.comments.map(function(c) { return React.createElement('div', { key: c.id, style: { fontSize: '11px', color: darkText, marginBottom: '6px', whiteSpace: 'pre-wrap' } }, c.comment_text, c.created_at ? React.createElement('div', { style: { fontSize: '10px', opacity: 0.8 } }, c.created_at) : null); })
+                                                                            ) : null,
+                                                                            canAddComment ? React.createElement('div', { style: { marginTop: '8px' } },
+                                                                                React.createElement('textarea', {
+                                                                                    placeholder: 'Add comment (immutable, anchored to this media)',
+                                                                                    value: commentDraft || '',
+                                                                                    onChange: function(e) { setEvidenceCommentDrafts(function(prev) { var n = {}; for (var k in prev) n[k] = prev[k]; n[ev.id] = e.target.value; return n; }); },
+                                                                                    style: { width: '100%', minHeight: '48px', padding: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px', resize: 'vertical' }
+                                                                                }),
+                                                                                React.createElement('button', {
+                                                                                    type: 'button',
+                                                                                    disabled: evidenceCommentSubmitting || !(commentDraft || '').trim(),
+                                                                                    onClick: function() {
+                                                                                        var text = (commentDraft || '').trim();
+                                                                                        if (!text || !nonce) return;
+                                                                                        setEvidenceCommentSubmitting(true);
+                                                                                        var fd = new FormData();
+                                                                                        fd.append('action', 'n88_add_evidence_comment');
+                                                                                        fd.append('evidence_id', String(ev.id));
+                                                                                        fd.append('comment_text', text);
+                                                                                        fd.append('_ajax_nonce', nonce);
+                                                                                        fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
+                                                                                            if (data.success) {
+                                                                                                setEvidenceCommentDrafts(function(prev) { var n = {}; for (var k in prev) if (k !== String(ev.id)) n[k] = prev[k]; return n; });
+                                                                                                if (typeof fetchTimeline === 'function') fetchTimeline();
+                                                                                            } else { alert((data.data && data.data.message) || 'Failed to add comment.'); }
+                                                                                        }).finally(function() { setEvidenceCommentSubmitting(false); });
+                                                                                    },
+                                                                                    style: { marginTop: '4px', padding: '4px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer' }
+                                                                                }, 'Add comment')
+                                                                            ) : null
                                                                         );
                                                                     })
                                                                 )

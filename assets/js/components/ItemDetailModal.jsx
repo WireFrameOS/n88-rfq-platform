@@ -1736,6 +1736,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [timelineLoading, setTimelineLoading] = React.useState(false);
     const [timelineError, setTimelineError] = React.useState(null);
     const [selectedStepIndex, setSelectedStepIndex] = React.useState(0);
+    // Commit 3.A.3: Evidence comment drafts and submit state
+    const [evidenceCommentDrafts, setEvidenceCommentDrafts] = React.useState({});
+    const [evidenceCommentSubmitting, setEvidenceCommentSubmitting] = React.useState(false);
     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
     const skipNextTabSwitchFromCadActionRef = React.useRef(false);
     
@@ -1936,6 +1939,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setTimelineData({
                     ...data.data.timeline,
                     evidence_by_step: data.data.evidence_by_step || {},
+                    can_add_evidence_comment: !!data.data.can_add_evidence_comment,
                 });
                 setTimelineError(null);
             } else {
@@ -4987,18 +4991,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                 {s.expected_by && (
                                                                     <div style={{ fontSize: '11px', color: darkText }}>Expected by: {s.expected_by}</div>
                                                                 )}
-                                                                {/* Commit 3.A.2: Evidence (designer sees watermarked only; key by step_id number or string) */}
+                                                                {/* Commit 3.A.2 + 3.A.3: Evidence (watermarked) + immutable comments beneath each */}
                                                                 {(() => {
                                                                     const byStep = timelineData.evidence_by_step || {};
                                                                     const stepKey = s.step_id;
                                                                     const evidenceList = byStep[stepKey] || byStep[String(stepKey)] || [];
+                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
                                                                     if (!evidenceList.length) return null;
                                                                     return (
                                                                         <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
                                                                             <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Evidence</div>
-                                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                                                                 {evidenceList.map((ev) => (
-                                                                                    <div key={ev.id || ev.view_url} style={{ fontSize: '11px' }}>
+                                                                                    <div key={ev.id || ev.view_url} style={{ fontSize: '11px', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '10px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                                                                                         {ev.media_type === 'youtube' ? (
                                                                                             <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>YouTube</a>
                                                                                         ) : ev.media_type === 'image' ? (
@@ -5009,6 +5016,57 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                             <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{ev.media_type || 'File'}</a>
                                                                                         )}
                                                                                         {ev.created_at && <div style={{ fontSize: '10px', color: darkText }}>{ev.created_at}</div>}
+                                                                                        {/* 3.A.3: Comments (immutable) beneath this media */}
+                                                                                        {(ev.comments && ev.comments.length) ? (
+                                                                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                                                <div style={{ fontSize: '10px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Comments</div>
+                                                                                                {ev.comments.map((c) => (
+                                                                                                    <div key={c.id} style={{ fontSize: '11px', color: darkText, marginBottom: '6px', whiteSpace: 'pre-wrap' }}>
+                                                                                                        {c.comment_text}
+                                                                                                        {c.created_at && <div style={{ fontSize: '10px', opacity: 0.8 }}>{c.created_at}</div>}
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        ) : null}
+                                                                                        {canAddComment && (
+                                                                                            <div style={{ marginTop: '8px' }}>
+                                                                                                <textarea
+                                                                                                    placeholder="Add comment (immutable, anchored to this media)"
+                                                                                                    value={evidenceCommentDrafts[ev.id] ?? ''}
+                                                                                                    onChange={(e) => setEvidenceCommentDrafts((prev) => ({ ...prev, [ev.id]: e.target.value }))}
+                                                                                                    style={{ width: '100%', minHeight: '48px', padding: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
+                                                                                                />
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    disabled={evidenceCommentSubmitting || !(evidenceCommentDrafts[ev.id] || '').trim()}
+                                                                                                    onClick={async () => {
+                                                                                                        const text = (evidenceCommentDrafts[ev.id] || '').trim();
+                                                                                                        if (!text || !nonce) return;
+                                                                                                        setEvidenceCommentSubmitting(true);
+                                                                                                        try {
+                                                                                                            const fd = new FormData();
+                                                                                                            fd.append('action', 'n88_add_evidence_comment');
+                                                                                                            fd.append('evidence_id', String(ev.id));
+                                                                                                            fd.append('comment_text', text);
+                                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                                            const data = await res.json();
+                                                                                                            if (data.success) {
+                                                                                                                setEvidenceCommentDrafts((prev) => { const n = { ...prev }; delete n[ev.id]; return n; });
+                                                                                                                fetchTimeline();
+                                                                                                            } else {
+                                                                                                                alert(data.data?.message || 'Failed to add comment.');
+                                                                                                            }
+                                                                                                        } finally {
+                                                                                                            setEvidenceCommentSubmitting(false);
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    style={{ marginTop: '4px', padding: '4px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                >
+                                                                                                    Add comment
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
                                                                                 ))}
                                                                             </div>

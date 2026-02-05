@@ -1228,6 +1228,9 @@ class N88_RFQ_Installer {
         // Commit 3.A.2: Timeline Step Evidence (media bound to item + step; append-only)
         self::create_phase_3_a_2_timeline_step_evidence_table( $charset_collate );
 
+        // Commit 3.A.3: Evidence Comments (anchored to evidence_id; immutable, append-only)
+        self::create_phase_3_a_3_evidence_comments_table( $charset_collate );
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -3338,6 +3341,34 @@ class N88_RFQ_Installer {
         }
         if ( ! self::foreign_key_exists( $evidence_table, 'fk_evidence_step' ) ) {
             self::safe_add_foreign_key( $evidence_table, 'fk_evidence_step', 'step_id', $steps_table, 'step_id', 'CASCADE' );
+        }
+    }
+
+    /**
+     * Commit 3.A.3: Evidence Comments — immutable, timestamped comments anchored to a single evidence media (append-only).
+     */
+    private static function create_phase_3_a_3_evidence_comments_table( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $comments_table = $wpdb->prefix . 'n88_evidence_comments';
+        $evidence_table = $wpdb->prefix . 'n88_timeline_step_evidence';
+
+        $sql = "CREATE TABLE {$comments_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            evidence_id BIGINT UNSIGNED NOT NULL,
+            comment_text TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by BIGINT UNSIGNED NOT NULL,
+            PRIMARY KEY (id),
+            KEY evidence_id (evidence_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql );
+
+        if ( ! self::foreign_key_exists( $comments_table, 'fk_evidence_comment_evidence' ) ) {
+            self::safe_add_foreign_key( $comments_table, 'fk_evidence_comment_evidence', 'evidence_id', $evidence_table, 'id', 'CASCADE' );
         }
     }
     
