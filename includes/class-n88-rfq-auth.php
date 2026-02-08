@@ -11409,7 +11409,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             // Get the most recent prototype payment for this item
             // For system operator: any request for this item (item_id only). For designer: own request only.
-            $select_fields = "id, bid_id, supplier_id, status, total_due_usd";
+            $select_fields = "id, bid_id, supplier_id, status, total_due_usd, created_at";
+            $has_received_at = in_array( 'received_at', $pp_columns, true );
+            $select_fields .= $has_received_at ? ", received_at" : ", NULL as received_at";
             $select_fields .= $has_cad_status ? ", cad_status" : ", NULL as cad_status";
             $select_fields .= $has_cad_revision_rounds_included ? ", cad_revision_rounds_included" : ", NULL as cad_revision_rounds_included";
             $select_fields .= $has_cad_revision_rounds_used ? ", cad_revision_rounds_used" : ", NULL as cad_revision_rounds_used";
@@ -11576,6 +11578,125 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        // Designer Workflow tab: milestone dates for Step 1 (Design & Specs), Step 2 (CAD), Step 3 (Prototype video)
+        $workflow_milestones = array(
+            'step1' => array(
+                'cad_requested_at' => null,
+                'payment_sent_at' => null,
+                'payment_approved_at' => null,
+            ),
+            'step2' => array(
+                'cad_received_at' => null,
+                'revision_submitted_at' => null,
+                'revision_sent_at' => null,
+                'cad_approved_at' => $cad_approved_at,
+                'cad_released_to_supplier_at' => $cad_released_to_supplier_at,
+            ),
+            'step3' => array(
+                'video_submitted_at' => null,
+                'changes_requested_at' => null,
+                'video_resubmitted_at' => null,
+                'video_approved_at' => null,
+            ),
+        );
+        if ( $has_prototype_payment && $prototype_payment ) {
+            $workflow_milestones['step1']['cad_requested_at'] = isset( $prototype_payment['created_at'] ) ? $prototype_payment['created_at'] : null;
+            $workflow_milestones['step1']['payment_approved_at'] = isset( $prototype_payment['received_at'] ) && trim( (string) $prototype_payment['received_at'] ) !== '' ? $prototype_payment['received_at'] : null;
+            if ( $prototype_payment_id ) {
+                $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                        $receipt_cols = $wpdb->get_col( "DESCRIBE {$receipts_table}" );
+                        $receipt_date_col = is_array( $receipt_cols ) && in_array( 'uploaded_at', $receipt_cols, true ) ? 'uploaded_at' : 'created_at';
+                        $first_receipt = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT MIN({$receipt_date_col}) FROM {$receipts_table} WHERE payment_id = %d",
+                        $prototype_payment_id
+                    ) );
+                    if ( $first_receipt ) {
+                        $workflow_milestones['step1']['payment_sent_at'] = $first_receipt;
+                    }
+                }
+                $item_files_table = $wpdb->prefix . 'n88_item_files';
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+                    $files_date_col = 'attached_at';
+                    $cols = $wpdb->get_col( "DESCRIBE {$item_files_table}" );
+                    if ( is_array( $cols ) && in_array( 'created_at', $cols, true ) ) {
+                        $files_date_col = 'created_at';
+                    }
+                    $first_cad = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT MIN({$files_date_col}) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                        $item_id,
+                        $prototype_payment_id
+                    ) );
+                    if ( $first_cad ) {
+                        $workflow_milestones['step2']['cad_received_at'] = $first_cad;
+                    }
+                    $cad_upload_count = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                        $item_id,
+                        $prototype_payment_id
+                    ) );
+                    if ( $cad_upload_count && (int) $cad_upload_count > 1 ) {
+                        $revision_sent = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT MAX({$files_date_col}) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                            $item_id,
+                            $prototype_payment_id
+                        ) );
+                        if ( $revision_sent ) {
+                            $workflow_milestones['step2']['revision_sent_at'] = $revision_sent;
+                        }
+                    }
+                }
+                $messages_table = $wpdb->prefix . 'n88_item_messages';
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+                    $revision_requested_at = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT MIN(created_at) FROM {$messages_table} WHERE item_id = %d AND thread_type = 'designer_operator' AND sender_role = 'designer' AND message_text LIKE %s",
+                        $item_id,
+                        '%Revision requested%'
+                    ) );
+                    if ( $revision_requested_at ) {
+                        $workflow_milestones['step2']['revision_submitted_at'] = $revision_requested_at;
+                    }
+                }
+            }
+            $workflow_milestones['step2']['cad_approved_at'] = $cad_approved_at;
+            $workflow_milestones['step2']['cad_released_to_supplier_at'] = $cad_released_to_supplier_at;
+            if ( $prototype_submission && isset( $prototype_submission['created_at'] ) ) {
+                $workflow_milestones['step3']['video_submitted_at'] = $prototype_submission['created_at'];
+            }
+            $pvs_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$pvs_table}'" ) === $pvs_table && $prototype_payment_id ) {
+                $resubmit_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT created_at FROM {$pvs_table} WHERE payment_id = %d AND version > 1 ORDER BY version DESC LIMIT 1",
+                    $prototype_payment_id
+                ), ARRAY_A );
+                if ( $resubmit_row && ! empty( $resubmit_row['created_at'] ) ) {
+                    $workflow_milestones['step3']['video_resubmitted_at'] = $resubmit_row['created_at'];
+                }
+            }
+            if ( $prototype_status === 'changes_requested' && $prototype_payment_id ) {
+                $fb_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$fb_table}'" ) === $fb_table ) {
+                    $changes_at = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT MIN(created_at) FROM {$fb_table} WHERE payment_id = %d",
+                        $prototype_payment_id
+                    ) );
+                    if ( $changes_at ) {
+                        $workflow_milestones['step3']['changes_requested_at'] = $changes_at;
+                    }
+                }
+            }
+            $has_prototype_approved_at = $prototype_payments_table_exists && isset( $pp_columns ) && is_array( $pp_columns ) && in_array( 'prototype_approved_at', $pp_columns, true );
+            if ( $has_prototype_approved_at && $prototype_payment_id ) {
+                $pa_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT prototype_approved_at FROM {$prototype_payments_table} WHERE id = %d LIMIT 1",
+                    $prototype_payment_id
+                ), ARRAY_A );
+                if ( $pa_row && ! empty( $pa_row['prototype_approved_at'] ) ) {
+                    $workflow_milestones['step3']['video_approved_at'] = $pa_row['prototype_approved_at'];
+                }
+            }
+        }
+
         wp_send_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
@@ -11606,6 +11727,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'prototype_approved_version' => $prototype_approved_version,
             'prototype_submission' => $prototype_submission,
             'direction_keyword_ids' => $direction_keyword_ids,
+            // Designer Workflow tab: milestone dates per step
+            'workflow_milestones' => $workflow_milestones,
         ) );
     }
 

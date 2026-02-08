@@ -9897,6 +9897,7 @@ class N88_RFQ_Admin {
                         prototype_approved_version: null,
                         prototype_submission: null,
                         direction_keyword_ids: null,
+                        workflow_milestones: null,
                     });
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
@@ -10209,18 +10210,21 @@ class N88_RFQ_Admin {
                     var supplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[0];
                     var setSupplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[1];
                     
-                    // Auto-select tab; when Action Required (unread operator messages or operator submitted CAD): Mission Spec and auto-expand Review and Message
+                    // Auto-select tab: CAD/messages pending → Step 2; CAD released or video submitted → Step 3; payment approved → Step 1; else bids/rfq/details
                     React.useEffect(function() {
                         if (itemState.loading) return;
-                        // After designer requests CAD revision or approves CAD, stay on Mission Spec (details); don't switch to Proposals
                         if (skipNextTabSwitchFromCadActionRef.current) {
                             skipNextTabSwitchFromCadActionRef.current = false;
                             return;
                         }
                         var cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].indexOf(String(itemState.cad_status || '')) !== -1);
+                        var paymentApproved = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received');
+                        var cadReleasedToSupplier = !!(itemState.cad_released_to_supplier_at && String(itemState.cad_released_to_supplier_at).trim());
+                        var hasPrototypeVideoSubmitted = !!(itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) || (itemState.prototype_status === 'submitted');
                         if (itemState.has_unread_operator_messages || cadPendingDesignerReview) {
-                            setActiveTab('details'); // Mission Spec (Review and Message / CAD)
-                            setShowDesignerMessageForm(true); // Auto-expand when operator sent CAD or message
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(1); // Step 2: Technical Review (Review and Message / CAD)
+                            setShowDesignerMessageForm(true);
                             if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
                             if (cadPendingDesignerReview) {
                                 setTimeout(function() {
@@ -10230,14 +10234,24 @@ class N88_RFQ_Admin {
                             }
                             return;
                         }
-                        if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
-                            setActiveTab('bids'); // Auto-select bids tab in State C
-                        } else if (itemState.has_rfq) {
-                            setActiveTab('rfq'); // Auto-select RFQ tab in State B
-                        } else {
-                            setActiveTab('details'); // Default to details tab in State A
+                        if (cadReleasedToSupplier || hasPrototypeVideoSubmitted) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(2); // Step 3: Prototype Video (operator sent CAD to supplier, or supplier submitted video)
+                            return;
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status]);
+                        if (paymentApproved) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(0); // Step 1: show Payment Confirmed / CAD drafting
+                            return;
+                        }
+                        if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
+                            setActiveTab('bids');
+                        } else if (itemState.has_rfq) {
+                            setActiveTab('rfq');
+                        } else {
+                            setActiveTab('details');
+                        }
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -10491,7 +10505,7 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
                             });
                             return;
                         }
@@ -10516,7 +10530,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
                             });
                             return;
                         }
@@ -10561,6 +10575,7 @@ class N88_RFQ_Admin {
                                     prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
                                     prototype_submission: data.data.prototype_submission || null,
                                     direction_keyword_ids: data.data.direction_keyword_ids || null,
+                                    workflow_milestones: data.data.workflow_milestones || null,
                                     loading: false,
                                 });
                                 // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
@@ -10579,14 +10594,14 @@ class N88_RFQ_Admin {
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
                             });
                         });
                     };
@@ -10681,8 +10696,9 @@ class N88_RFQ_Admin {
                             .then(function(data) {
                                 if (data.success) {
                                     if (loadDesignerMessages) loadDesignerMessages();
-                                    skipNextTabSwitchFromCadActionRef.current = true; // stay on Mission Spec after approve CAD
-                                    setActiveTab('details');
+                                    skipNextTabSwitchFromCadActionRef.current = true; // stay on Workflow Step 2 after approve CAD
+                                    setActiveTab('timeline');
+                                    setSelectedStepIndex(1);
                                     setShowDesignerMessageForm(true);
                                     if (updateLayout && item && item.id) updateLayout(item.id, { cad_status: 'approved' }); // so item card shows Pending Prototype Video
                                     fetchItemState();
@@ -12431,17 +12447,14 @@ class N88_RFQ_Admin {
                                                 }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
                                             ) : null,
                                             
-                                            // Commit 2.3.9.1C-a: Message Operator Section - allow CAD flow too
+                                            // Commit 2.3.9.1C-a: Review and Message moved to Workflow Step 2 — Mission Spec shows only redirect (full box hidden)
                                             (itemState.has_rfq || itemState.has_prototype_payment) ? React.createElement('div', {
                                                 style: {
                                                     marginBottom: '24px',
                                                 }
                                             },
-                                                !showDesignerMessageForm ? React.createElement('button', {
-                                                    onClick: function() {
-                                                        setShowDesignerMessageForm(true);
-                                                        loadDesignerMessages();
-                                                    },
+                                                React.createElement('button', {
+                                                    onClick: function() { setActiveTab('timeline'); setSelectedStepIndex(1); setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
                                                     style: {
                                                         width: '100%',
                                                         padding: '12px',
@@ -12456,490 +12469,7 @@ class N88_RFQ_Admin {
                                                     },
                                                     onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
                                                     onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
-                                                }, '\uD83C\uDFA7 Support') : React.createElement('div', {
-                                                    style: {
-                                                        border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
-                                                        padding: '16px',
-                                                        backgroundColor: '#111111',
-                                                    }
-                                                },
-                                                    React.createElement('div', {
-                                                        style: {
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center',
-                                                            marginBottom: '16px',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        fontSize: '14px',
-                                                                fontWeight: '600',
-                                                                color: darkText,
-                                                            }
-                                                        }, '\uD83C\uDFA7 Review and Message'),
-                                                        React.createElement('button', {
-                                                            onClick: function() { setShowDesignerMessageForm(false); },
-                                                            style: {
-                                                                background: 'none',
-                                                                border: 'none',
-                                                                color: darkText,
-                                                                fontSize: '20px',
-                                                                cursor: 'pointer',
-                                                                padding: '0',
-                                                                width: '24px',
-                                                                height: '24px',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                            }
-                                                        }, '×')
-                                                    ),
-                                                    // WhatsApp-Style Chat Messages
-                                                    React.createElement('div', {
-                                                        id: 'n88-designer-messages-container-admin',
-                                                        style: {
-                                                            height: '400px',
-                                                            overflowY: 'auto',
-                                                            padding: '16px',
-                                                            backgroundColor: '#0a0a0a',
-                                                            borderRadius: '4px',
-                                                            marginBottom: '12px',
-                                                            border: '1px solid ' + darkBorder,
-                                                            display: 'flex',
-                                                            flexDirection: 'column',
-                                                        }
-                                                    },
-                                                        // CAD Review - inside chat area when CAD received from operator
-                                                        itemState.has_prototype_payment &&
-                                                            itemState.prototype_payment_status === 'marked_received' &&
-                                                            itemState.cad_current_version &&
-                                                            Number(itemState.cad_current_version) > 0 &&
-                                                            (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
-                                                            style: {
-                                                                marginBottom: '12px',
-                                                                padding: '16px',
-                                                                backgroundColor: '#0a0a14',
-                                                                border: '1px solid #333',
-                                                                borderRadius: '4px',
-                                                                flexShrink: 0,
-                                                            }
-                                                        },
-                                                            React.createElement('div', {
-                                                                style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' }
-                                                            }, 'CAD Review'),
-                                                            React.createElement('div', {
-                                                                style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' }
-                                                            },
-                                                                React.createElement('span', null, 'Current CAD: '),
-                                                                React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
-                                                                itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', {
-                                                                    style: { marginLeft: '10px', color: '#00ff00' }
-                                                                }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
-                                                            ),
-                                                            React.createElement('div', {
-                                                                style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' }
-                                                            },
-                                                                React.createElement('span', null, 'Rounds Used: '),
-                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
-                                                                React.createElement('span', null, ' of '),
-                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
-                                                                ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', {
-                                                                    style: { marginLeft: '10px', color: '#ffaa00' }
-                                                                }, 'Additional fee required (future commit)') : null
-                                                            ),
-                                                            itemState.cad_status !== 'approved' ? (
-                                                                !showRevisionUpload ? React.createElement('div', {
-                                                                    style: { display: 'flex', gap: '10px' }
-                                                                },
-                                                                    React.createElement('button', {
-                                                                        type: 'button',
-                                                                        onClick: function() { setShowRevisionUpload(true); },
-                                                                        disabled: isCadActionBusy,
-                                                                        style: {
-                                                                            flex: 1,
-                                                                            padding: '10px 12px',
-                                                                            backgroundColor: '#111111',
-                                                                            border: '1px solid #666',
-                                                                            borderRadius: '4px',
-                                                                            color: '#fff',
-                                                                            fontFamily: 'monospace',
-                                                                            fontSize: '12px',
-                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
-                                                                            opacity: isCadActionBusy ? 0.6 : 1,
-                                                                        }
-                                                                    }, 'Submit revised CAD'),
-                                                                    React.createElement('button', {
-                                                                        type: 'button',
-                                                                        onClick: approveCad,
-                                                                        disabled: isCadActionBusy,
-                                                                        style: {
-                                                                            flex: 1,
-                                                                            padding: '10px 12px',
-                                                                            backgroundColor: '#003300',
-                                                                            border: '1px solid #00ff00',
-                                                                            borderRadius: '4px',
-                                                                            color: '#00ff00',
-                                                                            fontFamily: 'monospace',
-                                                                            fontSize: '12px',
-                                                                            fontWeight: 700,
-                                                                            cursor: isCadActionBusy ? 'not-allowed' : 'pointer',
-                                                                            opacity: isCadActionBusy ? 0.6 : 1,
-                                                                        }
-                                                                    }, 'Approve CAD')
-                                                                ) : React.createElement('div', {
-                                                                    style: {
-                                                                        padding: '12px',
-                                                                        backgroundColor: '#0a0a0a',
-                                                                        border: '1px solid #333',
-                                                                        borderRadius: '4px',
-                                                                    }
-                                                                },
-                                                                    React.createElement('div', {
-                                                                        style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' }
-                                                                    }, 'Upload Files for Revision Request'),
-                                                                    React.createElement('div', {
-                                                                        onDrop: function(e) {
-                                                                            e.preventDefault();
-                                                                            var files = Array.from(e.dataTransfer.files).filter(function(f) {
-                                                                                return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
-                                                                            });
-                                                                            setRevisionFiles(function(prev) { return prev.concat(files); });
-                                                                        },
-                                                                        onDragOver: function(e) { e.preventDefault(); },
-                                                                        onClick: function() {
-                                                                            var input = document.createElement('input');
-                                                                            input.type = 'file';
-                                                                            input.multiple = true;
-                                                                            input.accept = '.pdf,.jpg,.jpeg,.png';
-                                                                            input.onchange = function(e) {
-                                                                                var files = Array.from(e.target.files || []).filter(function(f) {
-                                                                                    return f.type === 'application/pdf' || f.type.indexOf('image/') === 0;
-                                                                                });
-                                                                                setRevisionFiles(function(prev) { return prev.concat(files); });
-                                                                            };
-                                                                            input.click();
-                                                                        },
-                                                                        style: {
-                                                                            border: '2px dashed #666',
-                                                                            padding: '20px',
-                                                                            textAlign: 'center',
-                                                                            marginBottom: '12px',
-                                                                            cursor: 'pointer',
-                                                                            color: '#999',
-                                                                            fontSize: '11px',
-                                                                        }
-                                                                    }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
-                                                                    revisionFiles.length > 0 ? React.createElement('div', {
-                                                                        style: { marginBottom: '12px' }
-                                                                    }, revisionFiles.map(function(file, idx) {
-                                                                        return React.createElement('div', {
-                                                                            key: idx,
-                                                                            style: {
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'space-between',
-                                                                                padding: '6px 10px',
-                                                                                backgroundColor: '#1a1a1a',
-                                                                                border: '1px solid #333',
-                                                                                borderRadius: '4px',
-                                                                                marginBottom: '6px',
-                                                                                fontSize: '11px',
-                                                                                color: '#fff',
-                                                                            }
-                                                                        },
-                                                                            React.createElement('span', null, file.name),
-                                                                            React.createElement('button', {
-                                                                                type: 'button',
-                                                                                onClick: function() {
-                                                                                    setRevisionFiles(function(prev) {
-                                                                                        return prev.filter(function(_, i) { return i !== idx; });
-                                                                                    });
-                                                                                },
-                                                                                style: {
-                                                                                    background: 'none',
-                                                                                    border: 'none',
-                                                                                    color: '#ff6666',
-                                                                                    cursor: 'pointer',
-                                                                                    fontSize: '14px',
-                                                                                    padding: '0 4px',
-                                                                                }
-                                                                            }, '×')
-                                                                        );
-                                                                    })) : null,
-                                                                    React.createElement('div', {
-                                                                        style: { display: 'flex', gap: '8px' }
-                                                                    },
-                                                                        React.createElement('button', {
-                                                                            type: 'button',
-                                                                            onClick: function() {
-                                                                                setShowRevisionUpload(false);
-                                                                                setRevisionFiles([]);
-                                                                            },
-                                                                            style: {
-                                                                                flex: 1,
-                                                                                padding: '8px 12px',
-                                                                                backgroundColor: '#333',
-                                                                                border: '1px solid #666',
-                                                                                borderRadius: '4px',
-                                                                                color: '#fff',
-                                                                                fontFamily: 'monospace',
-                                                                                fontSize: '11px',
-                                                                                cursor: 'pointer',
-                                                                            }
-                                                                        }, 'Cancel'),
-                                                                        React.createElement('button', {
-                                                                            type: 'button',
-                                                                            onClick: function() { requestCadRevision(revisionFiles); },
-                                                                            disabled: isCadActionBusy || revisionFiles.length === 0,
-                                                                            style: {
-                                                                                flex: 1,
-                                                                                padding: '8px 12px',
-                                                                                backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111',
-                                                                                border: '1px solid #666',
-                                                                                borderRadius: '4px',
-                                                                                color: '#fff',
-                                                                                fontFamily: 'monospace',
-                                                                                fontSize: '11px',
-                                                                                cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer',
-                                                                                opacity: revisionFiles.length === 0 ? 0.5 : 1,
-                                                                            }
-                                                                        }, isCadActionBusy ? 'Submitting...' : 'Submit revised CAD')
-                                                                    )
-                                                                )
-                                                            ) : null
-                                                        ) : null,
-                                                        isLoadingDesignerMessages ? React.createElement('div', {
-                                                            style: {
-                                                                textAlign: 'center',
-                                                                color: '#666',
-                                                                fontSize: '12px',
-                                                                padding: '20px',
-                                                                margin: 'auto',
-                                                            }
-                                                        }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', {
-                                                            style: {
-                                                                textAlign: 'center',
-                                                                color: '#666',
-                                                                fontSize: '12px',
-                                                                padding: '20px',
-                                                                margin: 'auto',
-                                                            }
-                                                        }, 'No messages yet. Start the conversation!') : (function() {
-                                                            // Sort messages chronologically
-                                                            var sortedMessages = designerMessages.slice().sort(function(a, b) {
-                                                                return new Date(a.created_at) - new Date(b.created_at);
-                                                            });
-                                                            return sortedMessages.map(function(msg, idx) {
-                                                                var isDesigner = msg.sender_role === 'designer';
-                                                                var senderName = isDesigner ? 'You' : 'Operator';
-                                                                
-                                                                var date = new Date(msg.created_at);
-                                                                var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                                                                var rawText = msg.message_text || '';
-
-                                                                // Commit 2.3.9.2A: Render CAD upload messages and revision request messages with clickable file cards
-                                                                var isCadUploadMessage = !isDesigner &&
-                                                                    rawText.indexOf('CAD v') !== -1 &&
-                                                                    rawText.indexOf('uploaded') !== -1 &&
-                                                                    rawText.indexOf('Files:') !== -1;
-                                                                
-                                                                var isRevisionRequestMessage = isDesigner &&
-                                                                    rawText.indexOf('Revision requested') !== -1 &&
-                                                                    rawText.indexOf('Files:') !== -1;
-
-                                                                var renderedText = rawText;
-                                                                var cadFiles = [];
-
-                                                                if (isCadUploadMessage || isRevisionRequestMessage) {
-                                                                    var lines = rawText.split('\n');
-                                                                    var filesStartIndex = -1;
-                                                                    for (var li = 0; li < lines.length; li++) {
-                                                                        if ((lines[li] || '').trim() === 'Files:') {
-                                                                            filesStartIndex = li;
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                    if (filesStartIndex >= 0) {
-                                                                        renderedText = lines.slice(0, filesStartIndex).join('\n');
-                                                                        var fileLines = lines.slice(filesStartIndex + 1);
-                                                                        for (var fi = 0; fi < fileLines.length; fi++) {
-                                                                            var line = (fileLines[fi] || '').trim();
-                                                                            // Parse: "- filename.ext: https://..."
-                                                                            if (line.indexOf('- ') === 0) {
-                                                                                var withoutDash = line.slice(2);
-                                                                                var sepIdx = withoutDash.indexOf(': ');
-                                                                                if (sepIdx > 0) {
-                                                                                    var fileName = withoutDash.slice(0, sepIdx).trim();
-                                                                                    var fileUrl = withoutDash.slice(sepIdx + 2).trim();
-                                                                                    if (fileUrl.indexOf('http://') === 0 || fileUrl.indexOf('https://') === 0) {
-                                                                                        var ext = '';
-                                                                                        if (fileName.indexOf('.') !== -1) {
-                                                                                            ext = fileName.split('.').pop().toLowerCase();
-                                                                                        }
-                                                                                        cadFiles.push({ name: fileName, url: fileUrl, ext: ext });
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                                
-                                                                return React.createElement('div', {
-                                                                    key: idx,
-                                                                    style: {
-                                                                        marginBottom: '12px',
-                                                                        display: 'flex',
-                                                                        justifyContent: isDesigner ? 'flex-end' : 'flex-start',
-                                                                        width: '100%',
-                                                                    }
-                                                                },
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            maxWidth: '75%',
-                                                                            padding: '10px 14px',
-                                                                            backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a',
-                                                                            border: '1px solid ' + (isDesigner ? greenAccent : '#333'),
-                                                                            borderRadius: isDesigner ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-                                                                            fontSize: '12px',
-                                                                            color: '#fff',
-                                                                            wordWrap: 'break-word',
-                                                                            whiteSpace: 'pre-wrap',
-                                                                        }
-                                                                    },
-                                                                        React.createElement('div', {
-                                                                            style: {
-                                                                                fontSize: '10px',
-                                                                                fontWeight: '600',
-                                                                                color: isDesigner ? greenAccent : '#00aa00',
-                                                                                marginBottom: '4px',
-                                                                            }
-                                                                        }, senderName),
-                                                                        React.createElement('div', {
-                                                                            style: {
-                                                                                fontSize: '12px',
-                                                                                lineHeight: '1.4',
-                                                                                marginBottom: '4px',
-                                                                            }
-                                                                        },
-                                                                            React.createElement('div', null, renderedText),
-                                                                            ((isCadUploadMessage || isRevisionRequestMessage) && cadFiles.length > 0) ? React.createElement('div', {
-                                                                                style: {
-                                                                                    marginTop: '12px',
-                                                                                    paddingTop: '12px',
-                                                                                    borderTop: '1px solid #333',
-                                                                                    display: 'flex',
-                                                                                    flexDirection: 'column',
-                                                                                    gap: '8px',
-                                                                                }
-                                                                            }, cadFiles.map(function(file, fidx) {
-                                                                                var isPdf = file.ext === 'pdf';
-                                                                                var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
-                                                                                var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
-
-                                                                                return React.createElement('a', {
-                                                                                    key: fidx,
-                                                                                    href: file.url,
-                                                                                    target: '_blank',
-                                                                                    rel: 'noopener noreferrer',
-                                                                                    style: {
-                                                                                        display: 'flex',
-                                                                                        alignItems: 'center',
-                                                                                        gap: '10px',
-                                                                                        padding: '8px 12px',
-                                                                                        backgroundColor: '#1a1a1a',
-                                                                                        border: '1px solid #333',
-                                                                                        borderRadius: '4px',
-                                                                                        textDecoration: 'none',
-                                                                                        color: '#fff',
-                                                                                        cursor: 'pointer',
-                                                                                    }
-                                                                                }, 
-                                                                                    React.createElement('span', { style: { fontSize: '18px', width: '24px', textAlign: 'center' } }, icon),
-                                                                                    React.createElement('span', { style: { flex: 1, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, file.name),
-                                                                                    React.createElement('span', { style: { fontSize: '10px', color: greenAccent } }, 'Open →')
-                                                                                );
-                                                                            })) : null
-                                                                        ),
-                                                                        React.createElement('div', {
-                                                                            style: {
-                                                                                fontSize: '9px',
-                                                                                color: '#666',
-                                                                                textAlign: 'right',
-                                                                            }
-                                                                        }, dateStr)
-                                                                    )
-                                                                );
-                                                            });
-                                                        })()
-                                                    ),
-                                                    // Message Input at Bottom
-                                                    React.createElement('form', {
-                                                        onSubmit: sendDesignerMessage,
-                                                        style: {
-                                                            display: 'flex',
-                                                            gap: '8px',
-                                                            alignItems: 'flex-end',
-                                                        }
-                                                    },
-                                                        React.createElement('textarea', {
-                                                            value: designerMessageText,
-                                                            onChange: function(e) { setDesignerMessageText(e.target.value); },
-                                                            required: true,
-                                                            rows: 2,
-                                                            style: {
-                                                                flex: 1,
-                                                                padding: '10px 12px',
-                                                                backgroundColor: '#000',
-                                                                color: '#fff',
-                                                                border: '1px solid ' + darkBorder,
-                                                                borderRadius: '20px',
-                                                        fontFamily: 'monospace',
-                                                                fontSize: '12px',
-                                                                resize: 'none',
-                                                                minHeight: '40px',
-                                                                maxHeight: '100px',
-                                                            },
-                                                            placeholder: 'Type your message here...',
-                                                            onKeyDown: function(e) {
-                                                                if (e.key === 'Enter' && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    if (designerMessageText.trim()) {
-                                                                        sendDesignerMessage(e);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }),
-                                                        React.createElement('button', {
-                                                            type: 'submit',
-                                                            disabled: isSendingDesignerMessage || !designerMessageText.trim(),
-                                                            style: {
-                                                                padding: '10px 20px',
-                                                                backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent,
-                                                                color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000',
-                                                                border: 'none',
-                                                                borderRadius: '20px',
-                                                                fontFamily: 'monospace',
-                                                                fontSize: '12px',
-                                                                fontWeight: '600',
-                                                                cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer',
-                                                                whiteSpace: 'nowrap',
-                                                            },
-                                                            onMouseOver: function(e) {
-                                                                if (!isSendingDesignerMessage && designerMessageText.trim()) {
-                                                                    e.target.style.backgroundColor = '#00cc00';
-                                                                }
-                                                            },
-                                                            onMouseOut: function(e) {
-                                                                if (!isSendingDesignerMessage && designerMessageText.trim()) {
-                                                                    e.target.style.backgroundColor = greenAccent;
-                                                                }
-                                                            }
-                                                        }, isSendingDesignerMessage ? 'Sending...' : 'Send')
-                                                    )
-                                                )
-                                            ) : null,
+                                                }, 'Open Workflow \u2192 Step 2 (Review and Message)')) : null,
                                             // Item Title
                                             React.createElement('div', {
                                                 style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
@@ -14066,8 +13596,11 @@ class N88_RFQ_Admin {
                                                     onMouseOut: function(e) { e.target.style.backgroundColor = '#ff8800'; }
                                                 }, '[ View Payment Instructions ]')
                                             ) : null,
-                                            // Commit 2.3.9.2B-D: Prototype Section (Expandable)
-                                            itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' ? React.createElement('div', {
+                                            // Commit 2.3.9.2B-D: Prototype Section — moved to Workflow tab (Step 1: Payment Confirmed; Step 3: Prototype Video). Show redirect in Bids.
+                                            (itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', {
+                                                style: { marginBottom: '24px', padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }
+                                            }, React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } }, 'Payment Confirmed and Prototype Video are in Workflow tab \u2192 Step 1 & Step 3.'), React.createElement('button', { type: 'button', onClick: function() { setActiveTab('timeline'); setSelectedStepIndex(itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? 2 : 0); }, style: { padding: '8px 16px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' } }, 'Open Workflow')) : null,
+                                            (false) ? React.createElement('div', {
                                                 style: {
                                                     marginBottom: '24px',
                                                     border: '2px solid #00ff00',
@@ -15334,13 +14867,175 @@ class N88_RFQ_Admin {
                                                         }
                                                     },
                                                         React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '12px' } }, s.step_number + '. ' + s.label),
-                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
+                                                        (s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } },
+                                                            itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '· CAD requested — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.cad_requested_at)) : null,
+                                                            itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '· Payment sent — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.payment_sent_at)) : null,
+                                                            itemState.workflow_milestones.step1.payment_approved_at ? React.createElement('div', { key: 'approved', style: { marginBottom: '2px' } }, '· Payment approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.payment_approved_at)) : null,
+                                                            (!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment) ? React.createElement('div', { style: { fontStyle: 'italic', opacity: 0.8 } }, '· Design & specifications in progress') : null
+                                                        ) : null,
+                                                        (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', {
+                                                            style: { marginTop: '12px', padding: '16px', backgroundColor: '#001100', border: '1px solid ' + greenAccent, borderRadius: '4px' }
+                                                        }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.')) : null,
+                                                        s.step_number !== 1 ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
                                                             '· State: ',
                                                             React.createElement('span', { style: { color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText } }, statusLabel)
-                                                        ),
+                                                        ) : null,
                                                         s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + s.started_at) : null,
                                                         s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + s.completed_at) : null,
-                                                        s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Expected by: ' + s.expected_by) : null,
+                                                        s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Expected by: ' + s.expected_by) : null,
+                                                        (s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px', marginBottom: '8px' } },
+                                                            (itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video submitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at))) : null,
+                                                            itemState.workflow_milestones.step3.changes_requested_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Changes requested — ', React.createElement('span', { style: { color: '#ffaa00' } }, itemState.workflow_milestones.step3.changes_requested_at)) : null,
+                                                            itemState.workflow_milestones.step3.video_resubmitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video resubmitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_resubmitted_at)) : null,
+                                                            itemState.workflow_milestones.step3.video_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_approved_at)) : null
+                                                        ) : null,
+                                                        (s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                            React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Prototype Video'),
+                                                            itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
+                                                            itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px' } }, React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px' } }, link.provider || 'Link')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null) : null,
+                                                            itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype_video'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
+                                                                if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
+                                                                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                    var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                                    if (!nonce) { alert('Nonce missing for keyword phrases.'); return; }
+                                                                    var formData = new FormData();
+                                                                    formData.append('action', 'n88_get_keyword_phrases');
+                                                                    formData.append('keyword_ids', JSON.stringify(itemState.direction_keyword_ids));
+                                                                    formData.append('_ajax_nonce', nonce);
+                                                                    fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(res) { return res.json(); }).then(function(data) {
+                                                                        if (data.success && data.data) {
+                                                                            var phrasesByKeyword = {}; if (data.data.phrases_by_keyword) { Object.keys(data.data.phrases_by_keyword).forEach(function(kid) { phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid]; }); }
+                                                                            setAvailablePhrases(phrasesByKeyword);
+                                                                            var keywordNamesObj = {}; if (data.data.keyword_names) { Object.keys(data.data.keyword_names).forEach(function(kid) { keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid]; }); }
+                                                                            setKeywordNames(keywordNamesObj);
+                                                                            var initialPacket = {}; itemState.direction_keyword_ids.forEach(function(kid) { initialPacket[parseInt(kid)] = { status: 'satisfied', severity: null, phrase_ids: [] }; });
+                                                                            setFeedbackPacket(initialPacket); setTotalPhrasesSelected(0); setShowRequestChangesModal(true);
+                                                                        } else { alert('Failed to load keyword data'); }
+                                                                    }).catch(function(err) { console.error(err); alert('Error loading keyword data'); });
+                                                                } else { setShowRequestChangesModal(true); }
+                                                            }, style: { padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Request Changes')) : null,
+                                                            itemState.prototype_status === 'approved' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginTop: '8px' } }, '\u2713 Prototype approved (v' + (itemState.prototype_approved_version || itemState.prototype_current_version) + ')') : null
+                                                        ) : null,
+                                                        (s.step_number === 2 && itemState.workflow_milestones && itemState.workflow_milestones.step2) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px', marginBottom: '8px' } },
+                                                            itemState.workflow_milestones.step2.cad_received_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD file received — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_received_at)) : null,
+                                                            itemState.workflow_milestones.step2.revision_submitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision submitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.revision_submitted_at)) : null,
+                                                            itemState.workflow_milestones.step2.revision_sent_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision sent (operator) — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.revision_sent_at)) : null,
+                                                            itemState.workflow_milestones.step2.cad_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_approved_at)) : null,
+                                                            itemState.workflow_milestones.step2.cad_released_to_supplier_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Final CAD file submitted to supplier — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_released_to_supplier_at)) : null
+                                                        ) : null,
+                                                        (s.step_number === 2 && (itemState.has_rfq || itemState.has_prototype_payment)) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                            !showDesignerMessageForm ? React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() { setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
+                                                                style: { width: '100%', padding: '12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' }
+                                                            }, 'Open Review and Message (CAD \u00B7 Messages \u00B7 Support)') : React.createElement('div', {
+                                                                style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' }
+                                                            },
+                                                                React.createElement('div', {
+                                                                    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }
+                                                                },
+                                                                    React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, '\uD83C\uDFA7 Review and Message'),
+                                                                    React.createElement('button', {
+                                                                        onClick: function() { setShowDesignerMessageForm(false); },
+                                                                        style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                                                                    }, '×')
+                                                                ),
+                                                                React.createElement('div', {
+                                                                    id: 'n88-designer-messages-container-admin',
+                                                                    style: { height: '400px', overflowY: 'auto', padding: '16px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder, display: 'flex', flexDirection: 'column' }
+                                                                },
+                                                                    itemState.has_prototype_payment &&
+                                                                        itemState.prototype_payment_status === 'marked_received' &&
+                                                                        itemState.cad_current_version &&
+                                                                        Number(itemState.cad_current_version) > 0 &&
+                                                                        (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
+                                                                        style: { marginBottom: '12px', padding: '16px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }
+                                                                    },
+                                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' } }, 'CAD Review'),
+                                                                        React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' } },
+                                                                            React.createElement('span', null, 'Current CAD: '),
+                                                                            React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
+                                                                            itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', { style: { marginLeft: '10px', color: '#00ff00' } }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
+                                                                        ),
+                                                                        React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' } },
+                                                                            React.createElement('span', null, 'Rounds Used: '),
+                                                                            React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
+                                                                            React.createElement('span', null, ' of '),
+                                                                            React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
+                                                                            ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', { style: { marginLeft: '10px', color: '#ffaa00' } }, 'Additional fee required (future commit)') : null
+                                                                        ),
+                                                                        itemState.cad_status !== 'approved' ? (
+                                                                            !showRevisionUpload ? React.createElement('div', { style: { display: 'flex', gap: '10px' } },
+                                                                                React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(true); }, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '12px', cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Submit revised CAD'),
+                                                                                React.createElement('button', { type: 'button', onClick: approveCad, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#003300', border: '1px solid #00ff00', borderRadius: '4px', color: '#00ff00', fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Approve CAD')
+                                                                            ) : React.createElement('div', { style: { padding: '12px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } },
+                                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Upload Files for Revision Request'),
+                                                                                React.createElement('div', {
+                                                                                    onDrop: function(e) { e.preventDefault(); var files = Array.from(e.dataTransfer.files).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); },
+                                                                                    onDragOver: function(e) { e.preventDefault(); },
+                                                                                    onClick: function() { var input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.jpg,.jpeg,.png'; input.onchange = function(e) { var files = Array.from(e.target.files || []).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); }; input.click(); },
+                                                                                    style: { border: '2px dashed #666', padding: '20px', textAlign: 'center', marginBottom: '12px', cursor: 'pointer', color: '#999', fontSize: '11px' }
+                                                                                }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
+                                                                                revisionFiles.length > 0 ? React.createElement('div', { style: { marginBottom: '12px' } }, revisionFiles.map(function(file, idx) {
+                                                                                    return React.createElement('div', { key: idx, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px', marginBottom: '6px', fontSize: '11px', color: '#fff' } },
+                                                                                        React.createElement('span', null, file.name),
+                                                                                        React.createElement('button', { type: 'button', onClick: function() { setRevisionFiles(function(prev) { return prev.filter(function(_, i) { return i !== idx; }); }); }, style: { background: 'none', border: 'none', color: '#ff6666', cursor: 'pointer', fontSize: '14px', padding: '0 4px' } }, '×')
+                                                                                    );
+                                                                                })) : null,
+                                                                                React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+                                                                                    React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(false); setRevisionFiles([]); }, style: { flex: 1, padding: '8px 12px', backgroundColor: '#333', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: 'pointer' } }, 'Cancel'),
+                                                                                    React.createElement('button', { type: 'button', onClick: function() { requestCadRevision(revisionFiles); }, disabled: isCadActionBusy || revisionFiles.length === 0, style: { flex: 1, padding: '8px 12px', backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer', opacity: revisionFiles.length === 0 ? 0.5 : 1 } }, isCadActionBusy ? 'Submitting...' : 'Submit revised CAD')
+                                                                                )
+                                                                            )
+                                                                        ) : null
+                                                                    ) : null,
+                                                                    isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'No messages yet. Start the conversation!') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
+                                                                        var isD = msg.sender_role === 'designer';
+                                                                        return React.createElement('div', { key: idx, style: { marginBottom: '12px', display: 'flex', justifyContent: isD ? 'flex-end' : 'flex-start', width: '100%' } },
+                                                                            React.createElement('div', { style: { maxWidth: '75%', padding: '10px 14px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: isD ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: '12px', color: '#fff', wordWrap: 'break-word', whiteSpace: 'pre-wrap' } },
+                                                                                React.createElement('div', { style: { fontSize: '10px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '4px' } }, isD ? 'You' : 'Operator'),
+                                                                                React.createElement('div', { style: { fontSize: '12px', lineHeight: '1.4', marginBottom: '4px' } }, (function() {
+                                                                                    var txt = (msg.message_text || '').substring(0, 800);
+                                                                                    var re = /(https?:\/\/[^\s<>"\']+)/gi; var m; var last = 0; var parts = [];
+                                                                                    while ((m = re.exec(txt)) !== null) {
+                                                                                        if (m.index > last) parts.push({ t: 'text', v: txt.substring(last, m.index) });
+                                                                                        var url = m[0]; var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+                                                                                        parts.push({ t: isImg ? 'image' : 'file', v: url });
+                                                                                        last = re.lastIndex;
+                                                                                    }
+                                                                                    if (last < txt.length) parts.push({ t: 'text', v: txt.substring(last) });
+                                                                                    var children = [];
+                                                                                    for (var i = 0; i < parts.length; i++) {
+                                                                                        var p = parts[i];
+                                                                                        if (p.t === 'text') children.push(p.v);
+                                                                                        else if (p.t === 'image') children.push(React.createElement('span', { key: 'msg-url-' + idx + '-' + i, style: { display: 'inline-block', marginTop: '6px', marginBottom: '4px' } }, React.createElement('img', { src: p.v, alt: '', style: { maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', borderRadius: '4px', border: '1px solid ' + darkBorder }, onError: function(e) { e.target.style.display = 'none'; var n = e.target.nextSibling; if (n) n.style.display = 'block'; } }), React.createElement('a', { href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', marginTop: '4px', display: 'none' } }, 'View image \u2192')));
+                                                                                        else children.push(React.createElement('a', { key: 'msg-file-' + idx + '-' + i, href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: '4px', marginRight: '8px' } }, 'View file \u2192'));
+                                                                                    }
+                                                                                    return children.length ? React.createElement(React.Fragment, null, children) : txt;
+                                                                                })()),
+                                                                                React.createElement('div', { style: { fontSize: '9px', color: '#666', textAlign: 'right' } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
+                                                                            )
+                                                                        );
+                                                                    }),
+                                                                    React.createElement('form', { onSubmit: sendDesignerMessage, style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
+                                                                        React.createElement('textarea', {
+                                                                            value: designerMessageText,
+                                                                            onChange: function(e) { setDesignerMessageText(e.target.value); },
+                                                                            required: true,
+                                                                            rows: 2,
+                                                                            style: { flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' },
+                                                                            placeholder: 'Type your message here...',
+                                                                            onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }
+                                                                        }),
+                                                                        React.createElement('button', {
+                                                                            type: 'submit',
+                                                                            disabled: isSendingDesignerMessage || !designerMessageText.trim(),
+                                                                            style: { padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }
+                                                                        }, isSendingDesignerMessage ? 'Sending...' : 'Send')
+                                                                    )
+                                                                )
+                                                            )
+                                                        ) : null,
                                                         (function() {
                                                             var byStep = timelineData.evidence_by_step || {};
                                                             var evidenceList = byStep[s.step_id] || byStep[String(s.step_id)] || [];
@@ -15493,15 +15188,7 @@ class N88_RFQ_Admin {
                                                         ) : null
                                                     );
                                                 })() : null,
-                                                timelineData.show_prototype_mini ? React.createElement('div', {
-                                                    style: { marginTop: '20px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', fontSize: '11px', color: darkText }
-                                                },
-                                                    React.createElement('div', { style: { marginBottom: '8px', color: greenAccent } }, 'Prototype Mini-Timeline (visual only)'),
-                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-                                                        'Requested', '→', 'Paid', '→', 'CAD Approved', '→', 'Prototype Submitted', '→', 'Approved'
-                                                    ),
-                                                    React.createElement('div', { style: { marginTop: '6px', opacity: 0.8, fontSize: '10px' } }, 'Appears after prototype payment evidence is cleared.')
-                                                ) : null
+                                                null
                                             ) : null,
                                             evidenceBlockedModal ? React.createElement('div', {
                                                 style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 20000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }
@@ -15935,6 +15622,140 @@ class N88_RFQ_Admin {
                                                 );
                                             })()
                                         )
+                                    )
+                                )
+                            )
+                        );
+                    }
+                    
+                    // Request Changes Modal at fragment level so it works from Workflow Step 3 (timeline tab) as well as Bids
+                    if (showRequestChangesModal && itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
+                        fragmentChildren.push(
+                            React.createElement('div', {
+                                key: 'request-changes-modal',
+                                style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', zIndex: 10000003, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' },
+                                onClick: function() { setShowRequestChangesModal(false); }
+                            },
+                                React.createElement('div', {
+                                    style: { backgroundColor: '#000', border: '2px solid #ff8800', borderRadius: '8px', padding: '24px', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', width: '100%' },
+                                    onClick: function(e) { e.stopPropagation(); }
+                                },
+                                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' } },
+                                        React.createElement('h2', { style: { fontSize: '18px', fontWeight: '600', color: '#ff8800', margin: 0 } }, 'Request Changes - Feedback Packet'),
+                                        React.createElement('button', { onClick: function() { setShowRequestChangesModal(false); }, style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer', padding: 0, width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')
+                                    ),
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '20px' } }, 'Review each keyword and select status. For keywords needing adjustment, select up to 3 phrases. Maximum 18 phrases total.'),
+                                    React.createElement('div', { style: { marginBottom: '20px' } },
+                                        itemState.direction_keyword_ids.map(function(keywordId) {
+                                            var keywordIdNum = parseInt(keywordId);
+                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                            var phrases = availablePhrases[keywordIdNum] || [];
+                                            return React.createElement('div', {
+                                                key: keywordIdNum,
+                                                style: { marginBottom: '16px', padding: '16px', backgroundColor: '#111', border: '1px solid #333', borderRadius: '4px' }
+                                            },
+                                                React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '12px' } }, keywordNames[keywordIdNum] || ('Keyword ID: ' + keywordIdNum)),
+                                                React.createElement('div', { style: { display: 'flex', gap: '12px', marginBottom: '12px' } },
+                                                    ['satisfied', 'needs_adjustment', 'not_addressed'].map(function(status) {
+                                                        return React.createElement('label', {
+                                                            key: status,
+                                                            style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }
+                                                        },
+                                                            React.createElement('input', {
+                                                                type: 'radio',
+                                                                name: 'keyword_' + keywordIdNum + '_status',
+                                                                value: status,
+                                                                checked: keywordData.status === status,
+                                                                onChange: function() {
+                                                                    var newPacket = Object.assign({}, feedbackPacket);
+                                                                    newPacket[keywordIdNum] = { status: status, severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null, phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids };
+                                                                    setFeedbackPacket(newPacket);
+                                                                    if (status !== 'satisfied' && (!availablePhrases[keywordIdNum] || availablePhrases[keywordIdNum].length === 0)) {
+                                                                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                                        var formData = new FormData();
+                                                                        formData.append('action', 'n88_get_keyword_phrases');
+                                                                        formData.append('keyword_ids', JSON.stringify([keywordIdNum]));
+                                                                        formData.append('_ajax_nonce', nonce);
+                                                                        fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(res) { return res.json(); }).then(function(data) {
+                                                                            if (data.success && data.data && data.data.phrases_by_keyword) {
+                                                                                var phrasesByKeyword = {}; Object.keys(data.data.phrases_by_keyword).forEach(function(kid) { phrasesByKeyword[parseInt(kid)] = data.data.phrases_by_keyword[kid]; });
+                                                                                setAvailablePhrases(Object.assign({}, availablePhrases, phrasesByKeyword));
+                                                                                if (data.data.keyword_names) { var keywordNamesObj = {}; Object.keys(data.data.keyword_names).forEach(function(kid) { keywordNamesObj[parseInt(kid)] = data.data.keyword_names[kid]; }); setKeywordNames(Object.assign({}, keywordNames, keywordNamesObj)); }
+                                                                            }
+                                                                        }).catch(function(err) { console.error(err); });
+                                                                    }
+                                                                },
+                                                                style: { cursor: 'pointer' }
+                                                            }),
+                                                            React.createElement('span', null, status === 'satisfied' ? '\u2705 Satisfied' : status === 'needs_adjustment' ? '\u26A0\uFE0F Needs Adjustment' : '\u274C Not Addressed')
+                                                        );
+                                                    })
+                                                ),
+                                                keywordData.status !== 'satisfied' ? (phrases && phrases.length > 0 ? React.createElement(React.Fragment, null,
+                                                    React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '8px' } }, 'Select up to 3 phrases:'),
+                                                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                        phrases.map(function(phrase) {
+                                                            return React.createElement('label', {
+                                                                key: phrase.phrase_id,
+                                                                style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? 'pointer' : 'not-allowed', fontSize: '11px', color: '#ccc', padding: '6px', backgroundColor: keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#331100' : 'transparent', border: '1px solid ' + (keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#ff8800' : '#333'), borderRadius: '4px' }
+                                                            },
+                                                                React.createElement('input', {
+                                                                    type: 'checkbox',
+                                                                    checked: keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1,
+                                                                    onChange: function(e) {
+                                                                        var newPacket = Object.assign({}, feedbackPacket);
+                                                                        var currentPhraseIds = keywordData.phrase_ids || [];
+                                                                        if (e.target.checked) { if (currentPhraseIds.length < 3) { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.concat([phrase.phrase_id]) }; setTotalPhrasesSelected(totalPhrasesSelected + 1); } }
+                                                                        else { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }) }; setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1)); }
+                                                                        setFeedbackPacket(newPacket);
+                                                                    },
+                                                                    disabled: keywordData.phrase_ids.indexOf(phrase.phrase_id) === -1 && keywordData.phrase_ids.length >= 3
+                                                                }),
+                                                                React.createElement('span', null, phrase.phrase_text)
+                                                            );
+                                                        })
+                                                    ),
+                                                    React.createElement('div', { style: { marginTop: '12px' } },
+                                                        React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Severity:'),
+                                                        React.createElement('select', {
+                                                            value: keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix'),
+                                                            onChange: function(e) { var newPacket = Object.assign({}, feedbackPacket); newPacket[keywordIdNum] = { status: keywordData.status, severity: e.target.value, phrase_ids: keywordData.phrase_ids }; setFeedbackPacket(newPacket); },
+                                                            style: { padding: '6px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid #333', borderRadius: '4px', fontSize: '12px', fontFamily: 'monospace' }
+                                                        }, React.createElement('option', { value: 'must_fix' }, 'Must Fix'), React.createElement('option', { value: 'should_fix' }, 'Should Fix'), React.createElement('option', { value: 'optional' }, 'Optional'))
+                                                    )
+                                                ) : React.createElement('div', { style: { fontSize: '11px', color: '#888', fontStyle: 'italic', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } }, 'Loading phrases...')) : null
+                                            );
+                                        })
+                                    ),
+                                    React.createElement('div', { style: { fontSize: '12px', color: totalPhrasesSelected > 18 ? '#ff6666' : '#aaa', marginBottom: '20px', textAlign: 'right' } }, 'Total Phrases Selected: ' + totalPhrasesSelected + ' / 18'),
+                                    React.createElement('div', { style: { display: 'flex', gap: '12px', justifyContent: 'flex-end' } },
+                                        React.createElement('button', {
+                                            onClick: function() { setShowRequestChangesModal(false); setFeedbackPacket({}); setTotalPhrasesSelected(0); },
+                                            style: { padding: '10px 20px', backgroundColor: '#333', border: '1px solid #666', borderRadius: '4px', color: '#ccc', fontSize: '13px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
+                                        }, 'Cancel'),
+                                        React.createElement('button', {
+                                            onClick: function() {
+                                                if (totalPhrasesSelected > 18) { alert('Maximum 18 phrases allowed.'); return; }
+                                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_request_prototype_changes) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                                                if (!nonce) { alert('Nonce missing for request changes.'); return; }
+                                                var formData = new FormData();
+                                                formData.append('action', 'n88_request_prototype_changes');
+                                                formData.append('payment_id', String(itemState.prototype_payment_id));
+                                                formData.append('item_id', String(itemId));
+                                                formData.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                formData.append('submission_version', String(itemState.prototype_current_version));
+                                                formData.append('feedback_packet', JSON.stringify(feedbackPacket));
+                                                formData.append('_ajax_nonce', nonce);
+                                                fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(res) { return res.json(); }).then(function(data) {
+                                                    if (data.success) { setShowRequestChangesModal(false); setFeedbackPacket({}); setTotalPhrasesSelected(0); fetchItemState(); setPrototypeSectionExpanded(true); }
+                                                    else { alert(data.data && data.data.message ? data.data.message : 'Failed to request changes'); }
+                                                }).catch(function(err) { console.error(err); alert('Error requesting changes'); });
+                                            },
+                                            disabled: totalPhrasesSelected > 18,
+                                            style: { padding: '10px 20px', backgroundColor: totalPhrasesSelected > 18 ? '#333' : '#331100', border: '1px solid ' + (totalPhrasesSelected > 18 ? '#666' : '#ff8800'), borderRadius: '4px', color: totalPhrasesSelected > 18 ? '#666' : '#ff8800', fontSize: '13px', fontWeight: '600', cursor: totalPhrasesSelected > 18 ? 'not-allowed' : 'pointer', fontFamily: 'monospace' }
+                                        }, 'Submit Feedback Packet')
                                     )
                                 )
                             )
