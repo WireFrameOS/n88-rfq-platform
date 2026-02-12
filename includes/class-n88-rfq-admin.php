@@ -13,6 +13,19 @@ class N88_RFQ_Admin {
     public function __construct() {
         add_action( 'admin_menu', array( $this, 'register_menus' ) );
         add_action( 'admin_menu', array( $this, 'modify_board_menu_url' ), 999 ); // Run after menus are registered
+        add_action( 'wp_ajax_n88_get_board_items_status', array( $this, 'ajax_get_board_items_status' ) );
+        add_action( 'admin_enqueue_scripts', array( $this, 'dequeue_wp_auth_check_on_board' ), 999 );
+    }
+
+    /**
+     * Dequeue wp-auth-check on the Board page to avoid "Cannot read properties of undefined (reading 'hasClass')".
+     * WordPress auth-check expects #wp-auth-check-wrap; when admin bar is hidden/removed the reference can be undefined.
+     */
+    public function dequeue_wp_auth_check_on_board() {
+        $page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
+        if ( $page === 'n88-rfq-board-demo' ) {
+            wp_dequeue_script( 'wp-auth-check' );
+        }
     }
 
     public function render_notifications_center() {
@@ -3546,7 +3559,7 @@ class N88_RFQ_Admin {
                 
                 // Always try to select meta_json - if column doesn't exist, query will fail gracefully
                 // But we check first to avoid errors
-                $select_fields = "bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id";
+                $select_fields = "bi.item_id, i.id, i.title, i.description, i.item_type, i.status, i.primary_image_id, i.owner_user_id";
                 if ( $has_meta_json ) {
                     $select_fields .= ", i.meta_json";
                 } else {
@@ -4016,16 +4029,18 @@ class N88_RFQ_Admin {
                             $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
                             $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
                             $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
-                            // Get the most recent prototype payment for this item and designer (include cad_status for Review CAD)
+                            // Get the most recent prototype payment: match current user OR item owner (so board owner sees status when payment is tied to item owner)
+                            $item_owner_id = isset( $board_item->owner_user_id ) ? intval( $board_item->owner_user_id ) : 0;
+                            $designer_ids = array_unique( array_filter( array( $current_user->ID, $item_owner_id ), function ( $id ) { return $id > 0; } ) );
+                            $placeholders = implode( ',', array_fill( 0, count( $designer_ids ), '%d' ) );
                             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
                                 "SELECT {$sel_pp}
                                 FROM {$prototype_payments_table}
                                 WHERE item_id = %d
-                                AND designer_user_id = %d
+                                AND designer_user_id IN ({$placeholders})
                                 ORDER BY created_at DESC
                                 LIMIT 1",
-                                $item_id,
-                                $current_user->ID
+                                array_merge( array( $item_id ), $designer_ids )
                             ), ARRAY_A );
                             
                             if ( $prototype_payment ) {
@@ -4355,14 +4370,16 @@ class N88_RFQ_Admin {
                             $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
                             $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
                             $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
+                            $item_owner_id_else = isset( $board_item->owner_user_id ) ? intval( $board_item->owner_user_id ) : 0;
+                            $designer_ids_else = array_unique( array_filter( array( $current_user->ID, $item_owner_id_else ), function ( $id ) { return $id > 0; } ) );
+                            $placeholders_else = implode( ',', array_fill( 0, count( $designer_ids_else ), '%d' ) );
                             $prototype_payment = $wpdb->get_row( $wpdb->prepare(
                                 "SELECT {$sel_pp} FROM {$prototype_payments_table}
                                 WHERE item_id = %d
-                                AND designer_user_id = %d
+                                AND designer_user_id IN ({$placeholders_else})
                                 ORDER BY created_at DESC
                                 LIMIT 1",
-                                $item_id,
-                                $current_user->ID
+                                array_merge( array( $item_id ), $designer_ids_else )
                             ), ARRAY_A );
                             
                             if ( $prototype_payment ) {
@@ -4598,6 +4615,8 @@ class N88_RFQ_Admin {
             // Payment receipt (designer upload JPG/PDF in Payment Instructions modal)
             'nonce_upload_payment_receipt' => wp_create_nonce( 'n88_upload_payment_receipt' ),
             'nonce_get_payment_receipts' => wp_create_nonce( 'n88_get_payment_receipts' ),
+            // Refresh board item status (CAD requested, payment, etc.) without full page reload
+            'nonce_get_board_items_status' => wp_create_nonce( 'n88_get_board_items_status' ),
         ) );
         
         // Commit 2.6.1: Check if current user is view-only team member
@@ -7548,22 +7567,24 @@ class N88_RFQ_Admin {
                                     return item && item.id && typeof item.x === 'number' && typeof item.y === 'number';
                                 });
                                 if (validItems.length > 0) {
-                                    // Merge saved layout data with initial items to preserve title, description, imageUrl, sizeKey
+                                    // Merge saved layout data with initial items: only layout keys from savedItem so status fields (has_prototype_payment, cad_status, etc.) always come from server
+                                    var layoutKeys = ['id', 'x', 'y', 'z', 'width', 'height', 'sizeKey', 'displayMode'];
                                     const mergedItems = validItems.map(function(savedItem) {
                                         const initialItem = initialItems.find(function(initItem) {
                                             return initItem.id === savedItem.id;
                                         });
                                         if (initialItem) {
-                                            // Preserve layout data from saved item, but keep metadata from initial item
-                                            return {
-                                                ...initialItem, // Start with initial item (has title, description, imageUrl, sizeKey)
-                                                ...savedItem,   // Override with saved layout data (x, y, z, width, height, displayMode)
-                                                // Explicitly preserve title, description, imageUrl, sizeKey from initial item
-                                                title: initialItem.title || savedItem.title || '',
-                                                description: initialItem.description || savedItem.description || '',
-                                                imageUrl: initialItem.imageUrl || savedItem.imageUrl || '',
-                                                sizeKey: savedItem.sizeKey || initialItem.sizeKey || 'D',
-                                            };
+                                            var merged = { ...initialItem };
+                                            layoutKeys.forEach(function(key) {
+                                                if (savedItem.hasOwnProperty(key) && (key === 'id' ? true : savedItem[key] !== undefined)) {
+                                                    merged[key] = savedItem[key];
+                                                }
+                                            });
+                                            merged.title = initialItem.title || merged.title || '';
+                                            merged.description = initialItem.description || merged.description || '';
+                                            merged.imageUrl = initialItem.imageUrl || merged.imageUrl || '';
+                                            merged.sizeKey = merged.sizeKey || initialItem.sizeKey || 'D';
+                                            return merged;
                                         }
                                         return savedItem;
                                     });
@@ -7741,26 +7762,62 @@ class N88_RFQ_Admin {
                     // Use item.z as base, but add extra boost for XL and L sizes
                     var calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
 
-                    // Calculate item status based on available data
+                    // Calculate item status based on available data (order must match BoardItem.jsx: Action Required, then prototype workflow, then Bid Awarded, then Proposals Received)
+                    var truthy = function(v) { return v === true || v === 'true' || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true'); };
                     var getItemStatus = function() {
-                        var hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
+                        var hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
                         var psRaw = item.prototype_status || '';
                         var ps = (typeof psRaw === 'string' && psRaw) ? psRaw.toLowerCase() : (psRaw || null);
-                        var hasPrototypeVideoSubmitted = item.has_prototype_video_submitted === true || item.has_prototype_video_submitted === 'true' || item.has_prototype_video_submitted === 1;
+                        var hasPrototypeVideoSubmitted = truthy(item.has_prototype_video_submitted);
+                        var hasPrototypePayment = truthy(item.has_prototype_payment);
+                        var cadStatus = (item.cad_status || '').toLowerCase() || null;
+                        var prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
+                        var hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
 
-                        // Priority 1: Bid Awarded — when designer has awarded a bid, show this over Prototype Approved
-                        var hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
+                        // Priority 1: Action Required (unread operator messages; or supplier submitted prototype video — designer must review)
+                        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                        }
+                        // Priority 2: Prototype workflow — when prototype payment exists, show current stage (so status progresses after Proposals Received)
+                        if (hasPrototypePayment) {
+                            if (ps === 'approved') {
+                                return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+                            }
+                            if (ps === 'changes_requested') {
+                                return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
+                            }
+                            if (cadStatus === 'approved' && ps !== 'approved') {
+                                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                            }
+                            if (prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
+                                return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
+                            }
+                            if (prototypePaymentStatus === 'requested') {
+                                return { text: 'CAD Requested', color: '#ff9800', dot: '#ff9800' };
+                            }
+                            if (prototypePaymentStatus === 'marked_received') {
+                                if (cadStatus === 'approved' && ps !== 'approved') {
+                                    return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                                }
+                                var cadVersion = Number(item.cad_current_version) || 0;
+                                var operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
+                                if (operatorSentCad) {
+                                    return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
+                                }
+                                if (cadStatus && cadStatus !== 'approved') {
+                                    return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
+                                }
+                                return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
+                            }
+                        }
+                        // Priority 3: Bid Awarded
+                        var hasAwardedBid = truthy(item.has_awarded_bid);
                         if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
                         if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
                         if (hasAwardedBid) {
                             return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
                         }
-
-                        // Priority 2: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
-                        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
-                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
-                        }
-                        // Priority 3: Proposals Received — when supplier has submitted proposal(s), show so designer sees "Proposals received" not "Prototype approved"
+                        // Priority 4: Proposals Received
                         var validBidCountEarly = 0;
                         if (item.valid_bid_count !== undefined && item.valid_bid_count !== null) {
                             validBidCountEarly = parseInt(item.valid_bid_count, 10);
@@ -7780,50 +7837,9 @@ class N88_RFQ_Admin {
                             }).length;
                         }
                         if (!isNaN(validBidCountEarly) && validBidCountEarly > 0) {
-                            return { text: 'Proposals Received (' + validBidCountEarly + ')', color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Proposals Received' + (validBidCountEarly > 0 ? ' (' + validBidCountEarly + ')' : ''), color: '#2196f3', dot: '#2196f3' };
                         }
-                        // Priority 4: Prototype Approved (designer approved prototype) — only when no pending proposals to show
-                        if (ps === 'approved') {
-                            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
-                        }
-                        // Priority 5: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
-                        if (ps === 'changes_requested') {
-                            return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
-                        }
-
-                        // Priority 6: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
-                        var hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
-                        var cadStatus = (item.cad_status || '').toLowerCase() || null;
-                        if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
-                            return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
-                        }
-
-                        // Priority 6: Awaiting payment confirmation (designer uploaded receipt; operator has not yet marked received)
-                        var prototypePaymentStatus = item.prototype_payment_status || null;
-                        var hasPaymentReceiptUploaded = item.has_payment_receipt_uploaded === true || item.has_payment_receipt_uploaded === 'true' || item.has_payment_receipt_uploaded === 1;
-                        if (hasPrototypePayment && prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
-                            return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
-                        }
-                        // Priority 6b: Awaiting Payment (prototype payment requested, no receipt yet) - Commit 2.3.9.1C, Fix #27
-                        if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
-                            return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
-                        }
-                        // Priority 6c: Payment confirmed — when operator sent CAD show Review CAD; when designer approved CAD show Pending Prototype Video
-                        if (hasPrototypePayment && prototypePaymentStatus === 'marked_received') {
-                            if (cadStatus === 'approved' && ps !== 'approved') {
-                                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
-                            }
-                            var cadVersion = Number(item.cad_current_version) || 0;
-                            var operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
-                            if (operatorSentCad) {
-                                return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
-                            }
-                            if (cadStatus && cadStatus !== 'approved') {
-                                return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
-                            }
-                            return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
-                        }
-                        
+                        // Priority 5+: rest of fallbacks (In Production, Action Required flag, etc.)
                         // Priority 7: Check if item has award_set (In Production)
                         if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
                             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
@@ -14866,15 +14882,46 @@ class N88_RFQ_Admin {
                                                                             React.createElement('div', { style: { maxWidth: '75%', padding: '10px 14px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: isD ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: '12px', color: '#fff', wordWrap: 'break-word', whiteSpace: 'pre-wrap' } },
                                                                                 React.createElement('div', { style: { fontSize: '10px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '4px' } }, isD ? 'You' : 'Operator'),
                                                                                 React.createElement('div', { style: { fontSize: '12px', lineHeight: '1.4', marginBottom: '4px' } }, (function() {
-                                                                                    var txt = (msg.message_text || '').substring(0, 800);
+                                                                                    var rawText = (msg.message_text || '').substring(0, 2000);
+                                                                                    var hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
+                                                                                    var displayText = rawText;
+                                                                                    var fileList = [];
+                                                                                    if (hasFilesBlock) {
+                                                                                        var lines = rawText.split('\n');
+                                                                                        var filesStart = -1;
+                                                                                        for (var li = 0; li < lines.length; li++) {
+                                                                                            var trimmed = (lines[li] || '').trim();
+                                                                                            if (trimmed === 'CAD Files:' || trimmed === 'Files:') { filesStart = li; break; }
+                                                                                        }
+                                                                                        if (filesStart >= 0) {
+                                                                                            var filesEnd = lines.length;
+                                                                                            for (var li = filesStart + 1; li < lines.length; li++) {
+                                                                                                var t = (lines[li] || '').trim();
+                                                                                                if (t.indexOf('Direction Keywords') === 0 || t === '') { filesEnd = li; break; }
+                                                                                            }
+                                                                                            displayText = lines.slice(0, filesStart).join('\n').trim();
+                                                                                            for (var fi = filesStart + 1; fi < filesEnd; fi++) {
+                                                                                                var line = (lines[fi] || '').trim();
+                                                                                                if (line.indexOf('- ') === 0) {
+                                                                                                    var withoutDash = line.slice(2);
+                                                                                                    var sepIdx = withoutDash.indexOf(': ');
+                                                                                                    if (sepIdx > 0) {
+                                                                                                        var fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                                        var fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                                        if (fileUrl.indexOf('http://') === 0 || fileUrl.indexOf('https://') === 0) fileList.push({ name: fileName, url: fileUrl });
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
                                                                                     var re = /(https?:\/\/[^\s<>"\']+)/gi; var m; var last = 0; var parts = [];
-                                                                                    while ((m = re.exec(txt)) !== null) {
-                                                                                        if (m.index > last) parts.push({ t: 'text', v: txt.substring(last, m.index) });
+                                                                                    while ((m = re.exec(displayText)) !== null) {
+                                                                                        if (m.index > last) parts.push({ t: 'text', v: displayText.substring(last, m.index) });
                                                                                         var url = m[0]; var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
                                                                                         parts.push({ t: isImg ? 'image' : 'file', v: url });
                                                                                         last = re.lastIndex;
                                                                                     }
-                                                                                    if (last < txt.length) parts.push({ t: 'text', v: txt.substring(last) });
+                                                                                    if (last < displayText.length) parts.push({ t: 'text', v: displayText.substring(last) });
                                                                                     var children = [];
                                                                                     for (var i = 0; i < parts.length; i++) {
                                                                                         var p = parts[i];
@@ -14882,7 +14929,16 @@ class N88_RFQ_Admin {
                                                                                         else if (p.t === 'image') children.push(React.createElement('span', { key: 'msg-url-' + idx + '-' + i, style: { display: 'inline-block', marginTop: '6px', marginBottom: '4px' } }, React.createElement('img', { src: p.v, alt: '', style: { maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', borderRadius: '4px', border: '1px solid ' + darkBorder }, onError: function(e) { e.target.style.display = 'none'; var n = e.target.nextSibling; if (n) n.style.display = 'block'; } }), React.createElement('a', { href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', marginTop: '4px', display: 'none' } }, 'View image \u2192')));
                                                                                         else children.push(React.createElement('a', { key: 'msg-file-' + idx + '-' + i, href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: '4px', marginRight: '8px' } }, 'View file \u2192'));
                                                                                     }
-                                                                                    return children.length ? React.createElement(React.Fragment, null, children) : txt;
+                                                                                    if (fileList.length > 0) {
+                                                                                        children.push(React.createElement('div', { key: 'msg-files-' + idx, style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder, display: 'flex', flexDirection: 'column', gap: '6px' } }, fileList.map(function(file, fi) {
+                                                                                            var isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
+                                                                                            var iconOrThumb = isImageFile
+                                                                                                ? React.createElement('span', { style: { width: '40px', height: '40px', flexShrink: 0, borderRadius: '4px', overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, React.createElement('img', { src: file.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' }, onError: function(e) { e.target.style.display = 'none'; if (e.target.parentNode) { e.target.parentNode.style.fontSize = '18px'; e.target.parentNode.textContent = '\uD83D\uDDE8\uFE0F'; } } }))
+                                                                                                : React.createElement('span', { style: { fontSize: '14px' } }, file.name.toLowerCase().indexOf('.pdf') !== -1 ? '\uD83D\uDCC4' : '\uD83D\uDCCE');
+                                                                                            return React.createElement('a', { key: fi, href: file.url, target: '_blank', rel: 'noopener noreferrer', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px', color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' } }, iconOrThumb, React.createElement('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: file.name }, file.name), React.createElement('span', { style: { color: greenAccent, fontSize: '10px', flexShrink: 0 } }, 'Open in new tab \u2192'));
+                                                                                        })));
+                                                                                    }
+                                                                                    return children.length ? React.createElement(React.Fragment, null, children) : displayText;
                                                                                 })()),
                                                                                 React.createElement('div', { style: { fontSize: '9px', color: '#666', textAlign: 'right' } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
                                                                             )
@@ -15751,7 +15807,10 @@ class N88_RFQ_Admin {
                         React.createElement(ItemDetailModalInline, {
                             item: item,
                             isOpen: isModalOpen,
-                            onClose: function() { setIsModalOpen(false); },
+                            onClose: function() {
+                                try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
+                                setIsModalOpen(false);
+                            },
                             onSave: handleSave,
                             boardId: boardId
                         })
@@ -16038,6 +16097,61 @@ class N88_RFQ_Admin {
                         };
                     }, [saveHook]);
                     
+                    // Refresh board item status (CAD requested, payment, etc.) so designer card updates
+                    var updateLayout = useBoardStore ? useBoardStore(function(state) { return state.updateLayout; }) : null;
+                    var refreshBoardItemsStatus = React.useCallback(function() {
+                        if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return;
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_board_items_status) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!nonce) return;
+                        var formData = new FormData();
+                        formData.append('action', 'n88_get_board_items_status');
+                        formData.append('board_id', String(boardId));
+                        formData.append('_ajax_nonce', nonce);
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                if (data.success && data.data && Array.isArray(data.data.items)) {
+                                    data.data.items.forEach(function(row) {
+                                        if (row.id && typeof updateLayout === 'function') {
+                                            updateLayout(row.id, {
+                                                has_prototype_payment: row.has_prototype_payment,
+                                                prototype_payment_status: row.prototype_payment_status,
+                                                cad_status: row.cad_status,
+                                                cad_current_version: row.cad_current_version,
+                                                prototype_status: row.prototype_status,
+                                                has_prototype_video_submitted: row.has_prototype_video_submitted,
+                                                has_payment_receipt_uploaded: row.has_payment_receipt_uploaded,
+                                                has_awarded_bid: row.has_awarded_bid,
+                                                has_unread_operator_messages: row.has_unread_operator_messages,
+                                                action_required: row.action_required,
+                                            });
+                                        }
+                                    });
+                                }
+                            })
+                            .catch(function() {});
+                    }, [boardId, updateLayout]);
+                    React.useEffect(function() {
+                        if (!boardId || boardId <= 0) return;
+                        var t = setTimeout(refreshBoardItemsStatus, 800);
+                        return function() { clearTimeout(t); };
+                    }, [boardId, refreshBoardItemsStatus]);
+                    React.useEffect(function() {
+                        if (!boardId || boardId <= 0) return;
+                        function onVisible() {
+                            if (document.visibilityState === 'visible') refreshBoardItemsStatus();
+                        }
+                        document.addEventListener('visibilitychange', onVisible);
+                        return function() { document.removeEventListener('visibilitychange', onVisible); };
+                    }, [boardId, refreshBoardItemsStatus]);
+                    React.useEffect(function() {
+                        if (!boardId || boardId <= 0) return;
+                        function onRefreshEvent() { refreshBoardItemsStatus(); }
+                        window.addEventListener('n88-board-refresh-status', onRefreshEvent);
+                        return function() { window.removeEventListener('n88-board-refresh-status', onRefreshEvent); };
+                    }, [boardId, refreshBoardItemsStatus]);
+                    
                     // Handle layout changes - trigger debounced save
                     var handleLayoutChanged = function(data) {
                         if (onLayoutChanged) {
@@ -16162,6 +16276,157 @@ class N88_RFQ_Admin {
         })();
         </script>
         <?php
+    }
+
+    /**
+     * AJAX: Get board items status (for designer card status refresh without full page reload).
+     * Returns status fields only so the frontend can merge into the store and show CAD Requested, Payment received, etc.
+     */
+    public function ajax_get_board_items_status() {
+        check_ajax_referer( 'n88_get_board_items_status', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Unauthorized' ), 401 );
+        }
+        $board_id = isset( $_POST['board_id'] ) ? absint( $_POST['board_id'] ) : 0;
+        $user_id = get_current_user_id();
+        if ( $board_id === 0 ) {
+            wp_send_json_error( array( 'message' => 'Invalid board ID' ), 400 );
+        }
+        $board = N88_Authorization::get_board_for_user( $board_id, $user_id );
+        if ( ! $board ) {
+            wp_send_json_error( array( 'message' => 'Board not found or access denied' ), 403 );
+        }
+        global $wpdb;
+        $board_items_table = $wpdb->prefix . 'n88_board_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+        $submissions_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+        $links_table = $wpdb->prefix . 'n88_prototype_video_links';
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+        $current_user = wp_get_current_user();
+        $board_item_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT item_id FROM {$board_items_table} WHERE board_id = %d AND removed_at IS NULL ORDER BY added_at ASC",
+            $board_id
+        ) );
+        if ( ! is_array( $board_item_ids ) ) {
+            $board_item_ids = array();
+        }
+        $items_status = array();
+        $pp_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+        $pp_cols = $pp_table_exists ? $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" ) : array();
+        $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
+        $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
+        $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
+        $items_table = $wpdb->prefix . 'n88_items';
+        foreach ( $board_item_ids as $item_id ) {
+            $item_id = intval( $item_id );
+            $item_id_string = 'item-' . $item_id;
+            $has_prototype_payment = false;
+            $prototype_payment_status = null;
+            $cad_status = null;
+            $cad_current_version = null;
+            $prototype_status = null;
+            $has_prototype_video_submitted = false;
+            $has_payment_receipt_uploaded = false;
+            if ( $pp_table_exists ) {
+                $item_owner_id_ajax = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
+                    $item_id
+                ) );
+                $designer_ids_ajax = array_unique( array_filter( array( $current_user->ID, $item_owner_id_ajax ), function ( $id ) { return $id > 0; } ) );
+                $placeholders_ajax = implode( ',', array_fill( 0, count( $designer_ids_ajax ), '%d' ) );
+                $prototype_payment = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT {$sel_pp} FROM {$prototype_payments_table}
+                    WHERE item_id = %d AND designer_user_id IN ({$placeholders_ajax})
+                    ORDER BY created_at DESC LIMIT 1",
+                    array_merge( array( $item_id ), $designer_ids_ajax )
+                ), ARRAY_A );
+                if ( $prototype_payment ) {
+                    $has_prototype_payment = true;
+                    $prototype_payment_status = isset( $prototype_payment['status'] ) ? $prototype_payment['status'] : null;
+                    $cad_status = ( $has_cad_col && isset( $prototype_payment['cad_status'] ) ) ? $prototype_payment['cad_status'] : null;
+                    $prototype_status = ( $has_ps_col && isset( $prototype_payment['prototype_status'] ) ) ? $prototype_payment['prototype_status'] : null;
+                    if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
+                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table
+                            && $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table ) {
+                            $has_prototype_video_submitted = (bool) $wpdb->get_var( $wpdb->prepare(
+                                "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
+                                intval( $prototype_payment['id'] )
+                            ) );
+                        }
+                    }
+                    if ( $prototype_payment_status === 'requested' && ! empty( $prototype_payment['id'] ) ) {
+                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                            $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
+                                "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
+                                intval( $prototype_payment['id'] )
+                            ) );
+                        }
+                    }
+                    if ( ! empty( $prototype_payment['id'] ) && $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+                        $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
+                            "SELECT MAX(cad_version) FROM {$item_files_table}
+                            WHERE item_id = %d AND payment_id = %d
+                            AND attachment_type = 'cad' AND (detached_at IS NULL OR detached_at = '')",
+                            $item_id,
+                            intval( $prototype_payment['id'] )
+                        ) );
+                        if ( $cad_current_version_raw !== null ) {
+                            $cad_current_version = intval( $cad_current_version_raw );
+                        }
+                    }
+                }
+            }
+            $has_awarded_bid = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$item_bids_table} WHERE item_id = %d AND status = 'awarded'",
+                $item_id
+            ) ) > 0;
+            $unread_operator_messages = 0;
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+                $unread_operator_messages = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(DISTINCT m.message_id)
+                    FROM {$messages_table} m
+                    WHERE m.item_id = %d
+                    AND m.thread_type = 'designer_operator'
+                    AND m.sender_role = 'operator'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} m2
+                        WHERE m2.item_id = m.item_id
+                        AND m2.thread_type = 'designer_operator'
+                        AND m2.sender_role = 'designer'
+                        AND m2.created_at > m.created_at
+                    )",
+                    $item_id
+                ) );
+                if ( $unread_operator_messages > 0 && $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                    if ( $wpdb->get_var( $wpdb->prepare(
+                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
+                        $item_id
+                    ) ) ) {
+                        $unread_operator_messages = 0;
+                    }
+                }
+            }
+            $has_unread_operator_messages = $unread_operator_messages > 0;
+            $action_required = $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) );
+            $items_status[] = array(
+                'id' => $item_id_string,
+                'has_prototype_payment' => $has_prototype_payment,
+                'prototype_payment_status' => $prototype_payment_status,
+                'cad_status' => $cad_status,
+                'cad_current_version' => $cad_current_version,
+                'prototype_status' => $prototype_status,
+                'has_prototype_video_submitted' => $has_prototype_video_submitted,
+                'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
+                'has_awarded_bid' => $has_awarded_bid,
+                'has_unread_operator_messages' => $has_unread_operator_messages,
+                'action_required' => $action_required,
+            );
+        }
+        wp_send_json_success( array( 'items' => $items_status ) );
     }
 
     /**

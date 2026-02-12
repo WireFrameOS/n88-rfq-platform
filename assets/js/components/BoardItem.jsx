@@ -95,93 +95,97 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
     // Use item.z as base, but add extra boost for XL and L sizes
     const calculatedZIndex = (currentSize === 'XL' || currentSize === 'L') ? item.z + 1000 : item.z;
 
+    // Helper: treat backend flags as boolean (PHP may send true, 1, "1", "true")
+    const truthy = (v) => v === true || v === 'true' || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true');
     // Calculate item status based on available data
+    // Order: Action Required first, then prototype workflow (so status progresses correctly after Proposals Received),
+    // then Bid Awarded, then Proposals Received, then RFQ Sent / Draft.
     const getItemStatus = () => {
-        const hasUnreadOperatorMessages = item.has_unread_operator_messages === true || item.has_unread_operator_messages === 'true' || item.has_unread_operator_messages === 1;
+        const hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
         const ps = (item.prototype_status || '').toLowerCase() || null;
-        const hasPrototypeVideoSubmitted = item.has_prototype_video_submitted === true || item.has_prototype_video_submitted === 'true' || item.has_prototype_video_submitted === 1;
+        const hasPrototypeVideoSubmitted = truthy(item.has_prototype_video_submitted);
+        const hasPrototypePayment = truthy(item.has_prototype_payment);
+        const cadStatus = (item.cad_status || '').toLowerCase() || null;
+        const prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
+        const hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
 
-        // Priority 1: Bid Awarded — when designer has awarded a bid, show this over Prototype Approved
-        let hasAwardedBid = item.has_awarded_bid === true || item.has_awarded_bid === 'true' || item.has_awarded_bid === 1 || item.has_awarded_bid === '1';
+        // Priority 1: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
+        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+        }
+
+        // Priority 2: Prototype workflow — when prototype payment exists, show the current stage so status progresses after Proposals Received
+        if (hasPrototypePayment) {
+            // 2a: Prototype Approved (designer approved video)
+            if (ps === 'approved') {
+                return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+            }
+            // 2b: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
+            if (ps === 'changes_requested') {
+                return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
+            }
+            // 2c: CAD approved, waiting for supplier to submit video
+            if (cadStatus === 'approved' && ps !== 'approved') {
+                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+            }
+            // 2d: Awaiting payment confirmation (designer uploaded receipt; operator has not yet marked received)
+            if (prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
+                return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
+            }
+            // 2e: CAD Requested / Awaiting Payment (prototype payment requested, no receipt yet)
+            if (prototypePaymentStatus === 'requested') {
+                return { text: 'CAD Requested', color: '#ff9800', dot: '#ff9800' };
+            }
+            // 2f: Payment confirmed (marked_received) — show specific sub-state
+            if (prototypePaymentStatus === 'marked_received') {
+                if (cadStatus === 'approved' && ps !== 'approved') {
+                    return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                }
+                const cadVersion = Number(item.cad_current_version) || 0;
+                const operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
+                if (operatorSentCad) {
+                    return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
+                }
+                if (cadStatus && cadStatus !== 'approved') {
+                    return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
+                }
+                return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
+            }
+        }
+
+        // Priority 3: Bid Awarded — when designer has awarded a bid (and no prototype stage above)
+        let hasAwardedBid = truthy(item.has_awarded_bid);
         if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
         if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
         if (hasAwardedBid) {
             return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
         }
 
-        // Priority 2: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
-        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
-            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
-        }
-        // Priority 3: Proposals Received — when supplier has submitted proposal(s), show so designer sees "Proposal received" not "Prototype approved"
+        // Priority 4: Proposals Received — when supplier has submitted proposal(s)
         const bidCount = item.bid_count ?? item.bids_count ?? 0;
-        const hasBids = (typeof bidCount === 'number' && bidCount > 0) || item.has_bids === true || item.has_bids === 'true';
+        const hasBids = (typeof bidCount === 'number' && bidCount > 0) || truthy(item.has_bids);
         if (hasBids) {
             return { text: 'Proposals Received', color: '#2196f3', dot: '#2196f3' };
         }
-        // Priority 4: Prototype Approved (designer approved prototype) — only when no pending proposals to show
-        if (ps === 'approved') {
-            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
-        }
-        // Priority 5: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
-        if (ps === 'changes_requested') {
-            return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
-        }
 
-        // Priority 6: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
-        const hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
-        const cadStatus = (item.cad_status || '').toLowerCase() || null;
-        if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
-            return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
-        }
-
-        // Priority 6: Awaiting payment confirmation (designer uploaded receipt; operator has not yet marked received)
-        const prototypePaymentStatus = item.prototype_payment_status || null;
-        const hasPaymentReceiptUploaded = item.has_payment_receipt_uploaded === true || item.has_payment_receipt_uploaded === 'true' || item.has_payment_receipt_uploaded === 1;
-        if (hasPrototypePayment && prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
-            return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
-        }
-        // Priority 6b: Awaiting Payment (prototype payment requested, no receipt yet) - Commit 2.3.9.1C, Fix #27
-        if (hasPrototypePayment && prototypePaymentStatus === 'requested') {
-            return { text: 'Awaiting Payment', color: '#ff8800', dot: '#ff8800' };
-        }
-        // Priority 6c: Payment confirmed — when operator sent CAD to designer, show Review CAD; when designer approved CAD, show Pending Prototype Video
-        if (hasPrototypePayment && prototypePaymentStatus === 'marked_received') {
-            if (cadStatus === 'approved' && ps !== 'approved') {
-                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
-            }
-            const cadVersion = Number(item.cad_current_version) || 0;
-            const operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
-            if (operatorSentCad) {
-                return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
-            }
-            if (cadStatus && cadStatus !== 'approved') {
-                return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
-            }
-            return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
-        }
-        
-        // Check if item has award_set (In Production)
-        if (item.award_set === true || item.award_set === 'true' || item.award_set === 1) {
+        // Priority 5: In Production
+        if (truthy(item.award_set)) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
         }
-        // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Bids Received
-        const actionRequired = item.action_required === true || item.action_required === 'true' || item.action_required === 1;
-        if (actionRequired) {
+        // Safeguard: when backend sets action_required, show Action Required
+        if (truthy(item.action_required)) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
         }
-        // Check if item has bids (Proposals Received) — fallback if not caught earlier
+        // Fallback: Proposals Received
         const bidCountFallback = item.bid_count || item.bids_count || 0;
-        if (bidCountFallback > 0 || item.has_bids === true || item.has_bids === 'true') {
+        if (bidCountFallback > 0 || truthy(item.has_bids)) {
             return { text: 'Proposals Received', color: '#2196f3', dot: '#2196f3' };
         }
-        
-        // Check if RFQ exists (RFQ Sent)
-        if (item.has_rfq === true || item.has_rfq === 'true' || item.rfq_status === 'sent' || item.rfq_status === 'submitted') {
+        // RFQ Sent
+        if (truthy(item.has_rfq) || item.rfq_status === 'sent' || item.rfq_status === 'submitted') {
             return { text: 'RFQ Sent', color: '#ff9800', dot: '#ff9800' };
         }
-        
-        // Default: Draft (item exists but no RFQ)
+        // Default: Draft
         return { text: 'Draft', color: '#999', dot: '#999' };
     };
 
@@ -754,7 +758,10 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             <ItemDetailModal
                 item={item}
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={() => {
+                    window.dispatchEvent(new CustomEvent('n88-board-refresh-status'));
+                    setIsModalOpen(false);
+                }}
                 boardId={boardId}
                 priceRequested={priceRequested}
                 onPriceRequest={() => setPriceRequested(true)}

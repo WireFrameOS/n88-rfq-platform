@@ -1984,13 +1984,13 @@ class N88_RFQ_Auth {
             } elseif ( $action_badge === 'submitted' && $has_prototype_payment && $prototype_payment_status === 'requested' ) {
                 // Designer requested CAD; payment not yet approved
                 $status_label = __( 'CAD Requested - Pending Payment', 'n88-rfq-platform' );
-                $status_color = '#aaa';
+                $status_color = '#ff5722'; // red-orange for pending payment
             } elseif ( $action_badge === 'submitted' && $cad_released ) {
                 $status_label = __( 'CAD received — Pending video', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $action_badge === 'submitted' ) {
                 $status_label = __( 'Proposal submitted', 'n88-rfq-platform' );
-                $status_color = '#aaa';
+                $status_color = '#ff9800'; // orange
             } else {
                 if ( $cad_released && $prototype_status === 'approved' ) {
                     $status_label = __( 'Video approved', 'n88-rfq-platform' );
@@ -3111,11 +3111,11 @@ class N88_RFQ_Auth {
                             '</div>' +
                             (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '');
                     })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
-                    // Item box only (for 30% column)
+                    // Item box only (for 40% column) — font 14px inside detail box
                     var itemBoxHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
                             '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
-                        '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; height: 100%; box-sizing: border-box;">' +
+                        '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; height: 100%; box-sizing: border-box; font-size: 14px;">' +
                         '<div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
@@ -3125,10 +3125,10 @@ class N88_RFQ_Auth {
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Routing:</strong> <span style="color: #00ff00;">' + item.route_label + '</span></div>' : '') +
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
                         '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Description:</strong></div>' +
-                        '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + (item.description || '—') + '</div>' +
+                        '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || '—') + '</div>' +
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
                             '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong></div>' +
-                            '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
+                            '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
                             '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
                         ) +
                         '</div></div>';
@@ -3164,9 +3164,9 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '</form>' +
                         '</div></div>';
-                    // Item Overview: 30% item box (left), 70% Support open (right)
+                    // Item Overview: 40% item box (left), 60% Support open (right)
                     overviewTabHTML = '<div style="display: flex; flex-direction: row; flex: 1; min-height: 0; gap: 20px;">' +
-                        '<div style="width: 30%; flex: 0 0 30%; min-width: 0; overflow-y: auto;">' + itemBoxHTML + '</div>' +
+                        '<div style="width: 40%; flex: 0 0 40%; min-width: 0; overflow-y: auto;">' + itemBoxHTML + '</div>' +
                         '<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">' + supportSectionHTML + '</div>' +
                         '</div>';
                         // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
@@ -3239,7 +3239,7 @@ class N88_RFQ_Auth {
                                     '</div>' + releasedContent + '</div>';
                                 var step1Box = (notif.status === 'requested' || (notif.status !== 'marked_received' && notif.cad_status !== 'approved')) ?
                                     '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' :
-                                    '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Pending</div><div style="font-size: 12px; color: #aaa; line-height: 1.5;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div></div>';
+                                    '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Pending</div><div style="font-size: 12px; color: #aaa; line-height: 1.5;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div>' + keywordsHTML + '</div>';
                                 var step2BoxApproved = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Approved</div><div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production.</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
                                 var step2BoxAwaitingRelease = '<div style="background-color: rgba(255, 255, 255, 0.06); border: 2px solid #666; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #888; margin-bottom: 8px;">CAD Approved — Awaiting Release</div><div style="font-size: 12px; color: #888; line-height: 1.5;">The designer has approved the CAD. The operator will release the approved CAD and direction to you shortly. You will then see the files here and can submit your prototype video.</div></div>';
                                 var step2Box = (notif.cad_status === 'approved' && cadReleasedToSupplier) ? step2BoxApproved : (notif.cad_status === 'approved') ? step2BoxAwaitingRelease : '';
@@ -3503,17 +3503,23 @@ class N88_RFQ_Auth {
                     var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
                     var green = '#00ff00';
                     var darkBorder = '#555';
-                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos'];
+                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                     var w1WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">1. CAD Requested - payment received</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
                     var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">2. Approved CAD drawings</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
+                    var w4WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
+                    var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
+                    var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
                     var stepRow = '';
                     if (paymentNotif) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
-                        for (var si = 0; si < 3; si++) {
+                        for (var si = 0; si < 6; si++) {
                             var isCompleted = activeStepIdx > si;
                             var isActive = activeStepIdx === si;
                             var circleBg = isCompleted ? green : (isActive ? '#111' : '#444');
@@ -3524,13 +3530,13 @@ class N88_RFQ_Auth {
                             stepRow += '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid ' + circleBorder + '; background: ' + circleBg + '; color: ' + circleColor + '; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">' + (si + 1) + '</div>';
                             stepRow += '<div style="font-size: 10px; color: ' + labelColor + '; text-align: center; line-height: 1.2;">' + (stepLabels[si] || '') + '</div>';
                             stepRow += '</div>';
-                            if (si < 2) stepRow += '<div style="flex: 0 0 24px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 28px;" aria-hidden="true"></div>';
+                            if (si < 5) stepRow += '<div style="flex: 0 0 24px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 28px;" aria-hidden="true"></div>';
                         }
                         stepRow += '</div>';
                     }
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
-                        (paymentNotif ? (stepRow + w1WithClass + w2WithClass + w3WithClass) : '<div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div>') + '</div>';
-                    var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #00ff00;">Workflow</strong> tab. Open Workflow to see dates and actions.</div>';
+                        (paymentNotif ? (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) : '<div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div>') + '</div>';
+                    var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #00ff00;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
@@ -3541,8 +3547,8 @@ class N88_RFQ_Auth {
                         '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Overview</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + (defaultTab === 'bid' ? tabActiveStyle : tabStyle) + '">Proposal</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + (defaultTab === 'workflow' ? tabActiveStyle : tabStyle) + '">Workflow</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + (defaultTab === 'bid' ? tabActiveStyle : tabStyle) + '">Proposals</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + (defaultTab === 'workflow' ? tabActiveStyle : tabStyle) + '">The WorkFlow</button>' +
                         '</div>' +
                         '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
                         '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="' + (defaultTab === 'overview' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + overviewTabHTML + '</div>' +
@@ -3556,7 +3562,7 @@ class N88_RFQ_Auth {
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
                         if (tabContent && defaultTab !== 'workflow') tabContent.scrollTop = 0;
-                        if (defaultTab === 'workflow' && (item.supplier_workflow_active_step === 0 || item.supplier_workflow_active_step === 1 || item.supplier_workflow_active_step === 2)) {
+                        if (defaultTab === 'workflow' && item.supplier_workflow_active_step >= 0 && item.supplier_workflow_active_step <= 5) {
                             var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
                             if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
@@ -3863,7 +3869,7 @@ class N88_RFQ_Auth {
                     row.setAttribute('data-active-idx', String(idx));
                     var green = '#00ff00';
                     var darkBorder = '#555';
-                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos'];
+                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                     var steps = row.querySelectorAll('[data-step-idx]');
                     for (var s = 0; s < steps.length; s++) {
                         var si = parseInt(steps[s].getAttribute('data-step-idx'), 10);

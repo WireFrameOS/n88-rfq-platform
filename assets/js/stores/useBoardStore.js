@@ -161,7 +161,7 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 return state; // No-op: item not found
             }
 
-            // Validate partialChanges: layout properties + status used to refresh card after approve/request-changes (not id)
+            // Validate partialChanges: layout properties + status used to refresh card (designer workflow: CAD requested, payment, prototype, etc.)
             const allowedKeys = [
                 'x',
                 'y',
@@ -176,6 +176,10 @@ window.N88StudioOS.useBoardStore = create((set, get) => ({
                 'cad_status',
                 'cad_current_version',
                 'prototype_payment_status',
+                'has_prototype_payment',
+                'has_awarded_bid',
+                'has_unread_operator_messages',
+                'has_prototype_video_submitted',
             ];
 
             const filteredChanges = {};

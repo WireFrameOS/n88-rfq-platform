@@ -1905,12 +1905,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     workflow_milestones: data.data.workflow_milestones || null,
                     loading: false,
                 });
-                // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
+                // Update board card so status progresses (CAD Requested, Awaiting payment, Payment received, Review CAD, Pending Prototype Video, etc.)
                 const cardUpdates = {};
                 if (data.data.cad_status !== undefined && data.data.cad_status !== null) cardUpdates.cad_status = data.data.cad_status;
                 if (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) cardUpdates.cad_current_version = data.data.cad_current_version;
                 if (data.data.prototype_payment_status !== undefined && data.data.prototype_payment_status !== null) cardUpdates.prototype_payment_status = data.data.prototype_payment_status;
                 if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
+                if (data.data.has_prototype_payment !== undefined) cardUpdates.has_prototype_payment = !!data.data.has_prototype_payment;
+                if (data.data.has_awarded_bid !== undefined) cardUpdates.has_awarded_bid = !!data.data.has_awarded_bid;
+                if (data.data.has_unread_operator_messages !== undefined) cardUpdates.has_unread_operator_messages = !!data.data.has_unread_operator_messages;
+                if (data.data.has_prototype_video_submitted !== undefined) cardUpdates.has_prototype_video_submitted = !!data.data.has_prototype_video_submitted;
+                if (data.data.has_payment_receipt_uploaded !== undefined) cardUpdates.has_payment_receipt_uploaded = !!data.data.has_payment_receipt_uploaded;
+                if (data.data.action_required !== undefined) cardUpdates.action_required = !!data.data.action_required;
                 if (Object.keys(cardUpdates).length > 0 && typeof updateLayout === 'function') updateLayout(item.id, cardUpdates);
                 // When all bids withdrawn: item is State A; reset Launch Brief to show "Request Quote" (fresh form)
                 if ((data.data.has_rfq === false || !data.data.has_rfq) && (data.data.has_bids === false || !data.data.has_bids)) {
@@ -4604,20 +4610,60 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                             const isDesigner = msg.sender_role === 'designer';
                                                                                             const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
                                                                                             const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
-                                                                                            const txt = (msg.message_text || '').substring(0, 800);
+                                                                                            const rawText = (msg.message_text || '').substring(0, 2000);
+                                                                                            // Parse "CAD Files:" / "Files:" block so operator files are clickable and open in new tab
+                                                                                            const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
+                                                                                            let displayText = rawText;
+                                                                                            const fileList = [];
+                                                                                            if (hasFilesBlock) {
+                                                                                                const lines = rawText.split('\n');
+                                                                                                let filesStart = -1;
+                                                                                                for (let li = 0; li < lines.length; li++) {
+                                                                                                    const trimmed = (lines[li] || '').trim();
+                                                                                                    if (trimmed === 'CAD Files:' || trimmed === 'Files:') {
+                                                                                                        filesStart = li;
+                                                                                                        break;
+                                                                                                    }
+                                                                                                }
+                                                                                                if (filesStart >= 0) {
+                                                                                                    let filesEnd = lines.length;
+                                                                                                    for (let li = filesStart + 1; li < lines.length; li++) {
+                                                                                                        const t = (lines[li] || '').trim();
+                                                                                                        if (t.indexOf('Direction Keywords') === 0 || t === '') {
+                                                                                                            filesEnd = li;
+                                                                                                            break;
+                                                                                                        }
+                                                                                                    }
+                                                                                                    displayText = lines.slice(0, filesStart).join('\n').trim();
+                                                                                                    for (let fi = filesStart + 1; fi < filesEnd; fi++) {
+                                                                                                        const line = (lines[fi] || '').trim();
+                                                                                                        if (line.indexOf('- ') === 0) {
+                                                                                                            const withoutDash = line.slice(2);
+                                                                                                            const sepIdx = withoutDash.indexOf(': ');
+                                                                                                            if (sepIdx > 0) {
+                                                                                                                const fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                                                const fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                                                if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+                                                                                                                    fileList.push({ name: fileName, url: fileUrl });
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
                                                                                             const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
                                                                                             const parts = [];
-                                                                                            let m;
+                                                                                            let urlM;
                                                                                             let last = 0;
-                                                                                            while ((m = urlRe.exec(txt)) !== null) {
-                                                                                                if (m.index > last) parts.push({ t: 'text', v: txt.slice(last, m.index) });
-                                                                                                const url = m[0];
+                                                                                            while ((urlM = urlRe.exec(displayText)) !== null) {
+                                                                                                if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
+                                                                                                const url = urlM[0];
                                                                                                 const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
                                                                                                 parts.push({ t: isImg ? 'image' : 'file', v: url });
                                                                                                 last = urlRe.lastIndex;
                                                                                             }
-                                                                                            if (last < txt.length) parts.push({ t: 'text', v: txt.slice(last) });
-                                                                                            const content = parts.length === 0 ? txt : parts.map((p, i) => {
+                                                                                            if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
+                                                                                            const content = parts.length === 0 ? displayText : parts.map((p, i) => {
                                                                                                 if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
                                                                                                 if (p.t === 'image') return (
                                                                                                     <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
@@ -4632,6 +4678,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                     <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
                                                                                                         <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
                                                                                                         {content}
+                                                                                                        {fileList.length > 0 && (
+                                                                                                            <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                                                                {fileList.map((file, fi) => {
+                                                                                                                    const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
+                                                                                                                    return (
+                                                                                                                    <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
+                                                                                                                        {isImageFile ? (
+                                                                                                                            <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                                                                <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
+                                                                                                                            </span>
+                                                                                                                        ) : (
+                                                                                                                            <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
+                                                                                                                        )}
+                                                                                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
+                                                                                                                        <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
+                                                                                                                    </a>
+                                                                                                                    );
+                                                                                                                })}
+                                                                                                            </div>
+                                                                                                        )}
                                                                                                         <div style={{ fontSize: '9px', color: '#666', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}</div>
                                                                                                     </div>
                                                                                                 </div>
