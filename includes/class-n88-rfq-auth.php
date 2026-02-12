@@ -1860,13 +1860,15 @@ class N88_RFQ_Auth {
             $cad_status = null;
             $prototype_status = null;
             $cad_released_to_supplier_at = null;
+            $prototype_payment_status = null;
             $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
                 $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
                 $has_cad = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
                 $has_ps = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
                 $has_cad_released = is_array( $pp_cols ) && in_array( 'cad_released_to_supplier_at', $pp_cols, true );
-                $sel = 'id' . ( $has_cad ? ', cad_status' : '' ) . ( $has_ps ? ', prototype_status' : '' ) . ( $has_cad_released ? ', cad_released_to_supplier_at' : '' );
+                $has_pp_status = is_array( $pp_cols ) && in_array( 'status', $pp_cols, true );
+                $sel = 'id' . ( $has_cad ? ', cad_status' : '' ) . ( $has_ps ? ', prototype_status' : '' ) . ( $has_cad_released ? ', cad_released_to_supplier_at' : '' ) . ( $has_pp_status ? ', status' : '' );
                 $row = $wpdb->get_row( $wpdb->prepare(
                     "SELECT {$sel} FROM {$prototype_payments_table} WHERE item_id = %d AND supplier_id = %d ORDER BY id DESC LIMIT 1",
                     $item_id,
@@ -1881,6 +1883,9 @@ class N88_RFQ_Auth {
                     }
                     if ( $has_cad_released && isset( $row['cad_released_to_supplier_at'] ) && $row['cad_released_to_supplier_at'] !== null && trim( (string) $row['cad_released_to_supplier_at'] ) !== '' ) {
                         $cad_released_to_supplier_at = $row['cad_released_to_supplier_at'];
+                    }
+                    if ( $has_pp_status && isset( $row['status'] ) ) {
+                        $prototype_payment_status = $row['status'];
                     }
                 }
             }
@@ -1908,10 +1913,101 @@ class N88_RFQ_Auth {
             }
             $item_data['show_action_required'] = $show_action_required;
             $item_data['cad_released_to_supplier_at'] = $cad_released_to_supplier_at;
-            
+            $item_data['cad_status'] = $cad_status;
+            $item_data['prototype_status'] = $prototype_status;
+            $item_data['prototype_payment_status'] = $prototype_payment_status;
+
+            // Compute single status label and color for supplier (each step clearly worded)
+            $status_label = '';
+            $status_color = '#fff';
+            $is_action_required = false;
+            $cad_released = ! empty( $cad_released_to_supplier_at ) && trim( (string) $cad_released_to_supplier_at ) !== '';
+            $has_prototype_payment = $prototype_payment_status !== null && $prototype_payment_status !== '';
+
+            if ( $action_badge === 'awarded' ) {
+                $status_label = __( 'Awarded', 'n88-rfq-platform' );
+                $status_color = '#00ff00';
+            } elseif ( $action_badge === 'expired' ) {
+                $status_label = __( 'Expired', 'n88-rfq-platform' );
+                $status_color = '#999';
+            } elseif ( $action_badge === 'changes_received' || $prototype_status === 'changes_requested' ) {
+                $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
+                $status_color = '#ff8800';
+                $is_action_required = true;
+            } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
+                // CAD files sent to supplier; supplier must submit prototype video (any state except already submitted/approved/changes_requested)
+                $status_label = __( 'Action Required — CAD Files approved', 'n88-rfq-platform' );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $show_action_required && $has_unread_operator_messages ) {
+                $status_label = __( 'Action Required — Message from operator', 'n88-rfq-platform' );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $action_badge === 'submit_bid' ) {
+                $status_label = __( 'Action Required — Submit proposal', 'n88-rfq-platform' );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $action_badge === 'continue_draft' ) {
+                $status_label = __( 'Action Required — Continue draft', 'n88-rfq-platform' );
+                $status_color = '#ff8800';
+                $is_action_required = true;
+            } elseif ( $action_badge === 'specs_changed' ) {
+                $status_label = __( 'Action Required — Specs changed, update bid', 'n88-rfq-platform' );
+                $status_color = '#ff8800';
+                $is_action_required = true;
+            } elseif ( $action_badge === 'cad_video_approved' || ( $cad_released && $prototype_status === 'approved' ) ) {
+                $status_label = __( 'Video approved', 'n88-rfq-platform' );
+                $status_color = '#00ff00';
+            } elseif ( $action_badge === 'submitted' && $cad_released && $prototype_status === 'submitted' ) {
+                $status_label = __( 'Prototype video submitted - Under review', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $action_badge === 'submitted' && $has_prototype_payment && $prototype_payment_status !== 'requested' && ! $cad_released ) {
+                // Operator approved payment; CAD not yet released to supplier
+                $status_label = __( 'Payment Received — CAD Pending', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $action_badge === 'submitted' && $has_prototype_payment && $prototype_payment_status === 'requested' ) {
+                // Designer requested CAD; payment not yet approved
+                $status_label = __( 'CAD Requested - Pending Payment', 'n88-rfq-platform' );
+                $status_color = '#aaa';
+            } elseif ( $action_badge === 'submitted' && $cad_released ) {
+                $status_label = __( 'CAD received — Pending video', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $action_badge === 'submitted' ) {
+                $status_label = __( 'Proposal submitted', 'n88-rfq-platform' );
+                $status_color = '#aaa';
+            } else {
+                if ( $cad_released && $prototype_status === 'approved' ) {
+                    $status_label = __( 'Video approved', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $cad_released && $prototype_status === 'changes_requested' ) {
+                    $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
+                    $status_color = '#ff8800';
+                    $is_action_required = true;
+                } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
+                    $status_label = __( 'Action Required — CAD Files approved', 'n88-rfq-platform' );
+                    $status_color = '#ff4500';
+                    $is_action_required = true;
+                } elseif ( $cad_released ) {
+                    $status_label = __( 'CAD received — Pending video', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } elseif ( $cad_status === 'approved' ) {
+                    $status_label = __( 'CAD approved — Pending release', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } elseif ( $cad_status ) {
+                    $status_label = __( 'CAD in progress', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } else {
+                    $status_label = __( 'Bid request received', 'n88-rfq-platform' );
+                    $status_color = '#fff';
+                }
+            }
+            $item_data['supplier_status_label'] = $status_label;
+            $item_data['supplier_status_color'] = $status_color;
+            $item_data['supplier_is_action_required'] = $is_action_required;
+
             $items_by_id[ $item_id ] = $item_data;
         }
-        
+
         // Apply filters (M5)
         $filtered_items = array();
         foreach ( $items_by_id as $item_id => $item_data ) {
@@ -1920,7 +2016,10 @@ class N88_RFQ_Auth {
             if ( $status_filter === 'all' ) {
                 $passes_status = true;
             } elseif ( $status_filter === 'needs_action' ) {
-                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received' ), true );
+                // Show items where supplier must send something: proposal, draft, update bid, video, reply to operator, or submit video after CAD
+                $passes_status = in_array( $item_data['action_badge'], array( 'submit_bid', 'continue_draft', 'specs_changed', 'changes_received' ), true )
+                    || ! empty( $item_data['show_action_required'] )
+                    || ! empty( $item_data['supplier_is_action_required'] );
             } elseif ( $status_filter === 'draft_saved' ) {
                 $passes_status = $item_data['action_badge'] === 'continue_draft';
             } elseif ( $status_filter === 'submitted' ) {
@@ -2001,11 +2100,12 @@ class N88_RFQ_Auth {
                     <div>
                         <label style="font-size: 12px; color: #fff; margin-right: 5px;">Status:</label>
                         <select id="n88-supplier-status" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
-                            <option value="needs_action" <?php selected( $status_filter, 'needs_action' ); ?>>Needs Action</option>
-                            <option value="draft_saved" <?php selected( $status_filter, 'draft_saved' ); ?>>Draft Saved</option>
-                            <option value="submitted" <?php selected( $status_filter, 'submitted' ); ?>>Submitted</option>
-                            <option value="expired" <?php selected( $status_filter, 'expired' ); ?>>Expired</option>
-                            <option value="all" <?php selected( $status_filter, 'all' ); ?>>All</option>
+                            <option value="needs_action" <?php selected( $status_filter, 'needs_action' ); ?>><?php esc_html_e( 'Action Required', 'n88-rfq-platform' ); ?></option>
+                            <option value="draft_saved" <?php selected( $status_filter, 'draft_saved' ); ?>><?php esc_html_e( 'Draft Saved', 'n88-rfq-platform' ); ?></option>
+                            <option value="submitted" <?php selected( $status_filter, 'submitted' ); ?>><?php esc_html_e( 'Submitted', 'n88-rfq-platform' ); ?></option>
+                            <option value="awarded" <?php selected( $status_filter, 'awarded' ); ?>><?php esc_html_e( 'Awarded', 'n88-rfq-platform' ); ?></option>
+                            <option value="expired" <?php selected( $status_filter, 'expired' ); ?>><?php esc_html_e( 'Expired', 'n88-rfq-platform' ); ?></option>
+                            <option value="all" <?php selected( $status_filter, 'all' ); ?>><?php esc_html_e( 'All', 'n88-rfq-platform' ); ?></option>
                         </select>
                     </div>
                     <div>
@@ -2032,7 +2132,7 @@ class N88_RFQ_Auth {
                     </div>
                 </div>
                 <div style="margin-top: 10px; font-size: 11px; color: #ccc; font-style: italic;">
-                    Needs Action = Submit Bid | Continue Draft | Specs Changed – Update Bid
+                    <?php esc_html_e( 'Action Required = Submit proposal | Continue draft | Specs changed | Video changes | Message from operator', 'n88-rfq-platform' ); ?>
                 </div>
             </div>
             
@@ -2080,36 +2180,25 @@ class N88_RFQ_Auth {
                                 
                                 switch ( $item_data['action_badge'] ) {
                                     case 'awarded':
-                                        $action_button_text = 'View Bid ►';
-                                        $action_badge_text = 'AWARDED';
-                                        break;
                                     case 'cad_video_approved':
-                                        $action_button_text = 'View Bid ►';
-                                        $action_badge_text = 'CAD Video Approved';
-                                        break;
                                     case 'changes_received':
-                                        $action_button_text = 'View Bid ►';
-                                        $action_badge_text = 'Action required — Changes received';
+                                    case 'submitted':
+                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ►';
                                         break;
                                     case 'submit_bid':
-                                        $action_button_text = 'Submit Bid ►';
-                                        $action_badge_text = 'Needs Action';
+                                        $action_button_text = __( 'Submit Proposal', 'n88-rfq-platform' ) . ' ►';
                                         break;
                                     case 'continue_draft':
-                                        $action_button_text = 'Continue Draft ►';
-                                        $action_badge_text = 'Draft Saved';
+                                        $action_button_text = __( 'Continue Draft', 'n88-rfq-platform' ) . ' ►';
                                         break;
                                     case 'specs_changed':
-                                        $action_button_text = 'Update Bid ►';
-                                        $action_badge_text = 'Specs Changed';
-                                        break;
-                                    case 'submitted':
-                                        $action_button_text = 'View Bid ►';
-                                        $action_badge_text = 'Submitted';
+                                        $action_button_text = __( 'Update Bid', 'n88-rfq-platform' ) . ' ►';
                                         break;
                                     case 'expired':
-                                        $action_button_text = 'Expired';
-                                        $action_badge_text = 'Expired';
+                                        $action_button_text = __( 'Expired', 'n88-rfq-platform' );
+                                        break;
+                                    default:
+                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ►';
                                         break;
                                 }
                             ?>
@@ -2146,36 +2235,13 @@ class N88_RFQ_Auth {
                                         </div>
                                         <div style="margin-top: 5px;">
                                             <?php
-                                            $badge_color = '#fff';
-                                            if ( in_array( $item_data['action_badge'], array( 'awarded', 'cad_video_approved' ), true ) ) {
-                                                $badge_color = '#00ff00';
-                                            } elseif ( $item_data['action_badge'] === 'changes_received' ) {
-                                                $badge_color = '#ff8800';
-                                            }
+                                            $status_label = isset( $item_data['supplier_status_label'] ) ? $item_data['supplier_status_label'] : ucfirst( str_replace( '_', ' ', $item_data['action_badge'] ) );
+                                            $status_color = isset( $item_data['supplier_status_color'] ) ? $item_data['supplier_status_color'] : '#fff';
+                                            $is_action = ! empty( $item_data['supplier_is_action_required'] );
                                             ?>
-                                            <span style="color: <?php echo esc_attr( $badge_color ); ?>; font-size: 11px; font-weight: <?php echo ( $item_data['action_badge'] === 'changes_received' ) ? '600' : 'normal'; ?>;"><?php echo ( $item_data['action_badge'] === 'changes_received' ) ? '⚠ ' : 'Badge: '; ?><?php echo esc_html( $action_badge_text ); ?></span>
+                                            <span style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px; font-weight: <?php echo $is_action ? '600' : 'normal'; ?>;"><?php echo $is_action ? '⚠ ' : ''; ?><?php echo esc_html( $status_label ); ?></span>
                                         <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
                                             <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
-                                        <?php endif; ?>
-                                            <?php if ( ! empty( $item_data['show_action_required'] ) && $item_data['show_action_required'] ) : 
-                                                $unread_count = ! empty( $item_data['unread_operator_messages'] ) ? intval( $item_data['unread_operator_messages'] ) : 0;
-                                                $cad_released = ! empty( $item_data['cad_released_to_supplier_at'] ) && trim( (string) $item_data['cad_released_to_supplier_at'] ) !== '';
-                                                $is_changes_received = ( ! empty( $item_data['action_badge'] ) && $item_data['action_badge'] === 'changes_received' );
-                                            ?>
-                                                <div style="margin-top: 5px;">
-                                                    <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
-                                                    <div style="color: #ff6666; font-size: 10px; margin-top: 3px;">
-                                                        <?php
-                                                        if ( $is_changes_received ) {
-                                                            echo esc_html( 'Designer sent changes — review required' );
-                                                        } elseif ( $cad_released ) {
-                                                            echo 'CAD files received';
-                                                        } else {
-                                                            echo esc_html( $unread_count ) . ' msg' . ( $unread_count !== 1 ? 's' : '' ) . ' from operator';
-                                                        }
-                                                        ?>
-                                                    </div>
-                                                </div>
                                         <?php endif; ?>
                                         <?php if ( $item_data['time_remaining'] ) : ?>
                                             <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
@@ -2809,7 +2875,8 @@ class N88_RFQ_Auth {
             // Re-initialize after modal content is updated (use MutationObserver or call after modal update)
             window.initPrototypeVideoForms = initPrototypeVideoForms;
             
-            function openBidModal(itemId) {
+            function openBidModal(itemId, preferredTab) {
+                // preferredTab: optional 'bid' to open on Proposal tab (e.g. after submitting proposal)
                 // Ensure lightbox functions are available before creating modal HTML
                 if (typeof window.openSupplierImageLightbox !== 'function') {
                     window.openSupplierImageLightbox = openSupplierImageLightbox;
@@ -3037,8 +3104,7 @@ class N88_RFQ_Auth {
                             '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
                         ) +
                         '</div>' +
-                        '</div>' +
-                        (item.route_label ? '<div style="margin-top: -16px; margin-bottom: 16px; font-size: 11px; color: #999; font-style: italic; font-family: monospace; padding-left: 16px;">Creator identity remains hidden until award.</div>' : '');
+                        '</div>';
                     var messagesTabHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;">' +
                         '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="flex-shrink: 0; width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
                         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;flex-shrink:0;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support' +
@@ -3352,10 +3418,10 @@ class N88_RFQ_Auth {
                                 // Specs changed - show resubmit button (opens form inside modal)
                                 '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
                                 (item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined ?
-                                    // Draft exists - show continue bid button (only when valid draft is saved)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Bid ]</button>' :
-                                    // No bid yet or no valid draft - show start bid button (default)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Start Bid ]</button>'
+                                    // Draft exists - show continue draft button (only when valid draft is saved)
+                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Draft ]</button>' :
+                                    // No bid yet or no valid draft - show submit proposal button (default)
+                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
                                 )
                             )
                         ) +
@@ -3365,7 +3431,10 @@ class N88_RFQ_Auth {
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" style="margin-bottom: 24px; padding-bottom: 20px;">' +
                         '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>' +
                         '<div id="n88-supplier-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div></div>';
-                    var prototypeOnlyTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a bid and, if awarded, prototype steps will appear here.</div>';
+                    var prototypeOnlyTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a proposal and, if awarded, prototype steps will appear here.</div>';
+                    // Default to Proposal tab when preferredTab is 'bid' (e.g. after submit) or when item state indicates Proposal
+                    var forceProposalTab = (preferredTab === 'bid');
+                    var defaultTab = (forceProposalTab || item.action_badge === 'submit_bid' || item.action_badge === 'continue_draft' || item.action_badge === 'specs_changed' || item.bid_status === 'submitted') ? 'bid' : 'overview';
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
@@ -3374,24 +3443,24 @@ class N88_RFQ_Auth {
                         '<div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
                         '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + tabActiveStyle + '">Item Overview</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Overview</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'messages\');" id="n88-supplier-tab-messages" style="' + tabStyle + '">Messages</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + tabStyle + '">Bid</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + (defaultTab === 'bid' ? tabActiveStyle : tabStyle) + '">Proposal</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + tabStyle + '">WorkFlow</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">Prototype</button>' +
                         '</div>' +
                         '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
-                        '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto;">' + overviewTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="' + (defaultTab === 'overview' ? 'flex: 1; min-height: 0; overflow-y: auto;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + overviewTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-messages" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden;">' + messagesTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + bidTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="' + (defaultTab === 'bid' ? 'flex: 1; min-height: 0; overflow-y: auto;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + bidTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-workflow" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + workflowTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeOnlyTabHTML + '</div>' +
                         '</div></div></div>';
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Auto-switch to Messages tab and expand when operator has sent (e.g. CAD approved, clarification)
-                    if (item.has_operator_supplier_messages) {
+                    // Auto-switch to Messages tab and expand when operator has sent — skip if we opened on Proposal (e.g. after submit)
+                    if (item.has_operator_supplier_messages && !forceProposalTab) {
                         setTimeout(function() {
                             if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('messages');
                             if (typeof toggleSupplierClarification === 'function') {
@@ -3400,9 +3469,9 @@ class N88_RFQ_Auth {
                             }
                         }, 80);
                     }
-                    // Auto-switch to Prototype tab when CAD approved and prototype video submission pending (supplier can submit)
+                    // Auto-switch to Prototype tab when CAD approved and prototype video submission pending — skip if we opened on Proposal
                     var payNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
-                    if (payNotif && payNotif.cad_status === 'approved' && !(payNotif.prototype_video_submission && payNotif.prototype_video_submission.version)) {
+                    if (payNotif && payNotif.cad_status === 'approved' && !(payNotif.prototype_video_submission && payNotif.prototype_video_submission.version) && !forceProposalTab) {
                         setTimeout(function() {
                             if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('prototype');
                         }, 100);
@@ -3936,7 +4005,7 @@ class N88_RFQ_Auth {
                         // Only show "Continue Bid" when bid_status is explicitly 'draft' (not null or undefined)
                         var item = window.currentItemData;
                         var hasDraft = item && item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined;
-                        toggleBtn.textContent = hasDraft ? '[ Continue Bid ]' : '[ Start Bid ]';
+                        toggleBtn.textContent = hasDraft ? '[ Continue Draft ]' : '[ Submit Proposal ]';
                         toggleBtn.style.backgroundColor = '#1a1a1a';
                         toggleBtn.style.color = '#00ff00';
                         toggleBtn.style.borderColor = '#00ff00';
@@ -4173,11 +4242,11 @@ class N88_RFQ_Auth {
                     '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
                     '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
                     '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
-                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">(●) YES</span>' +
+                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">YES</span>' +
                     '</label>' +
                     '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
                     '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
-                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">() NO</span>' +
+                    '<span style="font-size: 12px; color: #fff; font-family: monospace;">NO</span>' +
                     '</label>' +
                         '</div>' +
                     '<div style="font-size: 10px; color: #00ff00; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
@@ -4334,7 +4403,7 @@ class N88_RFQ_Auth {
                     '<div style="padding: 20px 0; border-top: 1px solid #00ff00; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
                     '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
                     // Commit 2.3.5.4: Buttons row - Validate, Cancel, Save for later
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
                     '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                     '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                         '</div>' +
@@ -4800,7 +4869,7 @@ class N88_RFQ_Auth {
                         '<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">' +
                         '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
                         '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Bid ]</button>' +
+                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
                         '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                         '</div>' +
                         '</div>';
@@ -5619,7 +5688,7 @@ class N88_RFQ_Auth {
                                 existingError.remove();
                             }
                             var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong>✓ Validation successful!</strong> Click "Submit Bid" to save your bid.' +
+                                '<strong>✓ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
                                 '</div>';
                             form.insertAdjacentHTML('afterbegin', successHtml);
                             
@@ -5737,7 +5806,7 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Bid';
+                        submitBtn.textContent = 'Submit Proposal';
                     }
                     
                     if (!data.success) {
@@ -5766,11 +5835,12 @@ class N88_RFQ_Auth {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
                         }
                     } else {
-                        // Success - close modal and refresh
+                        // Success - close bid form modal and open item modal on Proposal tab (no reload)
                         alert(data.data && data.data.message || 'Bid submitted successfully!');
                         closeBidFormModal();
-                        // Refresh the page to show updated status
-                        if (window.location.href.indexOf('queue') > -1) {
+                        if (itemId && typeof openBidModal === 'function') {
+                            openBidModal(itemId, 'bid');
+                        } else if (window.location.href.indexOf('queue') > -1) {
                             window.location.reload();
                         }
                     }
@@ -5778,7 +5848,7 @@ class N88_RFQ_Auth {
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Bid';
+                        submitBtn.textContent = 'Submit Proposal';
                     }
                     alert('Error submitting bid. Please try again.');
                     console.error('Submission error:', error);
@@ -6460,7 +6530,7 @@ class N88_RFQ_Auth {
                                 existingError.remove();
                             }
                             var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong>✓ Validation successful!</strong> Click "Submit Bid" to save your bid.' +
+                                '<strong>✓ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
                                 '</div>';
                             form.insertAdjacentHTML('afterbegin', successHtml);
                             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6574,7 +6644,7 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Bid';
+                        submitBtn.textContent = 'Submit Proposal';
                     }
                     
                     if (!data.success) {
@@ -6599,17 +6669,16 @@ class N88_RFQ_Auth {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
                         }
                     } else {
-                        // Success - close bid form section and refresh
+                        // Success - close bid form section and reopen modal on Proposal tab
                         alert(data.data && data.data.message || 'Bid submitted successfully!');
                         toggleBidForm(itemId);
-                        // Refresh the modal to show updated status
-                        openBidModal(itemId);
+                        openBidModal(itemId, 'bid');
                     }
                 })
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit Bid';
+                        submitBtn.textContent = 'Submit Proposal';
                     }
                     alert('Error submitting bid. Please try again.');
                     console.error('Submission error:', error);

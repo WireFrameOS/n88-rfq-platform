@@ -3111,9 +3111,9 @@ class N88_RFQ_Admin {
                     var $result = $('#create-item-result');
                     var $submitBtn = $('#n88-create-item-form button[type="submit"]');
                     
-                    // Show loader and disable button
-                    $result.html('<p style="color: #666;"><span class="spinner is-active" style="float: none; margin: 0 5px 0 0;"></span>Adding item...</p>');
-                    $submitBtn.prop('disabled', true).text('Adding...');
+                    // Show loader and disable button; show circular loader on button
+                    $result.html('<p style="color: #666;"><span class="spinner is-active" style="float: none; margin: 0 5px 0 0;"></span></p>');
+                    $submitBtn.prop('disabled', true).html('<span class="spinner is-active" style="display: inline-block; vertical-align: middle; margin-right: 8px; float: none;"></span> Adding...');
 
                     var boardId = $('#item-board').val();
                     <?php if ( $is_designer && $has_board ) : ?>
@@ -5002,6 +5002,8 @@ class N88_RFQ_Admin {
                 cursor: pointer;
             }
             #n88-add-item-modal .n88-btn-add-item:hover { background: rgba(233,30,140,0.2); }
+            #n88-add-item-modal .n88-btn-add-item .spinner.is-active { width: 18px; height: 18px; border-width: 2px; border-color: rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: n88-spin 0.7s linear infinite; }
+            @keyframes n88-spin { to { transform: rotate(360deg); } }
             #n88-add-item-modal .n88-result { margin-top: 10px; font-size: 13px; }
             #n88-add-item-modal .n88-result.success { color: #7cba7c; }
             #n88-add-item-modal .n88-result.error { color: #e88; }
@@ -5951,7 +5953,7 @@ class N88_RFQ_Admin {
                         <?php endif; ?>
                     </form>
                     <div class="n88-add-item-footer">
-                        <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item">[ Add Item ]</button>
+                        <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add Item ]">[ Add Item ]</button>
                         <div id="n88-add-item-modal-result" class="n88-result"></div>
                     </div>
                 </div>
@@ -6180,12 +6182,15 @@ class N88_RFQ_Admin {
                         }
                         
                         submitBtn.disabled = true;
-                        resultEl.textContent = 'Adding item...';
+                        var defaultText = submitBtn.getAttribute('data-default-text') || '[ Add Item ]';
+                        submitBtn.innerHTML = '<span class="spinner is-active" style="display: inline-block; vertical-align: middle; margin-right: 8px; float: none;"></span> Adding...';
+                        resultEl.textContent = '';
                         resultEl.className = 'n88-result';
                         fetch(ajaxUrl, { method: 'POST', body: formData })
                             .then(function(r) { return r.json(); })
                             .then(function(res) {
                                 submitBtn.disabled = false;
+                                submitBtn.innerHTML = defaultText;
                                 if (res.success) {
                                     resultEl.textContent = 'Item created successfully.';
                                     resultEl.className = 'n88-result success';
@@ -6214,6 +6219,7 @@ class N88_RFQ_Admin {
                             })
                             .catch(function() {
                                 submitBtn.disabled = false;
+                                submitBtn.innerHTML = submitBtn.getAttribute('data-default-text') || '[ Add Item ]';
                                 resultEl.textContent = 'Request failed. Please try again.';
                                 resultEl.className = 'n88-result error';
                             });
@@ -7096,7 +7102,7 @@ class N88_RFQ_Admin {
                         
                     case 'submit':
                         // After successful validation - show submit button
-                        validateBtn.innerHTML = '[ Submit Bid ]';
+                        validateBtn.innerHTML = '[ Submit Proposal ]';
                         validateBtn.disabled = false;
                         validateBtn.style.cursor = 'pointer';
                         validateBtn.style.opacity = '1';
@@ -10013,10 +10019,10 @@ class N88_RFQ_Admin {
                     var deliveryPostal = _deliveryPostalState[0];
                     var setDeliveryPostal = _deliveryPostalState[1];
                     
-                    // Smart Alternatives state
+                    // Smart Alternatives state (hidden from request a quote form; default no)
                     var _smartAlternativesEnabledState = React.useState(
                         item.smart_alternatives !== undefined ? item.smart_alternatives : 
-                        ((item.meta && item.meta.smart_alternatives !== undefined) ? item.meta.smart_alternatives : true)
+                        ((item.meta && item.meta.smart_alternatives !== undefined) ? item.meta.smart_alternatives : false)
                     );
                     var smartAlternativesEnabled = _smartAlternativesEnabledState[0];
                     var setSmartAlternativesEnabled = _smartAlternativesEnabledState[1];
@@ -12905,110 +12911,7 @@ class N88_RFQ_Admin {
                                                 }
                                             }, shippingMessage) : null
                                         ),
-                                        // SMART ALTERNATIVES Section
-                                        React.createElement('div', {
-                                            style: { marginBottom: '12px' }
-                                        },
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px', fontSize: '12px', fontWeight: '600' }
-                                            }, 'SMART ALTERNATIVES (Optional)'),
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px', fontSize: '12px' }
-                                            }, 'Are you open to comparable options?'),
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px' }
-                                            },
-                                                React.createElement('label', {
-                                            style: {
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        cursor: 'pointer',
-                                                        marginBottom: '8px',
-                                                    }
-                                                },
-                                                    React.createElement('input', {
-                                                        type: 'radio',
-                                                        name: 'smart_alternatives',
-                                                        checked: smartAlternativesEnabled,
-                                                        onChange: function() { setSmartAlternativesEnabled(true); },
-                                            style: {
-                                                            width: '16px',
-                                                            height: '16px',
-                                                            cursor: 'pointer',
-                                            }
-                                                    }),
-                                                    React.createElement('span', {
-                                                        style: { fontSize: '12px' }
-                                                    }, 'Yes — show me comparable options')
-                                                ),
-                                        React.createElement('label', {
-                                            style: {
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        cursor: 'pointer',
-                                            }
-                                                },
-                                                    React.createElement('input', {
-                                                        type: 'radio',
-                                                        name: 'smart_alternatives',
-                                                        checked: !smartAlternativesEnabled,
-                                                        onChange: function() { setSmartAlternativesEnabled(false); },
-                                                        style: {
-                                                            width: '16px',
-                                                            height: '16px',
-                                                            cursor: 'pointer',
-                                                        }
-                                                    }),
-                                                    React.createElement('span', {
-                                                        style: { fontSize: '12px' }
-                                                    }, 'No — proceed as specified')
-                                                )
-                                            ),
-                                            React.createElement('div', {
-                                        style: {
-                                                    display: 'flex',
-                                                    alignItems: 'flex-start',
-                                                    gap: '8px',
-                                                    marginBottom: '12px',
-                                                    fontSize: '11px',
-                                                    color: '#999',
-                                                }
-                                            },
-                                                React.createElement('span', { style: { fontSize: '14px' } }, 'i'),
-                                                React.createElement('span', null, 'Suppliers may suggest equivalent materials or construction methods. No contact info is shared.')
-                                            ),
-                                            React.createElement('div', {
-                                                style: { marginBottom: '8px', fontSize: '12px' }
-                                            }, 'Notes for suppliers (optional)'),
-                                            React.createElement('textarea', {
-                                                value: smartAlternativesNote,
-                                                onChange: function(e) {
-                                                    var val = e.target.value;
-                                                    if (val.length <= 240) {
-                                                        setSmartAlternativesNote(val);
-                                                    }
-                                                },
-                                                placeholder: '[ Open to outdoor durability options ]',
-                                                maxLength: 240,
-                                        style: {
-                                            width: '100%',
-                                                    minHeight: '60px',
-                                                    padding: '8px',
-                                                    backgroundColor: darkBg,
-                                                    border: '1px solid ' + darkBorder,
-                                            borderRadius: '4px',
-                                                    color: darkText,
-                                                    fontSize: '12px',
-                                                    fontFamily: 'monospace',
-                                                    resize: 'vertical',
-                                                }
-                                            }),
-                                            React.createElement('div', {
-                                                style: { fontSize: '10px', color: '#666', marginTop: '4px' }
-                                            }, '(' + smartAlternativesNote.length + ' chars • filtered)')
-                                        ),
+                                        // Smart Alternatives removed from request a quote form; default is no (false)
                                         // Inspiration / References / Sketch Drawings
                                         React.createElement('div', {
                                             style: { marginBottom: '12px' }
@@ -13315,15 +13218,6 @@ class N88_RFQ_Admin {
                                             }
                                         }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ'),
                                         // Instructional microcopy
-                                        React.createElement('div', {
-                                            style: {
-                                                marginTop: '12px',
-                                                fontSize: '11px',
-                                                color: '#999',
-                                                textAlign: 'center',
-                                                fontFamily: 'monospace',
-                                            }
-                                        }, 'Edit RFQ details and click Update.')
                                     )
                                 ) : null,
                                 // State B and C: Quantity, Dimensions, and Notes for suppliers - Inside Launch Brief tab
@@ -13508,22 +13402,13 @@ class N88_RFQ_Admin {
                                                         fontFamily: 'monospace',
                                                         resize: 'vertical',
                                                     }
-                                                }),
-                                                React.createElement('div', {
-                                                    style: { fontSize: '10px', color: '#666', marginTop: '4px' }
-                                                }, '(' + smartAlternativesNote.length + ' chars • filtered)')
-                                            )
+                                                })
+                                            ),
+                                            itemState.has_rfq ? React.createElement('div', {
+                                                style: { marginTop: '12px', fontSize: '11px', color: '#999', textAlign: 'center', fontFamily: 'monospace' }
+                                            }, 'Edit RFQ details and click Update.') : null
                                         ),
                                         // Instructional microcopy - Outside the box; hide when locked awaiting payment
-                                        !isLockedAwaitingPayment ? React.createElement('div', {
-                                            style: {
-                                                marginTop: '12px',
-                                                fontSize: '11px',
-                                                color: '#999',
-                                                textAlign: 'center',
-                                                fontFamily: 'monospace',
-                                            }
-                                        }, 'Edit RFQ details and click Update.') : null
                                     )
                                 ) : null
                             ) : null,
@@ -14893,7 +14778,7 @@ class N88_RFQ_Admin {
                                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Prototype Video'),
                                                             itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
                                                             itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px' } }, React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px' } }, link.provider || 'Link')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null) : null,
-                                                            itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype_video'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
+                                                            itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
                                                                 if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
                                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                                                                     var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';

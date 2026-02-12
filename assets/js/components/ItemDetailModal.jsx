@@ -1662,10 +1662,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     );
     const [keywordInput, setKeywordInput] = React.useState('');
     
-    // Smart Alternatives state - load from item meta
+    // Smart Alternatives state - load from item meta (default false / no for designer request a quote)
     const [smartAlternativesEnabled, setSmartAlternativesEnabled] = React.useState(
         item.smart_alternatives !== undefined ? item.smart_alternatives : 
-        (item.meta?.smart_alternatives !== undefined ? item.meta.smart_alternatives : true)
+        (item.meta?.smart_alternatives !== undefined ? item.meta.smart_alternatives : false)
     );
     const [smartAlternativesNote, setSmartAlternativesNote] = React.useState(
         item.smart_alternatives_note || item.meta?.smart_alternatives_note || ''
@@ -1698,8 +1698,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [isSubmittingRfq, setIsSubmittingRfq] = React.useState(false);
     const [rfqError, setRfqError] = React.useState('');
     
-    // BIDS section expansion state
-    const [bidsExpanded, setBidsExpanded] = React.useState(false);
+    // BIDS section expansion state - start expanded when item has bids (Proposals received)
+    const [bidsExpanded, setBidsExpanded] = React.useState(!!(item.bids && item.bids.length > 0));
     
     // CAD Prototype Request form state (Commit 2.3.9.1B)
     const [showCadPrototypeForm, setShowCadPrototypeForm] = React.useState(false);
@@ -4264,37 +4264,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         </div>
                                     </div>
                                     
-                                    {/* 6. Smart Alternatives */}
-                                    <div style={{ marginBottom: '24px' }}>
-                                        <div style={{ marginBottom: '12px' }}>
-                                            <label style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '12px',
-                                                cursor: 'pointer',
-                                            }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={smartAlternativesEnabled}
-                                                    onChange={(e) => setSmartAlternativesEnabled(e.target.checked)}
-                                                    style={{
-                                                        width: '18px',
-                                                        height: '18px',
-                                                        cursor: 'pointer',
-                                                    }}
-                                                />
-                                                <span style={{ fontSize: '12px', fontWeight: '600' }}>Smart Alternatives</span>
-                                            </label>
-                                        </div>
-                                        <div style={{ 
-                                            marginTop: '8px',
-                                            marginLeft: '30px',
-                                            fontSize: '11px',
-                                            color: '#999',
-                                        }}>
-                                            <span>Suppliers may suggest equivalent materials or construction methods. No contact info is shared.</span>
-                                        </div>
-                                    </div>
+                                    {/* Smart Alternatives removed from designer request-a-quote form; default is no (false) */}
                                 </>
                             ) : currentState === 'C' ? (
                                 // State C: Hide all content - only bid tab will be shown
@@ -4570,12 +4540,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                 <button type="button" onClick={async () => {
                                                                                     if (!window.confirm(`Approve prototype v${itemState.prototype_current_version}?`)) return;
                                                                                     const fd = new FormData();
-                                                                                    fd.append('action', 'n88_approve_prototype_video');
+                                                                                    fd.append('action', 'n88_approve_prototype');
                                                                                     fd.append('item_id', String(getItemId()));
                                                                                     fd.append('payment_id', String(itemState.prototype_payment_id));
                                                                                     fd.append('bid_id', String(itemState.prototype_payment_bid_id));
                                                                                     fd.append('version', String(itemState.prototype_current_version));
-                                                                                    fd.append('_ajax_nonce', window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '');
+                                                                                    fd.append('_ajax_nonce', window.n88BoardNonce?.nonce_approve_prototype || '');
                                                                                     const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
                                                                                     const data = await res.json();
                                                                                     if (data.success) fetchItemState(); else alert(data.message || 'Failed');
@@ -5014,18 +4984,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         </div>
                                                     </div>
                                                     
-                                                    {/* Instructional microcopy - Outside the box; hide when locked awaiting payment */}
-                                                    {!isLockedAwaitingPayment && (
-                                                    <div style={{
-                                                        marginTop: '12px',
-                                                        fontSize: '11px',
-                                                        color: '#999',
-                                                        textAlign: 'center',
-                                                        fontFamily: 'monospace',
-                                                    }}>
-                                                        Edit RFQ details and click Update.
-                                                    </div>
-                                                    )}
                                                 </>
                                             )}
                                             
@@ -5692,17 +5650,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     >
                                                 {isSubmittingRfq ? 'Submitting...' : 'Submit RFQ'}
                                 </button>
-                                            
-                                            {/* Instructional microcopy */}
-                                            <div style={{
-                                                marginTop: '12px',
-                                                fontSize: '11px',
-                                                color: '#999',
-                                                textAlign: 'center',
-                                                fontFamily: 'monospace',
-                                            }}>
-                                                Edit RFQ details and click Update.
-                                            </div>
                                 </div>
                                     )}
                                         </div>
@@ -6867,10 +6814,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         resize: 'vertical',
                                                     }}
                                                 />
-                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
-                                                    ({smartAlternativesNote.length} chars • filtered)
-                                                </div>
                                             </div>
+                                            {/* Edit RFQ details - show only when RFQ submitted, in dimension/qty update box */}
+                                            {itemState.has_rfq && (
+                                                <div style={{ marginTop: '12px', fontSize: '11px', color: '#999', textAlign: 'center', fontFamily: 'monospace' }}>
+                                                    Edit RFQ details and click Update.
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     )}
