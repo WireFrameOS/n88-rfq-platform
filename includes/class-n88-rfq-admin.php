@@ -7756,20 +7756,42 @@ class N88_RFQ_Admin {
                             return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
                         }
 
-                        // Priority 2: Prototype Approved (designer approved prototype) — must beat Action Required
-                        if (ps === 'approved') {
-                            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
-                        }
-                        // Priority 3: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
+                        // Priority 2: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
                         if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
                             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
                         }
-                        // Priority 3: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
+                        // Priority 3: Proposals Received — when supplier has submitted proposal(s), show so designer sees "Proposals received" not "Prototype approved"
+                        var validBidCountEarly = 0;
+                        if (item.valid_bid_count !== undefined && item.valid_bid_count !== null) {
+                            validBidCountEarly = parseInt(item.valid_bid_count, 10);
+                        } else if (item.bid_count !== undefined && item.bid_count !== null) {
+                            validBidCountEarly = parseInt(item.bid_count, 10);
+                        } else if (item.bids_count !== undefined && item.bids_count !== null) {
+                            validBidCountEarly = parseInt(item.bids_count, 10);
+                        } else if (item.bids && Array.isArray(item.bids)) {
+                            var currentRev = item.rfq_revision_current || (item.meta && item.meta.rfq_revision_current) || null;
+                            validBidCountEarly = item.bids.filter(function(b) {
+                                if (b.status !== 'submitted') return false;
+                                if (currentRev !== null) {
+                                    var br = b.rfq_revision_at_submit || (b.meta && b.meta.rfq_revision_at_submit);
+                                    return br === currentRev;
+                                }
+                                return true;
+                            }).length;
+                        }
+                        if (!isNaN(validBidCountEarly) && validBidCountEarly > 0) {
+                            return { text: 'Proposals Received (' + validBidCountEarly + ')', color: '#2196f3', dot: '#2196f3' };
+                        }
+                        // Priority 4: Prototype Approved (designer approved prototype) — only when no pending proposals to show
+                        if (ps === 'approved') {
+                            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+                        }
+                        // Priority 5: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
                         if (ps === 'changes_requested') {
                             return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
                         }
 
-                        // Priority 4: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
+                        // Priority 6: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
                         var hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
                         var cadStatus = (item.cad_status || '').toLowerCase() || null;
                         if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
@@ -8739,10 +8761,7 @@ class N88_RFQ_Admin {
                                     }, 'Door-to-Door Delivery'),
                                     React.createElement('div', {
                                         style: { fontSize: '11px', color: greenAccent }
-                                    }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2)),
-                                    bid.delivery_shipping_mode ? React.createElement('div', {
-                                        style: { fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.6 }
-                                    }, 'Mode: ' + (bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode)) : null
+                                    }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2))
                                 ) : null,
                                 // Commit 2.4.1: Award Bid Button
                                 bid.can_award && !bid.is_awarded && !bid.is_declined ? React.createElement('div', {
@@ -9200,16 +9219,7 @@ class N88_RFQ_Admin {
                                 }, 'Door-to-Door Delivery'),
                                 displayBids.map(function(bid, idx) {
                                     var hasDelivery = bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)));
-                                    var modeLabel = '';
-                                    if (bid.delivery_shipping_mode) {
-                                        if (bid.delivery_shipping_mode === 'LCL') {
-                                            modeLabel = 'LCL';
-                                        } else if (bid.delivery_shipping_mode === 'FCL_20') {
-                                            modeLabel = '20\' Container';
-                                        } else if (bid.delivery_shipping_mode === 'FCL_40HQ') {
-                                            modeLabel = '40\' HQ Container';
-                                        }
-                                    }
+                                    // Delivery/shipping mode label (LCL, 20' Container, 40' HQ) hidden for now
                                     return React.createElement('div', {
                                         key: 'delivery-' + bid.bid_id,
                                         style: {
@@ -9219,16 +9229,9 @@ class N88_RFQ_Admin {
                                             textAlign: 'center',
                                         }
                                     },
-                                        hasDelivery ? React.createElement('div', {
-                                            style: { display: 'flex', flexDirection: 'column', gap: '2px' }
-                                        },
-                                            React.createElement('span', {
-                                                style: { color: greenAccent }
-                                            }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2)),
-                                            modeLabel ? React.createElement('span', {
-                                                style: { color: darkText, fontSize: '9px', opacity: 0.6 }
-                                            }, modeLabel) : null
-                                        ) : React.createElement('span', {
+                                        hasDelivery ? React.createElement('span', {
+                                            style: { color: greenAccent }
+                                        }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2)) : React.createElement('span', {
                                             style: { color: darkText }
                                         }, '—')
                                     );
@@ -10059,8 +10062,8 @@ class N88_RFQ_Admin {
                     var rfqError = _rfqErrorState[0];
                     var setRfqError = _rfqErrorState[1];
                     
-                    // BIDS section expansion state
-                    var _bidsExpandedState = React.useState(false);
+                    // BIDS section expansion state - expanded by default on Proposals Received tab
+                    var _bidsExpandedState = React.useState(true);
                     var bidsExpanded = _bidsExpandedState[0];
                     var setBidsExpanded = _bidsExpandedState[1];
                     
@@ -14150,34 +14153,17 @@ class N88_RFQ_Admin {
                                                 onClick: function(e) { e.stopPropagation(); }
                                             },
                                                 React.createElement('div', {
-                                                    onClick: function(e) {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setBidsExpanded(!bidsExpanded);
-                                                    },
                                                     style: {
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
                                                         alignItems: 'center',
-                                                        cursor: 'pointer',
-                                                        marginBottom: bidsExpanded ? '12px' : '0',
+                                                        marginBottom: '12px',
                                                     }
                                                 },
                                                     React.createElement('div', {
                                                         style: { fontSize: '14px', fontWeight: '600' }
-                                                    }, 'Proposals'),
-                                                    React.createElement('span', {
-                                                        style: { fontSize: '12px', color: darkText, cursor: 'pointer' },
-                                                        onClick: function(e) {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setBidsExpanded(!bidsExpanded);
-                                                        }
-                                                    }, bidsExpanded ? '▼' : '▶')
+                                                    }, 'Proposals')
                                                 ),
-                                                !bidsExpanded ? React.createElement('div', {
-                                                    style: { fontSize: '12px', color: darkText, marginTop: '8px' }
-                                                }, itemState.bids.length + ' Proposal' + (itemState.bids.length !== 1 ? 's' : '') + ' received') : null,
                                                 // Commit 2.3.6: Expanded BIDS Matrix View
                                                 bidsExpanded ? React.createElement(React.Fragment, null,
                                                     React.createElement(BidComparisonMatrixInline, {

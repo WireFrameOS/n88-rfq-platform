@@ -109,20 +109,26 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
         }
 
-        // Priority 2: Prototype Approved (designer approved prototype) — must beat Action Required
-        if (ps === 'approved') {
-            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
-        }
-        // Priority 3: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
+        // Priority 2: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
         if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
         }
-        // Priority 4: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
+        // Priority 3: Proposals Received — when supplier has submitted proposal(s), show so designer sees "Proposal received" not "Prototype approved"
+        const bidCount = item.bid_count ?? item.bids_count ?? 0;
+        const hasBids = (typeof bidCount === 'number' && bidCount > 0) || item.has_bids === true || item.has_bids === 'true';
+        if (hasBids) {
+            return { text: 'Proposals Received', color: '#2196f3', dot: '#2196f3' };
+        }
+        // Priority 4: Prototype Approved (designer approved prototype) — only when no pending proposals to show
+        if (ps === 'approved') {
+            return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+        }
+        // Priority 5: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
         if (ps === 'changes_requested') {
             return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
         }
 
-        // Priority 5: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
+        // Priority 6: Designer approved CAD — show Pending Prototype Video (waiting for supplier to submit video)
         const hasPrototypePayment = item.has_prototype_payment === true || item.has_prototype_payment === 'true' || item.has_prototype_payment === 1;
         const cadStatus = (item.cad_status || '').toLowerCase() || null;
         if (hasPrototypePayment && cadStatus === 'approved' && ps !== 'approved') {
@@ -164,10 +170,10 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (actionRequired) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
         }
-        // Check if item has bids (Bids Received)
-        const bidCount = item.bid_count || item.bids_count || 0;
-        if (bidCount > 0 || item.has_bids === true || item.has_bids === 'true') {
-            return { text: 'Bids Received', color: '#2196f3', dot: '#2196f3' };
+        // Check if item has bids (Proposals Received) — fallback if not caught earlier
+        const bidCountFallback = item.bid_count || item.bids_count || 0;
+        if (bidCountFallback > 0 || item.has_bids === true || item.has_bids === 'true') {
+            return { text: 'Proposals Received', color: '#2196f3', dot: '#2196f3' };
         }
         
         // Check if RFQ exists (RFQ Sent)

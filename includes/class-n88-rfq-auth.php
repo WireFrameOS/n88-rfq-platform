@@ -1850,6 +1850,22 @@ class N88_RFQ_Auth {
                         }
                     }
                 }
+                // When supplier has marked as clarified (supplier clicked "Mark as Clarified"), do not show Action Required for operator message — show current item status instead
+                $supplier_has_marked_clarified = false;
+                if ( $has_unread_operator_messages ) {
+                    $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
+                    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                        $supplier_has_marked_clarified = (bool) $wpdb->get_var( $wpdb->prepare(
+                            "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND actor_user_id = %d LIMIT 1",
+                            $item_id,
+                            $current_user->ID
+                        ) );
+                        if ( $supplier_has_marked_clarified ) {
+                            $has_unread_operator_messages = false;
+                            $unread_operator_messages = 0;
+                        }
+                    }
+                }
             }
             
             $item_data['has_unread_operator_messages'] = $has_unread_operator_messages;
@@ -2777,8 +2793,10 @@ class N88_RFQ_Auth {
                     });
                 });
                 
-                // Handle form submission
+                // Handle form submission (bind once per form to avoid double submit / double alert)
                 document.querySelectorAll('[id^="n88-submit-prototype-video-form-"]').forEach(function(form) {
+                    if (form.getAttribute('data-n88-prototype-form-initialized') === '1') return;
+                    form.setAttribute('data-n88-prototype-form-initialized', '1');
                     form.addEventListener('submit', function(e) {
                         e.preventDefault();
                         
@@ -3154,10 +3172,11 @@ class N88_RFQ_Auth {
                         // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
                         // Commit 2.3.9.2: Prototype block uses item.payment_notification OR bid_data.payment_notification so tab shows whenever CAD/prototype request exists
                         var paymentNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
+                        var protoFallback = { full: '', step1Box: '', step2Box: '', step3Box: '' };
                         var bidAndPrototype = (function() {
                             var bid = item.bid_data || {};
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
-                            var prototypeBlockHTML = (paymentNotif ? (function() {
+                            var protoResult = paymentNotif ? (function() {
                                 var notif = paymentNotif;
                                 var keywordsHTML = '';
                                 if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
@@ -3178,8 +3197,9 @@ class N88_RFQ_Auth {
                                         '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                         '</div>';
                                 }
+                                var cadReleasedToSupplier = notif.cad_released_to_supplier_at && String(notif.cad_released_to_supplier_at).trim() !== '';
                                 var cadFilesHTML = '';
-                                if (notif.cad_status === 'approved' && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
+                                if (notif.cad_status === 'approved' && cadReleasedToSupplier && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
                                     cadFilesHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
                                         '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
                                         '<div style="display: flex; flex-direction: column; gap: 6px;">';
@@ -3195,29 +3215,39 @@ class N88_RFQ_Auth {
                                     });
                                     cadFilesHTML += '</div></div>';
                                 }
-                                var isCadApprovedForSubmit = notif.cad_status === 'approved' && notif.payment_id && (notif.cad_files && notif.cad_files.length > 0 || (notif.cad_approved_version && notif.cad_approved_version > 0));
+                                var isCadApprovedForSubmit = notif.cad_status === 'approved' && cadReleasedToSupplier && notif.payment_id && (notif.cad_files && notif.cad_files.length > 0 || (notif.cad_approved_version && notif.cad_approved_version > 0));
                                 var statusText, statusMessage;
                                 if (notif.status === 'requested' || (notif.status !== 'marked_received' && notif.cad_status !== 'approved')) {
                                     statusText = 'CAD Request Pending Payment';
                                     statusMessage = 'A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction keywords before filming begins.';
+                                } else if (notif.cad_status === 'approved' && !cadReleasedToSupplier) {
+                                    statusText = 'CAD Approved — Awaiting Release';
+                                    statusMessage = 'Payment has been confirmed and the designer has approved the CAD. The approved CAD and direction will be released to you by the operator shortly. You will be able to view files and submit your prototype video once they are released.';
                                 } else if (notif.cad_status === 'approved') {
                                     statusText = 'Payment Received — CAD Approved';
-                                    statusMessage = 'Payment has been confirmed. CAD has been approved. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.';
+                                    statusMessage = 'Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.';
                                 } else {
                                     statusText = 'Payment Received — CAD Pending';
                                     statusMessage = 'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
                                 }
+                                var releasedContent = cadReleasedToSupplier ? (cadFilesHTML + keywordsHTML + noteHTML) : '';
                                 var baseBlock = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;">' +
                                     '<div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">' + statusText + '</div>' +
                                     '<div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">' + statusMessage + '</div>' +
                                     '<div style="font-size: 11px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;">' +
                                     '<div style="margin-bottom: 4px;"><strong>Item #' + (notif.item_id || 'N/A') + '</strong> / <strong>Bid #' + (notif.bid_id || 'N/A') + '</strong></div>' +
-                                    '</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
-                                if (!isCadApprovedForSubmit) return baseBlock;
+                                    '</div>' + releasedContent + '</div>';
+                                var step1Box = (notif.status === 'requested' || (notif.status !== 'marked_received' && notif.cad_status !== 'approved')) ?
+                                    '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' :
+                                    '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Pending</div><div style="font-size: 12px; color: #aaa; line-height: 1.5;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div></div>';
+                                var step2BoxApproved = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Approved</div><div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production.</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
+                                var step2BoxAwaitingRelease = '<div style="background-color: rgba(255, 255, 255, 0.06); border: 2px solid #666; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #888; margin-bottom: 8px;">CAD Approved — Awaiting Release</div><div style="font-size: 12px; color: #888; line-height: 1.5;">The designer has approved the CAD. The operator will release the approved CAD and direction to you shortly. You will then see the files here and can submit your prototype video.</div></div>';
+                                var step2Box = (notif.cad_status === 'approved' && cadReleasedToSupplier) ? step2BoxApproved : (notif.cad_status === 'approved') ? step2BoxAwaitingRelease : '';
+                                if (!isCadApprovedForSubmit) return { full: baseBlock, step1Box: step1Box, step2Box: step2Box, step3Box: '' };
                                 var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
                                 if (hasSubmission) {
                                     var submission = notif.prototype_video_submission;
-                                    var submissionDate = submission.created_at ? new Date(submission.created_at).toLocaleDateString() : 'N/A';
+                                    var submissionDate = submission.created_at ? new Date(submission.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'N/A';
                                     var linksHTML = '';
                                     if (submission.links && submission.links.length > 0) {
                                         linksHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #666;"><div style="font-size: 11px; color: #999; margin-bottom: 8px;">Submitted Links (v' + submission.version + '):</div><div style="display: flex; flex-direction: column; gap: 6px;">';
@@ -3247,9 +3277,10 @@ class N88_RFQ_Auth {
                                         statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
                                         statusMessage = 'Prototype video has been approved by the designer.';
                                     }
-                                    return baseBlock + '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
+                                    var step3Box = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
                                         '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' + statusBadge +
                                         '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — ' + statusMessage + '</div>' + helpMessage + linksHTML + viewChangesBtn + '</div>';
+                                    return { full: baseBlock + step3Box, step1Box: step1Box, step2Box: step2Box, step3Box: step3Box };
                                 }
                                 var submissionHTML = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
                                     '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 12px;">Submit Prototype Video</div>' +
@@ -3263,8 +3294,8 @@ class N88_RFQ_Auth {
                                     '<button type="button" class="n88-remove-link-btn" style="padding: 8px 12px; background-color: #333; color: #ff6666; border: 1px solid #666; border-radius: 4px; font-family: monospace; font-size: 11px; cursor: pointer; display: none;">Remove</button></div></div>' +
                                     '<button type="button" id="n88-add-link-btn-' + (notif.payment_id || '') + '" class="n88-add-link-btn" style="padding: 6px 12px; background-color: #000; color: #888; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 10px; cursor: pointer; align-self: flex-start;">+ Add Link (max 3)</button>' +
                                     '<button type="submit" style="padding: 10px 16px; background-color: #666; color: #fff; border: 1px solid #888; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700; cursor: pointer;">Submit Prototype Video</button></form></div>';
-                                return baseBlock + submissionHTML;
-                            })() : '');
+                                return { full: baseBlock + submissionHTML, step1Box: step1Box, step2Box: step2Box + submissionHTML, step3Box: '' };
+                            })() : protoFallback;
                             var bidBoxHTML = ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.bid_data) ? (function() {
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
@@ -3419,7 +3450,8 @@ class N88_RFQ_Auth {
                                 smartAltHTML +
                             '</div></div>';
                             })() : '';
-                            return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML };
+                            var prototypeBlockHTML = (protoResult && protoResult.full) ? protoResult.full : '';
+                            return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML, workflowStep1: (protoResult && protoResult.step1Box) ? protoResult.step1Box : '', workflowStep2: (protoResult && protoResult.step2Box) ? protoResult.step2Box : '', workflowStep3: (protoResult && protoResult.step3Box) ? protoResult.step3Box : '' };
                         })();
                     var bidTabHTML = bidAndPrototype.bidBox +
                         '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
@@ -3443,12 +3475,63 @@ class N88_RFQ_Auth {
                         '</div>' +  
                         '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555;">' +
                         '<div id="n88-bid-form-content-' + item.item_id + '"></div></div>';
-                    var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" style="margin-bottom: 24px; padding-bottom: 20px;">' +
-                        '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>' +
-                        '<div id="n88-supplier-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div></div>';
-                    var prototypeOnlyTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a proposal and, if awarded, prototype steps will appear here.</div>';
-                    // Default: Proposal tab when reopening after submit (preferredTab === 'bid'), else Item Overview
-                    var defaultTab = (preferredTab === 'bid') ? 'bid' : 'overview';
+                    var m = item.workflow_milestones || { step1: {}, step2: {}, step3: {} };
+                    var fmtDate = function(d) { return (d && (d = (typeof d === 'string' ? d : (d && d.toISOString ? d.toISOString() : '')))) ? new Date(d).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'; };
+                    var step1Dates = (m.step1 && (m.step1.cad_requested_at || m.step1.payment_approved_at)) ? ('<div style="font-size: 11px; color: #888; margin-bottom: 8px;">CAD requested: ' + fmtDate(m.step1.cad_requested_at) + '</div>' + (m.step1.payment_approved_at ? '<div style="font-size: 11px; color: #888; margin-bottom: 12px;">Payment received: ' + fmtDate(m.step1.payment_approved_at) + '</div>' : '')) : '';
+                    var step2Dates = '';
+                    if (m.step2) {
+                        if (m.step2.cad_approved_at) step2Dates += '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">CAD approved by designer: ' + fmtDate(m.step2.cad_approved_at) + '</div>';
+                        if (m.step2.cad_released_to_supplier_at) step2Dates += '<div style="font-size: 11px; color: #888; margin-bottom: 12px;">CAD released to you: ' + fmtDate(m.step2.cad_released_to_supplier_at) + '</div>';
+                    }
+                    var step3DatesArr = [];
+                    var firstSubmittedAt = (m.step3 && m.step3.video_submitted_at) ? String(m.step3.video_submitted_at) : '';
+                    if (m.step3 && m.step3.video_submitted_at) step3DatesArr.push('Video submitted: ' + fmtDate(m.step3.video_submitted_at));
+                    if (m.step3 && m.step3.changes_requested_dates && m.step3.changes_requested_dates.length) m.step3.changes_requested_dates.forEach(function(d, i) { step3DatesArr.push('Changes requested ' + (m.step3.changes_requested_dates.length > 1 ? (i + 1) + ': ' : '') + fmtDate(d)); });
+                    if (m.step3 && m.step3.video_resubmitted_dates && m.step3.video_resubmitted_dates.length) {
+                        var resubDates = m.step3.video_resubmitted_dates.filter(function(d) { return String(d) !== firstSubmittedAt; });
+                        resubDates.forEach(function(d, i) { step3DatesArr.push('Resubmitted video ' + (resubDates.length > 1 ? (i + 1) + ': ' : ': ') + fmtDate(d)); });
+                    } else if (m.step3 && m.step3.video_resubmitted_at && String(m.step3.video_resubmitted_at) !== firstSubmittedAt) step3DatesArr.push('Resubmitted video: ' + fmtDate(m.step3.video_resubmitted_at));
+                    if (m.step3 && m.step3.video_approved_at) step3DatesArr.push('Video approved: ' + fmtDate(m.step3.video_approved_at));
+                    var step3Dates = step3DatesArr.length ? step3DatesArr.map(function(l) { return '<div style="font-size: 11px; color: #888; margin-bottom: 4px;">' + l + '</div>'; }).join('') : '';
+                    var w1 = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">1. CAD Requested - payment received</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                    var w2 = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">2. Approved CAD drawings</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                    var w3Show = paymentNotif && (bidAndPrototype.workflowStep3 || (m.step3 && (m.step3.video_submitted_at || (m.step3.changes_requested_dates && m.step3.changes_requested_dates.length) || m.step3.video_approved_at)));
+                    var w3 = w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px;">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '';
+                    var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
+                    var green = '#00ff00';
+                    var darkBorder = '#555';
+                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos'];
+                    var w1WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">1. CAD Requested - payment received</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                    var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">2. Approved CAD drawings</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                    var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
+                    var stepRow = '';
+                    if (paymentNotif) {
+                        stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        for (var si = 0; si < 3; si++) {
+                            var isCompleted = activeStepIdx > si;
+                            var isActive = activeStepIdx === si;
+                            var circleBg = isCompleted ? green : (isActive ? '#111' : '#444');
+                            var circleBorder = isCompleted || isActive ? green : darkBorder;
+                            var circleColor = isCompleted ? '#0a0a0a' : (isActive ? '#00ff00' : '#fff');
+                            var labelColor = isActive ? green : '#ccc';
+                            stepRow += '<div data-step-idx="' + si + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer;" onclick="n88SupplierWorkflowShowStep(' + si + ');">';
+                            stepRow += '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid ' + circleBorder + '; background: ' + circleBg + '; color: ' + circleColor + '; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">' + (si + 1) + '</div>';
+                            stepRow += '<div style="font-size: 10px; color: ' + labelColor + '; text-align: center; line-height: 1.2;">' + (stepLabels[si] || '') + '</div>';
+                            stepRow += '</div>';
+                            if (si < 2) stepRow += '<div style="flex: 0 0 24px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 28px;" aria-hidden="true"></div>';
+                        }
+                        stepRow += '</div>';
+                    }
+                    var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
+                        (paymentNotif ? (stepRow + w1WithClass + w2WithClass + w3WithClass) : '<div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div>') + '</div>';
+                    var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #00ff00;">Workflow</strong> tab. Open Workflow to see dates and actions.</div>';
+                    var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
@@ -3459,26 +3542,28 @@ class N88_RFQ_Auth {
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Overview</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + (defaultTab === 'bid' ? tabActiveStyle : tabStyle) + '">Proposal</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + tabStyle + '">WorkFlow</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">Prototype</button>' +
+                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + (defaultTab === 'workflow' ? tabActiveStyle : tabStyle) + '">Workflow</button>' +
                         '</div>' +
                         '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
                         '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="' + (defaultTab === 'overview' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + overviewTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="' + (defaultTab === 'bid' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + bidTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-workflow" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + workflowTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeOnlyTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-workflow" class="n88-supplier-tab-panel" style="' + (defaultTab === 'workflow' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + workflowTabHTML + '</div>' +
                         '</div></div></div>';
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Support is in Overview and open by default; load messages for the Support box
+                    // Support is in Overview and open by default; load messages for the Support box. When opening on Workflow tab, scroll to active step.
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
-                        if (tabContent) tabContent.scrollTop = 0;
+                        if (tabContent && defaultTab !== 'workflow') tabContent.scrollTop = 0;
+                        if (defaultTab === 'workflow' && (item.supplier_workflow_active_step === 0 || item.supplier_workflow_active_step === 1 || item.supplier_workflow_active_step === 2)) {
+                            var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
+                            if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
                         if (typeof loadSupplierMessagesInline === 'function') loadSupplierMessagesInline(itemId);
                     }, 100);
                     
-                    // Commit 2.3.9.2B-S: Initialize prototype video submission forms
+                    // Commit 2.3.9.2B-S: Initialize prototype video submission forms (workflow tab now contains the form)
                     setTimeout(function() {
                         if (typeof window.initPrototypeVideoForms === 'function') {
                             window.initPrototypeVideoForms();
@@ -3740,7 +3825,7 @@ class N88_RFQ_Auth {
             }
             
             window.n88SupplierModalSwitchTab = function(tabName) {
-                var tabs = ['overview', 'bid', 'workflow', 'prototype'];
+                var tabs = ['overview', 'bid', 'workflow'];
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                 var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 tabs.forEach(function(name) {
@@ -3762,6 +3847,39 @@ class N88_RFQ_Auth {
                         }
                     }
                 });
+            };
+
+            window.n88SupplierWorkflowShowStep = function(idx) {
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                if (!wrap) return;
+                var details = wrap.querySelectorAll('.n88-workflow-step-detail');
+                for (var i = 0; i < details.length; i++) {
+                    var stepId = details[i].getAttribute('id') || '';
+                    var stepNum = parseInt(stepId.replace('n88-supplier-workflow-step-', ''), 10);
+                    details[i].style.display = (stepNum === idx) ? 'block' : 'none';
+                }
+                var row = document.getElementById('n88-supplier-workflow-step-row');
+                if (row) {
+                    row.setAttribute('data-active-idx', String(idx));
+                    var green = '#00ff00';
+                    var darkBorder = '#555';
+                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos'];
+                    var steps = row.querySelectorAll('[data-step-idx]');
+                    for (var s = 0; s < steps.length; s++) {
+                        var si = parseInt(steps[s].getAttribute('data-step-idx'), 10);
+                        var isCompleted = idx > si;
+                        var isActive = idx === si;
+                        var circleBg = isCompleted ? green : (isActive ? '#111' : '#444');
+                        var circleBorder = isCompleted || isActive ? green : darkBorder;
+                        var circleColor = isCompleted ? '#0a0a0a' : (isActive ? '#00ff00' : '#fff');
+                        var labelColor = isActive ? green : '#ccc';
+                        var circle = steps[s].querySelector('div[style*="border-radius: 50%"]');
+                        var label = steps[s].querySelector('div[style*="font-size: 10px"]');
+                        if (circle) { circle.style.background = circleBg; circle.style.borderColor = circleBorder; circle.style.color = circleColor; }
+                        if (label) label.style.color = labelColor;
+                    }
+                }
+                if (typeof window.initPrototypeVideoForms === 'function') window.initPrototypeVideoForms();
             };
 
             window.n88LoadSupplierWorkflowTimeline = function() {
@@ -10950,6 +11068,29 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
         
+        // Supplier Workflow tab: workflow_milestones and active step for 3-step view (CAD → Approved CAD → Prototype videos)
+        $workflow_milestones = array(
+            'step1' => array( 'cad_requested_at' => null, 'payment_sent_at' => null, 'payment_approved_at' => null ),
+            'step2' => array( 'cad_received_at' => null, 'revision_submitted_at' => null, 'revision_sent_at' => null, 'cad_approved_at' => null, 'cad_released_to_supplier_at' => null ),
+            'step3' => array( 'video_submitted_at' => null, 'changes_requested_at' => null, 'changes_requested_dates' => array(), 'video_resubmitted_at' => null, 'video_resubmitted_dates' => array(), 'video_approved_at' => null ),
+        );
+        $supplier_workflow_active_step = null; // 0, 1, or 2 when modal should open on Workflow tab
+        if ( $item_level_payment_notification && ! empty( $item_level_payment_notification['payment_id'] ) ) {
+            $workflow_milestones = $this->get_workflow_milestones_for_supplier( $item_id, (int) $item_level_payment_notification['payment_id'] );
+            $notif = $item_level_payment_notification;
+            $status = isset( $notif['status'] ) ? $notif['status'] : '';
+            $cad_status = isset( $notif['cad_status'] ) ? $notif['cad_status'] : '';
+            $has_submission = ! empty( $notif['prototype_video_submission'] );
+            $prototype_status = isset( $notif['prototype_status'] ) ? $notif['prototype_status'] : '';
+            if ( $status === 'requested' || ( $status === 'marked_received' && $cad_status !== 'approved' ) ) {
+                $supplier_workflow_active_step = 0; // Step 1
+            } elseif ( $cad_status === 'approved' && ! $has_submission ) {
+                $supplier_workflow_active_step = 1; // Step 2
+            } elseif ( $has_submission || $prototype_status === 'changes_requested' || $prototype_status === 'approved' ) {
+                $supplier_workflow_active_step = 2; // Step 3
+            }
+        }
+
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
@@ -10991,9 +11132,156 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'latest_stale_bid_data' => $latest_stale_bid_data, // G) Latest stale bid data for pre-filling
             'is_resubmission' => $is_resubmission, // G) Flag to show "Bid Already Resubmitted" instead of "Bid Already Submitted"
             'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operator–Supplier Messages when any message exists
+            'workflow_milestones' => $workflow_milestones, // Supplier Workflow tab: dates per step (step1/2/3)
+            'supplier_workflow_active_step' => $supplier_workflow_active_step, // 0|1|2 when to open modal on Workflow tab
         );
 
         wp_send_json_success( $response );
+    }
+
+    /**
+     * Build workflow_milestones for supplier (same structure as designer RFQ state). Used for supplier Workflow tab 3-step view.
+     *
+     * @param int $item_id
+     * @param int $prototype_payment_id
+     * @return array step1/step2/step3 with date keys
+     */
+    private function get_workflow_milestones_for_supplier( $item_id, $prototype_payment_id ) {
+        global $wpdb;
+        $item_id = absint( $item_id );
+        $prototype_payment_id = absint( $prototype_payment_id );
+        $out = array(
+            'step1' => array( 'cad_requested_at' => null, 'payment_sent_at' => null, 'payment_approved_at' => null ),
+            'step2' => array( 'cad_received_at' => null, 'revision_submitted_at' => null, 'revision_sent_at' => null, 'cad_approved_at' => null, 'cad_released_to_supplier_at' => null ),
+            'step3' => array( 'video_submitted_at' => null, 'changes_requested_at' => null, 'changes_requested_dates' => array(), 'video_resubmitted_at' => null, 'video_resubmitted_dates' => array(), 'video_approved_at' => null ),
+        );
+        $payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$payments_table}'" ) !== $payments_table || ! $prototype_payment_id ) {
+            return $out;
+        }
+        $pp = $wpdb->get_row( $wpdb->prepare(
+            "SELECT created_at, received_at, cad_approved_at, cad_released_to_supplier_at FROM {$payments_table} WHERE id = %d",
+            $prototype_payment_id
+        ), ARRAY_A );
+        if ( ! $pp ) {
+            return $out;
+        }
+        $out['step1']['cad_requested_at'] = isset( $pp['created_at'] ) ? $pp['created_at'] : null;
+        $out['step1']['payment_approved_at'] = ( isset( $pp['received_at'] ) && trim( (string) $pp['received_at'] ) !== '' ) ? $pp['received_at'] : null;
+        $out['step2']['cad_approved_at'] = isset( $pp['cad_approved_at'] ) ? $pp['cad_approved_at'] : null;
+        $out['step2']['cad_released_to_supplier_at'] = isset( $pp['cad_released_to_supplier_at'] ) ? $pp['cad_released_to_supplier_at'] : null;
+
+        $receipts_table = $wpdb->prefix . 'n88_prototype_payment_receipts';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+            $receipt_cols = $wpdb->get_col( "DESCRIBE {$receipts_table}" );
+            $receipt_date_col = is_array( $receipt_cols ) && in_array( 'uploaded_at', $receipt_cols, true ) ? 'uploaded_at' : 'created_at';
+            $first_receipt = $wpdb->get_var( $wpdb->prepare(
+                "SELECT MIN({$receipt_date_col}) FROM {$receipts_table} WHERE payment_id = %d",
+                $prototype_payment_id
+            ) );
+            if ( $first_receipt ) {
+                $out['step1']['payment_sent_at'] = $first_receipt;
+            }
+        }
+
+        $item_files_table = $wpdb->prefix . 'n88_item_files';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+            $files_date_col = 'attached_at';
+            $cols = $wpdb->get_col( "DESCRIBE {$item_files_table}" );
+            if ( is_array( $cols ) && in_array( 'created_at', $cols, true ) ) {
+                $files_date_col = 'created_at';
+            }
+            $first_cad = $wpdb->get_var( $wpdb->prepare(
+                "SELECT MIN({$files_date_col}) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                $item_id,
+                $prototype_payment_id
+            ) );
+            if ( $first_cad ) {
+                $out['step2']['cad_received_at'] = $first_cad;
+            }
+            $cad_count = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                $item_id,
+                $prototype_payment_id
+            ) );
+            if ( $cad_count && (int) $cad_count > 1 ) {
+                $revision_sent = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT MAX({$files_date_col}) FROM {$item_files_table} WHERE item_id = %d AND payment_id = %d AND attachment_type = 'cad' AND detached_at IS NULL",
+                    $item_id,
+                    $prototype_payment_id
+                ) );
+                if ( $revision_sent ) {
+                    $out['step2']['revision_sent_at'] = $revision_sent;
+                }
+            }
+        }
+
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $revision_requested_at = $wpdb->get_var( $wpdb->prepare(
+                "SELECT MIN(created_at) FROM {$messages_table} WHERE item_id = %d AND thread_type = 'designer_operator' AND sender_role = 'designer' AND message_text LIKE %s",
+                $item_id,
+                '%Revision requested%'
+            ) );
+            if ( $revision_requested_at ) {
+                $out['step2']['revision_submitted_at'] = $revision_requested_at;
+            }
+        }
+
+        $pvs_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$pvs_table}'" ) === $pvs_table ) {
+            $first_sub = $wpdb->get_row( $wpdb->prepare(
+                "SELECT created_at FROM {$pvs_table} WHERE payment_id = %d ORDER BY version ASC LIMIT 1",
+                $prototype_payment_id
+            ), ARRAY_A );
+            if ( $first_sub && ! empty( $first_sub['created_at'] ) ) {
+                $out['step3']['video_submitted_at'] = $first_sub['created_at'];
+            }
+            $resubmit_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT created_at FROM {$pvs_table} WHERE payment_id = %d AND version > 1 ORDER BY version DESC LIMIT 1",
+                $prototype_payment_id
+            ), ARRAY_A );
+            if ( $resubmit_row && ! empty( $resubmit_row['created_at'] ) ) {
+                $out['step3']['video_resubmitted_at'] = $resubmit_row['created_at'];
+            }
+            $resubmitted_dates = $wpdb->get_col( $wpdb->prepare(
+                "SELECT created_at FROM {$pvs_table} WHERE payment_id = %d AND version > 1 ORDER BY version ASC",
+                $prototype_payment_id
+            ) );
+            $out['step3']['video_resubmitted_dates'] = is_array( $resubmitted_dates ) ? $resubmitted_dates : array();
+        }
+
+        $fb_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$fb_table}'" ) === $fb_table ) {
+            $changes_at = $wpdb->get_var( $wpdb->prepare(
+                "SELECT MIN(created_at) FROM {$fb_table} WHERE payment_id = %d",
+                $prototype_payment_id
+            ) );
+            if ( $changes_at ) {
+                $out['step3']['changes_requested_at'] = $changes_at;
+            }
+            // All feedback packet dates (for multiple "changes requested" in step 3)
+            $changes_dates = $wpdb->get_col( $wpdb->prepare(
+                "SELECT created_at FROM {$fb_table} WHERE payment_id = %d ORDER BY created_at ASC",
+                $prototype_payment_id
+            ) );
+            $out['step3']['changes_requested_dates'] = is_array( $changes_dates ) ? $changes_dates : array();
+        } else {
+            $out['step3']['changes_requested_dates'] = array();
+        }
+
+        $pp_columns = $wpdb->get_col( "DESCRIBE {$payments_table}" );
+        if ( is_array( $pp_columns ) && in_array( 'prototype_approved_at', $pp_columns, true ) ) {
+            $pa_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT prototype_approved_at FROM {$payments_table} WHERE id = %d LIMIT 1",
+                $prototype_payment_id
+            ), ARRAY_A );
+            if ( $pa_row && ! empty( $pa_row['prototype_approved_at'] ) ) {
+                $out['step3']['video_approved_at'] = $pa_row['prototype_approved_at'];
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -17801,7 +18089,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         <!-- Workflow Timeline (Furniture 6-Step) - same as supplier queue -->
         <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" style="margin-bottom: 24px; padding-bottom: 20px;">
-            <div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>
+            <div style="font-size: 11px; color: #888; margin-bottom: 8px;"></div>
             <div id="n88-operator-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div>
         </div>
 
