@@ -2452,6 +2452,8 @@ class N88_RFQ_Auth {
                         var opts = {
                             has_operator_reply: !!(data.data.has_operator_reply),
                             supplier_confirmed_clarification: !!(data.data.supplier_confirmed_clarification),
+                            has_operator_reply_after_confirmation: !!(data.data.has_operator_reply_after_confirmation),
+                            supplier_has_submitted_bid: !!(data.data.supplier_has_submitted_bid),
                             bid_id: data.data.bid_id || 0
                         };
                         renderSupplierMessagesInline(data.data.messages, itemId, opts);
@@ -2542,7 +2544,7 @@ class N88_RFQ_Auth {
                     }
                     
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isSupplier ? 'flex-end' : 'flex-start') + '; width: 100%;">';
-                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isSupplier ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isSupplier ? '#00ff00' : '#333') + '; border-radius: ' + (isSupplier ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
+                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isSupplier ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid #555; border-radius: ' + (isSupplier ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
                     html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
                     html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                     
@@ -2567,14 +2569,20 @@ class N88_RFQ_Auth {
                     html += '</div>';
                 });
                 
-                // Supplier: small "Mark as clarified" button when operator has replied (operator gets notified via case_resolutions)
+                // Supplier: "Mark as Clarified" when operator replied; after clarified show "Submit Proposal" (hide if already submitted). If operator replied again after clarify, show "Mark as Clarified" again.
                 if (opts.has_operator_reply) {
-                    html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start;">';
-                    if (opts.supplier_confirmed_clarification) {
+                    html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">';
+                    if (opts.has_operator_reply_after_confirmation) {
+                        var bidIdVal = (opts.bid_id || 0);
+                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
+                    } else if (opts.supplier_confirmed_clarification) {
                         html += '<span style="font-size: 11px; color: #00aa00;">✓ Clarified</span>';
+                        if (!opts.supplier_has_submitted_bid) {
+                            html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Submit Proposal</button>';
+                        }
                     } else {
                         var bidIdVal = (opts.bid_id || 0);
-                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; border-radius: 4px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#005500\';" onmouseout="this.style.backgroundColor=\'#003300\';">Mark as clarified</button>';
+                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
                     }
                     html += '</div>';
                 }
@@ -2600,12 +2608,12 @@ class N88_RFQ_Auth {
                         if (data.success) {
                             loadSupplierMessagesInline(itemId);
                         } else {
-                            if (btn) { btn.disabled = false; btn.textContent = 'Mark as clarified'; }
+                            if (btn) { btn.disabled = false; btn.textContent = 'Mark as Clarified'; }
                             alert(data.data && data.data.message ? data.data.message : 'Failed.');
                         }
                     })
                     .catch(function() {
-                        if (btn) { btn.disabled = false; btn.textContent = 'Mark as clarified'; }
+                        if (btn) { btn.disabled = false; btn.textContent = 'Mark as Clarified'; }
                         alert('An error occurred. Please try again.');
                     });
             }
@@ -2619,6 +2627,15 @@ class N88_RFQ_Auth {
                 if (itemId && typeof supplierConfirmClarification === 'function') {
                     supplierConfirmClarification(itemId, bidId);
                 }
+            });
+            // Delegated click for "Submit Proposal" in Overview (after Mark as Clarified): go to Proposal tab and open form
+            document.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('.n88-supplier-submit-proposal-from-overview') : null;
+                if (!btn) return;
+                var itemId = btn.getAttribute('data-item-id');
+                if (!itemId) return;
+                if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('bid');
+                if (typeof toggleBidForm === 'function') toggleBidForm(itemId);
             });
             
             // Commit 2.3.9.1C-a: Send Supplier Clarification (Inline)
@@ -3076,49 +3093,42 @@ class N88_RFQ_Auth {
                             '</div>' +
                             (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '');
                     })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
-                    var overviewTabHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
+                    // Item box only (for 30% column)
+                    var itemBoxHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
                             '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
-                        '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
+                        '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; height: 100%; box-sizing: border-box;">' +
                         '<div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
-                        // 1. Item:
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
-                        // 2. Category:
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
-                        // 3. Dims:
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
-                        // 4. Quantity:
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
-                        // 5. Routing:
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Routing:</strong> <span style="color: #00ff00;">' + item.route_label + '</span></div>' : '') +
-                        // 6. Delivery: (Commit 2.3.5.4: Country only, no postal/zip, no shipping estimate)
                         '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
-                        // 7. Description:
-                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Description:</strong></div>' +
+                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Description:</strong></div>' +
                         '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + (item.description || '—') + '</div>' +
-                        // 8. Designer notes: (Commit 2.3.5.4: smart_alternatives_note)
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Designer notes:</strong></div>' +
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong></div>' +
                             '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
-                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
                         ) +
-                        '</div>' +
-                        '</div>';
-                    var messagesTabHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;">' +
-                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="flex-shrink: 0; width: 100%; padding: 12px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#003300\';" onmouseout="this.style.backgroundColor=\'#111111\';">' +
+                        '</div></div>';
+                    // Support section: open by default (display: flex), in 70% column — light borders, 10px radius on input + Send
+                    var supportSectionHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">' +
+                        '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="flex-shrink: 0; width: 100%; padding: 12px; background-color: #111111; border: 1px solid #555; border-radius: 10px; color: #ccc; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#111111\'; this.style.borderColor=\'#555\';">' +
                         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;flex-shrink:0;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support' +
                         '</button>' +
-                        '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: none; flex: 1; min-height: 0; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #00ff00; border-radius: 4px; flex-direction: column; overflow: hidden;">' +
+                        '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: flex; flex: 1; min-height: 0; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #555; border-radius: 10px; flex-direction: column; overflow: hidden;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
-                        '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #00ff00; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
+                        '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
                         '</div>' +
                         '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
                         '<div style="margin-bottom: 12px; flex-shrink: 0;">' +
-                        '<label style="display: block; font-size: 11px; color: #00ff00; margin-bottom: 5px;">Category (Optional):</label>' +
-                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 8px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: \'Courier New\', Courier, monospace; font-size: 11px; border-radius: 4px;">' +
+                        '<label style="display: block; font-size: 11px; color: #888; margin-bottom: 5px;">Category (Optional):</label>' +
+                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 100%; padding: 8px; background-color: #000; color: #ccc; border: 1px solid #555; font-family: \'Courier New\', Courier, monospace; font-size: 11px; border-radius: 10px;">' +
                         '<option value="">-- Select Category --</option>' +
                         '<option value="Specs">Specs</option>' +
                         '<option value="Dimensions">Dimensions</option>' +
@@ -3127,15 +3137,20 @@ class N88_RFQ_Auth {
                         '<option value="Other">Other</option>' +
                         '</select>' +
                         '</div>' +
-                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex: 1; min-height: 120px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #00ff00; display: flex; flex-direction: column;">' +
+                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex: 1; min-height: 120px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #00ff00; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
-                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">Send</button>' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
+                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">Send</button>' +
                         '</div>' +
                         '</form>' +
                         '</div></div>';
+                    // Item Overview: 30% item box (left), 70% Support open (right)
+                    overviewTabHTML = '<div style="display: flex; flex-direction: row; flex: 1; min-height: 0; gap: 20px;">' +
+                        '<div style="width: 30%; flex: 0 0 30%; min-width: 0; overflow-y: auto;">' + itemBoxHTML + '</div>' +
+                        '<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">' + supportSectionHTML + '</div>' +
+                        '</div>';
                         // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
                         // Commit 2.3.9.2: Prototype block uses item.payment_notification OR bid_data.payment_notification so tab shows whenever CAD/prototype request exists
                         var paymentNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
@@ -3432,9 +3447,8 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 11px; color: #888; margin-bottom: 8px;">Timeline type: [ Furniture 6-Step ] · Status: [ Read-only ]</div>' +
                         '<div id="n88-supplier-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div></div>';
                     var prototypeOnlyTabHTML = bidAndPrototype.prototypeBlock || '<div style="padding: 20px; color: #666; font-family: monospace; font-size: 12px;">No prototype workflow for this item yet. Submit a proposal and, if awarded, prototype steps will appear here.</div>';
-                    // Default to Proposal tab when preferredTab is 'bid' (e.g. after submit) or when item state indicates Proposal
-                    var forceProposalTab = (preferredTab === 'bid');
-                    var defaultTab = (forceProposalTab || item.action_badge === 'submit_bid' || item.action_badge === 'continue_draft' || item.action_badge === 'specs_changed' || item.bid_status === 'submitted') ? 'bid' : 'overview';
+                    // Default: Proposal tab when reopening after submit (preferredTab === 'bid'), else Item Overview
+                    var defaultTab = (preferredTab === 'bid') ? 'bid' : 'overview';
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
@@ -3444,42 +3458,24 @@ class N88_RFQ_Auth {
                         '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Overview</button>' +
-                        '<button type="button" onclick="n88SupplierModalSwitchTab(\'messages\');" id="n88-supplier-tab-messages" style="' + tabStyle + '">Messages</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'bid\');" id="n88-supplier-tab-bid" style="' + (defaultTab === 'bid' ? tabActiveStyle : tabStyle) + '">Proposal</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'workflow\');" id="n88-supplier-tab-workflow" style="' + tabStyle + '">WorkFlow</button>' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'prototype\');" id="n88-supplier-tab-prototype" style="' + tabStyle + '">Prototype</button>' +
                         '</div>' +
                         '<div id="n88-supplier-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">' +
-                        '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="' + (defaultTab === 'overview' ? 'flex: 1; min-height: 0; overflow-y: auto;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + overviewTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-messages" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden;">' + messagesTabHTML + '</div>' +
-                        '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="' + (defaultTab === 'bid' ? 'flex: 1; min-height: 0; overflow-y: auto;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + bidTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-overview" class="n88-supplier-tab-panel" style="' + (defaultTab === 'overview' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + overviewTabHTML + '</div>' +
+                        '<div id="n88-supplier-panel-bid" class="n88-supplier-tab-panel" style="' + (defaultTab === 'bid' ? 'flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;' : 'display: none; flex: 1; min-height: 0; overflow-y: auto;') + '">' + bidTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-workflow" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + workflowTabHTML + '</div>' +
                         '<div id="n88-supplier-panel-prototype" class="n88-supplier-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">' + prototypeOnlyTabHTML + '</div>' +
                         '</div></div></div>';
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Auto-switch to Messages tab and expand when operator has sent — skip if we opened on Proposal (e.g. after submit)
-                    if (item.has_operator_supplier_messages && !forceProposalTab) {
-                        setTimeout(function() {
-                            if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('messages');
-                            if (typeof toggleSupplierClarification === 'function') {
-                                var fc = document.getElementById('n88-supplier-clarification-form-' + itemId);
-                                if (fc && fc.style.display === 'none') toggleSupplierClarification(itemId);
-                            }
-                        }, 80);
-                    }
-                    // Auto-switch to Prototype tab when CAD approved and prototype video submission pending — skip if we opened on Proposal
-                    var payNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
-                    if (payNotif && payNotif.cad_status === 'approved' && !(payNotif.prototype_video_submission && payNotif.prototype_video_submission.version) && !forceProposalTab) {
-                        setTimeout(function() {
-                            if (typeof n88SupplierModalSwitchTab === 'function') n88SupplierModalSwitchTab('prototype');
-                        }, 100);
-                    }
-                    
+                    // Support is in Overview and open by default; load messages for the Support box
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
                         if (tabContent) tabContent.scrollTop = 0;
+                        if (typeof loadSupplierMessagesInline === 'function') loadSupplierMessagesInline(itemId);
                     }, 100);
                     
                     // Commit 2.3.9.2B-S: Initialize prototype video submission forms
@@ -3744,7 +3740,7 @@ class N88_RFQ_Auth {
             }
             
             window.n88SupplierModalSwitchTab = function(tabName) {
-                var tabs = ['overview', 'messages', 'bid', 'workflow', 'prototype'];
+                var tabs = ['overview', 'bid', 'workflow', 'prototype'];
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                 var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 tabs.forEach(function(name) {
@@ -3753,7 +3749,8 @@ class N88_RFQ_Auth {
                     if (btn) { btn.style.cssText = name === tabName ? tabActiveStyle : tabStyle; }
                     if (panel) {
                         if (name === tabName) {
-                            panel.style.display = (name === 'messages') ? 'flex' : 'block';
+                            panel.style.display = 'flex';
+                            panel.style.flexDirection = 'column';
                             if (name === 'workflow' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
                                 window.n88LoadSupplierWorkflowTimeline();
                             }
@@ -16500,7 +16497,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     if (data.success && data.data && data.data.messages) {
-                        renderThreadMessages(data.data.messages, container, threadType);
+                        var opts = {};
+                        if (threadType === 'supplier_operator' && data.data.supplier_confirmed_at) {
+                            opts.supplier_confirmed_at = data.data.supplier_confirmed_at;
+                        }
+                        renderThreadMessages(data.data.messages, container, threadType, opts);
                     } else {
                         container.innerHTML = '<div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet.</div>';
                     }
@@ -16525,12 +16526,6 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
                 
                 var html = '';
-                // Operator: show "Supplier confirmed clarification" when supplier has clicked Mark as clarified
-                if (threadType === 'supplier_operator' && opts.supplier_confirmed_at) {
-                    var confirmedDate = new Date(opts.supplier_confirmed_at);
-                    var confirmedStr = confirmedDate.toLocaleDateString() + ' ' + confirmedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    html += '<div style="margin-bottom: 12px; padding: 8px 12px; background-color: #003300; border: 1px solid #00aa00; border-radius: 4px; font-size: 11px; color: #00ff00;">✓ Supplier confirmed clarification on ' + confirmedStr + '</div>';
-                }
                 sortedMessages.forEach(function(msg) {
                     var isOperator = msg.sender_role === 'operator';
                     var senderName = isOperator ? 'Operator' : (threadType === 'designer_operator' ? 'Designer' : 'Supplier');
@@ -16623,7 +16618,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     html += '</div>';
                     html += '</div>';
                 });
-                
+                // Operator: after messages, one centered line "Supplier marked clarified"
+                if (threadType === 'supplier_operator' && opts.supplier_confirmed_at) {
+                    html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; text-align: center; font-size: 11px; color: #888;">Supplier marked clarified</div>';
+                }
                 container.innerHTML = html;
                 setTimeout(function() {
                     container.scrollTop = container.scrollHeight;
@@ -18007,23 +18005,52 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
             $supplier_confirmed = false;
+            $last_resolved_at = null;
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
                 if ( $thread_bid_id ) {
-                    $supplier_confirmed = (bool) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id = %d AND actor_user_id = %d LIMIT 1",
+                    $row = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT resolved_at FROM {$resolutions_table} WHERE item_id = %d AND bid_id = %d AND actor_user_id = %d ORDER BY resolved_at DESC LIMIT 1",
                         $item_id,
                         $thread_bid_id,
                         $current_user->ID
-                    ) );
+                    ), ARRAY_A );
+                    if ( $row && ! empty( $row['resolved_at'] ) ) {
+                        $supplier_confirmed = true;
+                        $last_resolved_at = $row['resolved_at'];
+                    }
                 } else {
-                    $supplier_confirmed = (bool) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL AND actor_user_id = %d LIMIT 1",
+                    $row = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT resolved_at FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL AND actor_user_id = %d ORDER BY resolved_at DESC LIMIT 1",
                         $item_id,
                         $current_user->ID
-                    ) );
+                    ), ARRAY_A );
+                    if ( $row && ! empty( $row['resolved_at'] ) ) {
+                        $supplier_confirmed = true;
+                        $last_resolved_at = $row['resolved_at'];
+                    }
                 }
             }
             $response['supplier_confirmed_clarification'] = $supplier_confirmed;
+
+            // If operator replied after supplier last marked clarified, show "Mark as Clarified" again
+            $has_operator_reply_after_confirmation = false;
+            if ( $supplier_confirmed && $last_resolved_at && ! empty( $messages ) ) {
+                foreach ( $messages as $m ) {
+                    if ( isset( $m['sender_role'] ) && $m['sender_role'] === 'operator' && isset( $m['created_at'] ) && $m['created_at'] > $last_resolved_at ) {
+                        $has_operator_reply_after_confirmation = true;
+                        break;
+                    }
+                }
+            }
+            $response['has_operator_reply_after_confirmation'] = $has_operator_reply_after_confirmation;
+
+            // Hide "Submit Proposal" in msg box when supplier has already submitted a proposal
+            $supplier_has_submitted_bid = (bool) $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d AND status IN ('submitted', 'awarded') LIMIT 1",
+                $item_id,
+                $current_user->ID
+            ) );
+            $response['supplier_has_submitted_bid'] = $supplier_has_submitted_bid;
         }
 
         // Operator viewing supplier thread: show if supplier has confirmed clarification
@@ -20925,27 +20952,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
 
-        // Avoid duplicate: already confirmed by this supplier for this item/bid
-        if ( $bid_id === null ) {
-            $already = $wpdb->get_var( $wpdb->prepare(
-                "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND actor_user_id = %d AND bid_id IS NULL LIMIT 1",
-                $item_id,
-                $current_user->ID
-            ) );
-        } else {
-            $already = $wpdb->get_var( $wpdb->prepare(
-                "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND actor_user_id = %d AND bid_id = %d LIMIT 1",
-                $item_id,
-                $current_user->ID,
-                $bid_id
-            ) );
-        }
-        if ( $already ) {
-            wp_send_json_success( array( 'message' => 'Already marked as clarified.' ) );
-            return;
-        }
-
-        $wpdb->insert(
+        // Insert new resolution each time (allows "Mark as Clarified" again after supplier sends new msg and operator replies)
+        $inserted = $wpdb->insert(
             $resolutions_table,
             array(
                 'item_id'        => $item_id,
@@ -20953,8 +20961,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'actor_user_id'  => $current_user->ID,
                 'resolved_at'    => current_time( 'mysql' ),
             ),
-            array( '%d', $bid_id === null ? null : '%d', '%d', '%s' )
+            array( '%d', '%d', '%d', '%s' )
         );
+        if ( ! $inserted ) {
+            wp_send_json_error( array( 'message' => 'Could not save. Please try again.' ) );
+            return;
+        }
 
         // Close clarifications for this item so operator queue can clear
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$clarifications_table}'" ) === $clarifications_table ) {
