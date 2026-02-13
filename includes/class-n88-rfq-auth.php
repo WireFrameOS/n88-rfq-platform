@@ -3558,7 +3558,7 @@ class N88_RFQ_Auth {
                     
                     modalContent.innerHTML = modalHTML;
                     
-                    // Support is in Overview and open by default; load messages for the Support box. When opening on Workflow tab, scroll to active step.
+                    // Support is in Overview and open by default; load messages for the Support box (including pre-bid clarification with operator). When opening on Workflow tab, scroll to active step.
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
                         if (tabContent && defaultTab !== 'workflow') tabContent.scrollTop = 0;
@@ -3566,6 +3566,8 @@ class N88_RFQ_Auth {
                             var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
                             if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
+                        var clarificationForm = document.getElementById('n88-supplier-clarification-form-' + itemId);
+                        if (clarificationForm && defaultTab === 'overview') clarificationForm.style.display = 'flex';
                         if (typeof loadSupplierMessagesInline === 'function') loadSupplierMessagesInline(itemId);
                     }, 100);
                     
@@ -3979,7 +3981,7 @@ class N88_RFQ_Auth {
                             var isCompleted = s.display_status === 'completed';
                             var isSelected = selectedIdx === i;
                             row += '<div onclick="if(typeof n88SupplierTimelineSelectStep===\'function\')n88SupplierTimelineSelectStep(' + i + ');" data-n88-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
-                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : isActive ? 'rgba(0,255,0,0.15)' : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
                             row += '<div class="n88-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
                             row += '</div>';
@@ -5960,7 +5962,7 @@ class N88_RFQ_Auth {
                         alert(data.data && data.data.message || 'Bid submitted successfully!');
                         closeBidFormModal();
                         if (itemId && typeof openBidModal === 'function') {
-                            openBidModal(itemId, 'bid');
+                            openBidModal(itemId, 'overview');
                         } else if (window.location.href.indexOf('queue') > -1) {
                             window.location.reload();
                         }
@@ -6793,7 +6795,7 @@ class N88_RFQ_Auth {
                         // Success - close bid form section and reopen modal on Proposal tab
                         alert(data.data && data.data.message || 'Bid submitted successfully!');
                         toggleBidForm(itemId);
-                        openBidModal(itemId, 'bid');
+                        openBidModal(itemId, 'overview');
                     }
                 })
                 .catch(function(error) {
@@ -15424,6 +15426,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 pp.cad_status,
                 pp.cad_approved_version,
                 pp.cad_released_to_supplier_at,
+                pp.prototype_status,
                 pp.prototype_video_cost_estimate_usd,
                 pp.total_due_usd,
                 pp.created_at,
@@ -15637,6 +15640,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 NULL as cad_status,
                 NULL as cad_approved_version,
                 NULL as cad_released_to_supplier_at,
+                NULL as prototype_status,
                 NULL as prototype_video_cost_estimate_usd,
                 NULL as total_due_usd,
                 MAX(m.created_at) as created_at,
@@ -15736,6 +15740,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 NULL as cad_status,
                 NULL as cad_approved_version,
                 NULL as cad_released_to_supplier_at,
+                NULL as prototype_status,
                 NULL as prototype_video_cost_estimate_usd,
                 NULL as total_due_usd,
                 MAX(m.created_at) as created_at,
@@ -16138,6 +16143,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     $supplier_unread_count = isset( $request['supplier_unread_count'] ) ? intval( $request['supplier_unread_count'] ) : 0;
                                     $designer_unread_count = isset( $request['designer_unread_count'] ) ? intval( $request['designer_unread_count'] ) : 0;
                                     $cad_status_val = isset( $request['cad_status'] ) ? (string) $request['cad_status'] : '';
+                                    $prototype_status_val = isset( $request['prototype_status'] ) ? (string) $request['prototype_status'] : '';
                                     $is_cad_released = ! empty( $request['cad_released_to_supplier_at'] ) && trim( (string) $request['cad_released_to_supplier_at'] ) !== '';
                                     // When designer has approved CAD: designer "unread" needs no operator response — do NOT show "1 clarification message"
                                     $effective_designer_unread = ( $cad_status_val === 'approved' ) ? 0 : $designer_unread_count;
@@ -16174,12 +16180,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         }
                                     }
 
+                                    // Status column: show clear status for every row (like designer item card). Action Required badge shown separately when needed.
                                     if ( ( $request['status'] === 'clarification_needed' || $has_clarification ) && $effective_unread > 0 ) {
                                         $status_display = 'Clarification Needed';
                                     } elseif ( $request['status'] === 'requested' ) {
                                         $status_display = 'Payment Requested';
                                     } elseif ( $request['status'] === 'marked_received' ) {
-                                        $status_display = $is_cad_released ? 'CAD released' : 'Payment Received';
+                                        if ( $is_cad_released ) {
+                                            if ( $prototype_status_val === 'approved' ) {
+                                                $status_display = 'Prototype Approved';
+                                            } elseif ( $prototype_status_val === 'changes_requested' ) {
+                                                $status_display = 'Prototype Changes Requested';
+                                            } elseif ( $prototype_status_val === 'submitted' ) {
+                                                $status_display = 'Prototype Submitted';
+                                            } else {
+                                                $status_display = 'CAD Released';
+                                            }
+                                        } else {
+                                            if ( $cad_status_val === 'approved' ) {
+                                                $status_display = 'CAD Approved';
+                                            } elseif ( $cad_status_val === 'revision_requested' ) {
+                                                $status_display = 'CAD Revision Requested';
+                                            } elseif ( $cad_status_val === 'uploaded' ) {
+                                                $status_display = 'CAD Uploaded';
+                                            } else {
+                                                $status_display = 'Payment Received';
+                                            }
+                                        }
                                     }
                                     
                                     // Supplier label (per wireframe: "Supplier #482")
@@ -16421,9 +16448,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                         </div>
                                                         <?php 
                                                             // Commit 2.3.9.2A: Show CAD upload only when payment is marked_received AND CAD is not yet approved
+                                                            $cad_status_for_upload = isset( $request['cad_status'] ) ? (string) $request['cad_status'] : '';
                                                             $show_cad_upload = ( $payment_id && 
                                                                                 $request['status'] === 'marked_received' && 
-                                                                                $cad_status !== 'approved' );
+                                                                                $cad_status_for_upload !== 'approved' );
                                                         ?>
                                                         <?php if ( $show_cad_upload ) : ?>
                                                             <!-- Commit 2.3.9.2A: CAD Upload (Operator-only) -->
@@ -16436,7 +16464,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                                     Upload CAD (New Version)
                                                                 </button>
                                                             </form>
-                                                        <?php elseif ( $payment_id && $request['status'] === 'marked_received' && $cad_status === 'approved' ) : ?>
+                                                        <?php elseif ( $payment_id && $request['status'] === 'marked_received' && $cad_status_for_upload === 'approved' ) : ?>
                                                             <div style="font-size: 11px; color: #00ff00; padding: 8px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; margin-bottom: 10px; text-align: center;">
                                                                 ✓ CAD Approved - No further uploads needed
                                                             </div>
@@ -17048,9 +17076,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             });
 
-            // Commit 2.3.9.2A: CAD Upload (Operator-only) inside Designer ⇄ Operator thread
-            var uploadCadForms = document.querySelectorAll('.n88-upload-cad-form');
-            uploadCadForms.forEach(function(form) {
+            // Commit 2.3.9.2A: CAD Upload (Operator-only) inside Designer ⇄ Operator thread. Re-run for AJAX-loaded modal content.
+            window.n88InitCadUploadForms = function(root) {
+                root = root || document;
+                var uploadCadForms = root.querySelectorAll ? root.querySelectorAll('.n88-upload-cad-form') : [];
+                if (!uploadCadForms.length) return;
+                [].forEach.call(uploadCadForms, function(form) {
                 var dropzone = form.querySelector('.n88-cad-dropzone');
                 var fileInput = form.querySelector('input[type="file"]');
                 var submitBtn = form.querySelector('button[type="submit"]');
@@ -17136,8 +17167,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             form._cadFiles = null;
                             if (fileInput) fileInput.value = '';
                             resetDropzoneText();
-                            // Reload designer thread messages
-                            loadThreadMessages(itemId, 'designer_operator', 'n88-designer-thread-' + paymentId);
+                            // Reload designer thread messages (case modal uses n88-operator-designer-messages, queue row uses n88-designer-thread-{paymentId})
+                            var modalContent = document.getElementById('n88-case-modal-content');
+                            var containerId = (modalContent && modalContent.contains && modalContent.contains(form)) ? 'n88-operator-designer-messages' : ('n88-designer-thread-' + paymentId);
+                            if (typeof loadThreadMessages === 'function') loadThreadMessages(itemId, 'designer_operator', containerId);
                         } else {
                             alert('Error: ' + (data.data?.message || 'Failed to upload CAD.'));
                         }
@@ -17155,8 +17188,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         }
                     });
                 });
-            });
-            
+                });
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() { window.n88InitCadUploadForms(document); });
+            } else {
+                window.n88InitCadUploadForms(document);
+            }
+
             // Tab switching for operator case modal
             window.n88OperatorCaseSwitchTab = function(idx) {
                 var container = document.getElementById('n88-case-modal-content');
@@ -17231,6 +17270,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         caseModalContent.innerHTML = data.data.html;
                         var openTab = (data.data && data.data.open_tab != null) ? parseInt(data.data.open_tab, 10) : 0;
                         window.n88OperatorCaseSwitchTab(openTab);
+                        if (typeof window.n88InitCadUploadForms === 'function') window.n88InitCadUploadForms(caseModalContent);
                     } else {
                         if (caseModalContent) {
                             caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data.data?.message || 'Unknown error') + '</div>';
@@ -17326,7 +17366,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var isCompleted = s.display_status === 'completed';
                             var isSelected = selectedIdx === i;
                             row += '<div onclick="(function(idx){ var w=document.getElementById(\'n88-operator-workflow-timeline-wrap\'); if(w._n88OpUpdateDetail) w._n88OpUpdateDetail(idx); })(' + i + ');" data-n88-operator-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
-                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : isActive ? 'rgba(0,255,0,0.15)' : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
                             row += '<div class="n88-operator-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
                             row += '</div>';
@@ -17503,9 +17543,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
             
-            // Mark Payment Received — delegated so AJAX-loaded case modal buttons work
+            // Mark Payment Received / View Payment — delegated so AJAX-loaded case modal buttons work
             document.addEventListener('click', function(e) {
-                var btn = e.target && e.target.closest ? e.target.closest('.n88-mark-payment-received-btn') : null;
+                var btn = e.target && e.target.closest ? e.target.closest('.n88-mark-payment-received-btn, .n88-operator-view-payment-btn') : null;
                 if (!btn) return;
                 e.stopPropagation();
                 var paymentId = btn.getAttribute('data-payment-id');
@@ -17666,23 +17706,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     .then(function(response) { return response.json(); })
                     .then(function(data) {
                         if (data.success) {
-                            // Update button to show confirmation
-                            btn.style.backgroundColor = '#001100';
-                            btn.style.borderColor = '#00ff00';
-                            btn.style.color = '#00ff00';
-                            btn.textContent = '✓ Payment Confirmed';
-                            btn.disabled = true;
-                            
-                            // Update status in the table row
-                            var statusCell = btn.closest('tr').previousElementSibling.querySelector('td:nth-child(4)');
-                            if (statusCell) {
-                                statusCell.innerHTML = '<div>Payment Received</div><div style="font-size: 11px; color: #00ff00;">Confirmed</div>';
+                            if (btn.classList && btn.classList.contains('n88-operator-view-payment-btn')) {
+                                if (typeof loadCaseDetails === 'function') loadCaseDetails(paymentId, { openTab: 1 });
+                            } else {
+                                btn.style.backgroundColor = '#001100';
+                                btn.style.borderColor = '#00ff00';
+                                btn.style.color = '#00ff00';
+                                btn.textContent = '✓ Payment Confirmed';
+                                btn.disabled = true;
+                                var statusCell = btn.closest('tr') && btn.closest('tr').previousElementSibling ? btn.closest('tr').previousElementSibling.querySelector('td:nth-child(4)') : null;
+                                if (statusCell) {
+                                    statusCell.innerHTML = '<div>Payment Received</div><div style="font-size: 11px; color: #00ff00;">Confirmed</div>';
+                                }
+                                setTimeout(function() { window.location.reload(); }, 2000);
                             }
-                            
-                            // Reload page after 2 seconds to reflect changes
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 2000);
                         } else {
                             alert('Error: ' + (data.data?.message || 'Failed to mark payment as received.'));
                             btn.disabled = false;
@@ -18285,10 +18322,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 );
                                 $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                 foreach ( $wf_steps as $i => $s ) :
-                                    $border = $s['done'] ? $wf_green : $wf_border;
-                                    $bg = $s['done'] ? $wf_green : 'transparent';
-                                    $color = $s['done'] ? '#0a0a0a' : $wf_text;
                                     $is_current = ( (int) $i ) === $operator_current_step;
+                                    if ( $is_current ) {
+                                        $border = $wf_green;
+                                        $bg    = 'transparent';
+                                        $color = $wf_green;
+                                    } elseif ( $s['done'] ) {
+                                        $border = $wf_green;
+                                        $bg    = $wf_green;
+                                        $color = '#0a0a0a';
+                                    } else {
+                                        $border = $wf_border;
+                                        $bg    = 'transparent';
+                                        $color = $wf_text;
+                                    }
                                 ?>
                                 <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
                                     <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
@@ -18736,9 +18783,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 ) );
             }
         }
-        // Open Messages tab by default when: payment requested (designer may have sent), CAD revision requested, or CAD approved awaiting release
+        // Open Messages tab by default when: payment sent (requested), payment proof sent, CAD uploaded/revision, or CAD approved awaiting release
         $operator_open_tab = 0;
-        if ( $show_mark_payment || $cad_status_val === 'revision_requested' || ( $cad_status_val === 'approved' && ! $cad_released ) ) {
+        if ( $payment_proof_pending || $show_mark_payment || $cad_status_val === 'revision_requested' || $cad_status_val === 'uploaded' || ( $cad_status_val === 'approved' && ! $cad_released ) ) {
             $operator_open_tab = 1;
         }
 
@@ -18862,6 +18909,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
+                    <?php
+                    // Show CAD upload when payment is marked_received and CAD is not yet approved (operator sends CAD files to designer thread)
+                    $show_cad_upload_modal = ( $payment_id && $pay_status === 'marked_received' && $cad_status_val !== 'approved' );
+                    ?>
+                    <?php if ( $show_cad_upload_modal ) : ?>
+                    <div style="padding: 10px 12px; border-top: 1px solid #333; background: #0a0a0a;">
+                        <form class="n88-upload-cad-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" style="margin-bottom: 10px;">
+                            <div class="n88-cad-dropzone" style="padding: 10px; border: 1px dashed #66aaff; border-radius: 6px; background: #05050a; color: #fff; font-size: 11px; text-align: center; margin-bottom: 8px; cursor: pointer;">
+                                Drag & drop CAD files here (PDF/JPG/PNG) or click to choose
+                            </div>
+                            <input type="file" name="cad_files[]" accept="application/pdf,image/jpeg,image/png" multiple style="display:none;" />
+                            <button type="submit" style="width: 100%; padding: 8px 12px; background-color: #66aaff; color: #000; border: none; border-radius: 6px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 700; cursor: pointer;" onmouseover="this.style.backgroundColor='#4e94ff';" onmouseout="this.style.backgroundColor='#66aaff';">
+                                Upload CAD (New Version)
+                            </button>
+                        </form>
+                    </div>
+                    <?php elseif ( $payment_id && $pay_status === 'marked_received' && $cad_status_val === 'approved' ) : ?>
+                    <div style="padding: 8px 12px; border-top: 1px solid #333; background: #0a0a0a;">
+                        <div style="font-size: 11px; color: #00ff00; padding: 6px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; text-align: center;">✓ CAD Approved – No further uploads needed</div>
+                    </div>
+                    <?php endif; ?>
                     <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
                         <form id="n88-operator-designer-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, null, null);" style="display: flex; gap: 8px; align-items: center;">
                             <input type="text" id="n88-operator-designer-message" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to designer...">
@@ -18905,9 +18973,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     </div>
                 </div>
             </div>
-            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;">
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+                <?php if ( $show_mark_payment && $payment_proof_pending ) : ?>
+                <button type="button" class="n88-operator-view-payment-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="padding: 8px 16px; background: #003300; color: #00ff00; border: 1px solid #00ff00; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">View Payment</button>
+                <?php endif; ?>
+                <?php if ( $show_release_cad ) : ?>
+                <button type="button" class="n88-operator-release-cad-btn n88-release-cad-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" data-supplier-id="<?php echo esc_attr( $payment['supplier_id'] ); ?>" data-approved-version="<?php echo esc_attr( isset( $payment['cad_approved_version'] ) ? $payment['cad_approved_version'] : 0 ); ?>" style="padding: 8px 16px; background: #000033; color: #66aaff; border: 1px solid #66aaff; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send Approved CAD to Supplier</button>
+                <?php endif; ?>
                 <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 8px 16px; background: #1f1f1f; color: #00ff00; border: 1px solid #555; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer;">Copy to Other Side</button>
-                <span style="font-size: 11px; color: #737373; margin-left: 10px;">Forwards the last message from one thread to the other</span>
+                <span style="font-size: 11px; color: #737373;">Forwards the last message from one thread to the other</span>
             </div>
                     </div>
                     <!-- Tab 3: The WorkFlow — 6-step timeline (Steps 1–3 content; 4–6 placeholder) -->
@@ -18932,10 +19006,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 );
                                 $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                 foreach ( $wf_steps as $i => $s ) :
-                                    $border = $s['done'] ? $wf_green : $wf_border;
-                                    $bg = $s['done'] ? $wf_green : 'transparent';
-                                    $color = $s['done'] ? '#0a0a0a' : $wf_text;
                                     $is_current = ( (int) $i ) === $operator_current_step;
+                                    if ( $is_current ) {
+                                        $border = $wf_green;
+                                        $bg    = 'transparent';
+                                        $color = $wf_green;
+                                    } elseif ( $s['done'] ) {
+                                        $border = $wf_green;
+                                        $bg    = $wf_green;
+                                        $color = '#0a0a0a';
+                                    } else {
+                                        $border = $wf_border;
+                                        $bg    = 'transparent';
+                                        $color = $wf_text;
+                                    }
                                 ?>
                                 <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
                                     <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
@@ -19011,9 +19095,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         <?php
         $html = ob_get_clean();
 
-        wp_send_json_success( array( 'html' => $html ) );
+        wp_send_json_success( array( 'html' => $html, 'open_tab' => $operator_open_tab ) );
     }
-    
+
     /**
      * AJAX handler to get item messages (Commit 2.3.9.1C-a)
      */
@@ -19057,7 +19141,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Access control: Users can only see their own thread
         if ( $thread_type === 'supplier_operator' ) {
             if ( $is_supplier ) {
-                // Supplier can only see messages for their own bids
+                // Supplier sees all messages for this item + supplier (do NOT filter by bid_id so pre-bid clarification messages are included)
                 $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $current_user->ID );
             } elseif ( $is_operator ) {
                 // Operator can see all supplier threads for this item

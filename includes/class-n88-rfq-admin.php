@@ -14707,7 +14707,7 @@ class N88_RFQ_Admin {
                                                                     height: '28px',
                                                                     borderRadius: '50%',
                                                                     border: '2px solid ' + (isCompleted ? greenAccent : isActive ? greenAccent : darkBorder),
-                                                                    background: isCompleted ? greenAccent : isActive ? 'rgba(0,255,0,0.15)' : 'transparent',
+                                                                    background: isCompleted ? greenAccent : 'transparent',
                                                                     color: isCompleted ? '#0a0a0a' : isActive ? greenAccent : darkText,
                                                                     fontSize: '12px',
                                                                     fontWeight: '600',
