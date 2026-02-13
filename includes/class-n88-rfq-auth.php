@@ -3518,7 +3518,7 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
                     var stepRow = '';
                     if (paymentNotif) {
-                        stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var si = 0; si < 6; si++) {
                             var isCompleted = activeStepIdx > si;
                             var isActive = activeStepIdx === si;
@@ -16283,8 +16283,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                             <?php endif; ?>
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff;">
-                                            <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                                ...
+                                            <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
+                                                View →
                                             </button>
                                         </td>
                                     </tr>
@@ -16568,17 +16568,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             </div>
         </div>
 
-        <!-- View Case Modal (Read-Only) -->
-        <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow-y: auto;">
-            <div style="max-width: 1200px; margin: 40px auto; padding: 20px; background-color: #000; border: 2px solid #fff; font-family: 'Courier New', Courier, monospace;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #fff; padding-bottom: 10px;">
-                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #fff;">View Case (Read-Only)</h2>
-                    <button id="n88-close-case-modal" style="padding: 8px 16px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                        Close
-                    </button>
-                </div>
-                <div id="n88-case-modal-content" style="color: #fff; font-size: 12px;">
-                    <!-- Content will be populated by JavaScript -->
+        <!-- Operator Case Modal — Same as supplier item modal: 20px gap, no page scroll, content scrolls inside -->
+        <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
+            <div id="n88-operator-case-modal-inner" style="position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); background-color: #000; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+                <div id="n88-case-modal-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;">
+                    <!-- Content populated by loadCaseDetails(): header + left (images) + right (tabs) -->
                 </div>
             </div>
         </div>
@@ -16636,33 +16630,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
 
-            // Row expansion toggle
+            // View Case: open tabbed case modal. For payment_id=0 (clarification-only) open modal + Messages tab; for payment_id set open modal with case details.
             var viewCaseBtns = document.querySelectorAll('.n88-view-case-btn');
             viewCaseBtns.forEach(function(btn) {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
-                    var paymentId = this.getAttribute('data-payment-id');
+                    var paymentId = this.getAttribute('data-payment-id') || '0';
                     var row = this.closest('.n88-operator-queue-row');
                     var itemId = row ? row.getAttribute('data-item-id') : null;
                     var bidId = row ? (row.getAttribute('data-bid-id') || '0') : '0';
-                    // Try payment_id first, then item_id as fallback for clarification-only items
-                    var detailsRow = document.querySelector('.n88-case-details-row[data-payment-id="' + paymentId + '"]') ||
-                                    (itemId ? document.querySelector('.n88-case-details-row[data-item-id="' + itemId + '"]') : null);
-                    if (detailsRow) {
-                        if (detailsRow.style.display === 'none') {
-                            detailsRow.style.display = 'table-row';
-                            // Auto-open Message Threads when designer submitted CAD revision or designer message (Designer–Operator thread)
-                            if (row && row.getAttribute('data-auto-open-threads') === '1' && typeof loadMessageThreads === 'function') {
-                                var threadsSection = detailsRow.querySelector('.n88-message-threads-section');
-                                if (threadsSection && itemId) {
-                                    threadsSection.style.display = 'block';
-                                    loadMessageThreads(itemId, bidId, paymentId);
-                                }
-                            }
-                        } else {
-                            detailsRow.style.display = 'none';
-                        }
+                    if (caseModal) {
+                        caseModal.style.display = 'block';
+                        document.body.style.overflow = 'hidden';
+                        document.body.style.position = 'fixed';
+                        document.documentElement.style.overflow = 'hidden';
                     }
+                    if (paymentId && paymentId !== '0') {
+                        loadCaseDetails(paymentId);
+                        return;
+                    }
+                    // Clarification-only: open modal with item_id + bid_id and go to Messages tab
+                    loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 1 });
                 });
             });
 
@@ -16670,7 +16658,6 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             var viewCaseFullBtns = document.querySelectorAll('.n88-view-case-full-btn');
             var caseModal = document.getElementById('n88-operator-case-modal');
             var caseModalContent = document.getElementById('n88-case-modal-content');
-            var closeCaseModal = document.getElementById('n88-close-case-modal');
 
             viewCaseFullBtns.forEach(function(btn) {
                 btn.addEventListener('click', function() {
@@ -16679,11 +16666,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             });
 
-            if (closeCaseModal) {
-                closeCaseModal.addEventListener('click', function() {
-                    if (caseModal) caseModal.style.display = 'none';
-                });
-            }
+            // Close button is inside AJAX-loaded content; use delegation so it works after load
+            document.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('#n88-close-case-modal') : null;
+                if (btn && caseModal && caseModal.contains(btn)) {
+                    caseModal.style.display = 'none';
+                    document.body.style.overflow = '';
+                    document.body.style.position = '';
+                    document.documentElement.style.overflow = '';
+                }
+                // Workflow step button: show selected step panel (delegated so it works after AJAX load)
+                var stepBtn = e.target && e.target.closest ? e.target.closest('[data-n88-op-workflow-step-btn]') : null;
+                if (stepBtn && caseModal && caseModal.contains(stepBtn)) {
+                    var idx = parseInt(stepBtn.getAttribute('data-n88-op-workflow-step-btn'), 10);
+                    if (!isNaN(idx) && typeof window.n88OperatorWorkflowShowStep === 'function') {
+                        e.preventDefault();
+                        window.n88OperatorWorkflowShowStep(idx);
+                    }
+                }
+            });
 
             // Fix #13/#26: Mark Resolved — delegated for expanded row and modal
             document.addEventListener('click', function(e) {
@@ -16707,7 +16708,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         if (data.success) {
-                            if (caseModal && caseModal.style) caseModal.style.display = 'none';
+                            if (caseModal && caseModal.style) {
+                                caseModal.style.display = 'none';
+                                document.body.style.overflow = '';
+                                document.body.style.position = '';
+                                document.documentElement.style.overflow = '';
+                            }
                             window.location.reload();
                         } else {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to mark resolved.');
@@ -17151,16 +17157,68 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             });
             
-            // Load case details via AJAX
-            function loadCaseDetails(paymentId) {
+            // Tab switching for operator case modal
+            window.n88OperatorCaseSwitchTab = function(idx) {
+                var container = document.getElementById('n88-case-modal-content');
+                if (!container) return;
+                var tabs = container.querySelectorAll('[data-n88-op-tab]');
+                var panels = container.querySelectorAll('[data-n88-op-panel]');
+                var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                for (var i = 0; i < tabs.length; i++) {
+                    tabs[i].style.cssText = (i === idx) ? tabActiveStyle : tabStyle;
+                }
+                for (var j = 0; j < panels.length; j++) {
+                    panels[j].style.display = (j === idx) ? 'block' : 'none';
+                }
+                if (idx === 2) {
+                    var opWrap = document.getElementById('n88-operator-workflow-timeline-wrap');
+                    if (opWrap && opWrap.getAttribute('data-item-id') && typeof window.n88LoadOperatorWorkflowTimeline === 'function') {
+                        window.n88LoadOperatorWorkflowTimeline();
+                    }
+                    if (opWrap) window.n88OperatorWorkflowShowStep(parseInt(opWrap.getAttribute('data-active-step'), 10) || 0);
+                }
+            };
+
+            // Workflow step switcher: show only the selected step panel; highlight active step in row
+            window.n88OperatorWorkflowShowStep = function(idx) {
+                var wrap = document.getElementById('n88-operator-workflow-timeline-wrap');
+                if (!wrap) return;
+                idx = parseInt(idx, 10);
+                if (isNaN(idx) || idx < 0) idx = 0;
+                wrap.setAttribute('data-active-step', String(idx));
+                var panels = wrap.querySelectorAll('[data-n88-op-workflow-step]');
+                for (var p = 0; p < panels.length; p++) {
+                    var stepNum = parseInt(panels[p].getAttribute('data-n88-op-workflow-step'), 10);
+                    panels[p].style.display = (stepNum === idx) ? 'block' : 'none';
+                }
+                var btns = wrap.querySelectorAll('[data-n88-op-workflow-step-btn]');
+                var wfGreen = '#00ff00';
+                var wfText = '#ccc';
+                for (var b = 0; b < btns.length; b++) {
+                    var lbl = btns[b].querySelector('.n88-op-step-label');
+                    if (lbl) lbl.style.color = (parseInt(btns[b].getAttribute('data-n88-op-workflow-step-btn'), 10) === idx) ? wfGreen : wfText;
+                }
+            };
+
+            // Load case details via AJAX. opts: { itemId, bidId, openTab } for clarification-only (paymentId 0).
+            function loadCaseDetails(paymentId, opts) {
                 if (!caseModalContent) return;
+                opts = opts || {};
 
                 caseModalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #999;">Loading case details...</div>';
-                if (caseModal) caseModal.style.display = 'block';
+                if (caseModal) {
+                    caseModal.style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                    document.body.style.position = 'fixed';
+                    document.documentElement.style.overflow = 'hidden';
+                }
 
                 var formData = new FormData();
                 formData.append('action', 'n88_get_operator_case_details');
-                formData.append('payment_id', paymentId);
+                formData.append('payment_id', paymentId || '0');
+                if (opts.itemId) formData.append('item_id', opts.itemId);
+                if (opts.bidId) formData.append('bid_id', opts.bidId);
                 formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_operator_case_details' ) ); ?>');
 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
@@ -17171,10 +17229,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 .then(function(data) {
                     if (data.success && caseModalContent) {
                         caseModalContent.innerHTML = data.data.html;
-                        var opWrap = document.getElementById('n88-operator-workflow-timeline-wrap');
-                        if (opWrap && opWrap.getAttribute('data-item-id') && typeof window.n88LoadOperatorWorkflowTimeline === 'function') {
-                            window.n88LoadOperatorWorkflowTimeline();
-                        }
+                        var openTab = (data.data && data.data.open_tab != null) ? parseInt(data.data.open_tab, 10) : 0;
+                        window.n88OperatorCaseSwitchTab(openTab);
                     } else {
                         if (caseModalContent) {
                             caseModalContent.innerHTML = '<div style="padding: 20px; color: #ff4444;">Error loading case details: ' + (data.data?.message || 'Unknown error') + '</div>';
@@ -17447,60 +17503,50 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
             
-            // Mark Payment Received button click
-            var markPaymentBtns = document.querySelectorAll('.n88-mark-payment-received-btn');
-            markPaymentBtns.forEach(function(btn) {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    
-                    var paymentId = this.getAttribute('data-payment-id');
-                    var itemId = this.getAttribute('data-item-id');
-                    var bidId = this.getAttribute('data-bid-id');
-                    var totalDue = this.getAttribute('data-total-due');
-                    
-                    // Populate modal
-                    document.getElementById('n88-confirm-item-id').textContent = itemId;
-                    document.getElementById('n88-confirm-bid-id').textContent = bidId;
-                    document.getElementById('n88-confirm-total-due').textContent = '$' + parseFloat(totalDue).toFixed(2);
-                    
-                    // Store button reference
-                    currentPaymentBtn = this;
-                    currentPaymentBtn.paymentId = paymentId;
-                    currentPaymentBtn.itemId = itemId;
-                    currentPaymentBtn.bidId = bidId;
-                    
-                    // Show modal
-                    if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
-
-                    // Load payment receipts (JPG/PDF) so operator can review before confirming
-                    var listEl = document.getElementById('n88-receipts-list');
-                    if (listEl) {
-                        listEl.textContent = 'Loading…';
-                        var fd = new FormData();
-                        fd.append('action', 'n88_get_payment_receipts');
-                        fd.append('payment_id', paymentId);
-                        fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_payment_receipts' ) ); ?>');
-                        fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd })
-                            .then(function(r) { return r.json(); })
-                            .then(function(d) {
-                                if (!listEl) return;
-                                if (d.success && d.data.receipts && d.data.receipts.length > 0) {
-                                    var receipts = d.data.receipts;
-                                    var parts = receipts.map(function(x, index) {
-                                        var isResubmitted = receipts.length > 1 && index < receipts.length - 1;
-                                        var tag = isResubmitted ? '<span style="display:inline-block;margin-right:8px;padding:2px 6px;font-size:10px;font-weight:600;background-color:#331100;color:#ff8800;border:1px solid #ff8800;border-radius:2px;">Resubmitted</span>' : '';
-                                        var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                                        var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">— ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
-                                        return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>' + msg + '</div>';
-                                    });
-                                    listEl.innerHTML = parts.join('');
-                                } else {
-                                    listEl.textContent = 'None uploaded.';
-                                }
-                            })
-                            .catch(function() { if (listEl) listEl.textContent = '—'; });
-                    }
-                });
+            // Mark Payment Received — delegated so AJAX-loaded case modal buttons work
+            document.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('.n88-mark-payment-received-btn') : null;
+                if (!btn) return;
+                e.stopPropagation();
+                var paymentId = btn.getAttribute('data-payment-id');
+                var itemId = btn.getAttribute('data-item-id');
+                var bidId = btn.getAttribute('data-bid-id');
+                var totalDue = btn.getAttribute('data-total-due');
+                document.getElementById('n88-confirm-item-id').textContent = itemId || '';
+                document.getElementById('n88-confirm-bid-id').textContent = bidId || '';
+                document.getElementById('n88-confirm-total-due').textContent = '$' + parseFloat(totalDue || 0).toFixed(2);
+                currentPaymentBtn = btn;
+                currentPaymentBtn.paymentId = paymentId;
+                currentPaymentBtn.itemId = itemId;
+                currentPaymentBtn.bidId = bidId;
+                if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
+                var listEl = document.getElementById('n88-receipts-list');
+                if (listEl) {
+                    listEl.textContent = 'Loading…';
+                    var fd = new FormData();
+                    fd.append('action', 'n88_get_payment_receipts');
+                    fd.append('payment_id', paymentId);
+                    fd.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_payment_receipts' ) ); ?>');
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: fd })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (!listEl) return;
+                            if (d.success && d.data.receipts && d.data.receipts.length > 0) {
+                                var receipts = d.data.receipts;
+                                var parts = receipts.map(function(x, index) {
+                                    var isResubmitted = receipts.length > 1 && index < receipts.length - 1;
+                                    var tag = isResubmitted ? '<span style="display:inline-block;margin-right:8px;padding:2px 6px;font-size:10px;font-weight:600;background-color:#331100;color:#ff8800;border:1px solid #ff8800;border-radius:2px;">Resubmitted</span>' : '';
+                                    var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                    var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">— ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
+                                    return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>' + msg + '</div>';
+                                });
+                                listEl.innerHTML = parts.join('');
+                            } else {
+                                listEl.textContent = 'None uploaded.';
+                            }
+                        })
+                        .catch(function() { if (listEl) listEl.textContent = '—'; });
+                }
             });
 
             // Commit 2.3.9.2A: Release Approved CAD to Supplier Modal
@@ -17528,26 +17574,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
 
-            var releaseCadBtns = document.querySelectorAll('.n88-release-cad-btn');
-            releaseCadBtns.forEach(function(btn) {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    currentReleaseBtn = this;
-                    var paymentId = this.getAttribute('data-payment-id');
-                    var itemId = this.getAttribute('data-item-id');
-                    var bidId = this.getAttribute('data-bid-id');
-                    var supplierId = this.getAttribute('data-supplier-id');
-                    var approvedVersion = this.getAttribute('data-approved-version');
-
-                    document.getElementById('n88-release-item-id').textContent = itemId || '';
-                    document.getElementById('n88-release-bid-id').textContent = bidId || '';
-                    document.getElementById('n88-release-supplier-id').textContent = supplierId || '';
-                    document.getElementById('n88-release-approved-version').textContent = 'v' + (approvedVersion || '?');
-
-                    currentReleaseBtn.paymentId = paymentId;
-
-                    if (releaseCadModal) releaseCadModal.style.display = 'block';
-                });
+            // Release CAD — delegated so AJAX-loaded case modal buttons work
+            document.addEventListener('click', function(e) {
+                var btn = e.target && e.target.closest ? e.target.closest('.n88-release-cad-btn') : null;
+                if (!btn) return;
+                e.stopPropagation();
+                currentReleaseBtn = btn;
+                var paymentId = btn.getAttribute('data-payment-id');
+                var itemId = btn.getAttribute('data-item-id');
+                var bidId = btn.getAttribute('data-bid-id');
+                var supplierId = btn.getAttribute('data-supplier-id');
+                var approvedVersion = btn.getAttribute('data-approved-version');
+                document.getElementById('n88-release-item-id').textContent = itemId || '';
+                document.getElementById('n88-release-bid-id').textContent = bidId || '';
+                document.getElementById('n88-release-supplier-id').textContent = supplierId || '';
+                document.getElementById('n88-release-approved-version').textContent = 'v' + (approvedVersion || '?');
+                currentReleaseBtn.paymentId = paymentId;
+                if (releaseCadModal) releaseCadModal.style.display = 'block';
             });
 
             if (confirmReleaseCad) {
@@ -17672,7 +17715,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 event.preventDefault();
                 
                 var form = event.target;
-                var messageInput = form.querySelector('textarea[name="message_text"]');
+                var messageInput = form.querySelector('textarea[name="message_text"]') || form.querySelector('input[name="message_text"]');
                 var messageText = messageInput ? messageInput.value.trim() : '';
                 
                 if (!messageText) {
@@ -17709,13 +17752,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         
                         // Reload case details to show new message
                         var paymentId = form.getAttribute('data-payment-id');
-                        if (paymentId) {
+                        if (paymentId && paymentId !== '0') {
                             loadCaseDetails(paymentId);
                         } else {
-                            // Try to find payment ID from modal
-                            var modalContent = document.getElementById('n88-case-modal-content');
-                            if (modalContent) {
-                                // Extract payment ID from somewhere or reload the modal
+                            var itemId = form.getAttribute('data-item-id');
+                            var bidId = form.getAttribute('data-bid-id') || '0';
+                            if (itemId) {
+                                loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 1 });
+                            } else {
                                 location.reload();
                             }
                         }
@@ -17816,6 +17860,481 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
+     * Render operator case message body: text + file links as "View" with optional image placeholder (opens in new tab).
+     *
+     * @param string $message_text Raw message text (may contain "Files:" / "CAD Files:" and "- name: url" lines).
+     * @return string HTML-safe body (escaped text + file cards with View link).
+     */
+    private function n88_render_operator_message_body( $message_text ) {
+        $text = is_string( $message_text ) ? $message_text : '';
+        $files = array();
+        $files_label = '';
+        if ( preg_match( '/\n\s*(CAD Files:|Files:)\s*\n/i', $text, $m ) ) {
+            $files_label = trim( $m[1] );
+            $parts = preg_split( '/\n\s*(?:CAD Files:|Files:)\s*\n/i', $text, 2 );
+            $text = isset( $parts[0] ) ? trim( $parts[0] ) : $text;
+            $rest = isset( $parts[1] ) ? $parts[1] : '';
+            $lines = preg_split( '/\r\n|\n/', $rest );
+            foreach ( $lines as $line ) {
+                $line = trim( $line );
+                if ( strpos( $line, '- ' ) === 0 ) {
+                    $after = substr( $line, 2 );
+                    $sep = strpos( $after, ': ' );
+                    if ( $sep > 0 ) {
+                        $name = trim( substr( $after, 0, $sep ) );
+                        $url  = trim( substr( $after, $sep + 2 ) );
+                        if ( preg_match( '#^https?://#i', $url ) ) {
+                            $ext = pathinfo( $name, PATHINFO_EXTENSION );
+                            $files[] = array( 'name' => $name, 'url' => $url, 'ext' => strtolower( $ext ) );
+                        }
+                    }
+                }
+            }
+        }
+        $out = nl2br( esc_html( $text ) );
+        if ( ! empty( $files ) ) {
+            $out .= '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; display: flex; flex-direction: column; gap: 6px;">';
+            foreach ( $files as $f ) {
+                $url_attr = esc_url( $f['url'] );
+                $name_esc = esc_html( $f['name'] );
+                $is_img = in_array( $f['ext'], array( 'jpg', 'jpeg', 'png', 'gif', 'webp' ), true );
+                $out .= '<a href="' . $url_attr . '" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0a0a0a; border: 1px solid #555; border-radius: 4px; text-decoration: none; color: #00ff00; font-size: 11px; max-width: 100%;" onmouseover="this.style.borderColor=\'#00ff00\';" onmouseout="this.style.borderColor=\'#555\';" title="Click to open in new tab">';
+                if ( $is_img ) {
+                    $out .= '<img src="' . $url_attr . '" alt="" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; flex-shrink: 0; background: #000;">';
+                } else {
+                    $out .= '<span style="flex-shrink: 0;">📄</span>';
+                }
+                $out .= '<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' . $name_esc . '</span><span style="flex-shrink: 0;">View →</span></a>';
+            }
+            $out .= '</div>';
+        }
+        return $out;
+    }
+
+    /**
+     * Clarification-only case: no payment; load by item_id + bid_id and return modal HTML with open_tab=1 (Messages).
+     */
+    private function ajax_get_operator_case_details_clarification_only( $item_id, $bid_id ) {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $users_table = $wpdb->prefix . 'users';
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+
+        $item = $wpdb->get_row( $wpdb->prepare(
+            "SELECT i.id, i.title, i.primary_image_id, i.item_type, i.owner_user_id
+             FROM {$items_table} i WHERE i.id = %d",
+            $item_id
+        ), ARRAY_A );
+        if ( ! $item ) {
+            wp_send_json_error( array( 'message' => 'Item not found.' ) );
+            return;
+        }
+
+        $thumbnail_url = '';
+        if ( ! empty( $item['primary_image_id'] ) ) {
+            $thumbnail_url = wp_get_attachment_image_url( $item['primary_image_id'], 'thumbnail' );
+            if ( ! $thumbnail_url ) {
+                $thumbnail_url = wp_get_attachment_url( $item['primary_image_id'] );
+            }
+        }
+        $category_name = ! empty( $item['item_type'] ) ? $item['item_type'] : 'Uncategorized';
+        if ( ! empty( $item['item_type'] ) ) {
+            $cat = $wpdb->get_row( $wpdb->prepare(
+                "SELECT name FROM {$categories_table} WHERE category_id = %d OR name = %s LIMIT 1",
+                intval( $item['item_type'] ),
+                $item['item_type']
+            ), ARRAY_A );
+            if ( $cat ) {
+                $category_name = $cat['name'];
+            }
+        }
+
+        // Delivery context + item meta (same as payment case)
+        $delivery_country = '';
+        $delivery_postal = '';
+        $item_quantity = '';
+        $dimensions_summary = '';
+        $delivery_quoting_note = '';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_delivery_context_table}'" ) === $item_delivery_context_table ) {
+            $delivery_cols = $wpdb->get_col( "DESCRIBE {$item_delivery_context_table}" );
+            $sel = array( 'delivery_country_code', 'delivery_postal_code' );
+            if ( in_array( 'quantity', $delivery_cols, true ) ) {
+                $sel[] = 'quantity';
+            }
+            if ( in_array( 'dimensions_json', $delivery_cols, true ) ) {
+                $sel[] = 'dimensions_json';
+            }
+            if ( in_array( 'delivery_cost_usd', $delivery_cols, true ) ) {
+                $sel[] = 'delivery_cost_usd';
+            }
+            if ( in_array( 'shipping_estimate_mode', $delivery_cols, true ) ) {
+                $sel[] = 'shipping_estimate_mode';
+            }
+            $delivery_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT " . implode( ', ', $sel ) . " FROM {$item_delivery_context_table} WHERE item_id = %d",
+                $item_id
+            ), ARRAY_A );
+            if ( $delivery_row ) {
+                $delivery_country = isset( $delivery_row['delivery_country_code'] ) ? $delivery_row['delivery_country_code'] : '';
+                $delivery_postal = isset( $delivery_row['delivery_postal_code'] ) ? $delivery_row['delivery_postal_code'] : '';
+                if ( isset( $delivery_row['quantity'] ) && $delivery_row['quantity'] !== null && $delivery_row['quantity'] !== '' ) {
+                    $item_quantity = $delivery_row['quantity'];
+                }
+                if ( ! empty( $delivery_row['dimensions_json'] ) ) {
+                    $dims = json_decode( $delivery_row['dimensions_json'], true );
+                    if ( is_array( $dims ) ) {
+                        $w = isset( $dims['width'] ) ? $dims['width'] : ( isset( $dims['w'] ) ? $dims['w'] : '' );
+                        $d = isset( $dims['depth'] ) ? $dims['depth'] : ( isset( $dims['d'] ) ? $dims['d'] : '' );
+                        $h = isset( $dims['height'] ) ? $dims['height'] : ( isset( $dims['h'] ) ? $dims['h'] : '' );
+                        $u = isset( $dims['unit'] ) ? $dims['unit'] : '';
+                        $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d !== '' ? $d : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                        if ( $dimensions_summary === '— × — × —' ) {
+                            $dimensions_summary = '—';
+                        }
+                    }
+                }
+                if ( isset( $delivery_row['delivery_cost_usd'] ) && $delivery_row['delivery_cost_usd'] !== null && $delivery_row['delivery_cost_usd'] !== '' && floatval( $delivery_row['delivery_cost_usd'] ) > 0 ) {
+                    $delivery_quoting_note = 'Delivery (quoted): $' . number_format( floatval( $delivery_row['delivery_cost_usd'] ), 2 );
+                } elseif ( isset( $delivery_row['shipping_estimate_mode'] ) && $delivery_row['shipping_estimate_mode'] === 'auto' ) {
+                    $delivery_quoting_note = 'Shipping: instant estimate';
+                } else {
+                    $delivery_quoting_note = 'Shipping: manual quote';
+                }
+            }
+        }
+        if ( $item_quantity === '' ) {
+            $item_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                $item_id
+            ), ARRAY_A );
+            if ( $item_row && ! empty( $item_row['meta_json'] ) ) {
+                $meta = json_decode( $item_row['meta_json'], true );
+                if ( is_array( $meta ) && isset( $meta['quantity'] ) ) {
+                    $item_quantity = $meta['quantity'];
+                }
+                if ( $dimensions_summary === '' && isset( $meta['dimensions'] ) && is_array( $meta['dimensions'] ) ) {
+                    $d = $meta['dimensions'];
+                    $w = isset( $d['width'] ) ? $d['width'] : ( isset( $d['w'] ) ? $d['w'] : '' );
+                    $d2 = isset( $d['depth'] ) ? $d['depth'] : ( isset( $d['d'] ) ? $d['d'] : '' );
+                    $h = isset( $d['height'] ) ? $d['height'] : ( isset( $d['h'] ) ? $d['h'] : '' );
+                    $u = isset( $d['unit'] ) ? $d['unit'] : '';
+                    $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d2 !== '' ? $d2 : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                }
+            }
+        }
+        if ( $dimensions_summary === '' ) {
+            $dimensions_summary = '—';
+        }
+        if ( $item_quantity === '' ) {
+            $item_quantity = '—';
+        }
+
+        // Invited suppliers + bid status (Not submitted when no bid)
+        $invited_suppliers = array();
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$rfq_routes_table}'" ) === $rfq_routes_table ) {
+            $routes = $wpdb->get_results( $wpdb->prepare(
+                "SELECT route_id, supplier_id, route_type, status as route_status FROM {$rfq_routes_table} WHERE item_id = %d ORDER BY route_id",
+                $item_id
+            ), ARRAY_A );
+            foreach ( $routes as $r ) {
+                $bid_status = 'Not submitted';
+                $bid_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT bid_id, status FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d ORDER BY bid_id DESC LIMIT 1",
+                    $item_id,
+                    $r['supplier_id']
+                ), ARRAY_A );
+                if ( $bid_row && ! empty( $bid_row['status'] ) ) {
+                    $bid_status = $bid_row['status'];
+                } else {
+                    $bid_status = ! empty( $r['route_status'] ) ? $r['route_status'] : 'Not submitted';
+                }
+                $invited_suppliers[] = array(
+                    'supplier_id'  => $r['supplier_id'],
+                    'route_type'   => $r['route_type'],
+                    'route_status' => $r['route_status'],
+                    'bid_status'   => $bid_status,
+                );
+            }
+        }
+
+        $designer_id = ! empty( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : 0;
+        if ( ! $designer_id ) {
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT designer_id FROM {$messages_table} WHERE item_id = %d AND thread_type = 'designer_operator' LIMIT 1",
+                $item_id
+            ), ARRAY_A );
+            if ( $row && ! empty( $row['designer_id'] ) ) {
+                $designer_id = (int) $row['designer_id'];
+            }
+        }
+
+        // Supplier: get from any supplier_operator message for this item (bid_id can be 0/NULL when supplier asked before bidding)
+        $supplier_id = 0;
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT supplier_id FROM {$messages_table} WHERE item_id = %d AND thread_type = 'supplier_operator' AND (bid_id = %d OR (bid_id IS NULL AND %d = 0)) LIMIT 1",
+            $item_id,
+            $bid_id,
+            $bid_id
+        ), ARRAY_A );
+        if ( $row && ! empty( $row['supplier_id'] ) ) {
+            $supplier_id = (int) $row['supplier_id'];
+        }
+        if ( ! $supplier_id ) {
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT supplier_id FROM {$messages_table} WHERE item_id = %d AND thread_type = 'supplier_operator' ORDER BY created_at DESC LIMIT 1",
+                $item_id
+            ), ARRAY_A );
+            if ( $row && ! empty( $row['supplier_id'] ) ) {
+                $supplier_id = (int) $row['supplier_id'];
+            }
+        }
+
+        $designer_messages = array();
+        if ( $designer_id ) {
+            $designer_messages = $wpdb->get_results( $wpdb->prepare(
+                "SELECT m.*, u.display_name as sender_name
+                 FROM {$messages_table} m
+                 LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+                 WHERE m.item_id = %d AND m.thread_type = 'designer_operator' AND m.designer_id = %d
+                 ORDER BY m.created_at ASC",
+                $item_id,
+                $designer_id
+            ), ARRAY_A );
+        }
+
+        $supplier_messages = array();
+        if ( $supplier_id ) {
+            $supplier_messages = $wpdb->get_results( $wpdb->prepare(
+                "SELECT m.*, u.display_name as sender_name
+                 FROM {$messages_table} m
+                 LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+                 WHERE m.item_id = %d AND m.thread_type = 'supplier_operator' AND m.supplier_id = %d
+                 AND (m.bid_id = %d OR (m.bid_id IS NULL AND %d = 0))
+                 ORDER BY m.created_at ASC",
+                $item_id,
+                $supplier_id,
+                $bid_id,
+                $bid_id
+            ), ARRAY_A );
+        }
+
+        $op_tab_style = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+        $wf_border = '#555';
+        $wf_green = '#00ff00';
+        $wf_text = '#ccc';
+        $operator_current_step = 0;
+        $gate_state_clarification = 'Clarification only — no prototype payment yet.';
+
+        ob_start();
+        ?>
+        <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $item['title'] ?: 'Item' ); ?></h2>
+            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>
+        </div>
+        <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+            <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
+                <?php if ( ! empty( $thumbnail_url ) ) : ?>
+                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
+                <?php else : ?>
+                <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
+                <?php endif; ?>
+                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $item_id ); ?> · <?php echo esc_html( $category_name ); ?></div>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+                <div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">
+                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_style; ?>">Item Case</button>
+                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_active; ?>">Messages</button>
+                    <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_style; ?>">The WorkFlow</button>
+                </div>
+                <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
+                    <!-- Tab 1: Item Case — same three boxes as payment case -->
+                    <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
+                        <div style="margin-right: 20px;">
+                        <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $item_id ); ?><?php echo $bid_id ? ' · Bid #' . esc_html( $bid_id ) : ''; ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Requested:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">CAD Fee:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #888;">—</span></div>
+                                <?php if ( $delivery_quoting_note !== '' ) : ?>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
+                                <?php endif; ?>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Total Due:</strong> <span style="color: #888;">—</span></div>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 0; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <?php if ( ! empty( $invited_suppliers ) ) : ?>
+                                    <ul style="margin: 0; padding-left: 18px;">
+                                        <?php foreach ( $invited_suppliers as $inv ) : ?>
+                                            <li style="margin-bottom: 8px;">
+                                                <strong style="color: #00ff00;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
+                                                <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
+                                                <span style="color: #00ff00;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php else : ?>
+                                    <div style="color: #888;">No invited suppliers for this item.</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    <div data-n88-op-panel="1" class="n88-operator-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto; display: block;">
+                        <div style="display: flex; gap: 20px; min-height: 0;">
+                            <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+                                <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
+                                    <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Designer ⇄ Operator</div>
+                                    <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?></div>
+                                </div>
+                                <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
+                                    <?php if ( empty( $designer_messages ) ) : ?>
+                                        <div style="text-align: center; color: #737373; font-size: 12px; padding: 16px;">No messages yet</div>
+                                    <?php else : ?>
+                                        <?php foreach ( $designer_messages as $msg ) :
+                                            $is_designer = $msg['sender_role'] === 'designer';
+                                            $sender_name = $is_designer ? ( ! empty( $msg['sender_name'] ) ? esc_html( $msg['sender_name'] ) : 'Designer' ) : 'Operator';
+                                            $align_class = $is_designer ? 'left' : 'right';
+                                            $bg_color = $is_designer ? '#0a0a0a' : '#1a1a1a';
+                                            $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                                            $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
+                                        ?>
+                                            <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                                <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
+                                                    <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo $sender_name; ?></div>
+                                                    <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
+                                                    <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                                <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
+                                    <form data-payment-id="0" data-item-id="<?php echo (int) $item_id; ?>" data-bid-id="<?php echo (int) $bid_id; ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo (int) $item_id; ?>, <?php echo (int) $designer_id; ?>, null, null);" style="display: flex; gap: 8px; align-items: center;">
+                                        <input type="text" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to designer...">
+                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+                                <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
+                                    <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Supplier ⇄ Operator</div>
+                                    <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?> · Bid #<?php echo esc_html( $bid_id ?: '—' ); ?></div>
+                                </div>
+                                <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
+                                    <?php if ( empty( $supplier_messages ) ) : ?>
+                                        <div style="text-align: center; color: #737373; font-size: 12px; padding: 16px;">No messages yet</div>
+                                    <?php else : ?>
+                                        <?php foreach ( $supplier_messages as $msg ) :
+                                            $is_supplier = $msg['sender_role'] === 'supplier';
+                                            $sender_name = $is_supplier ? 'Supplier' : 'Operator';
+                                            $align_class = $is_supplier ? 'left' : 'right';
+                                            $bg_color = $is_supplier ? '#0a0a0a' : '#1a1a1a';
+                                            $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                                            $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
+                                        ?>
+                                            <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                                <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
+                                                    <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?></div>
+                                                    <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
+                                                    <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                                <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
+                                    <form data-payment-id="0" data-item-id="<?php echo (int) $item_id; ?>" data-bid-id="<?php echo (int) $bid_id; ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo (int) $item_id; ?>, null, <?php echo (int) $bid_id; ?>, <?php echo (int) $supplier_id; ?>);" style="display: flex; gap: 8px; align-items: center;">
+                                        <input type="text" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to supplier...">
+                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Tab 3: The WorkFlow — same 6-step timeline, empty/placeholder content -->
+                    <div data-n88-op-panel="2" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
+                        <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-active-step="0" data-current-step="0" style="font-family: monospace;">
+                            <div id="n88-operator-workflow-step-row" style="position: sticky; top: 0; z-index: 10; background: #000; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid <?php echo $wf_border; ?>;">
+                                <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0;">
+                                <?php
+                                $wf_steps = array(
+                                    array( 'num' => 1, 'label' => 'Prototype Direction Keywords', 'done' => false ),
+                                    array( 'num' => 2, 'label' => 'Key Dates', 'done' => false ),
+                                    array( 'num' => 3, 'label' => 'Workflow State', 'done' => false ),
+                                    array( 'num' => 4, 'label' => 'Production / Fabrication', 'done' => false ),
+                                    array( 'num' => 5, 'label' => 'Quality Review & Packing', 'done' => false ),
+                                    array( 'num' => 6, 'label' => 'Ready for Delivery', 'done' => false ),
+                                );
+                                $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
+                                foreach ( $wf_steps as $i => $s ) :
+                                    $border = $s['done'] ? $wf_green : $wf_border;
+                                    $bg = $s['done'] ? $wf_green : 'transparent';
+                                    $color = $s['done'] ? '#0a0a0a' : $wf_text;
+                                    $is_current = ( (int) $i ) === $operator_current_step;
+                                ?>
+                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
+                                    <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
+                                    <div class="n88-op-step-label" style="<?php echo esc_attr( $step_label_style ); ?>"><?php echo esc_html( $s['label'] ); ?></div>
+                                </button>
+                                <?php if ( $i < 5 ) : ?>
+                                <div style="flex: 0 0 20px; align-self: center; height: 2px; background: <?php echo $wf_border; ?>; margin-bottom: 20px;"></div>
+                                <?php endif; ?>
+                                <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <div data-n88-op-workflow-step="0" class="n88-operator-workflow-step-panel" style="display: block; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 1. Prototype Direction Keywords</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>;">No prototype payment yet.</div>
+                            </div>
+                            <div data-n88-op-workflow-step="1" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 2. Key Dates (Facts Panel)</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>;">—</div>
+                            </div>
+                            <div data-n88-op-workflow-step="2" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3. Mini Workflow State Readout</div>
+                                <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600;"><?php echo esc_html( $gate_state_clarification ); ?></div>
+                            </div>
+                            <div data-n88-op-workflow-step="3" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 4. Production / Fabrication</div>
+                                <div style="font-size: 11px; color: #666;">—</div>
+                            </div>
+                            <div data-n88-op-workflow-step="4" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 5. Quality Review & Packing</div>
+                                <div style="font-size: 11px; color: #666;">—</div>
+                            </div>
+                            <div data-n88-op-workflow-step="5" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 6. Ready for Delivery</div>
+                                <div style="font-size: 11px; color: #666;">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
+        $html = ob_get_clean();
+        wp_send_json_success( array( 'html' => $html, 'open_tab' => 1 ) );
+    }
+
+    /**
      * AJAX: Get Operator Case Details (Read-Only) - Commit 2.3.9.1C
      */
     public function ajax_get_operator_case_details() {
@@ -17835,6 +18354,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $payment_id = isset( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+        $clarification_item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $clarification_bid_id = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+
+        // Clarification-only: no payment yet (e.g. supplier sent question before bid); load by item_id + bid_id
+        if ( ! $payment_id && $clarification_item_id ) {
+            $this->ajax_get_operator_case_details_clarification_only( $clarification_item_id, $clarification_bid_id );
+            return;
+        }
+
         if ( ! $payment_id ) {
             wp_send_json_error( array( 'message' => 'Invalid payment ID.' ) );
             return;
@@ -18006,187 +18534,478 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Format dates
         $created_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
 
-        // Build HTML
+        // Item Case tab: delivery context, item basics, invited suppliers (operator-only)
+        $item_id_for_case = (int) $payment['item_id'];
+        $delivery_country = '';
+        $delivery_postal = '';
+        $item_quantity = '';
+        $dimensions_summary = '';
+        $delivery_quoting_note = '';
+        $item_delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$item_delivery_context_table}'" ) === $item_delivery_context_table ) {
+            $delivery_cols = $wpdb->get_col( "DESCRIBE {$item_delivery_context_table}" );
+            $sel = array( 'delivery_country_code', 'delivery_postal_code' );
+            if ( in_array( 'quantity', $delivery_cols, true ) ) {
+                $sel[] = 'quantity';
+            }
+            if ( in_array( 'dimensions_json', $delivery_cols, true ) ) {
+                $sel[] = 'dimensions_json';
+            }
+            if ( in_array( 'delivery_cost_usd', $delivery_cols, true ) ) {
+                $sel[] = 'delivery_cost_usd';
+            }
+            if ( in_array( 'shipping_estimate_mode', $delivery_cols, true ) ) {
+                $sel[] = 'shipping_estimate_mode';
+            }
+            $delivery_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT " . implode( ', ', $sel ) . " FROM {$item_delivery_context_table} WHERE item_id = %d",
+                $item_id_for_case
+            ), ARRAY_A );
+            if ( $delivery_row ) {
+                $delivery_country = isset( $delivery_row['delivery_country_code'] ) ? $delivery_row['delivery_country_code'] : '';
+                $delivery_postal = isset( $delivery_row['delivery_postal_code'] ) ? $delivery_row['delivery_postal_code'] : '';
+                if ( isset( $delivery_row['quantity'] ) && $delivery_row['quantity'] !== null && $delivery_row['quantity'] !== '' ) {
+                    $item_quantity = $delivery_row['quantity'];
+                }
+                if ( ! empty( $delivery_row['dimensions_json'] ) ) {
+                    $dims = json_decode( $delivery_row['dimensions_json'], true );
+                    if ( is_array( $dims ) ) {
+                        $w = isset( $dims['width'] ) ? $dims['width'] : ( isset( $dims['w'] ) ? $dims['w'] : '' );
+                        $d = isset( $dims['depth'] ) ? $dims['depth'] : ( isset( $dims['d'] ) ? $dims['d'] : '' );
+                        $h = isset( $dims['height'] ) ? $dims['height'] : ( isset( $dims['h'] ) ? $dims['h'] : '' );
+                        $u = isset( $dims['unit'] ) ? $dims['unit'] : '';
+                        $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d !== '' ? $d : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                        if ( $dimensions_summary === '— × — × —' ) {
+                            $dimensions_summary = '—';
+                        }
+                    }
+                }
+                if ( isset( $delivery_row['delivery_cost_usd'] ) && $delivery_row['delivery_cost_usd'] !== null && $delivery_row['delivery_cost_usd'] !== '' && floatval( $delivery_row['delivery_cost_usd'] ) > 0 ) {
+                    $delivery_quoting_note = 'Delivery (quoted): $' . number_format( floatval( $delivery_row['delivery_cost_usd'] ), 2 );
+                } elseif ( isset( $delivery_row['shipping_estimate_mode'] ) && $delivery_row['shipping_estimate_mode'] === 'auto' ) {
+                    $delivery_quoting_note = 'Shipping: instant estimate';
+                } else {
+                    $delivery_quoting_note = 'Shipping: manual quote';
+                }
+            }
+        }
+        if ( $item_quantity === '' && ! empty( $payment['item_id'] ) ) {
+            $item_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT meta_json FROM {$items_table} WHERE id = %d",
+                $item_id_for_case
+            ), ARRAY_A );
+            if ( $item_row && ! empty( $item_row['meta_json'] ) ) {
+                $meta = json_decode( $item_row['meta_json'], true );
+                if ( is_array( $meta ) && isset( $meta['quantity'] ) ) {
+                    $item_quantity = $meta['quantity'];
+                }
+                if ( $dimensions_summary === '' && isset( $meta['dimensions'] ) && is_array( $meta['dimensions'] ) ) {
+                    $d = $meta['dimensions'];
+                    $w = isset( $d['width'] ) ? $d['width'] : ( isset( $d['w'] ) ? $d['w'] : '' );
+                    $d2 = isset( $d['depth'] ) ? $d['depth'] : ( isset( $d['d'] ) ? $d['d'] : '' );
+                    $h = isset( $d['height'] ) ? $d['height'] : ( isset( $d['h'] ) ? $d['h'] : '' );
+                    $u = isset( $d['unit'] ) ? $d['unit'] : '';
+                    $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d2 !== '' ? $d2 : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                }
+            }
+        }
+        if ( $dimensions_summary === '' ) {
+            $dimensions_summary = '—';
+        }
+        if ( $item_quantity === '' ) {
+            $item_quantity = '—';
+        }
+
+        // Invited suppliers and current bid statuses (operator-only)
+        $invited_suppliers = array();
+        $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$rfq_routes_table}'" ) === $rfq_routes_table ) {
+            $routes = $wpdb->get_results( $wpdb->prepare(
+                "SELECT route_id, supplier_id, route_type, status as route_status FROM {$rfq_routes_table} WHERE item_id = %d ORDER BY route_id",
+                $item_id_for_case
+            ), ARRAY_A );
+            foreach ( $routes as $r ) {
+                $bid_status = '';
+                $bid_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT bid_id, status FROM {$item_bids_table} WHERE item_id = %d AND supplier_id = %d ORDER BY bid_id DESC LIMIT 1",
+                    $item_id_for_case,
+                    $r['supplier_id']
+                ), ARRAY_A );
+                if ( $bid_row ) {
+                    $bid_status = $bid_row['status'];
+                } else {
+                    $bid_status = $r['route_status'];
+                }
+                $invited_suppliers[] = array(
+                    'supplier_id' => $r['supplier_id'],
+                    'route_type'  => $r['route_type'],
+                    'route_status' => $r['route_status'],
+                    'bid_status'  => $bid_status,
+                );
+            }
+        }
+
+        // Tab 3 WorkFlow: key dates and gate state (from payment + events)
+        $cad_requested_date = '';
+        $video_direction_date = '';
+        foreach ( $events as $ev ) {
+            if ( $ev['event_type'] === 'cad_prototype_requested' ) {
+                $cad_requested_date = ! empty( $ev['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $ev['created_at'] ) ) : '';
+                break;
+            }
+        }
+        foreach ( $events as $ev ) {
+            if ( $ev['event_type'] === 'video_direction_submitted' ) {
+                $video_direction_date = ! empty( $ev['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $ev['created_at'] ) ) : '';
+                break;
+            }
+        }
+        if ( $cad_requested_date === '' && ! empty( $payment['created_at'] ) ) {
+            $cad_requested_date = date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) );
+        }
+        $payment_requested_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
+        $designer_payment_sent_date = '—';
+        $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
+        if ( is_array( $pp_cols ) && in_array( 'payment_evidence_logged_at', $pp_cols, true ) && ! empty( $payment['payment_evidence_logged_at'] ) ) {
+            $designer_payment_sent_date = date( 'M d, Y g:i A', strtotime( $payment['payment_evidence_logged_at'] ) );
+        }
+        $operator_payment_marked_date = ! empty( $payment['received_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['received_at'] ) ) : '—';
+        $cad_uploaded_date = '—';
+        $cad_uploaded_row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT MIN(created_at) as first_at FROM {$events_table} WHERE object_type = 'prototype_payment' AND object_id = %d AND event_type = 'cad_uploaded'",
+            $payment_id
+        ), ARRAY_A );
+        if ( ! empty( $cad_uploaded_row['first_at'] ) ) {
+            $cad_uploaded_date = date( 'M d, Y g:i A', strtotime( $cad_uploaded_row['first_at'] ) );
+        }
+        $cad_approved_date = ! empty( $payment['cad_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['cad_approved_at'] ) ) : '—';
+        $cad_released_date = ! empty( $payment['cad_released_to_supplier_at'] ) && trim( $payment['cad_released_to_supplier_at'] ) !== '' ? date( 'M d, Y g:i A', strtotime( $payment['cad_released_to_supplier_at'] ) ) : '—';
+        $prototype_submitted_date = '—';
+        $pvs_table = $wpdb->prefix . 'n88_prototype_video_submissions';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$pvs_table}'" ) === $pvs_table ) {
+            $first_sub = $wpdb->get_var( $wpdb->prepare(
+                "SELECT MIN(created_at) FROM {$pvs_table} WHERE payment_id = %d",
+                $payment_id
+            ) );
+            if ( $first_sub ) {
+                $prototype_submitted_date = date( 'M d, Y g:i A', strtotime( $first_sub ) );
+            }
+        }
+        $prototype_approved_date = ! empty( $payment['prototype_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['prototype_approved_at'] ) ) : '—';
+        $gate_state = 'Awaiting Payment';
+        $pay_status = isset( $payment['status'] ) ? $payment['status'] : '';
+        $cad_status_val = isset( $payment['cad_status'] ) ? $payment['cad_status'] : '';
+        $cad_released = ! empty( $payment['cad_released_to_supplier_at'] ) && trim( $payment['cad_released_to_supplier_at'] ) !== '';
+        $prototype_status_val = isset( $payment['prototype_status'] ) ? $payment['prototype_status'] : '';
+        if ( $pay_status === 'marked_received' && ! $cad_released && $cad_status_val !== 'approved' ) {
+            $gate_state = 'CAD In Progress';
+        } elseif ( $pay_status === 'marked_received' && $cad_status_val === 'approved' && ! $cad_released ) {
+            $gate_state = 'CAD Approved — Awaiting Release';
+        } elseif ( $cad_released && ! in_array( $prototype_status_val, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
+            $gate_state = 'Awaiting Prototype';
+        } elseif ( $prototype_status_val === 'submitted' ) {
+            $gate_state = 'Review Required';
+        } elseif ( $prototype_status_val === 'changes_requested' ) {
+            $gate_state = 'Changes Requested';
+        } elseif ( $prototype_status_val === 'approved' ) {
+            $gate_state = 'Prototype Approved';
+        }
+        // Current workflow step for operator: 0=Step 1 (Keywords), 1=Step 2 (Key Dates), 2=Step 3 (State); 4–6 stay at 2 until implemented
+        $operator_current_step = 0;
+        if ( $pay_status === 'marked_received' ) {
+            $operator_current_step = 1;
+        }
+        if ( $cad_released || $cad_status_val === 'approved' || in_array( $prototype_status_val, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
+            $operator_current_step = 2;
+        }
+
+        // Status chips for header (COMMIT 3.B.3)
+        $payment_status_label = $payment['status'] === 'marked_received' ? 'Marked Received' : 'Requested';
+        $cad_status_val = isset( $payment['cad_status'] ) ? $payment['cad_status'] : '';
+        $cad_chip = ( $cad_status_val === 'approved' ) ? 'Approved' : ( ( $cad_status_val === 'revision_requested' ) ? 'Revision Needed' : ( ( $cad_status_val === 'uploaded' ) ? 'In Progress' : 'Not Started' ) );
+        $cad_released = ! empty( $payment['cad_released_to_supplier_at'] ) && trim( $payment['cad_released_to_supplier_at'] ) !== '';
+        $show_release_cad = $payment['status'] === 'marked_received' && $cad_status_val === 'approved' && ! $cad_released;
+        $show_mark_payment = $payment['status'] === 'requested';
+        $payment_proof_pending = false;
+        if ( $show_mark_payment && $payment_id ) {
+            $receipts_tbl = $wpdb->prefix . 'n88_prototype_payment_receipts';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_tbl}'" ) === $receipts_tbl ) {
+                $payment_proof_pending = (bool) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT 1 FROM {$receipts_tbl} WHERE payment_id = %d LIMIT 1",
+                    $payment_id
+                ) );
+            }
+        }
+        // Open Messages tab by default when: payment requested (designer may have sent), CAD revision requested, or CAD approved awaiting release
+        $operator_open_tab = 0;
+        if ( $show_mark_payment || $cad_status_val === 'revision_requested' || ( $cad_status_val === 'approved' && ! $cad_released ) ) {
+            $operator_open_tab = 1;
+        }
+
+        // Build HTML — COMMIT 3.B.3: 50% images, 50% three tabs (Item Case, Messages, The WorkFlow)
         ob_start();
         ?>
-        <!-- Case Header -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Case Header</div>
-            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
-                <div><strong>Item ID:</strong> <?php echo esc_html( $payment['item_id'] ); ?></div>
-                <div><strong>Bid ID:</strong> <?php echo esc_html( $payment['bid_id'] ); ?></div>
-                <div><strong>Supplier ID:</strong> <?php echo esc_html( $payment['supplier_id'] ); ?></div>
-                <div><strong>Request Created:</strong> <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></div>
-                <div><strong>Payment Status:</strong> <?php echo esc_html( ucfirst( str_replace( '_', ' ', $payment['status'] ) ) ); ?></div>
-            </div>
-            <div style="margin-top: 12px;">
-                <button type="button" class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( ! empty( $payment['bid_id'] ) ? $payment['bid_id'] : '0' ); ?>" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
-                Mark Clarification Resolved
-                </button>
-            </div>
+        <?php
+        $op_tab_style = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+        $op_tab_0_style = $operator_open_tab === 0 ? $op_tab_active : $op_tab_style;
+        $op_tab_1_style = $operator_open_tab === 1 ? $op_tab_active : $op_tab_style;
+        $op_tab_2_style = $operator_open_tab === 2 ? $op_tab_active : $op_tab_style;
+        $op_panel_0_display = $operator_open_tab === 0 ? 'block' : 'none';
+        $op_panel_1_display = $operator_open_tab === 1 ? 'block' : 'none';
+        $op_panel_2_display = $operator_open_tab === 2 ? 'block' : 'none';
+        ?>
+        <!-- Header: title + Close only (Payment/CAD/Prototype chips and action buttons hidden) -->
+        <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $payment['item_title'] ?: 'Item' ); ?></h2>
+            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
 
-        <!-- Cost Block -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Cost Block (Read-Only)</div>
-            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
-                <div><strong>CAD Fee:</strong> $<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></div>
-                <div><strong>Prototype Estimate:</strong> <?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></div>
-                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;"><strong>Total Due:</strong> <span style="color: #ff8800; font-weight: 600;">$<?php echo number_format( $total_due_for_display, 2 ); ?></span></div>
+        <!-- Body: left 42% + right tabs (same as supplier) -->
+        <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+            <!-- Left: image + item # (supplier-style) -->
+            <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
+                <?php if ( ! empty( $thumbnail_url ) ) : ?>
+                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
+                <?php else : ?>
+                <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
+                <?php endif; ?>
+                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $payment['item_id'] ); ?> · <?php echo esc_html( $category_name ); ?></div>
             </div>
-        </div>
-
-        <!-- CAD Policy Block -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">CAD Policy Block</div>
-            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
-                <div><strong>Rounds Included:</strong> <?php echo esc_html( $payment['cad_revision_rounds_included'] ); ?></div>
-                <div><strong>Extra Round Fee:</strong> $<?php echo number_format( floatval( $payment['cad_revision_round_fee_usd'] ), 2 ); ?> (round 4+)</div>
-                <div><strong>Rounds Used:</strong> <?php echo esc_html( $payment['cad_revision_rounds_used'] ); ?></div>
-            </div>
-        </div>
-
-        <!-- Video Direction Block -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Video Direction Block (Read-Only)</div>
-            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
-                <?php if ( ! empty( $keyword_names ) ) : ?>
-                    <div style="margin-bottom: 12px;">
-                        <strong>Selected Keywords (<?php echo esc_html( $keyword_count ); ?>):</strong>
-                        <ul style="margin: 8px 0 0 20px; padding: 0;">
-                            <?php foreach ( $keyword_names as $kw_name ) : ?>
-                                <li><?php echo esc_html( $kw_name ); ?></li>
-                            <?php endforeach; ?>
-                        </ul>
+            <!-- Right: tabs + panels -->
+            <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
+                <div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">
+                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_0_style; ?>">Item Case</button>
+                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_1_style; ?>">Messages</button>
+                    <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_2_style; ?>">The WorkFlow</button>
+                </div>
+                <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
+                    <!-- Tab 1: Item Case — Case Summary, Costs Snapshot, Routing/Suppliers (supplier item-detail box style); margin-right 20px -->
+                    <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto; display: <?php echo $op_panel_0_display; ?>;">
+                        <div style="margin-right: 20px;">
+                        <!-- 1. Case Summary (same box style as supplier Item Overview) -->
+                        <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Requested:</strong> <span style="color: #f59e0b;"><?php echo esc_html( $created_date ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                            </div>
+                        </div>
+                        <!-- 2. Costs Snapshot (same box style) -->
+                        <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <?php if ( isset( $payment['unit_price'] ) && $payment['unit_price'] !== null && $payment['unit_price'] !== '' ) : ?>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Supplier bid unit price:</strong> <span style="color: #00ff00;">$<?php echo number_format( floatval( $payment['unit_price'] ), 2 ); ?></span></div>
+                                <?php endif; ?>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">CAD Fee:</strong> <span style="color: #fff;">$<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #fff;"><?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></span></div>
+                                <?php if ( $delivery_quoting_note !== '' ) : ?>
+                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
+                                <?php endif; ?>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Total Due:</strong> <span style="color: #00ff00; font-weight: 600;">$<?php echo number_format( $total_due_for_display, 2 ); ?></span></div>
+                            </div>
+                        </div>
+                        <!-- 3. Routing / Suppliers (same box style) -->
+                        <div style="margin-bottom: 0; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
+                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
+                            <div style="font-size: 14px; color: #fff; line-height: 1.8;">
+                                <?php if ( ! empty( $invited_suppliers ) ) : ?>
+                                    <ul style="margin: 0; padding-left: 18px;">
+                                        <?php foreach ( $invited_suppliers as $inv ) : ?>
+                                            <li style="margin-bottom: 8px;">
+                                                <strong style="color: #00ff00;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
+                                                <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
+                                                <span style="color: #00ff00;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php else : ?>
+                                    <div style="color: #888;">No invited suppliers for this item.</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        </div>
                     </div>
-                <?php else : ?>
-                    <div style="color: #999;">No keywords selected</div>
-                <?php endif; ?>
-                <?php if ( ! empty( $note ) ) : ?>
-                    <div style="margin-top: 12px;">
-                        <strong>Note:</strong>
-                        <div style="margin-top: 4px; padding: 8px; background-color: #000; border: 1px solid #333; border-radius: 2px; white-space: pre-wrap;"><?php echo esc_html( $note ); ?></div>
-                    </div>
-                <?php else : ?>
-                    <div style="margin-top: 12px; color: #999;">Note: None</div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- Evidence Log Preview -->
-        <div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Evidence Log Preview (Read-Only, Minimal)</div>
-            <div style="font-size: 12px; color: #fff; line-height: 1.8;">
-                <?php if ( ! empty( $events ) ) : ?>
-                    <div style="margin-bottom: 8px;"><strong>Linked Events:</strong></div>
-                    <ul style="margin: 0 0 0 20px; padding: 0;">
-                        <?php foreach ( $events as $event ) : ?>
-                            <li style="margin-bottom: 4px;">
-                                <strong><?php echo esc_html( str_replace( '_', ' ', ucfirst( $event['event_type'] ) ) ); ?>:</strong>
-                                <?php echo esc_html( date( 'M d, Y g:i A', strtotime( $event['created_at'] ) ) ); ?>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php else : ?>
-                    <div style="color: #999;">No events found</div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- Workflow Timeline (Furniture 6-Step) - same as supplier queue -->
-        <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" style="margin-bottom: 24px; padding-bottom: 20px;">
-            <div style="font-size: 11px; color: #888; margin-bottom: 8px;"></div>
-            <div id="n88-operator-workflow-timeline" style="min-height: 60px; font-family: monospace;">Loading timeline…</div>
-        </div>
-
-        <!-- Commit 2.3.9.1C-a: Two-Column Message Threads (hidden in View Case modal) -->
-        <div id="n88-operator-case-message-threads" style="display: none; margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border: 1px solid #fff; border-radius: 2px;">
-            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px;">Message Threads</div>
-            
-            <div style="display: flex; gap: 20px; min-height: 400px;">
-                <!-- Left Column: Designer Thread -->
-                <div style="flex: 1; border: 1px solid #333; border-radius: 2px; background-color: #000; display: flex; flex-direction: column;">
-                    <div style="padding: 12px; border-bottom: 1px solid #333; background-color: #001100;">
+                    <!-- Tab 2: Messages (green #00ff00; operator right, designer/supplier left; short height; inline send; file View links) -->
+                    <div data-n88-op-panel="1" class="n88-operator-tab-panel" style="display: <?php echo $op_panel_1_display; ?>; flex: 1; min-height: 0; overflow-y: auto;">
+                        <div style="display: flex; gap: 20px; min-height: 0;">
+                <!-- Designer Thread -->
+                <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+                    <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
                         <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Designer ⇄ Operator</div>
-                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Item #<?php echo esc_html( $payment['item_id'] ); ?></div>
+                        <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?></div>
                     </div>
-                    <div id="n88-operator-designer-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 350px;">
+                    <div id="n88-operator-designer-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
                         <?php if ( empty( $designer_messages ) ) : ?>
-                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet</div>
+                            <div style="text-align: center; color: #737373; font-size: 12px; padding: 16px;">No messages yet</div>
                         <?php else : ?>
                             <?php foreach ( $designer_messages as $msg ) : 
                                 $is_designer = $msg['sender_role'] === 'designer';
                                 $sender_name = $is_designer ? ( ! empty( $msg['sender_name'] ) ? esc_html( $msg['sender_name'] ) : 'Designer' ) : 'Operator';
-                                $align_class = $is_designer ? 'right' : 'left';
-                                $bg_color = $is_designer ? '#003300' : '#001100';
-                                $border_color = $is_designer ? '#00ff00' : '#00aa00';
+                                $align_class = $is_designer ? 'left' : 'right';
+                                $bg_color = $is_designer ? '#0a0a0a' : '#1a1a1a';
                                 $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                                $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
                             ?>
-                                <div style="margin-bottom: 12px; text-align: <?php echo esc_attr( $align_class ); ?>;">
-                                    <div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid <?php echo esc_attr( $border_color ); ?>; border-radius: 4px; font-size: 11px; color: #fff;">
-                                        <div style="font-weight: bold; color: #00ff00; margin-bottom: 4px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' [' . esc_html( $msg['category'] ) . ']' : ''; ?></div>
-                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo esc_html( $msg['message_text'] ); ?></div>
-                                        <div style="font-size: 10px; color: #666; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                    <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
+                                        <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
+                                        <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
-                    <div style="padding: 12px; border-top: 1px solid #333; background-color: #001100;">
-                        <form id="n88-operator-designer-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, null, null);">
-                            <textarea id="n88-operator-designer-message" name="message_text" required rows="3" style="width: 100%; padding: 6px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;" placeholder="Type your message..."></textarea>
-                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
-                                [ Send to Designer ]
-                            </button>
+                    <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
+                        <form id="n88-operator-designer-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, null, null);" style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="n88-operator-designer-message" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to designer...">
+                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                         </form>
                     </div>
                 </div>
-                
-                <!-- Right Column: Supplier Thread -->
-                <div style="flex: 1; border: 1px solid #333; border-radius: 2px; background-color: #000; display: flex; flex-direction: column;">
-                    <div style="padding: 12px; border-bottom: 1px solid #333; background-color: #001100;">
+                <!-- Supplier Thread -->
+                <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+                    <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
                         <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Supplier ⇄ Operator</div>
-                        <div style="font-size: 10px; color: #666; margin-top: 4px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> | Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
+                        <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
                     </div>
-                    <div id="n88-operator-supplier-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 350px;">
+                    <div id="n88-operator-supplier-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
                         <?php if ( empty( $supplier_messages ) ) : ?>
-                            <div style="text-align: center; color: #666; font-size: 11px; padding: 20px;">No messages yet</div>
+                            <div style="text-align: center; color: #737373; font-size: 12px; padding: 16px;">No messages yet</div>
                         <?php else : ?>
                             <?php foreach ( $supplier_messages as $msg ) : 
                                 $is_supplier = $msg['sender_role'] === 'supplier';
                                 $sender_name = $is_supplier ? 'Supplier' : 'Operator';
-                                $align_class = $is_supplier ? 'right' : 'left';
-                                $bg_color = $is_supplier ? '#003300' : '#001100';
-                                $border_color = $is_supplier ? '#00ff00' : '#00aa00';
+                                $align_class = $is_supplier ? 'left' : 'right';
+                                $bg_color = $is_supplier ? '#0a0a0a' : '#1a1a1a';
                                 $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
+                                $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
                             ?>
-                                <div style="margin-bottom: 12px; text-align: <?php echo esc_attr( $align_class ); ?>;">
-                                    <div style="display: inline-block; max-width: 80%; padding: 8px 12px; background-color: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid <?php echo esc_attr( $border_color ); ?>; border-radius: 4px; font-size: 11px; color: #fff;">
-                                        <div style="font-weight: bold; color: #00ff00; margin-bottom: 4px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' [' . esc_html( $msg['category'] ) . ']' : ''; ?></div>
-                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo esc_html( $msg['message_text'] ); ?></div>
-                                        <div style="font-size: 10px; color: #666; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
+                                <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
+                                    <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
+                                        <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
+                                        <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
-                    <div style="padding: 12px; border-top: 1px solid #333; background-color: #001100;">
-                        <form id="n88-operator-supplier-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo esc_js( $payment['item_id'] ); ?>, null, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>);">
-                            <textarea id="n88-operator-supplier-message" name="message_text" required rows="3" style="width: 100%; padding: 6px; background-color: #000; color: #fff; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: vertical; margin-bottom: 8px;" placeholder="Type your message..."></textarea>
-                            <button type="submit" style="width: 100%; padding: 6px; background-color: #00ff00; color: #000; border: none; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: bold; cursor: pointer;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
-                                [ Send to Supplier ]
-                            </button>
+                    <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
+                        <form id="n88-operator-supplier-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo esc_js( $payment['item_id'] ); ?>, null, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>);" style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="n88-operator-supplier-message" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to supplier...">
+                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                         </form>
                     </div>
                 </div>
             </div>
-            
-            <!-- Copy to Other Side Button (Optional Feature) -->
-            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
-                <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 6px 12px; background-color: #000; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer;" onmouseover="this.style.backgroundColor='#003300';" onmouseout="this.style.backgroundColor='#000';">
-                    [ Copy to Other Side ]
-                </button>
-                <div style="font-size: 10px; color: #666; margin-top: 4px;">Forwards the last message from one thread to the other</div>
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;">
+                <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 8px 16px; background: #1f1f1f; color: #00ff00; border: 1px solid #555; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer;">Copy to Other Side</button>
+                <span style="font-size: 11px; color: #737373; margin-left: 10px;">Forwards the last message from one thread to the other</span>
+            </div>
+                    </div>
+                    <!-- Tab 3: The WorkFlow — 6-step timeline (Steps 1–3 content; 4–6 placeholder) -->
+                    <?php
+                    $wf_green = '#00ff00';
+                    $wf_border = '#555';
+                    $wf_text = '#ccc';
+                    ?>
+                    <div data-n88-op-panel="2" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
+                        <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-active-step="<?php echo (int) $operator_current_step; ?>" data-current-step="<?php echo (int) $operator_current_step; ?>" style="font-family: monospace;">
+                            <!-- 6-step row: sticky so it stays visible when scrolling -->
+                            <div id="n88-operator-workflow-step-row" style="position: sticky; top: 0; z-index: 10; background: #000; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid <?php echo $wf_border; ?>;">
+                                <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0;">
+                                <?php
+                                $wf_steps = array(
+                                    array( 'num' => 1, 'label' => 'Prototype Direction Keywords', 'done' => ! empty( $keyword_names ) ),
+                                    array( 'num' => 2, 'label' => 'Key Dates', 'done' => true ),
+                                    array( 'num' => 3, 'label' => 'Workflow State', 'done' => true ),
+                                    array( 'num' => 4, 'label' => 'Production / Fabrication', 'done' => false ),
+                                    array( 'num' => 5, 'label' => 'Quality Review & Packing', 'done' => false ),
+                                    array( 'num' => 6, 'label' => 'Ready for Delivery', 'done' => false ),
+                                );
+                                $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
+                                foreach ( $wf_steps as $i => $s ) :
+                                    $border = $s['done'] ? $wf_green : $wf_border;
+                                    $bg = $s['done'] ? $wf_green : 'transparent';
+                                    $color = $s['done'] ? '#0a0a0a' : $wf_text;
+                                    $is_current = ( (int) $i ) === $operator_current_step;
+                                ?>
+                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
+                                    <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
+                                    <div class="n88-op-step-label" style="<?php echo esc_attr( $step_label_style ); ?>"><?php echo esc_html( $s['label'] ); ?></div>
+                                </button>
+                                <?php if ( $i < 5 ) : ?>
+                                <div style="flex: 0 0 20px; align-self: center; height: 2px; background: <?php echo $wf_border; ?>; margin-bottom: 20px;"></div>
+                                <?php endif; ?>
+                                <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <!-- Step 1: Keywords (read-only) - visibility by data-active-step -->
+                            <?php $panel_display_0 = ( $operator_current_step === 0 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="0" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_0; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 1. Prototype Direction Keywords</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>;">
+                                    <?php if ( ! empty( $keyword_names ) ) : ?>
+                                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                            <?php foreach ( $keyword_names as $kw ) : ?>
+                                                <span style="padding: 4px 10px; background: #1a1a1a; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px;"><?php echo esc_html( $kw ); ?></span>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php else : ?>
+                                        <span style="color: #666;">No keywords selected</span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <!-- Step 2 -->
+                            <?php $panel_display_1 = ( $operator_current_step === 1 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="1" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_1; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 2. Key Dates (Facts Panel)</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>; line-height: 1.9;">
+                                    <div>CAD requested: <?php echo $cad_requested_date !== '' ? esc_html( $cad_requested_date ) : '—'; ?></div>
+                                    <div>Payment requested: <?php echo esc_html( $payment_requested_date ); ?></div>
+                                    <div>Designer “Payment Sent”: <?php echo esc_html( $designer_payment_sent_date ); ?></div>
+                                    <div>Operator “Payment Marked Received”: <?php echo esc_html( $operator_payment_marked_date ); ?></div>
+                                    <div>CAD uploaded: <?php echo esc_html( $cad_uploaded_date ); ?></div>
+                                    <div>CAD approved: <?php echo esc_html( $cad_approved_date ); ?></div>
+                                    <div>CAD released to supplier: <?php echo esc_html( $cad_released_date ); ?></div>
+                                    <div>Prototype submitted: <?php echo esc_html( $prototype_submitted_date ); ?></div>
+                                    <div>Prototype approved: <?php echo esc_html( $prototype_approved_date ); ?></div>
+                                </div>
+                            </div>
+                            <!-- Step 3 -->
+                            <?php $panel_display_2 = ( $operator_current_step === 2 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="2" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_2; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3. Mini Workflow State Readout</div>
+                                <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600;"><?php echo esc_html( $gate_state ); ?></div>
+                            </div>
+                            <!-- Step 4 -->
+                            <?php $panel_display_3 = ( $operator_current_step === 3 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="3" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_3; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 4. Production / Fabrication</div>
+                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                            </div>
+                            <!-- Step 5 -->
+                            <?php $panel_display_4 = ( $operator_current_step === 4 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="4" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_4; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 5. Quality Review & Packing</div>
+                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                            </div>
+                            <!-- Step 6 -->
+                            <?php $panel_display_5 = ( $operator_current_step === 5 ) ? 'block' : 'none'; ?>
+                            <div data-n88-op-workflow-step="5" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_5; ?>; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 6. Ready for Delivery</div>
+                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         <?php
