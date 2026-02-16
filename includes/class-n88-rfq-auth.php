@@ -3684,6 +3684,13 @@ class N88_RFQ_Auth {
                                     feedbackHTML += '</div>';
                                     feedbackHTML += '</div>';
                                 }
+                                // Commit 3.B.5A: Designer revision detail (optional)
+                                if (keywordFeedback.revision_detail && String(keywordFeedback.revision_detail).trim() !== '') {
+                                    feedbackHTML += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">';
+                                    feedbackHTML += '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px;">Designer Detail:</div>';
+                                    feedbackHTML += '<div style="padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px; font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + String(keywordFeedback.revision_detail).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                    feedbackHTML += '</div>';
+                                }
                                 
                                 feedbackHTML += '</div>';
                             });
@@ -10342,16 +10349,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                 ), ARRAY_A );
                                                 
                                                 if ( $feedback_packet ) {
-                                                    // Get feedback lines with keyword info and phrases
-                                                    $feedback_lines = $wpdb->get_results( $wpdb->prepare(
-                                                        "SELECT fpl.keyword_id, fpl.keyword_status, fpl.severity, fpl.selected_phrase_ids,
+                                                    $fpl_has_revision = in_array( 'revision_detail', $wpdb->get_col( "DESCRIBE {$feedback_packet_lines_table}" ), true );
+                                                    $select_fpl = "SELECT fpl.keyword_id, fpl.keyword_status, fpl.severity, fpl.selected_phrase_ids" . ( $fpl_has_revision ? ", fpl.revision_detail" : "" ) . ",
                                                         k.keyword as keyword_name
                                                         FROM {$feedback_packet_lines_table} fpl
                                                         LEFT JOIN {$keywords_table} k ON fpl.keyword_id = k.keyword_id
                                                         WHERE fpl.feedback_packet_id = %d
-                                                        ORDER BY fpl.id ASC",
-                                                        $feedback_packet['id']
-                                                    ), ARRAY_A );
+                                                        ORDER BY fpl.id ASC";
+                                                    $feedback_lines = $wpdb->get_results( $wpdb->prepare( $select_fpl, $feedback_packet['id'] ), ARRAY_A );
                                                     
                                                     $feedback_data = array();
                                                     foreach ( $feedback_lines as $line ) {
@@ -10378,13 +10383,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                             }
                                                         }
                                                         
-                                                        $feedback_data[] = array(
+                                                        $entry = array(
                                                             'keyword_id' => intval( $line['keyword_id'] ),
                                                             'keyword_name' => $line['keyword_name'] ? sanitize_text_field( $line['keyword_name'] ) : 'Keyword ID: ' . $line['keyword_id'],
                                                             'keyword_status' => $line['keyword_status'],
                                                             'severity' => $line['severity'],
                                                             'phrases' => $phrases,
                                                         );
+                                                        if ( $fpl_has_revision && isset( $line['revision_detail'] ) && trim( (string) $line['revision_detail'] ) !== '' ) {
+                                                            $entry['revision_detail'] = sanitize_textarea_field( $line['revision_detail'] );
+                                                        }
+                                                        $feedback_data[] = $entry;
                                                     }
                                                     
                                                     $prototype_feedback = array(
@@ -14596,7 +14605,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if ( $allow_system_invites ) {
                     // Exclude already invited suppliers from system matching
                     $exclude_supplier_ids = $invited_supplier_ids;
-                    $system_suppliers = $this->match_suppliers_for_item( $item, $exclude_supplier_ids, $wpdb );
+                    $system_suppliers = $this->match_suppliers_for_item( $item, $wpdb, $exclude_supplier_ids );
 
                     // Check if any invites were provided (existing suppliers OR emails sent)
                     $has_any_invites_for_delay = ! empty( $invited_supplier_ids ) || ! empty( $invite_emails_sent );
@@ -14719,13 +14728,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     /**
      * Match suppliers for an item based on category, keywords, geography, and status (Commit 2.3.4)
      * Returns up to 2 supplier IDs
-     * 
+     *
      * @param object $item Item row from database
+     * @param \wpdb  $wpdb Database instance
      * @param int|array|null $exclude_supplier_ids Supplier ID(s) to exclude (already invited) - can be single ID or array
-     * @param wpdb $wpdb Database instance
      * @return array Array of supplier IDs (max 2)
      */
-    private function match_suppliers_for_item( $item, $exclude_supplier_ids = null, $wpdb ) {
+    private function match_suppliers_for_item( $item, $wpdb, $exclude_supplier_ids = null ) {
         $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
         $categories_table = $wpdb->prefix . 'n88_categories';
         $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
@@ -18790,6 +18799,67 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         } elseif ( $prototype_status_val === 'approved' ) {
             $gate_state = 'Prototype Approved';
         }
+        // Commit 3.B.5B: Project Awarded block for Step 3 (operator)
+        $operator_step3_project_awarded = ( $prototype_status_val === 'approved' );
+        $operator_step3_supplier_name = ! empty( $payment['supplier_name'] ) ? $payment['supplier_name'] : 'Supplier #' . ( isset( $payment['supplier_id'] ) ? $payment['supplier_id'] : '—' );
+        $operator_step3_designer_name = ! empty( $payment['designer_name'] ) ? $payment['designer_name'] : 'Designer';
+        $operator_step3_prototype_approved_date = $prototype_approved_date;
+        $operator_step3_award_date = $prototype_approved_date;
+        $items_table_local = $wpdb->prefix . 'n88_items';
+        $item_meta_json = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table_local} WHERE id = %d", $payment['item_id'] ) );
+        if ( $item_meta_json ) {
+            $item_meta_arr = json_decode( $item_meta_json, true );
+            if ( is_array( $item_meta_arr ) && ! empty( $item_meta_arr['award_timestamp'] ) ) {
+                $operator_step3_award_date = date( 'M d, Y g:i A', strtotime( $item_meta_arr['award_timestamp'] ) );
+            }
+        }
+        // Commit 3.B.5A: Latest feedback packet for Step 3 when changes_requested (operator sees structured revision)
+        $operator_latest_feedback = null;
+        if ( $prototype_status_val === 'changes_requested' ) {
+            $fb_table = $wpdb->prefix . 'n88_prototype_feedback_packets';
+            $fpl_table = $wpdb->prefix . 'n88_prototype_feedback_packet_lines';
+            $kp_table = $wpdb->prefix . 'n88_keyword_phrases';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$fb_table}'" ) === $fb_table ) {
+                $fp = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT id, submission_version, created_at FROM {$fb_table} WHERE payment_id = %d ORDER BY created_at DESC LIMIT 1",
+                    $payment_id
+                ), ARRAY_A );
+                if ( $fp ) {
+                    $fpl_has_rev = in_array( 'revision_detail', $wpdb->get_col( "DESCRIBE {$fpl_table}" ), true );
+                    $sel = "SELECT fpl.keyword_id, fpl.keyword_status, fpl.severity, fpl.selected_phrase_ids" . ( $fpl_has_rev ? ", fpl.revision_detail" : "" ) . ", k.keyword as keyword_name FROM {$fpl_table} fpl LEFT JOIN {$keywords_table} k ON fpl.keyword_id = k.keyword_id WHERE fpl.feedback_packet_id = %d ORDER BY fpl.id ASC";
+                    $lines = $wpdb->get_results( $wpdb->prepare( $sel, $fp['id'] ), ARRAY_A );
+                    $kw_data = array();
+                    foreach ( $lines as $line ) {
+                        $phrase_ids = json_decode( isset( $line['selected_phrase_ids'] ) ? $line['selected_phrase_ids'] : '[]', true );
+                        $phrases = array();
+                        if ( ! empty( $phrase_ids ) && is_array( $phrase_ids ) ) {
+                            $pids = array_map( 'absint', $phrase_ids );
+                            $pids_str = implode( ',', $pids );
+                            $phrase_rows = $wpdb->get_results( "SELECT phrase_id, phrase_text FROM {$kp_table} WHERE phrase_id IN ({$pids_str}) AND is_active = 1 ORDER BY FIELD(phrase_id, {$pids_str})", ARRAY_A );
+                            foreach ( $phrase_rows as $pr ) {
+                                $phrases[] = array( 'phrase_id' => (int) $pr['phrase_id'], 'phrase_text' => $pr['phrase_text'] );
+                            }
+                        }
+                        $entry = array(
+                            'keyword_id' => (int) $line['keyword_id'],
+                            'keyword_name' => ! empty( $line['keyword_name'] ) ? $line['keyword_name'] : 'Keyword ' . $line['keyword_id'],
+                            'keyword_status' => $line['keyword_status'],
+                            'severity' => $line['severity'],
+                            'phrases' => $phrases,
+                        );
+                        if ( $fpl_has_rev && isset( $line['revision_detail'] ) && trim( (string) $line['revision_detail'] ) !== '' ) {
+                            $entry['revision_detail'] = $line['revision_detail'];
+                        }
+                        $kw_data[] = $entry;
+                    }
+                    $operator_latest_feedback = array(
+                        'submission_version' => (int) $fp['submission_version'],
+                        'created_at' => $fp['created_at'],
+                        'keywords' => $kw_data,
+                    );
+                }
+            }
+        }
         // Current workflow step for operator: 0=Step 1 (Keywords), 1=Step 2 (Key Dates), 2=Step 3 (State); 4–6 stay at 2 until implemented
         $operator_current_step = 0;
         if ( $pay_status === 'marked_received' ) {
@@ -19096,11 +19166,37 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     <div>Prototype approved: <?php echo esc_html( $prototype_approved_date ); ?></div>
                                 </div>
                             </div>
-                            <!-- Step 3 -->
+                            <!-- Step 3 — Commit 3.B.5B: Pre-Production Approval; Project Awarded or Revision Request -->
                             <?php $panel_display_2 = ( $operator_current_step === 2 ) ? 'block' : 'none'; ?>
                             <div data-n88-op-workflow-step="2" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_2; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
-                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3. Mini Workflow State Readout</div>
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3 — Pre-Production Approval</div>
+                                <?php if ( $operator_step3_project_awarded ) : ?>
+                                <div style="font-size: 12px; color: <?php echo $wf_green; ?>; margin-bottom: 8px;">✔ COMPLETED</div>
+                                <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600; margin-bottom: 12px;">Project Awarded</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>; line-height: 1.8;">
+                                    <div>Prototype Approved: <?php echo esc_html( $operator_step3_prototype_approved_date ); ?></div>
+                                    <div>Supplier: <?php echo esc_html( $operator_step3_supplier_name ); ?></div>
+                                    <div>Designer: <?php echo esc_html( $operator_step3_designer_name ); ?></div>
+                                    <div>Award Date: <?php echo esc_html( $operator_step3_award_date ); ?></div>
+                                </div>
+                                <?php elseif ( $operator_latest_feedback ) : ?>
+                                <div style="font-size: 12px; color: #ff8800; margin-bottom: 8px;">Prototype Revision Request v<?php echo esc_html( $operator_latest_feedback['submission_version'] ); ?></div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>; line-height: 1.6;">
+                                    <?php foreach ( $operator_latest_feedback['keywords'] as $kf ) : if ( $kf['keyword_status'] === 'satisfied' ) continue; ?>
+                                    <div style="margin-bottom: 10px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 4px; border-left: 3px solid #ff8800;">
+                                        <div style="font-weight: 600; color: #fff;"><?php echo esc_html( $kf['keyword_name'] ); ?></div>
+                                        <?php if ( ! empty( $kf['phrases'] ) ) : foreach ( $kf['phrases'] as $ph ) : ?>
+                                        <div style="margin-top: 4px; color: #ccc;">Phrase: <?php echo esc_html( $ph['phrase_text'] ); ?></div>
+                                        <?php endforeach; endif; ?>
+                                        <?php if ( ! empty( $kf['revision_detail'] ) ) : ?>
+                                        <div style="margin-top: 6px; color: #00ff00;">Designer Detail: <?php echo esc_html( $kf['revision_detail'] ); ?></div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php else : ?>
                                 <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600;"><?php echo esc_html( $gate_state ); ?></div>
+                                <?php endif; ?>
                             </div>
                             <!-- Step 4 -->
                             <?php $panel_display_3 = ( $operator_current_step === 3 ) ? 'block' : 'none'; ?>
@@ -20574,9 +20670,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         global $wpdb;
         $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
         
-        // Verify payment belongs to designer
+        // Verify payment belongs to designer and get supplier_id (Commit 3.B.5B)
         $payment = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, designer_user_id, prototype_status FROM {$prototype_payments_table}
+            "SELECT id, designer_user_id, supplier_id, prototype_status FROM {$prototype_payments_table}
             WHERE id = %d AND item_id = %d AND bid_id = %d",
             $payment_id, $item_id, $bid_id
         ), ARRAY_A );
@@ -20586,12 +20682,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
         
+        $award_timestamp = current_time( 'mysql' );
+        $prototype_approved_at = $award_timestamp;
+        
         // Update prototype status
         $wpdb->update(
             $prototype_payments_table,
             array(
                 'prototype_status' => 'approved',
-                'prototype_approved_at' => current_time( 'mysql' ),
+                'prototype_approved_at' => $prototype_approved_at,
                 'prototype_approved_version' => $version,
                 'updated_at' => current_time( 'mysql' ),
             ),
@@ -20600,32 +20699,122 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             array( '%d' )
         );
         
-        // Log event
+        // Log events (Commit 3.B.5B: prototype_approved)
         if ( function_exists( 'n88_log_event' ) ) {
-            n88_log_event(
-                'prototype_video_approved',
-                'prototype_payment',
-                array(
-                    'object_id' => $payment_id,
-                    'item_id' => $item_id,
-                    'payload_json' => array(
-                        'payment_id' => $payment_id,
-                        'item_id' => $item_id,
-                        'bid_id' => $bid_id,
-                        'designer_id' => $current_user->ID,
-                        'approved_version' => $version,
-                        'timestamp' => current_time( 'mysql' ),
-                    ),
-                )
+            $payload = array(
+                'payment_id' => $payment_id,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'designer_id' => $current_user->ID,
+                'approved_version' => $version,
+                'awarded_supplier_id' => isset( $payment['supplier_id'] ) ? intval( $payment['supplier_id'] ) : null,
+                'award_timestamp' => $award_timestamp,
+                'prototype_approved_at' => $prototype_approved_at,
+                'timestamp' => current_time( 'mysql' ),
             );
+            n88_log_event( 'prototype_approved', 'prototype_payment', array(
+                'object_id' => $payment_id,
+                'item_id' => $item_id,
+                'payload_json' => $payload,
+            ) );
         }
-        // Commit 3.A.1: Timeline step 3 complete
+        
+        // Commit 3.B.5B: Transition item into Awarded state if not already
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $events_table = $wpdb->prefix . 'n88_events';
+        $existing_awarded = $wpdb->get_var( $wpdb->prepare(
+            "SELECT bid_id FROM {$item_bids_table} WHERE item_id = %d AND status = 'awarded' LIMIT 1",
+            $item_id
+        ) );
+        if ( ! $existing_awarded ) {
+            $wpdb->update(
+                $item_bids_table,
+                array( 'status' => 'awarded' ),
+                array( 'bid_id' => $bid_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+            $wpdb->update(
+                $item_bids_table,
+                array( 'status' => 'declined' ),
+                array( 'item_id' => $item_id, 'status' => 'submitted' ),
+                array( '%s' ),
+                array( '%d', '%s' )
+            );
+            $bid = $wpdb->get_row( $wpdb->prepare(
+                "SELECT bid_id, supplier_id, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost, cad_yes, meta_json FROM {$item_bids_table} WHERE bid_id = %d",
+                $bid_id
+            ), ARRAY_A );
+            if ( $bid ) {
+                $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
+                $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
+                $media_links = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT url, provider, sort_order FROM {$bid_media_links_table} WHERE bid_id = %d ORDER BY sort_order ASC, id ASC",
+                    $bid_id
+                ), ARRAY_A );
+                $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT file_url, sort_order FROM {$bid_media_files_table} WHERE bid_id = %d ORDER BY sort_order ASC, id ASC",
+                    $bid_id
+                ), ARRAY_A );
+                $snapshot_data = array(
+                    'bid_id' => intval( $bid['bid_id'] ),
+                    'item_id' => $item_id,
+                    'supplier_id' => intval( $bid['supplier_id'] ),
+                    'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
+                    'production_lead_time_text' => $bid['production_lead_time_text'],
+                    'prototype_video_yes' => intval( $bid['prototype_video_yes'] ) === 1,
+                    'prototype_timeline_option' => $bid['prototype_timeline_option'],
+                    'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
+                    'cad_yes' => $bid['cad_yes'] ? intval( $bid['cad_yes'] ) : null,
+                    'media_links' => $media_links,
+                    'bid_photos' => array_map( function( $p ) { return esc_url_raw( $p['file_url'] ); }, $bid_photos ),
+                    'meta_json' => $bid['meta_json'],
+                    'awarded_at' => $award_timestamp,
+                    'awarded_by' => $current_user->ID,
+                    'awarded_supplier_id' => isset( $payment['supplier_id'] ) ? intval( $payment['supplier_id'] ) : null,
+                    'award_timestamp' => $award_timestamp,
+                    'prototype_approved_at' => $prototype_approved_at,
+                );
+                $item_meta = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+                $meta = ! empty( $item_meta ) ? json_decode( $item_meta, true ) : array();
+                if ( ! is_array( $meta ) ) { $meta = array(); }
+                $meta['awarded_bid_snapshot'] = $snapshot_data;
+                $meta['item_status'] = 'Awarded';
+                $meta['awarded_supplier_id'] = isset( $payment['supplier_id'] ) ? intval( $payment['supplier_id'] ) : null;
+                $meta['award_timestamp'] = $award_timestamp;
+                $meta['prototype_approved_at'] = $prototype_approved_at;
+                $wpdb->update( $items_table, array( 'meta_json' => wp_json_encode( $meta ) ), array( 'id' => $item_id ), array( '%s' ), array( '%d' ) );
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$events_table}'" ) === $events_table ) {
+                    $wpdb->insert( $events_table, array(
+                        'actor_user_id' => $current_user->ID,
+                        'event_type' => 'bid_awarded',
+                        'object_type' => 'bid',
+                        'object_id' => $bid_id,
+                        'item_id' => $item_id,
+                        'payload_json' => wp_json_encode( array(
+                            'bid_id' => $bid_id,
+                            'item_id' => $item_id,
+                            'designer_id' => $current_user->ID,
+                            'supplier_id' => intval( $bid['supplier_id'] ),
+                            'award_timestamp' => $award_timestamp,
+                            'prototype_approved_at' => $prototype_approved_at,
+                            'timestamp' => current_time( 'mysql' ),
+                        ) ),
+                        'created_at' => current_time( 'mysql' ),
+                    ), array( '%d', '%s', '%s', '%d', '%d', '%s', '%s' ) );
+                }
+            }
+        }
+        
+        // Commit 3.A.1: Timeline step 3 complete (logs timeline_step_completed step 3)
         if ( class_exists( 'N88_Item_Timeline' ) ) {
             N88_Item_Timeline::sync_from_prototype_approved( $item_id );
         }
         
         wp_send_json_success( array(
             'message' => 'Prototype approved successfully.',
+            'item_awarded' => ! $existing_awarded,
         ) );
     }
     
@@ -20682,7 +20871,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
         
-        // Validate feedback packet (max 18 phrases total)
+        // Validate feedback packet (max 18 phrases total); Commit 3.B.5A: per-keyword revision_detail (optional, 200 chars)
         $total_phrases = 0;
         $keyword_results = array();
         foreach ( $feedback_packet as $keyword_id => $data ) {
@@ -20690,6 +20879,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $status = isset( $data['status'] ) ? sanitize_text_field( $data['status'] ) : '';
             $severity = isset( $data['severity'] ) ? sanitize_text_field( $data['severity'] ) : null;
             $phrase_ids = isset( $data['phrase_ids'] ) && is_array( $data['phrase_ids'] ) ? array_map( 'absint', $data['phrase_ids'] ) : array();
+            $revision_detail = isset( $data['revision_detail'] ) ? sanitize_textarea_field( $data['revision_detail'] ) : '';
+            if ( strlen( $revision_detail ) > 200 ) {
+                $revision_detail = substr( $revision_detail, 0, 200 );
+            }
             
             if ( ! in_array( $status, array( 'satisfied', 'needs_adjustment', 'not_addressed' ), true ) ) {
                 wp_send_json_error( array( 'message' => 'Invalid keyword status.' ) );
@@ -20712,6 +20905,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'keyword_status' => $status,
                 'severity' => $severity,
                 'selected_phrase_ids' => $phrase_ids,
+                'revision_detail' => $revision_detail === '' ? null : $revision_detail,
             );
         }
         
@@ -20740,20 +20934,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
         
-        // Insert feedback packet lines
+        // Insert feedback packet lines (Commit 3.B.5A: revision_detail)
+        $has_revision_detail_col = in_array( 'revision_detail', $wpdb->get_col( "DESCRIBE {$feedback_packet_lines_table}" ), true );
         foreach ( $keyword_results as $result ) {
-            $wpdb->insert(
-                $feedback_packet_lines_table,
-                array(
-                    'feedback_packet_id' => $feedback_packet_id,
-                    'keyword_id' => $result['keyword_id'],
-                    'keyword_status' => $result['keyword_status'],
-                    'severity' => $result['severity'],
-                    'selected_phrase_ids' => wp_json_encode( $result['selected_phrase_ids'] ),
-                    'created_at' => current_time( 'mysql' ),
-                ),
-                array( '%d', '%d', '%s', '%s', '%s', '%s' )
+            $insert_row = array(
+                'feedback_packet_id' => $feedback_packet_id,
+                'keyword_id' => $result['keyword_id'],
+                'keyword_status' => $result['keyword_status'],
+                'severity' => $result['severity'],
+                'selected_phrase_ids' => wp_json_encode( $result['selected_phrase_ids'] ),
+                'created_at' => current_time( 'mysql' ),
             );
+            $insert_fmt = array( '%d', '%d', '%s', '%s', '%s', '%s' );
+            if ( $has_revision_detail_col && array_key_exists( 'revision_detail', $result ) ) {
+                $insert_row['revision_detail'] = $result['revision_detail'];
+                $insert_fmt[] = '%s';
+            }
+            $wpdb->insert( $feedback_packet_lines_table, $insert_row, $insert_fmt );
         }
         
         // Update prototype status
@@ -20768,25 +20965,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             array( '%d' )
         );
         
-        // Log event
+        // Log event (Commit 3.B.5A: prototype_revision_requested)
         if ( function_exists( 'n88_log_event' ) ) {
-            n88_log_event(
-                'prototype_video_changes_requested',
-                'prototype_payment',
-                array(
-                    'object_id' => $payment_id,
-                    'item_id' => $item_id,
-                    'payload_json' => array(
-                        'payment_id' => $payment_id,
-                        'item_id' => $item_id,
-                        'bid_id' => $bid_id,
-                        'designer_id' => $current_user->ID,
-                        'submission_version' => $submission_version,
-                        'keyword_results' => $keyword_results,
-                        'timestamp' => current_time( 'mysql' ),
-                    ),
-                )
+            $payload = array(
+                'payment_id' => $payment_id,
+                'item_id' => $item_id,
+                'bid_id' => $bid_id,
+                'designer_id' => $current_user->ID,
+                'submission_version' => $submission_version,
+                'keyword_results' => $keyword_results,
+                'timestamp' => current_time( 'mysql' ),
             );
+            n88_log_event( 'prototype_revision_requested', 'prototype_payment', array(
+                'object_id' => $payment_id,
+                'item_id' => $item_id,
+                'payload_json' => $payload,
+            ) );
         }
         
         wp_send_json_success( array(

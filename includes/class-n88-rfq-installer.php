@@ -1216,6 +1216,9 @@ class N88_RFQ_Installer {
         // Commit 2.3.9.2B-D: Add prototype_status fields to n88_prototype_payments
         self::add_prototype_status_fields();
 
+        // Commit 3.B.5A: Per-keyword revision detail on feedback packet lines
+        self::add_revision_detail_to_feedback_packet_lines();
+
         // Commit 2.3.10: Migrate item_delivery_context table for delivery quoting
         self::migrate_item_delivery_context_for_delivery_quoting();
 
@@ -3255,6 +3258,27 @@ class N88_RFQ_Installer {
         if ( ! $column_exists ) {
             $wpdb->query( "ALTER TABLE {$prototype_payments_table} 
                 ADD COLUMN direction_keyword_ids JSON NULL AFTER video_direction_json" );
+        }
+    }
+
+    /**
+     * Commit 3.B.5A: Add per-keyword revision_detail to feedback packet lines (200 chars, optional).
+     */
+    private static function add_revision_detail_to_feedback_packet_lines() {
+        global $wpdb;
+        $feedback_packet_lines_table = $wpdb->prefix . 'n88_prototype_feedback_packet_lines';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '" . $wpdb->esc_like( $feedback_packet_lines_table ) . "'" ) !== $feedback_packet_lines_table ) {
+            return;
+        }
+        $column_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'revision_detail'",
+            DB_NAME,
+            $feedback_packet_lines_table
+        ) );
+        if ( ! $column_exists ) {
+            $wpdb->query( "ALTER TABLE {$feedback_packet_lines_table} 
+                ADD COLUMN revision_detail VARCHAR(200) NULL AFTER selected_phrase_ids" );
         }
     }
 

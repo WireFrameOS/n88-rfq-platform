@@ -13859,7 +13859,7 @@ class N88_RFQ_Admin {
                                                     },
                                                         itemState.direction_keyword_ids.map(function(keywordId) {
                                                             var keywordIdNum = parseInt(keywordId);
-                                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [], revision_detail: '' };
                                                             var phrases = availablePhrases[keywordIdNum] || [];
                                                             return React.createElement('div', {
                                                                 key: keywordIdNum,
@@ -13910,6 +13910,7 @@ class N88_RFQ_Admin {
                                                                                         status: status,
                                                                                         severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null,
                                                                                         phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids,
+                                                                                        revision_detail: status === 'satisfied' ? '' : (keywordData.revision_detail || ''),
                                                                                     };
                                                                                     setFeedbackPacket(newPacket);
                                                                                     // Always fetch phrases if not already loaded when status changes to needs_adjustment or not_addressed
@@ -13956,34 +13957,17 @@ class N88_RFQ_Admin {
                                                                         );
                                                                     })
                                                                 ),
-                                                                // Phrase Selection (only if not satisfied)
+                                                                // Phrase Selection (only if not satisfied; show when phrases loaded)
                                                                 keywordData.status !== 'satisfied' ? (
                                                                     phrases && phrases.length > 0 ? React.createElement(React.Fragment, null,
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            fontSize: '12px',
-                                                                            color: '#aaa',
-                                                                            marginBottom: '8px',
-                                                                        }
-                                                                    }, 'Select up to 3 phrases:'),
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            display: 'flex',
-                                                                            flexDirection: 'column',
-                                                                            gap: '6px',
-                                                                        }
-                                                                    },
+                                                                    React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '8px' } }, 'Select up to 3 phrases:'),
+                                                                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
                                                                         phrases.map(function(phrase) {
                                                                             return React.createElement('label', {
                                                                                 key: phrase.phrase_id,
                                                                                 style: {
-                                                                                    display: 'flex',
-                                                                                    alignItems: 'center',
-                                                                                    gap: '8px',
-                                                                                    cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? 'pointer' : 'not-allowed',
-                                                                                    fontSize: '11px',
-                                                                                    color: '#ccc',
-                                                                                    padding: '6px',
+                                                                                    display: 'flex', alignItems: 'center', gap: '8px', cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? 'pointer' : 'not-allowed',
+                                                                                    fontSize: '11px', color: '#ccc', padding: '6px',
                                                                                     backgroundColor: keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#331100' : 'transparent',
                                                                                     border: '1px solid ' + (keywordData.phrase_ids.indexOf(phrase.phrase_id) !== -1 ? '#ff8800' : '#333'),
                                                                                     borderRadius: '4px',
@@ -13997,19 +13981,11 @@ class N88_RFQ_Admin {
                                                                                         var currentPhraseIds = keywordData.phrase_ids || [];
                                                                                         if (e.target.checked) {
                                                                                             if (currentPhraseIds.length < 3) {
-                                                                                                newPacket[keywordIdNum] = {
-                                                                                                    status: keywordData.status,
-                                                                                                    severity: keywordData.severity,
-                                                                                                    phrase_ids: currentPhraseIds.concat([phrase.phrase_id]),
-                                                                                                };
+                                                                                                newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.concat([phrase.phrase_id]), revision_detail: keywordData.revision_detail || '' };
                                                                                                 setTotalPhrasesSelected(totalPhrasesSelected + 1);
                                                                                             }
                                                                                         } else {
-                                                                                            newPacket[keywordIdNum] = {
-                                                                                                status: keywordData.status,
-                                                                                                severity: keywordData.severity,
-                                                                                                phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }),
-                                                                                            };
+                                                                                            newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }), revision_detail: keywordData.revision_detail || '' };
                                                                                             setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1));
                                                                                         }
                                                                                         setFeedbackPacket(newPacket);
@@ -14019,57 +13995,44 @@ class N88_RFQ_Admin {
                                                                                 React.createElement('span', null, phrase.phrase_text)
                                                                             );
                                                                         })
-                                                                    ),
-                                                                    // Severity Selection
-                                                                    React.createElement('div', {
-                                                                        style: {
-                                                                            marginTop: '12px',
-                                                                        }
-                                                                    },
-                                                                        React.createElement('div', {
-                                                                            style: {
-                                                                                fontSize: '12px',
-                                                                                color: '#aaa',
-                                                                                marginBottom: '6px',
-                                                                            }
-                                                                        }, 'Severity:'),
+                                                                    )
+                                                                    ) : React.createElement('div', {
+                                                                        style: { fontSize: '11px', color: '#888', fontStyle: 'italic', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' }
+                                                                    }, availablePhrases[keywordIdNum] ? 'No phrases for this keyword.' : 'Loading phrases...')
+                                                                ) : null,
+                                                                // Severity + Revision Detail: always show when keyword is not satisfied (Commit 3.B.5A)
+                                                                keywordData.status !== 'satisfied' ? React.createElement(React.Fragment, null,
+                                                                    React.createElement('div', { style: { marginTop: '12px' } },
+                                                                        React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Severity:'),
                                                                         React.createElement('select', {
                                                                             value: keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix'),
                                                                             onChange: function(e) {
                                                                                 var newPacket = Object.assign({}, feedbackPacket);
-                                                                                newPacket[keywordIdNum] = {
-                                                                                    status: keywordData.status,
-                                                                                    severity: e.target.value,
-                                                                                    phrase_ids: keywordData.phrase_ids,
-                                                                                };
+                                                                                newPacket[keywordIdNum] = { status: keywordData.status, severity: e.target.value, phrase_ids: keywordData.phrase_ids, revision_detail: keywordData.revision_detail || '' };
                                                                                 setFeedbackPacket(newPacket);
                                                                             },
-                                                                            style: {
-                                                                                padding: '6px 12px',
-                                                                                backgroundColor: '#000',
-                                                                                color: '#fff',
-                                                                                border: '1px solid #333',
-                                                                                borderRadius: '4px',
-                                                                                fontSize: '12px',
-                                                                                fontFamily: 'monospace',
-                                                                            }
+                                                                            style: { padding: '6px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid #333', borderRadius: '4px', fontSize: '12px', fontFamily: 'monospace' }
                                                                         },
                                                                             React.createElement('option', { value: 'must_fix' }, 'Must Fix'),
                                                                             React.createElement('option', { value: 'should_fix' }, 'Should Fix'),
                                                                             React.createElement('option', { value: 'optional' }, 'Optional')
                                                                         )
+                                                                    ),
+                                                                    React.createElement('div', { style: { marginTop: '12px' } },
+                                                                        React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Additional Revision Detail (Optional)'),
+                                                                        React.createElement('textarea', {
+                                                                            placeholder: 'Describe exactly what should be different in the revised video…',
+                                                                            maxLength: 200,
+                                                                            value: keywordData.revision_detail || '',
+                                                                            onChange: function(e) {
+                                                                                var newPacket = Object.assign({}, feedbackPacket);
+                                                                                newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: keywordData.phrase_ids, revision_detail: e.target.value };
+                                                                                setFeedbackPacket(newPacket);
+                                                                            },
+                                                                            style: { width: '100%', minHeight: '60px', padding: '8px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid #333', borderRadius: '4px', fontSize: '12px', fontFamily: 'monospace', resize: 'vertical' }
+                                                                        }),
+                                                                        React.createElement('div', { style: { fontSize: '11px', color: '#666', marginTop: '4px' } }, (keywordData.revision_detail || '').length + '/200')
                                                                     )
-                                                                    ) : React.createElement('div', {
-                                                                        style: {
-                                                                            fontSize: '11px',
-                                                                            color: '#888',
-                                                                            fontStyle: 'italic',
-                                                                            padding: '8px',
-                                                                            backgroundColor: '#0a0a0a',
-                                                                            border: '1px solid #333',
-                                                                            borderRadius: '4px',
-                                                                        }
-                                                                    }, 'Loading phrases...')
                                                                 ) : null
                                                             );
                                                         })
@@ -15575,7 +15538,7 @@ class N88_RFQ_Admin {
                                     React.createElement('div', { style: { marginBottom: '20px' } },
                                         itemState.direction_keyword_ids.map(function(keywordId) {
                                             var keywordIdNum = parseInt(keywordId);
-                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                            var keywordData = feedbackPacket[keywordIdNum] || { status: 'satisfied', severity: null, phrase_ids: [], revision_detail: '' };
                                             var phrases = availablePhrases[keywordIdNum] || [];
                                             return React.createElement('div', {
                                                 key: keywordIdNum,
@@ -15595,7 +15558,7 @@ class N88_RFQ_Admin {
                                                                 checked: keywordData.status === status,
                                                                 onChange: function() {
                                                                     var newPacket = Object.assign({}, feedbackPacket);
-                                                                    newPacket[keywordIdNum] = { status: status, severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null, phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids };
+                                                                    newPacket[keywordIdNum] = { status: status, severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null, phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids, revision_detail: status === 'satisfied' ? '' : (keywordData.revision_detail || '') };
                                                                     setFeedbackPacket(newPacket);
                                                                     if (status !== 'satisfied' && (!availablePhrases[keywordIdNum] || availablePhrases[keywordIdNum].length === 0)) {
                                                                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -15633,8 +15596,8 @@ class N88_RFQ_Admin {
                                                                     onChange: function(e) {
                                                                         var newPacket = Object.assign({}, feedbackPacket);
                                                                         var currentPhraseIds = keywordData.phrase_ids || [];
-                                                                        if (e.target.checked) { if (currentPhraseIds.length < 3) { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.concat([phrase.phrase_id]) }; setTotalPhrasesSelected(totalPhrasesSelected + 1); } }
-                                                                        else { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }) }; setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1)); }
+                                                                        if (e.target.checked) { if (currentPhraseIds.length < 3) { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.concat([phrase.phrase_id]), revision_detail: keywordData.revision_detail || '' }; setTotalPhrasesSelected(totalPhrasesSelected + 1); } }
+                                                                        else { newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: currentPhraseIds.filter(function(id) { return id !== phrase.phrase_id; }), revision_detail: keywordData.revision_detail || '' }; setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1)); }
                                                                         setFeedbackPacket(newPacket);
                                                                     },
                                                                     disabled: keywordData.phrase_ids.indexOf(phrase.phrase_id) === -1 && keywordData.phrase_ids.length >= 3
@@ -15642,16 +15605,29 @@ class N88_RFQ_Admin {
                                                                 React.createElement('span', null, phrase.phrase_text)
                                                             );
                                                         })
-                                                    ),
+                                                    )
+                                                ) : React.createElement('div', { style: { fontSize: '11px', color: '#888', fontStyle: 'italic', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } }, availablePhrases[keywordIdNum] ? 'No phrases for this keyword.' : 'Loading phrases...')) : null,
+                                                keywordData.status !== 'satisfied' ? React.createElement(React.Fragment, null,
                                                     React.createElement('div', { style: { marginTop: '12px' } },
                                                         React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Severity:'),
                                                         React.createElement('select', {
                                                             value: keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix'),
-                                                            onChange: function(e) { var newPacket = Object.assign({}, feedbackPacket); newPacket[keywordIdNum] = { status: keywordData.status, severity: e.target.value, phrase_ids: keywordData.phrase_ids }; setFeedbackPacket(newPacket); },
+                                                            onChange: function(e) { var newPacket = Object.assign({}, feedbackPacket); newPacket[keywordIdNum] = { status: keywordData.status, severity: e.target.value, phrase_ids: keywordData.phrase_ids, revision_detail: keywordData.revision_detail || '' }; setFeedbackPacket(newPacket); },
                                                             style: { padding: '6px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid #333', borderRadius: '4px', fontSize: '12px', fontFamily: 'monospace' }
                                                         }, React.createElement('option', { value: 'must_fix' }, 'Must Fix'), React.createElement('option', { value: 'should_fix' }, 'Should Fix'), React.createElement('option', { value: 'optional' }, 'Optional'))
+                                                    ),
+                                                    React.createElement('div', { style: { marginTop: '12px' } },
+                                                        React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Additional Revision Detail (Optional)'),
+                                                        React.createElement('textarea', {
+                                                            placeholder: 'Describe exactly what should be different in the revised video…',
+                                                            maxLength: 200,
+                                                            value: keywordData.revision_detail || '',
+                                                            onChange: function(e) { var newPacket = Object.assign({}, feedbackPacket); newPacket[keywordIdNum] = { status: keywordData.status, severity: keywordData.severity, phrase_ids: keywordData.phrase_ids, revision_detail: e.target.value }; setFeedbackPacket(newPacket); },
+                                                            style: { width: '100%', minHeight: '60px', padding: '8px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid #333', borderRadius: '4px', fontSize: '12px', fontFamily: 'monospace', resize: 'vertical' }
+                                                        }),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#666', marginTop: '4px' } }, (keywordData.revision_detail || '').length + '/200')
                                                     )
-                                                ) : React.createElement('div', { style: { fontSize: '11px', color: '#888', fontStyle: 'italic', padding: '8px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } }, 'Loading phrases...')) : null
+                                                ) : null
                                             );
                                         })
                                     ),

@@ -5914,11 +5914,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             marginBottom: '20px',
                                                         }}>
                                                             {itemState.direction_keyword_ids.map((keywordId) => {
-                                                                const keywordData = feedbackPacket[keywordId] || { status: 'satisfied', severity: null, phrase_ids: [] };
+                                                                const kid = typeof keywordId === 'number' ? keywordId : Number(keywordId);
+                                                                const keywordData = feedbackPacket[kid] || { status: 'satisfied', severity: null, phrase_ids: [], revision_detail: '' };
                                                                 const phrases = availablePhrases[keywordId] || [];
                                                                 
                                                                 return (
-                                                                    <div key={keywordIdNum} style={{
+                                                                    <div key={kid} style={{
                                                                         marginBottom: '16px',
                                                                         padding: '16px',
                                                                         backgroundColor: '#111',
@@ -5951,20 +5952,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                 }}>
                                                                                     <input
                                                                                         type="radio"
-                                                                                        name={`keyword_${keywordIdNum}_status`}
+                                                                                        name={`keyword_${kid}_status`}
                                                                                         value={status}
                                                                                         checked={keywordData.status === status}
                                                                                         onChange={() => {
                                                                                             const newPacket = { ...feedbackPacket };
-                                                                                            newPacket[keywordIdNum] = {
+                                                                                            newPacket[kid] = {
                                                                                                 ...keywordData,
                                                                                                 status: status,
                                                                                                 severity: status === 'not_addressed' ? 'must_fix' : status === 'needs_adjustment' ? 'should_fix' : null,
                                                                                                 phrase_ids: status === 'satisfied' ? [] : keywordData.phrase_ids,
+                                                                                                revision_detail: status === 'satisfied' ? '' : (keywordData.revision_detail || ''),
                                                                                             };
                                                                                             setFeedbackPacket(newPacket);
                                                                                             // Always fetch phrases if not already loaded when status changes to needs_adjustment or not_addressed
-                                                                                            if (status !== 'satisfied' && (!availablePhrases[keywordIdNum] || availablePhrases[keywordIdNum].length === 0)) {
+                                                                                            if (status !== 'satisfied' && (!availablePhrases[keywordId] || availablePhrases[keywordId].length === 0)) {
                                                                                                 const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
                                                                                                 fetch(ajaxUrl, {
                                                                                                     method: 'POST',
@@ -5975,7 +5977,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                                    (window.n88BoardNonce && window.n88BoardNonce.nonce) || 
                                                                                                                    (window.n88BoardData && window.n88BoardData.nonce) || 
                                                                                                                    (window.n88 && window.n88.nonce) || '',
-                                                                                                        keyword_ids: JSON.stringify([keywordIdNum]),
+                                                                                                        keyword_ids: JSON.stringify([kid]),
                                                                                                     }),
                                                                                                 })
                                                                                                 .then(res => res.json())
@@ -6020,85 +6022,90 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                             ))}
                                                                         </div>
                                                                         
-                                                                        {/* Phrase Selection (only if not satisfied) */}
+                                                                        {/* Phrase Selection (only if not satisfied; show when phrases loaded) */}
                                                                         {keywordData.status !== 'satisfied' && (
                                                                             phrases && phrases.length > 0 ? (
-                                                                            <>
-                                                                                <div style={{
-                                                                                    fontSize: '12px',
-                                                                                    color: '#aaa',
-                                                                                    marginBottom: '8px',
-                                                                                }}>
-                                                                                    Select up to 3 phrases:
-                                                                                </div>
-                                                                                <div style={{
-                                                                                    display: 'flex',
-                                                                                    flexDirection: 'column',
-                                                                                    gap: '6px',
-                                                                                }}>
-                                                                                    {phrases.map((phrase) => (
-                                                                                        <label key={phrase.phrase_id} style={{
-                                                                                            display: 'flex',
-                                                                                            alignItems: 'center',
-                                                                                            gap: '8px',
-                                                                                            cursor: 'pointer',
-                                                                                            fontSize: '11px',
-                                                                                            color: '#ccc',
-                                                                                            padding: '6px',
-                                                                                            backgroundColor: keywordData.phrase_ids.includes(phrase.phrase_id) ? '#331100' : 'transparent',
-                                                                                            border: `1px solid ${keywordData.phrase_ids.includes(phrase.phrase_id) ? '#ff8800' : '#333'}`,
-                                                                                            borderRadius: '4px',
-                                                                                        }}>
-                                                                                            <input
-                                                                                                type="checkbox"
-                                                                                                checked={keywordData.phrase_ids.includes(phrase.phrase_id)}
-                                                                                                onChange={(e) => {
-                                                                                                    const newPacket = { ...feedbackPacket };
-                                                                                                    const currentPhraseIds = keywordData.phrase_ids || [];
-                                                                                                    if (e.target.checked) {
-                                                                                                        if (currentPhraseIds.length < 3) {
-                                                                                                            newPacket[keywordIdNum] = {
-                                                                                                                ...keywordData,
-                                                                                                                phrase_ids: [...currentPhraseIds, phrase.phrase_id],
-                                                                                                            };
-                                                                                                            setTotalPhrasesSelected(totalPhrasesSelected + 1);
-                                                                                                        }
-                                                                                                    } else {
-                                                                                                        newPacket[keywordIdNum] = {
-                                                                                                            ...keywordData,
-                                                                                                            phrase_ids: currentPhraseIds.filter(id => id !== phrase.phrase_id),
-                                                                                                        };
-                                                                                                        setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1));
-                                                                                                    }
-                                                                                                    setFeedbackPacket(newPacket);
-                                                                                                }}
-                                                                                                disabled={!keywordData.phrase_ids.includes(phrase.phrase_id) && keywordData.phrase_ids.length >= 3}
-                                                                                                style={{ cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.includes(phrase.phrase_id) ? 'pointer' : 'not-allowed' }}
-                                                                                            />
-                                                                                            <span>{phrase.phrase_text}</span>
-                                                                                        </label>
-                                                                                    ))}
-                                                                                </div>
-                                                                                
-                                                                                {/* Severity Selection */}
-                                                                                <div style={{
-                                                                                    marginTop: '12px',
-                                                                                }}>
+                                                                                <>
                                                                                     <div style={{
                                                                                         fontSize: '12px',
                                                                                         color: '#aaa',
-                                                                                        marginBottom: '6px',
+                                                                                        marginBottom: '8px',
                                                                                     }}>
-                                                                                        Severity:
+                                                                                        Select up to 3 phrases:
                                                                                     </div>
+                                                                                    <div style={{
+                                                                                        display: 'flex',
+                                                                                        flexDirection: 'column',
+                                                                                        gap: '6px',
+                                                                                    }}>
+                                                                                        {phrases.map((phrase) => (
+                                                                                            <label key={phrase.phrase_id} style={{
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                gap: '8px',
+                                                                                                cursor: 'pointer',
+                                                                                                fontSize: '11px',
+                                                                                                color: '#ccc',
+                                                                                                padding: '6px',
+                                                                                                backgroundColor: keywordData.phrase_ids.includes(phrase.phrase_id) ? '#331100' : 'transparent',
+                                                                                                border: `1px solid ${keywordData.phrase_ids.includes(phrase.phrase_id) ? '#ff8800' : '#333'}`,
+                                                                                                borderRadius: '4px',
+                                                                                            }}>
+                                                                                                <input
+                                                                                                    type="checkbox"
+                                                                                                    checked={keywordData.phrase_ids.includes(phrase.phrase_id)}
+                                                                                                    onChange={(e) => {
+                                                                                                        const newPacket = { ...feedbackPacket };
+                                                                                                        const currentPhraseIds = keywordData.phrase_ids || [];
+                                                                                                        if (e.target.checked) {
+                                                                                                            if (currentPhraseIds.length < 3) {
+                                                                                                                newPacket[kid] = {
+                                                                                                                    ...keywordData,
+                                                                                                                    phrase_ids: [...currentPhraseIds, phrase.phrase_id],
+                                                                                                                };
+                                                                                                                setTotalPhrasesSelected(totalPhrasesSelected + 1);
+                                                                                                            }
+                                                                                                        } else {
+                                                                                                            newPacket[kid] = {
+                                                                                                                ...keywordData,
+                                                                                                                phrase_ids: currentPhraseIds.filter(id => id !== phrase.phrase_id),
+                                                                                                            };
+                                                                                                            setTotalPhrasesSelected(Math.max(0, totalPhrasesSelected - 1));
+                                                                                                        }
+                                                                                                        setFeedbackPacket(newPacket);
+                                                                                                    }}
+                                                                                                    disabled={!keywordData.phrase_ids.includes(phrase.phrase_id) && keywordData.phrase_ids.length >= 3}
+                                                                                                    style={{ cursor: keywordData.phrase_ids.length < 3 || keywordData.phrase_ids.includes(phrase.phrase_id) ? 'pointer' : 'not-allowed' }}
+                                                                                                />
+                                                                                                <span>{phrase.phrase_text}</span>
+                                                                                            </label>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                </>
+                                                                            ) : (
+                                                                                <div style={{
+                                                                                    fontSize: '11px',
+                                                                                    color: '#888',
+                                                                                    fontStyle: 'italic',
+                                                                                    padding: '8px',
+                                                                                    backgroundColor: '#0a0a0a',
+                                                                                    border: '1px solid #333',
+                                                                                    borderRadius: '4px',
+                                                                                }}>
+                                                                                    {availablePhrases[keywordId] ? 'No phrases for this keyword.' : 'Loading phrases...'}
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                        {/* Severity + Revision Detail: always show when keyword is not satisfied (Commit 3.B.5A) */}
+                                                                        {keywordData.status !== 'satisfied' && (
+                                                                            <>
+                                                                                <div style={{ marginTop: '12px' }}>
+                                                                                    <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '6px' }}>Severity:</div>
                                                                                     <select
                                                                                         value={keywordData.severity || (keywordData.status === 'not_addressed' ? 'must_fix' : 'should_fix')}
                                                                                         onChange={(e) => {
                                                                                             const newPacket = { ...feedbackPacket };
-                                                                                            newPacket[keywordIdNum] = {
-                                                                                                ...keywordData,
-                                                                                                severity: e.target.value,
-                                                                                            };
+                                                                                            newPacket[kid] = { ...keywordData, severity: e.target.value };
                                                                                             setFeedbackPacket(newPacket);
                                                                                         }}
                                                                                         style={{
@@ -6116,20 +6123,37 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                         <option value="optional">Optional</option>
                                                                                     </select>
                                                                                 </div>
-                                                                            </>
-                                                                            ) : (
-                                                                                <div style={{
-                                                                                    fontSize: '11px',
-                                                                                    color: '#888',
-                                                                                    fontStyle: 'italic',
-                                                                                    padding: '8px',
-                                                                                    backgroundColor: '#0a0a0a',
-                                                                                    border: '1px solid #333',
-                                                                                    borderRadius: '4px',
-                                                                                }}>
-                                                                                    Loading phrases...
+                                                                                <div style={{ marginTop: '12px' }}>
+                                                                                    <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '6px' }}>
+                                                                                        Additional Revision Detail (Optional)
+                                                                                    </div>
+                                                                                    <textarea
+                                                                                        placeholder="Describe exactly what should be different in the revised video…"
+                                                                                        maxLength={200}
+                                                                                        value={keywordData.revision_detail || ''}
+                                                                                        onChange={(e) => {
+                                                                                            const newPacket = { ...feedbackPacket };
+                                                                                            newPacket[kid] = { ...keywordData, revision_detail: e.target.value };
+                                                                                            setFeedbackPacket(newPacket);
+                                                                                        }}
+                                                                                        style={{
+                                                                                            width: '100%',
+                                                                                            minHeight: '60px',
+                                                                                            padding: '8px 12px',
+                                                                                            backgroundColor: '#000',
+                                                                                            color: '#fff',
+                                                                                            border: '1px solid #333',
+                                                                                            borderRadius: '4px',
+                                                                                            fontSize: '12px',
+                                                                                            fontFamily: 'monospace',
+                                                                                            resize: 'vertical',
+                                                                                        }}
+                                                                                    />
+                                                                                    <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                                                                                        {(keywordData.revision_detail || '').length}/200
+                                                                                    </div>
                                                                                 </div>
-                                                                            )
+                                                                            </>
                                                                         )}
                                                                     </div>
                                                                 );

@@ -158,7 +158,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
         if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
         if (hasAwardedBid) {
-            return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
+            return { text: 'Project Awarded', color: '#00ff00', dot: '#00ff00' };
         }
 
         // Priority 4: Proposals Received — when supplier has submitted proposal(s)
