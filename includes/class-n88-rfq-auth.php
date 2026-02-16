@@ -240,9 +240,15 @@ class N88_RFQ_Auth {
         }
 
         wp_enqueue_style(
+            'n88-ibm-plex-mono',
+            'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap',
+            array(),
+            null
+        );
+        wp_enqueue_style(
             'n88-rfq-auth',
             $plugin_url . 'assets/css/n88-rfq-auth.css',
-            array(),
+            array( 'n88-ibm-plex-mono' ),
             N88_RFQ_VERSION
         );
     }
@@ -278,7 +284,12 @@ class N88_RFQ_Auth {
         ?>
         <div class="n88-auth-container n88-signup-container">
             <div class="n88-auth-form-wrapper">
-                <h2 class="n88-auth-title">Create Account</h2>
+                <div class="n88-auth-logo">
+                    <h1 class="n88-auth-logo-title">WireFrame (OS)</h1>
+                    <p class="n88-auth-logo-by">By Neev</p>
+                </div>
+                <h2 class="n88-auth-title">Create account</h2>
+                <p class="n88-auth-subtitle">A single place to organize items, request quotes, and manage suppliers - visually.</p>
                 
                 <?php if ( $message ) : ?>
                     <div class="n88-auth-message n88-auth-message-<?php echo esc_attr( $message_type ); ?>">
@@ -290,63 +301,76 @@ class N88_RFQ_Auth {
                     <?php wp_nonce_field( 'n88_register_user', 'n88_signup_nonce' ); ?>
                     
                     <div class="n88-form-group">
-                        <label>Account Type <span class="required">*</span></label>
-                        <div style="display: flex; gap: 20px; margin-top: 8px;">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal;">
-                                <input type="radio" name="user_role" value="n88_designer" checked required style="margin: 0;">
+                        <label class="n88-account-type-label">Account type (choose one)</label>
+                        <div class="n88-radio-group">
+                            <label class="n88-radio-label">
+                                <input type="radio" name="user_role" value="n88_designer" checked required>
                                 <span>Creator</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal;">
-                                <input type="radio" name="user_role" value="n88_supplier_admin" required style="margin: 0;">
+                            <label class="n88-radio-label">
+                                <input type="radio" name="user_role" value="n88_supplier_admin" required>
                                 <span>Maker</span>
                             </label>
                         </div>
                     </div>
                     
-                    <div class="n88-form-group">
-                        <label for="n88_signup_name">Full Name <span class="required">*</span></label>
-                        <input type="text" id="n88_signup_name" name="name" required>
+                    <div class="n88-signup-row">
+                        <div class="n88-form-group">
+                            <label for="n88_signup_name">Full Name <span class="n88-required-asterisk">*</span></label>
+                            <input type="text" id="n88_signup_name" name="name" required placeholder="Enter your full name">
+                        </div>
+                        <div class="n88-form-group">
+                            <label for="n88_signup_username">Username <span class="n88-required-asterisk">*</span></label>
+                            <input type="text" id="n88_signup_username" name="username" required placeholder="Enter your username">
+                        </div>
                     </div>
 
                     <div class="n88-form-group">
-                        <label for="n88_signup_username">Username <span class="required">*</span></label>
-                        <input type="text" id="n88_signup_username" name="username" required>
+                        <label for="n88_signup_email">Email <span class="n88-required-asterisk">*</span></label>
+                        <input type="email" id="n88_signup_email" name="email" required placeholder="Enter your email">
                     </div>
 
                     <div class="n88-form-group">
-                        <label for="n88_signup_email">Email <span class="required">*</span></label>
-                        <input type="email" id="n88_signup_email" name="email" required>
+                        <label for="n88_signup_password">Password <span class="n88-required-asterisk">*</span></label>
+                        <div class="n88-password-wrapper">
+                            <input type="password" id="n88_signup_password" name="password" required minlength="6" placeholder="Enter your password">
+                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password"><?php echo '👁'; ?></button>
+                        </div>
                     </div>
 
                     <div class="n88-form-group">
-                        <label for="n88_signup_password">Password <span class="required">*</span></label>
-                        <input type="password" id="n88_signup_password" name="password" required minlength="6">
+                        <label for="n88_signup_password_confirm">Confirm Password <span class="n88-required-asterisk">*</span></label>
+                        <div class="n88-password-wrapper">
+                            <input type="password" id="n88_signup_password_confirm" name="password_confirm" required minlength="6" placeholder="Re-enter your password">
+                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password_confirm"><?php echo '👁'; ?></button>
+                        </div>
+                    </div>
+
+                    <div class="n88-signup-row">
+                        <div class="n88-form-group">
+                            <label for="n88_signup_company">Company Name <span class="n88-required-asterisk">*</span></label>
+                            <input type="text" id="n88_signup_company" name="company_name" required placeholder="Enter your company name">
+                        </div>
+                        <div class="n88-form-group">
+                            <label for="n88_signup_country">Country <span class="n88-required-asterisk">*</span></label>
+                            <select id="n88_signup_country" name="country" required>
+                                <option value="">Select Country</option>
+                                <?php
+                                $countries = $this->get_countries_list();
+                                foreach ( $countries as $code => $name ) {
+                                    echo '<option value="' . esc_attr( $code ) . '">' . esc_html( $name ) . '</option>';
+                                }
+                                ?>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="n88-form-group">
-                        <label for="n88_signup_company">Company Name <span class="required">*</span></label>
-                        <input type="text" id="n88_signup_company" name="company_name" required>
-                    </div>
-
-                    <div class="n88-form-group">
-                        <label for="n88_signup_country">Country <span class="required">*</span></label>
-                        <select id="n88_signup_country" name="country" required>
-                            <option value="">Select Country</option>
-                            <?php
-                            $countries = $this->get_countries_list();
-                            foreach ( $countries as $code => $name ) {
-                                echo '<option value="' . esc_attr( $code ) . '">' . esc_html( $name ) . '</option>';
-                            }
-                            ?>
-                        </select>
-                    </div>
-
-                    <div class="n88-form-group">
-                        <button type="submit" class="n88-auth-submit">Sign Up</button>
+                        <button type="submit" class="n88-auth-submit">[ Sign Up ]</button>
                     </div>
 
                     <div class="n88-auth-footer">
-                        <p>Already have an account? <a href="<?php echo esc_url( home_url( '/login/' ) ); ?>">Log In</a></p>
+                        <p>Already have an account? <a href="<?php echo esc_url( home_url( '/login/' ) ); ?>">[ Log in ]</a></p>
                     </div>
                 </form>
             </div>
@@ -359,6 +383,12 @@ class N88_RFQ_Auth {
 
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
+                
+                var passwordConfirm = document.getElementById('n88_signup_password_confirm');
+                if (passwordConfirm && form.querySelector('#n88_signup_password').value !== passwordConfirm.value) {
+                    alert('Passwords do not match. Please try again.');
+                    return;
+                }
                 
                 const formData = new FormData(form);
                 formData.append('action', 'n88_register_user');
@@ -504,7 +534,12 @@ class N88_RFQ_Auth {
                     </form>
                 <?php else : ?>
                     <!-- Regular Login Form -->
+                    <div class="n88-auth-logo">
+                        <h1 class="n88-auth-logo-title">WireFrame(OS)</h1>
+                        <p class="n88-auth-logo-by">By Neev</p>
+                    </div>
                     <h2 class="n88-auth-title">Login Your Account</h2>
+                    <p class="n88-auth-subtitle">Access your workspace to manage items, requests, bids, and production.</p>
                     
                     <?php if ( $message ) : ?>
                         <div class="n88-auth-message n88-auth-message-<?php echo esc_attr( $message_type ); ?>">
@@ -516,27 +551,31 @@ class N88_RFQ_Auth {
                         <?php wp_nonce_field( 'n88_login_user', 'n88_login_nonce' ); ?>
                         
                         <div class="n88-form-group">
-                            <label for="n88_login_username">Username or Email</label>
-                            <input type="text" id="n88_login_username" name="username" required>
+                            <label for="n88_login_username">Username or Email <span class="n88-required-asterisk">*</span></label>
+                            <input type="text" id="n88_login_username" name="username" required placeholder="Enter your username or email">
                         </div>
 
                         <div class="n88-form-group">
-                            <label for="n88_login_password">Password</label>
-                            <input type="password" id="n88_login_password" name="password" required>
+                            <label for="n88_login_password">Password <span class="n88-required-asterisk">*</span></label>
+                            <div class="n88-password-wrapper">
+                                <input type="password" id="n88_login_password" name="password" required placeholder="Please enter your password">
+                                <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_login_password"><?php echo '👁'; ?></button>
+                            </div>
                         </div>
 
-                        <div class="n88-form-group">
+                        <div class="n88-login-options">
                             <label class="n88-checkbox-label">
                                 <input type="checkbox" name="remember" value="1"> Remember me
                             </label>
+                            <a class="n88-auth-forgot-link" href="<?php echo esc_url( wp_lostpassword_url() ); ?>">[ Forgot password? ]</a>
                         </div>
 
                         <div class="n88-form-group">
-                            <button type="submit" class="n88-auth-submit">Log In</button>
+                            <button type="submit" class="n88-auth-submit">[ Log In ]</button>
                         </div>
 
                         <div class="n88-auth-footer">
-                            <p>Don't have an account? <a href="<?php echo esc_url( home_url( '/signup/' ) ); ?>">Sign Up</a></p>
+                            <p>Don't have an account? <a href="<?php echo esc_url( home_url( '/signup/' ) ); ?>">[ Sign Up ]</a></p>
                         </div>
                     </form>
                 <?php endif; ?>
@@ -545,6 +584,15 @@ class N88_RFQ_Auth {
 
         <script>
         (function() {
+            // Password visibility toggle (login + signup)
+            document.addEventListener('click', function(e) {
+                var btn = e.target.closest('.n88-password-toggle');
+                if (!btn || !btn.dataset.target) return;
+                var input = document.getElementById(btn.dataset.target);
+                if (!input) return;
+                input.type = input.type === 'password' ? 'text' : 'password';
+            });
+
             // Commit 2.6.1: Handle invitation acceptance form
             const acceptForm = document.getElementById('n88-accept-invitation-form');
             if (acceptForm) {
@@ -8439,25 +8487,27 @@ class N88_RFQ_Auth {
         }
 
         $is_edit_mode = ! empty( $existing_profile );
-        $form_title = $is_edit_mode ? 'Update Supplier Profile' : 'Supplier Onboarding';
+        $form_title = $is_edit_mode ? 'Update Supplier Profile' : 'Maker Onboarding';
         $form_description = $is_edit_mode ? 'Update your profile information.' : 'Complete your profile to enable routing and matching.';
 
         ob_start();
         ?>
-        <div class="n88-supplier-onboarding" style="max-width: 800px; margin: 40px auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
-            <h1 style="margin: 0 0 30px 0; font-size: 28px; font-weight: 600; color: #333;"><?php echo esc_html( $form_title ); ?></h1>
-            <p style="margin: 0 0 30px 0; font-size: 14px; color: #666;"><?php echo esc_html( $form_description ); ?></p>
+        <div class="n88-supplier-onboarding-wrap">
+            <div class="n88-supplier-onboarding-card">
+                <div class="n88-auth-logo">
+                    <h1 class="n88-auth-logo-title">WireFrame (OS)</h1>
+                    <p class="n88-auth-logo-by">By Neev</p>
+                </div>
+                <h1 class="n88-onboarding-title"><?php echo esc_html( $form_title ); ?></h1>
+                <p class="n88-onboarding-subtitle"><?php echo esc_html( $form_description ); ?></p>
             
-            <form id="n88-supplier-onboarding-form" style="background-color: #fff; padding: 30px; border: 1px solid #e0e0e0; border-radius: 8px;">
+            <form id="n88-supplier-onboarding-form" class="n88-auth-form">
                 <?php wp_nonce_field( 'n88_save_supplier_profile', 'n88_supplier_profile_nonce' ); ?>
                 
-                <!-- Primary Category -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Primary Category <span style="color: #d63638;">*</span>
-                    </label>
-                    <select id="n88-primary-category" name="primary_category_id" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: #fff; cursor: pointer;">
-                        <option value="">Select a category...</option>
+                <div class="n88-form-group">
+                    <label for="n88-primary-category">Primary Category <span class="n88-required-asterisk">*</span></label>
+                    <select id="n88-primary-category" name="primary_category_id" required>
+                        <option value="">Select a category</option>
                         <?php foreach ( $categories as $category ) : ?>
                             <option value="<?php echo esc_attr( $category->category_id ); ?>" <?php selected( $existing_profile && $existing_profile->primary_category_id == $category->category_id ); ?>>
                                 <?php echo esc_html( $category->name ); ?>
@@ -8466,78 +8516,62 @@ class N88_RFQ_Auth {
                     </select>
                 </div>
 
-                <!-- Suggested Keywords (filtered by category) -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Suggested Keywords
-                    </label>
-                    <p style="margin: 0 0 12px 0; font-size: 13px; color: #666;">Select keywords that match your capabilities. Keywords are filtered by your selected category.</p>
-                    <div id="n88-keywords-container" style="display: flex; flex-wrap: wrap; gap: 8px; min-height: 40px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;">
-                        <p style="margin: 0; color: #999; font-size: 13px; font-style: italic;">Select a category first to see keywords</p>
+                <div class="n88-form-group">
+                    <label>Suggested Keywords</label>
+                    <p class="n88-field-desc">Select keywords that match your capabilities. Keywords are filtered by your selected category.</p>
+                    <div id="n88-keywords-container" class="n88-keywords-container">
+                        <p class="n88-keywords-placeholder">Select a category first to see keywords.</p>
                     </div>
                 </div>
 
-                <!-- Freeform Keywords -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Additional Keywords
-                    </label>
-                    <p style="margin: 0 0 12px 0; font-size: 13px; color: #666;">Enter any additional keywords that describe your capabilities (one per line). These will be reviewed before approval.<?php echo $is_edit_mode ? ' New keywords will be added to your existing ones.' : ''; ?></p>
-                    <textarea id="n88-freeform-keywords" name="freeform_keywords" rows="4" placeholder="Enter keywords, one per line..." style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; font-family: inherit; resize: vertical;"></textarea>
+                <div class="n88-form-group">
+                    <label for="n88-freeform-keywords">Additional Keywords</label>
+                    <p class="n88-field-desc">Enter any additional keywords that describe your capabilities (one per line). These will be reviewed before approval.<?php echo $is_edit_mode ? ' New keywords will be added to your existing ones.' : ''; ?></p>
+                    <textarea id="n88-freeform-keywords" name="freeform_keywords" rows="4" placeholder="Enter keywords, one per line..."></textarea>
                 </div>
 
-                <!-- Capability Flags -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: #333;">
-                        Capabilities
-                    </label>
+                <div class="n88-form-group">
+                    <label>Capabilities</label>
                     <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="n88-prototype-video-capable" name="prototype_video_capable" value="1" <?php checked( $existing_profile && $existing_profile->prototype_video_capable == 1 ); ?> required style="width: 18px; height: 18px; cursor: pointer;">
-                            <span style="font-size: 14px; color: #333;">
-                                Prototype Video Capable <span style="color: #d63638;">*</span>
-                            </span>
+                        <label class="n88-capability-item">
+                            <input type="checkbox" id="n88-prototype-video-capable" name="prototype_video_capable" value="1" <?php checked( $existing_profile && $existing_profile->prototype_video_capable == 1 ); ?> required>
+                            <span>Prototype Video Capable <span class="n88-required-asterisk">*</span></span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="n88-cad-capable" name="cad_capable" value="1" <?php checked( $existing_profile && $existing_profile->cad_capable == 1 ); ?> style="width: 18px; height: 18px; cursor: pointer;">
-                            <span style="font-size: 14px; color: #333;">CAD Capable</span>
+                        <label class="n88-capability-item">
+                            <input type="checkbox" id="n88-cad-capable" name="cad_capable" value="1" <?php checked( $existing_profile && $existing_profile->cad_capable == 1 ); ?>>
+                            <span>CAD Capable</span>
                         </label>
                     </div>
                 </div>
 
-                <!-- Optional Capacity Fields -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: #333;">
-                        Capacity (Optional)
-                    </label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Minimum Quantity</label>
-                            <input type="number" id="n88-qty-min" name="qty_min" min="0" value="<?php echo $existing_profile && $existing_profile->qty_min ? esc_attr( $existing_profile->qty_min ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                <div class="n88-form-group">
+                    <label>Capacity (Optional)</label>
+                    <div class="n88-capacity-grid">
+                        <div class="n88-form-group">
+                            <label for="n88-qty-min">Minimum Quantity</label>
+                            <input type="number" id="n88-qty-min" name="qty_min" min="0" value="<?php echo $existing_profile && $existing_profile->qty_min ? esc_attr( $existing_profile->qty_min ) : ''; ?>" placeholder="Enter minimum quantity">
                         </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Maximum Quantity</label>
-                            <input type="number" id="n88-qty-max" name="qty_max" min="0" value="<?php echo $existing_profile && $existing_profile->qty_max ? esc_attr( $existing_profile->qty_max ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        <div class="n88-form-group">
+                            <label for="n88-qty-max">Maximum Quantity</label>
+                            <input type="number" id="n88-qty-max" name="qty_max" min="0" value="<?php echo $existing_profile && $existing_profile->qty_max ? esc_attr( $existing_profile->qty_max ) : ''; ?>" placeholder="Enter maximum quantity">
                         </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Lead Time Min (Days)</label>
-                            <input type="number" id="n88-lead-time-min" name="lead_time_min_days" min="0" value="<?php echo $existing_profile && $existing_profile->lead_time_min_days ? esc_attr( $existing_profile->lead_time_min_days ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        <div class="n88-form-group">
+                            <label for="n88-lead-time-min">Lead Time Min (Days)</label>
+                            <input type="number" id="n88-lead-time-min" name="lead_time_min_days" min="0" value="<?php echo $existing_profile && $existing_profile->lead_time_min_days ? esc_attr( $existing_profile->lead_time_min_days ) : ''; ?>" placeholder="Enter lead time min">
                         </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Lead Time Max (Days)</label>
-                            <input type="number" id="n88-lead-time-max" name="lead_time_max_days" min="0" value="<?php echo $existing_profile && $existing_profile->lead_time_max_days ? esc_attr( $existing_profile->lead_time_max_days ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                        <div class="n88-form-group">
+                            <label for="n88-lead-time-max">Lead Time Max (Days)</label>
+                            <input type="number" id="n88-lead-time-max" name="lead_time_max_days" min="0" value="<?php echo $existing_profile && $existing_profile->lead_time_max_days ? esc_attr( $existing_profile->lead_time_max_days ) : ''; ?>" placeholder="Enter lead time max (days)">
                         </div>
                     </div>
                 </div>
 
-                <!-- Submit Button -->
-                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-                    <button type="submit" id="n88-submit-profile" style="padding: 12px 24px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">
-                        Save Profile
-                    </button>
-                    <div id="n88-form-message" style="margin-top: 15px; font-size: 14px; display: none;"></div>
+                <div class="n88-form-group" style="margin-top: 24px;">
+                    <button type="submit" id="n88-submit-profile" class="n88-auth-submit">Save Profile</button>
+                    <div id="n88-form-message" class="n88-auth-message" style="margin-top: 15px; display: none;"></div>
                 </div>
             </form>
+            </div>
         </div>
 
         <script>
@@ -8554,11 +8588,11 @@ class N88_RFQ_Auth {
             // Function to load keywords
             function loadKeywords(categoryId, prefillIds) {
                 if (!categoryId) {
-                    keywordsContainer.innerHTML = '<p style="margin: 0; color: #999; font-size: 13px; font-style: italic;">Select a category first to see keywords</p>';
+                    keywordsContainer.innerHTML = '<p class="n88-keywords-placeholder">Select a category first to see keywords.</p>';
                     return;
                 }
 
-                keywordsContainer.innerHTML = '<p style="margin: 0; color: #666; font-size: 13px;">Loading keywords...</p>';
+                keywordsContainer.innerHTML = '<p class="n88-keywords-placeholder">Loading keywords...</p>';
 
                 // Fetch keywords for selected category
                 var formData = new FormData();
@@ -8576,22 +8610,19 @@ class N88_RFQ_Auth {
                         keywordsContainer.innerHTML = '';
                         data.data.keywords.forEach(function(keyword) {
                             var label = document.createElement('label');
-                            label.style.cssText = 'display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background-color: #fff; border: 1px solid #ddd; border-radius: 20px; cursor: pointer; font-size: 13px; margin: 0;';
+                            label.className = 'n88-keyword-chip';
                             
                             var checkbox = document.createElement('input');
                             checkbox.type = 'checkbox';
                             checkbox.name = 'selected_keywords[]';
                             checkbox.value = keyword.keyword_id;
-                            checkbox.style.cssText = 'width: 16px; height: 16px; cursor: pointer; margin: 0;';
                             
-                            // Prefill if this keyword was previously selected
                             if (prefillIds && prefillIds.indexOf(parseInt(keyword.keyword_id)) !== -1) {
                                 checkbox.checked = true;
                             }
                             
                             var span = document.createElement('span');
                             span.textContent = keyword.keyword;
-                            span.style.color = '#333';
                             
                             label.appendChild(checkbox);
                             label.appendChild(span);
@@ -8599,14 +8630,14 @@ class N88_RFQ_Auth {
                         });
 
                         if (data.data.keywords.length === 0) {
-                            keywordsContainer.innerHTML = '<p style="margin: 0; color: #999; font-size: 13px; font-style: italic;">No keywords available for this category</p>';
+                            keywordsContainer.innerHTML = '<p class="n88-keywords-placeholder">No keywords available for this category</p>';
                         }
                     } else {
-                        keywordsContainer.innerHTML = '<p style="margin: 0; color: #d63638; font-size: 13px;">Error loading keywords</p>';
+                        keywordsContainer.innerHTML = '<p class="n88-keywords-error">Error loading keywords</p>';
                     }
                 })
                 .catch(error => {
-                    keywordsContainer.innerHTML = '<p style="margin: 0; color: #d63638; font-size: 13px;">Error loading keywords</p>';
+                    keywordsContainer.innerHTML = '<p class="n88-keywords-error">Error loading keywords</p>';
                 });
             }
 
@@ -8638,22 +8669,24 @@ class N88_RFQ_Auth {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 4px;';
+                        messageDiv.className = 'n88-auth-message n88-auth-message-success';
+                        messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
                         
-                        // Redirect after 2 seconds
                         setTimeout(function() {
                             window.location.href = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
                         }, 2000);
                     } else {
-                        messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;';
+                        messageDiv.className = 'n88-auth-message n88-auth-message-error';
+                        messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Error saving profile. Please try again.';
                         submitButton.disabled = false;
                         submitButton.textContent = 'Save Profile';
                     }
                 })
                 .catch(error => {
-                    messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;';
+                    messageDiv.className = 'n88-auth-message n88-auth-message-error';
+                    messageDiv.style.display = 'block';
                     messageDiv.textContent = 'Error saving profile. Please try again.';
                     submitButton.disabled = false;
                     submitButton.textContent = 'Save Profile';
@@ -18337,7 +18370,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         $color = $wf_text;
                                     }
                                 ?>
-                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
+                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit;">
                                     <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
                                     <div class="n88-op-step-label" style="<?php echo esc_attr( $step_label_style ); ?>"><?php echo esc_html( $s['label'] ); ?></div>
                                 </button>
@@ -19021,7 +19054,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         $color = $wf_text;
                                     }
                                 ?>
-                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit; <?php echo $is_current ? 'outline: 1px solid ' . $wf_green . '; outline-offset: 2px; border-radius: 4px;' : ''; ?>">
+                                <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit;">
                                     <div class="n88-op-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid <?php echo esc_attr( $border ); ?>; background: <?php echo esc_attr( $bg ); ?>; color: <?php echo esc_attr( $color ); ?>; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;"><?php echo (int) $s['num']; ?></div>
                                     <div class="n88-op-step-label" style="<?php echo esc_attr( $step_label_style ); ?>"><?php echo esc_html( $s['label'] ); ?></div>
                                 </button>

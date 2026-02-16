@@ -1,25 +1,72 @@
-/* N88 RFQ Authentication Styles */
+/* N88 RFQ Authentication Styles - WireFrame(OS) design, IBM Plex Mono */
 
+.n88-auth-container,
+.n88-auth-container .n88-auth-form-wrapper,
+.n88-auth-container .n88-form-group label,
+.n88-auth-container .n88-auth-title,
+.n88-auth-container .n88-auth-subtitle,
+.n88-auth-container .n88-auth-footer,
+.n88-auth-container .n88-auth-footer a,
+.n88-auth-container input,
+.n88-auth-container select,
+.n88-auth-container textarea,
+.n88-auth-container .n88-checkbox-label,
+.n88-auth-container .n88-radio-label,
+.n88-supplier-onboarding-wrap {
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Logo block (login / signup / onboarding) */
+.n88-auth-logo {
+    text-align: center;
+    margin-bottom: 24px;
+}
+.n88-auth-logo-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #00ff00;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.02em;
+}
+.n88-auth-logo-by {
+    font-size: 0.85rem;
+    color: rgba(0, 255, 0, 0.75);
+    margin: 0;
+}
+
+/* Auth container - dark card matching screenshot */
 .n88-auth-container {
-    max-width: 500px;
+    max-width: 480px;
     margin: 40px auto;
     padding: 20px;
 }
 
+.n88-auth-container.n88-signup-container {
+    max-width: 560px;
+}
+
 .n88-auth-form-wrapper {
-    background: #fff;
-    border: 1px solid #e0e0e0;
+    background: #363636;
+    border: 1px solid #4a4a4a;
     border-radius: 8px;
     padding: 40px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .n88-auth-title {
-    margin: 0 0 30px 0;
-    font-size: 28px;
-    font-weight: 600;
-    color: #333;
+    margin: 0 0 8px 0;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #fff;
     text-align: center;
+}
+
+.n88-auth-subtitle {
+    margin: 0 0 28px 0;
+    font-size: 0.9rem;
+    color: #ccc;
+    text-align: center;
+    line-height: 1.45;
 }
 
 .n88-auth-message {
@@ -27,18 +74,19 @@
     margin-bottom: 20px;
     border-radius: 4px;
     font-size: 14px;
+    font-family: 'IBM Plex Mono', monospace;
 }
 
 .n88-auth-message-success {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
+    background-color: rgba(0, 255, 0, 0.15);
+    color: #b8f0b8;
+    border: 1px solid rgba(0, 255, 0, 0.4);
 }
 
 .n88-auth-message-error {
-    background-color: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+    background-color: rgba(255, 0, 0, 0.15);
+    color: #f5c6cb;
+    border: 1px solid rgba(255, 0, 0, 0.4);
 }
 
 .n88-auth-form {
@@ -53,88 +101,314 @@
     display: block;
     margin-bottom: 8px;
     font-weight: 500;
-    color: #333;
+    color: #fff;
     font-size: 14px;
 }
 
-.n88-form-group label .required {
-    color: #d32f2f;
+.n88-form-group label .required,
+.n88-form-group label .n88-required-asterisk {
+    color: #e53935;
 }
 
 .n88-form-group input[type="text"],
 .n88-form-group input[type="email"],
 .n88-form-group input[type="password"],
-.n88-form-group select {
+.n88-form-group select,
+.n88-form-group textarea {
     width: 100%;
-    padding: 12px;
-    border: 1px solid #ddd;
+    padding: 12px 14px;
+    border: 1px solid #6a6a6a;
     border-radius: 4px;
     font-size: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    background: #2a2a2a;
+    color: #fff;
     box-sizing: border-box;
-    transition: border-color 0.3s;
+    transition: border-color 0.2s;
+}
+
+.n88-form-group input::placeholder,
+.n88-form-group textarea::placeholder {
+    color: #888;
 }
 
 .n88-form-group input[type="text"]:focus,
 .n88-form-group input[type="email"]:focus,
 .n88-form-group input[type="password"]:focus,
-.n88-form-group select:focus {
+.n88-form-group select:focus,
+.n88-form-group textarea:focus {
     outline: none;
-    border-color: #0073aa;
-    box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.1);
+    border-color: #9e9e9e;
 }
 
+/* Password field with visibility toggle */
+.n88-password-wrapper {
+    position: relative;
+}
+.n88-password-wrapper input {
+    padding-right: 44px;
+}
+.n88-password-toggle {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #9e9e9e;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+.n88-password-toggle:hover {
+    color: #fff;
+}
+
+/* Login: remember me + forgot password row */
+.n88-login-options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
 .n88-checkbox-label {
     display: flex;
     align-items: center;
     font-weight: normal;
+    color: #fff;
     cursor: pointer;
 }
-
 .n88-checkbox-label input[type="checkbox"] {
     margin-right: 8px;
     cursor: pointer;
+    width: auto;
+}
+.n88-auth-forgot-link {
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+}
+.n88-auth-forgot-link:hover {
+    text-decoration: underline;
 }
 
+/* Primary button - white bg, dark text */
 .n88-auth-submit {
     width: 100%;
-    padding: 12px 24px;
-    background-color: #0073aa;
-    color: #fff;
-    border: none;
+    padding: 14px 24px;
+    background: #fff;
+    color: #2a2a2a;
+    border: 1px solid #e0e0e0;
     border-radius: 4px;
     font-size: 16px;
     font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: background 0.2s, color 0.2s;
 }
-
 .n88-auth-submit:hover:not(:disabled) {
-    background-color: #005a87;
+    background: #f0f0f0;
+    color: #1a1a1a;
 }
-
 .n88-auth-submit:disabled {
-    background-color: #ccc;
+    background: #666;
+    color: #999;
     cursor: not-allowed;
 }
 
 .n88-auth-footer {
-    margin-top: 20px;
+    margin-top: 24px;
     text-align: center;
     font-size: 14px;
-    color: #666;
+    color: #fff;
 }
-
 .n88-auth-footer a {
-    color: #0073aa;
+    color: #fff;
     text-decoration: none;
 }
-
 .n88-auth-footer a:hover {
     text-decoration: underline;
 }
 
-/* Designer Dashboard Styles */
+/* Signup: two-column row */
+.n88-signup-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+@media (max-width: 600px) {
+    .n88-signup-row {
+        grid-template-columns: 1fr;
+    }
+}
 
+/* Account type (choose one) */
+.n88-form-group .n88-account-type-label {
+    display: block;
+    margin-bottom: 12px;
+    color: #fff;
+}
+.n88-radio-group {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+.n88-radio-label {
+    display: flex;
+    align-items: center;
+    color: #fff;
+    cursor: pointer;
+}
+.n88-radio-label input {
+    margin-right: 8px;
+    width: auto;
+}
+
+/* Select dropdown arrow */
+.n88-form-group select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239e9e9e' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+}
+
+/* --- Maker Onboarding (Supplier) - dark theme --- */
+.n88-supplier-onboarding-wrap {
+    max-width: 640px;
+    margin: 40px auto;
+    padding: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+}
+.n88-supplier-onboarding-card {
+    background: #363636;
+    border: 1px solid #4a4a4a;
+    border-radius: 8px;
+    padding: 40px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+.n88-supplier-onboarding-wrap .n88-auth-logo {
+    margin-bottom: 24px;
+}
+.n88-supplier-onboarding-wrap .n88-auth-logo-title {
+    color: #00ff00;
+}
+.n88-supplier-onboarding-wrap .n88-auth-logo-by {
+    color: rgba(0, 255, 0, 0.75);
+}
+.n88-supplier-onboarding-wrap .n88-onboarding-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 8px 0;
+    text-align: center;
+}
+.n88-supplier-onboarding-wrap .n88-onboarding-subtitle {
+    font-size: 0.9rem;
+    color: #ccc;
+    text-align: center;
+    margin: 0 0 28px 0;
+}
+.n88-supplier-onboarding-wrap .n88-form-group label {
+    color: #e0e0e0;
+}
+.n88-supplier-onboarding-wrap .n88-form-group input,
+.n88-supplier-onboarding-wrap .n88-form-group select,
+.n88-supplier-onboarding-wrap .n88-form-group textarea {
+    background: #2a2a2a;
+    border: 1px solid #6a6a6a;
+    color: #fff;
+}
+.n88-supplier-onboarding-wrap .n88-form-group textarea {
+    min-height: 100px;
+}
+.n88-supplier-onboarding-wrap .n88-field-desc {
+    font-size: 0.8rem;
+    color: #999;
+    margin: 4px 0 8px 0;
+}
+.n88-supplier-onboarding-wrap .n88-capacity-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+@media (max-width: 600px) {
+    .n88-supplier-onboarding-wrap .n88-capacity-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.n88-supplier-onboarding-wrap .n88-auth-submit {
+    background: #2a2a2a;
+    color: #fff;
+    border-color: #4a4a4a;
+}
+.n88-supplier-onboarding-wrap .n88-auth-submit:hover:not(:disabled) {
+    background: #3a3a3a;
+    color: #fff;
+}
+.n88-supplier-onboarding-wrap .n88-capability-item {
+    color: #fff;
+}
+.n88-supplier-onboarding-wrap .n88-capability-item input {
+    margin-right: 8px;
+    width: auto;
+}
+
+/* Suggested Keywords container (dark) */
+.n88-keywords-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 44px;
+    padding: 12px;
+    border: 1px solid #6a6a6a;
+    border-radius: 4px;
+    background: #2a2a2a;
+}
+.n88-keywords-placeholder {
+    margin: 0;
+    color: #888;
+    font-size: 13px;
+    font-style: italic;
+}
+.n88-keywords-error {
+    margin: 0;
+    color: #e53935;
+    font-size: 13px;
+}
+.n88-keyword-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #363636;
+    border: 1px solid #6a6a6a;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #e0e0e0;
+}
+.n88-keyword-chip input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    margin: 0;
+}
+.n88-supplier-onboarding-wrap #n88-form-message.n88-auth-message-success {
+    background-color: rgba(0, 255, 0, 0.15);
+    color: #b8f0b8;
+    border: 1px solid rgba(0, 255, 0, 0.4);
+}
+.n88-supplier-onboarding-wrap #n88-form-message.n88-auth-message-error {
+    background-color: rgba(255, 0, 0, 0.15);
+    color: #f5c6cb;
+    border: 1px solid rgba(255, 0, 0, 0.4);
+}
+
+/* Designer Dashboard (keep existing light style or minimal change) */
 .n88-designer-dashboard {
     max-width: 1200px;
     margin: 40px auto;
@@ -233,13 +507,13 @@
         margin: 20px;
         padding: 10px;
     }
-
     .n88-auth-form-wrapper {
         padding: 30px 20px;
     }
-
+    .n88-supplier-onboarding-card {
+        padding: 24px 20px;
+    }
     .n88-dashboard-widgets {
         grid-template-columns: 1fr;
     }
 }
-
