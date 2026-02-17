@@ -74,6 +74,10 @@ class N88_Events {
         'timeline_step_completed',
         // Commit 3.A.2S: Supplier step evidence
         'step_evidence_submitted',
+        // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
+        'timeline_step_video_submitted',
+        'timeline_step_video_added_by_operator',
+        'timeline_step_comment_added',
     );
 
     /**

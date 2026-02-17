@@ -1741,6 +1741,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [supplierStepEvidenceLoading, setSupplierStepEvidenceLoading] = React.useState(false);
     // Commit 3.A.3: Evidence comment drafts and submit state
     const [evidenceCommentDrafts, setEvidenceCommentDrafts] = React.useState({});
+    const [designerStep456CommentDraft, setDesignerStep456CommentDraft] = React.useState({});
+    const [designerStep456CommentSubmitting, setDesignerStep456CommentSubmitting] = React.useState(false);
     const [evidenceCommentSubmitting, setEvidenceCommentSubmitting] = React.useState(false);
     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
     const skipNextTabSwitchFromCadActionRef = React.useRef(false);
@@ -1962,6 +1964,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     evidence_by_step: data.data.evidence_by_step || {},
                     can_add_evidence_comment: !!data.data.can_add_evidence_comment,
                     steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {},
+                    step_456_videos: data.data.step_456_videos || { 4: [], 5: [], 6: [] },
+                    step_456_comments: data.data.step_456_comments || { 4: [], 5: [], 6: [] },
                 });
                 setTimelineError(null);
             } else {
@@ -1987,6 +1991,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         setTimelineError(null);
         setSelectedStepIndex(0);
         setSupplierStepEvidenceView(null);
+        setDesignerStep456CommentDraft({});
     }, [itemId]);
     
     // Load keywords when bid is selected (Commit 2.3.9.1B)
@@ -4817,6 +4822,87 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                         )}
                                                                                     </div>
                                                                                 ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                                {/* Commit 3.B.5.A1: Step 4–6 — Video evidence + designer step comments */}
+                                                                {s.step_number >= 4 && s.step_number <= 6 && (() => {
+                                                                    const videos = (timelineData.step_456_videos || {})[s.step_number] || [];
+                                                                    const comments = (timelineData.step_456_comments || {})[s.step_number] || [];
+                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
+                                                                    const draft = designerStep456CommentDraft[s.step_number] ?? '';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Video Evidence</div>
+                                                                            {videos.length > 0 ? videos.map((sub, i) => (
+                                                                                <div key={i} style={{ marginBottom: '12px' }}>
+                                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '4px' }}>Video Evidence v{sub.version || ''}</div>
+                                                                                    {(sub.links || []).map((lk, j) => (
+                                                                                        <div key={j} style={{ marginBottom: '6px' }}>
+                                                                                            <a href={lk.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px' }}>{lk.provider || 'Link'} — Open video</a>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                    {sub.optional_note && (
+                                                                                        <div style={{ fontSize: '11px', color: darkText, fontStyle: 'italic', marginTop: '6px' }}>Optional Supplier Note: {sub.optional_note}</div>
+                                                                                    )}
+                                                                                </div>
+                                                                            )) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No video evidence yet.</div>}
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginTop: '12px', marginBottom: '8px' }}>Designer Comments</div>
+                                                                            {comments.length > 0 ? (
+                                                                                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: darkText }}>
+                                                                                    {comments.map((c, i) => (
+                                                                                        <li key={i} style={{ marginBottom: '6px' }}>{c.created_at?.split(' ')[0] || ''} {c.designer_name || ''}: &quot;{c.comment_text}&quot;</li>
+                                                                                    ))}
+                                                                                </ul>
+                                                                            ) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No comments yet.</div>}
+                                                                            {/* Acceptance: Designer sees comment option under same step (4–6); form when owner, note when not */}
+                                                                            <div style={{ marginTop: '12px' }}>
+                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Review This Step</div>
+                                                                                {canAddComment ? (
+                                                                                    <>
+                                                                                        <textarea
+                                                                                            placeholder="Add feedback or approval note for this step…"
+                                                                                            value={draft}
+                                                                                            onChange={(e) => setDesignerStep456CommentDraft((prev) => ({ ...prev, [s.step_number]: e.target.value }))}
+                                                                                            rows={3}
+                                                                                            style={{ width: '100%', padding: '8px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
+                                                                                        />
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={designerStep456CommentSubmitting || !draft.trim()}
+                                                                                            onClick={async () => {
+                                                                                                if (!draft.trim() || !nonce) return;
+                                                                                                setDesignerStep456CommentSubmitting(true);
+                                                                                                try {
+                                                                                                    const fd = new FormData();
+                                                                                                    fd.append('action', 'n88_designer_submit_step_comment');
+                                                                                                    fd.append('item_id', String(getItemId()));
+                                                                                                    fd.append('step_number', String(s.step_number));
+                                                                                                    fd.append('comment_text', draft.trim());
+                                                                                                    fd.append('_ajax_nonce', nonce);
+                                                                                                    const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                                    const data = await res.json();
+                                                                                                    if (data.success) {
+                                                                                                        setDesignerStep456CommentDraft((prev) => { const n = { ...prev }; n[s.step_number] = ''; return n; });
+                                                                                                        fetchTimeline();
+                                                                                                    } else {
+                                                                                                        alert(data.data?.message || 'Failed to submit comment.');
+                                                                                                    }
+                                                                                                } finally {
+                                                                                                    setDesignerStep456CommentSubmitting(false);
+                                                                                                }
+                                                                                            }}
+                                                                                            style={{ marginTop: '6px', padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
+                                                                                        >
+                                                                                            Submit Comment
+                                                                                        </button>
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <div style={{ fontSize: '11px', color: '#888' }}>Only the item owner (designer) can add step comments here.</div>
+                                                                                )}
                                                                             </div>
                                                                         </div>
                                                                     );

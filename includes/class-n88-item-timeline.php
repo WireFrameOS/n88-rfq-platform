@@ -126,9 +126,10 @@ class N88_Item_Timeline {
             $expected_by = $row['expected_by'] ? trim( (string) $row['expected_by'] ) : null;
             $completed_at = $row['completed_at'] ? trim( (string) $row['completed_at'] ) : null;
             $is_delayed = ( $expected_by && ! $completed_at && $expected_by < $now_date );
-            $steps[] = array(
+            $step_number = (int) $row['step_number'];
+            $step_data = array(
                 'step_id'              => (int) $row['step_id'],
-                'step_number'          => (int) $row['step_number'],
+                'step_number'          => $step_number,
                 'label'                => $row['label'],
                 'status'               => $row['status'],
                 'display_status'       => $is_delayed ? self::STATUS_DELAYED : $row['status'],
@@ -140,6 +141,10 @@ class N88_Item_Timeline {
                 'evidence_verified_at' => $row['evidence_verified_at'],
                 'evidence_verified_by' => $row['evidence_verified_by'] ? (int) $row['evidence_verified_by'] : null,
             );
+            if ( $step_number >= 4 && $step_number <= 6 ) {
+                $step_data['has_required_evidence'] = self::has_required_evidence( $item_id, $step_number );
+            }
+            $steps[] = $step_data;
         }
 
         $show_prototype_mini = self::item_has_prototype_payment_gate_cleared( $item_id );
@@ -253,6 +258,37 @@ class N88_Item_Timeline {
             }
         }
 
+        // Steps 4–6 (Commit 3.B.5.A1): at least one video submission OR operator evidence OR evidence_verified_at
+        if ( $step_number >= 4 && $step_number <= 6 ) {
+            $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+            $evidence_table  = $wpdb->prefix . 'n88_timeline_step_evidence';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table ) {
+                $video_count = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number = %d",
+                    $item_id,
+                    $step_number
+                ) );
+                if ( $video_count > 0 ) {
+                    return true;
+                }
+            }
+            $step_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT step_id FROM {$steps_table} WHERE timeline_id = %d AND step_number = %d",
+                $timeline_id,
+                $step_number
+            ), ARRAY_A );
+            if ( $step_row && $wpdb->get_var( "SHOW TABLES LIKE '{$evidence_table}'" ) === $evidence_table ) {
+                $ev_count = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$evidence_table} WHERE item_id = %d AND step_id = %d",
+                    $item_id,
+                    $step_row['step_id']
+                ) );
+                if ( $ev_count > 0 ) {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 
@@ -362,7 +398,11 @@ class N88_Item_Timeline {
             return array( 'success' => false, 'message' => 'Step is not in progress.' );
         }
 
+        // Steps 4–6: require has_required_evidence (video or operator evidence or evidence_verified_at)
         $evidence_ok = $evidence_verified_override || ! $step['evidence_required'] || ! empty( $step['evidence_verified_at'] );
+        if ( $step_number >= 4 && $step_number <= 6 ) {
+            $evidence_ok = $evidence_ok || self::has_required_evidence( $item_id, $step_number );
+        }
         if ( ! $evidence_ok ) {
             return array( 'success' => false, 'message' => 'Evidence required to complete this step.', 'blocked' => true );
         }

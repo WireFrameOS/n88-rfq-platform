@@ -10231,6 +10231,15 @@ class N88_RFQ_Admin {
                     var _supplierStepEvidenceViewState = React.useState(null);
                     var supplierStepEvidenceView = _supplierStepEvidenceViewState[0];
                     var setSupplierStepEvidenceView = _supplierStepEvidenceViewState[1];
+                    var _operatorStep456VideoFormState = React.useState(null);
+                    var operatorStep456VideoFormStep = _operatorStep456VideoFormState[0];
+                    var setOperatorStep456VideoFormStep = _operatorStep456VideoFormState[1];
+                    var _designerStep456CommentDraftState = React.useState({});
+                    var designerStep456CommentDraft = _designerStep456CommentDraftState[0];
+                    var setDesignerStep456CommentDraft = _designerStep456CommentDraftState[1];
+                    var _designerStep456CommentSubmittingState = React.useState(false);
+                    var designerStep456CommentSubmitting = _designerStep456CommentSubmittingState[0];
+                    var setDesignerStep456CommentSubmitting = _designerStep456CommentSubmittingState[1];
                     var _supplierStepEvidenceLoadingState = React.useState(false);
                     var supplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[0];
                     var setSupplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[1];
@@ -10489,7 +10498,9 @@ class N88_RFQ_Admin {
                                         ...data.data.timeline,
                                         evidence_by_step: data.data.evidence_by_step || {},
                                         can_add_evidence_comment: !!(data.data.can_add_evidence_comment),
-                                        steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {}
+                                        steps_with_supplier_evidence: data.data.steps_with_supplier_evidence || {},
+                                        step_456_videos: data.data.step_456_videos || { 4: [], 5: [], 6: [] },
+                                        step_456_comments: data.data.step_456_comments || { 4: [], 5: [], 6: [] }
                                     });
                                     setIsOperatorTimeline(!!(data.data.is_operator));
                                     setTimelineError(null);
@@ -10512,6 +10523,7 @@ class N88_RFQ_Admin {
                         setTimelineError(null);
                         setSelectedStepIndex(0);
                         setSupplierStepEvidenceView(null);
+                        setOperatorStep456VideoFormStep(null);
                     }, [itemId]);
                     
                     // Commit 2.3.9.2A: CAD workflow actions state
@@ -15019,6 +15031,90 @@ class N88_RFQ_Admin {
                                                                 )
                                                             );
                                                         })(),
+                                                        // Commit 3.B.5.A1: Step 4–6 video submissions (operator can attach) + designer comments (designer sees read-only video + comments only; no Attach button)
+                                                        (function() {
+                                                            if (s.step_number < 4 || s.step_number > 6) return null;
+                                                            var videos = (timelineData.step_456_videos || {})[s.step_number] || [];
+                                                            var comments = (timelineData.step_456_comments || {})[s.step_number] || [];
+                                                            var showVideoForm = operatorStep456VideoFormStep === s.step_number;
+                                                            var canAddComment = !!(timelineData.can_add_evidence_comment);
+                                                            var draft = (designerStep456CommentDraft || {})[s.step_number] || '';
+                                                            var nonceEvidence = '<?php echo esc_js( wp_create_nonce( 'n88_timeline_step_evidence' ) ); ?>';
+                                                            var nonceRfq = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
+                                                            var ajaxUrlOp = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                                                            return React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, isOperatorTimeline ? 'Video Submissions' : 'Video Evidence'),
+                                                                videos.length > 0 ? React.createElement('div', { style: { marginBottom: '10px' } }, videos.map(function(sub, i) {
+                                                                    return React.createElement('div', { key: i, style: { fontSize: '11px', color: darkText, marginBottom: '6px' } },
+                                                                        'v' + (sub.version || '') + ' — ' + (sub.source === 'operator' ? 'Operator' : 'Supplier'),
+                                                                        sub.optional_note ? React.createElement('div', { style: { fontStyle: 'italic', marginTop: '2px' } }, sub.optional_note) : null,
+                                                                        (sub.links || []).map(function(lk, j) { return React.createElement('div', { key: j }, React.createElement('a', { href: lk.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent } }, lk.provider || lk.url)); })
+                                                                    );
+                                                                })) : React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, 'No video submissions yet.'),
+                                                                isOperatorTimeline ? (!showVideoForm ? React.createElement('button', { type: 'button', onClick: function() { setOperatorStep456VideoFormStep(s.step_number); }, style: { padding: '6px 12px', fontSize: '11px', background: '#111', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', marginBottom: '10px' } }, 'Attach video link') : React.createElement('div', { style: { marginBottom: '12px', padding: '10px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: 'rgba(0,0,0,0.2)' } },
+                                                                    React.createElement('input', { type: 'url', id: 'n88-op-step456-url1', placeholder: 'Video URL 1 (YouTube/Vimeo/Loom)', style: { width: '100%', padding: '6px', marginBottom: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px' } }),
+                                                                    React.createElement('input', { type: 'url', id: 'n88-op-step456-url2', placeholder: 'Video URL 2 (optional)', style: { width: '100%', padding: '6px', marginBottom: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px' } }),
+                                                                    React.createElement('input', { type: 'url', id: 'n88-op-step456-url3', placeholder: 'Video URL 3 (optional)', style: { width: '100%', padding: '6px', marginBottom: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px' } }),
+                                                                    React.createElement('textarea', { id: 'n88-op-step456-note', placeholder: 'Optional note', rows: 2, style: { width: '100%', padding: '6px', marginBottom: '8px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px', resize: 'vertical' } }),
+                                                                    React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+                                                                        React.createElement('button', { type: 'button', id: 'n88-op-step456-submit-btn', onClick: function() {
+                                                                            var u1 = (document.getElementById('n88-op-step456-url1') && document.getElementById('n88-op-step456-url1').value || '').trim();
+                                                                            var u2 = (document.getElementById('n88-op-step456-url2') && document.getElementById('n88-op-step456-url2').value || '').trim();
+                                                                            var u3 = (document.getElementById('n88-op-step456-url3') && document.getElementById('n88-op-step456-url3').value || '').trim();
+                                                                            var urls = [u1, u2, u3].filter(function(u) { return u.length > 0; });
+                                                                            if (urls.length < 1 || urls.length > 3) { alert('Enter 1 to 3 video links (YouTube, Vimeo, Loom).'); return; }
+                                                                            var note = (document.getElementById('n88-op-step456-note') && document.getElementById('n88-op-step456-note').value || '').trim();
+                                                                            var btn = document.getElementById('n88-op-step456-submit-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+                                                                            var fd = new FormData();
+                                                                            fd.append('action', 'n88_operator_add_step_video');
+                                                                            fd.append('item_id', String(itemId));
+                                                                            fd.append('step_number', String(s.step_number));
+                                                                            fd.append('_ajax_nonce', nonceEvidence);
+                                                                            if (urls[0]) fd.append('url_1', urls[0]); if (urls[1]) fd.append('url_2', urls[1]); if (urls[2]) fd.append('url_3', urls[2]);
+                                                                            if (note) fd.append('optional_note', note);
+                                                                            fetch(ajaxUrlOp, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(res) {
+                                                                                if (res.success) { setOperatorStep456VideoFormStep(null); if (typeof fetchTimeline === 'function') fetchTimeline(); }
+                                                                                else { alert((res.data && res.data.message) || res.message || 'Failed.'); }
+                                                                            }).finally(function() { if (btn) { btn.disabled = false; btn.textContent = 'Submit'; } });
+                                                                        }, style: { padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' } }, 'Submit'),
+                                                                        React.createElement('button', { type: 'button', onClick: function() { setOperatorStep456VideoFormStep(null); }, style: { padding: '6px 12px', fontSize: '11px', background: 'transparent', color: darkText, border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer' } }, 'Cancel')
+                                                                    )
+                                                                )) : null,
+                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginTop: '12px', marginBottom: '8px' } }, 'Designer Comments'),
+                                                                comments.length > 0 ? React.createElement('ul', { style: { margin: 0, paddingLeft: '18px', fontSize: '11px', color: darkText } }, comments.map(function(c, i) {
+                                                                    return React.createElement('li', { key: i, style: { marginBottom: '6px' } }, (c.created_at || '').split(' ')[0] + ' ' + (c.designer_name || '') + ': "' + (c.comment_text || '') + '"');
+                                                                })) : React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'No designer comments yet.'),
+                                                                canAddComment ? React.createElement('div', { style: { marginTop: '12px' } },
+                                                                    React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Review This Step'),
+                                                                    React.createElement('textarea', {
+                                                                        placeholder: 'Add feedback or approval note for this step…',
+                                                                        value: draft,
+                                                                        onChange: function(e) { var v = e.target.value; setDesignerStep456CommentDraft(function(prev) { var n = Object.assign({}, prev); n[s.step_number] = v; return n; }); },
+                                                                        rows: 3,
+                                                                        style: { width: '100%', padding: '8px', fontSize: '11px', background: '#111', color: '#ccc', border: '1px solid ' + darkBorder, borderRadius: '4px', resize: 'vertical' }
+                                                                    }),
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        disabled: designerStep456CommentSubmitting || !draft.trim(),
+                                                                        onClick: function() {
+                                                                            if (!draft.trim() || !nonceRfq) return;
+                                                                            setDesignerStep456CommentSubmitting(true);
+                                                                            var fd = new FormData();
+                                                                            fd.append('action', 'n88_designer_submit_step_comment');
+                                                                            fd.append('item_id', String(itemId));
+                                                                            fd.append('step_number', String(s.step_number));
+                                                                            fd.append('comment_text', draft.trim());
+                                                                            fd.append('_ajax_nonce', nonceRfq);
+                                                                            fetch(ajaxUrlOp, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(res) {
+                                                                                if (res.success) { setDesignerStep456CommentDraft(function(prev) { var n = Object.assign({}, prev); n[s.step_number] = ''; return n; }); if (typeof fetchTimeline === 'function') fetchTimeline(); }
+                                                                                else { alert((res.data && res.data.message) || res.message || 'Failed to submit comment.'); }
+                                                                            }).finally(function() { setDesignerStep456CommentSubmitting(false); });
+                                                                        },
+                                                                        style: { marginTop: '6px', padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }
+                                                                    }, 'Submit Comment')
+                                                                ) : null
+                                                            );
+                                                        })(),
                                                         isOperatorTimeline && !timelineActionBusy ? React.createElement('div', { style: { marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
                                                             s.status === 'pending' ? React.createElement('button', {
                                                                 onClick: function() {
@@ -15037,26 +15133,32 @@ class N88_RFQ_Admin {
                                                                 },
                                                                 style: { padding: '6px 12px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
                                                             }, 'Start Step') : null,
-                                                            s.status === 'in_progress' ? React.createElement('button', {
-                                                                onClick: function() {
-                                                                    setTimelineActionBusy(true);
-                                                                    var fd = new FormData();
-                                                                    fd.append('action', 'n88_timeline_complete_step');
-                                                                    fd.append('item_id', String(itemId));
-                                                                    fd.append('step_number', String(s.step_number));
-                                                                    fd.append('evidence_override', '0');
-                                                                    fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
-                                                                    fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
-                                                                        .then(function(r) { return r.json(); })
-                                                                        .then(function(res) {
-                                                                            if (res.success) { fetchTimeline(); setEvidenceBlockedModal(null); }
-                                                                            else if (res.data && res.data.blocked) { setEvidenceBlockedModal({ step: s, stepNumber: s.step_number }); }
-                                                                            else { alert((res.data && res.data.message) || res.message || 'Failed.'); }
-                                                                        })
-                                                                        .finally(function() { setTimelineActionBusy(false); });
-                                                                },
-                                                                style: { padding: '6px 12px', background: greenAccent, color: darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
-                                                            }, 'Mark Completed') : null,
+                                                            s.status === 'in_progress' ? (function() {
+                                                                var step46NoEvidence = (s.step_number >= 4 && s.step_number <= 6) && s.has_required_evidence === false;
+                                                                return React.createElement('button', {
+                                                                    disabled: step46NoEvidence,
+                                                                    title: step46NoEvidence ? 'Evidence required to complete this step.' : '',
+                                                                    onClick: function() {
+                                                                        if (step46NoEvidence) return;
+                                                                        setTimelineActionBusy(true);
+                                                                        var fd = new FormData();
+                                                                        fd.append('action', 'n88_timeline_complete_step');
+                                                                        fd.append('item_id', String(itemId));
+                                                                        fd.append('step_number', String(s.step_number));
+                                                                        fd.append('evidence_override', '0');
+                                                                        fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                                                                        fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>'), { method: 'POST', body: fd })
+                                                                            .then(function(r) { return r.json(); })
+                                                                            .then(function(res) {
+                                                                                if (res.success) { fetchTimeline(); setEvidenceBlockedModal(null); }
+                                                                                else if (res.data && res.data.blocked) { setEvidenceBlockedModal({ step: s, stepNumber: s.step_number }); }
+                                                                                else { alert((res.data && res.data.message) || res.message || 'Failed.'); }
+                                                                            })
+                                                                            .finally(function() { setTimelineActionBusy(false); });
+                                                                    },
+                                                                    style: { padding: '6px 12px', background: step46NoEvidence ? '#333' : greenAccent, color: step46NoEvidence ? '#666' : darkBg, border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: step46NoEvidence ? 'not-allowed' : 'pointer', fontFamily: 'monospace' }
+                                                                }, 'Mark Completed');
+                                                            })() : null,
                                                             s.status === 'in_progress' && s.evidence_required && !s.evidence_verified_at ? React.createElement('button', {
                                                                 onClick: function() {
                                                                     setTimelineActionBusy(true);
@@ -16101,6 +16203,8 @@ class N88_RFQ_Admin {
                                                 has_awarded_bid: row.has_awarded_bid,
                                                 has_unread_operator_messages: row.has_unread_operator_messages,
                                                 action_required: row.action_required,
+                                                step456_status_text: row.step456_status_text,
+                                                step456_status_color: row.step456_status_color,
                                             });
                                         }
                                     });
@@ -16388,6 +16492,76 @@ class N88_RFQ_Admin {
             }
             $has_unread_operator_messages = $unread_operator_messages > 0;
             $action_required = $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) );
+            // Commit 3.B.5.A1: Step 4–6 status for designer/operator cards (when prototype approved = in production)
+            $step456_status_text = null;
+            $step456_status_color = null;
+            if ( $prototype_status === 'approved' || $has_awarded_bid ) {
+                $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+                $comments_table_456 = $wpdb->prefix . 'n88_timeline_step_comments';
+                $steps_table_456 = $wpdb->prefix . 'n88_item_timeline_steps';
+                $timelines_table = $wpdb->prefix . 'n88_item_timelines';
+                $has_supplier_video = false;
+                $has_operator_video = false;
+                $has_designer_comment = false;
+                $latest_step_status = null;
+                $latest_step_num = null;
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table ) {
+                    $has_supplier_video = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND supplier_id IS NOT NULL",
+                        $item_id
+                    ) ) > 0;
+                    $has_operator_video = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND operator_id IS NOT NULL",
+                        $item_id
+                    ) ) > 0;
+                }
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$comments_table_456}'" ) === $comments_table_456 ) {
+                    $has_designer_comment = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$comments_table_456} WHERE item_id = %d AND step_number IN (4,5,6)",
+                        $item_id
+                    ) ) > 0;
+                }
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_table}'" ) === $timelines_table
+                    && $wpdb->get_var( "SHOW TABLES LIKE '{$steps_table_456}'" ) === $steps_table_456 ) {
+                    $timeline_id = $wpdb->get_var( $wpdb->prepare( "SELECT timeline_id FROM {$timelines_table} WHERE item_id = %d", $item_id ) );
+                    if ( $timeline_id ) {
+                        $step_row = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT step_number, status FROM {$steps_table_456} WHERE timeline_id = %d AND step_number IN (4,5,6) ORDER BY step_number DESC LIMIT 1",
+                            $timeline_id
+                        ), ARRAY_A );
+                        if ( $step_row ) {
+                            $latest_step_num = (int) $step_row['step_number'];
+                            $latest_step_status = $step_row['status'];
+                        }
+                    }
+                }
+                if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
+                    $step456_status_text = 'Step 6 Completed';
+                    $step456_status_color = '#00ff00';
+                } elseif ( $latest_step_status === 'completed' ) {
+                    $step456_status_text = 'Step ' . $latest_step_num . ' Completed';
+                    $step456_status_color = '#00ff00';
+                } elseif ( $latest_step_status === 'in_progress' ) {
+                    $step456_status_text = 'Step ' . $latest_step_num . ' In Progress';
+                    $step456_status_color = '#2196f3';
+                }
+                if ( ! $step456_status_text && $has_designer_comment ) {
+                    $step456_status_text = 'Designer commented';
+                    $step456_status_color = '#ff9800';
+                }
+                if ( ! $step456_status_text && $has_operator_video ) {
+                    $step456_status_text = 'Operator video added';
+                    $step456_status_color = '#2196f3';
+                }
+                if ( ! $step456_status_text && $has_supplier_video ) {
+                    $step456_status_text = 'Supplier video received';
+                    $step456_status_color = '#4caf50';
+                }
+                if ( ! $step456_status_text && ( $latest_step_status === 'pending' || $latest_step_num ) ) {
+                    $step456_status_text = 'Step 4–6 Pending';
+                    $step456_status_color = '#999';
+                }
+            }
             $items_status[] = array(
                 'id' => $item_id_string,
                 'has_prototype_payment' => $has_prototype_payment,
@@ -16400,6 +16574,8 @@ class N88_RFQ_Admin {
                 'has_awarded_bid' => $has_awarded_bid,
                 'has_unread_operator_messages' => $has_unread_operator_messages,
                 'action_required' => $action_required,
+                'step456_status_text' => $step456_status_text,
+                'step456_status_color' => $step456_status_color,
             );
         }
         wp_send_json_success( array( 'items' => $items_status ) );

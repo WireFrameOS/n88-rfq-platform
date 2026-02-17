@@ -71,6 +71,8 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                                 has_awarded_bid: row.has_awarded_bid,
                                 has_unread_operator_messages: row.has_unread_operator_messages,
                                 action_required: row.action_required,
+                                step456_status_text: row.step456_status_text,
+                                step456_status_color: row.step456_status_color,
                             });
                         }
                     });

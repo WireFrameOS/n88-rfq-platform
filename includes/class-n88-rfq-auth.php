@@ -137,6 +137,12 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_supplier_submit_step_evidence', array( $this, 'ajax_supplier_submit_step_evidence' ) );
         add_action( 'wp_ajax_n88_get_step_evidence', array( $this, 'ajax_get_step_evidence' ) );
 
+        // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
+        add_action( 'wp_ajax_n88_supplier_submit_step_video_456', array( $this, 'ajax_supplier_submit_step_video_456' ) );
+        add_action( 'wp_ajax_n88_operator_add_step_video', array( $this, 'ajax_operator_add_step_video' ) );
+        add_action( 'wp_ajax_n88_designer_submit_step_comment', array( $this, 'ajax_designer_submit_step_comment' ) );
+        add_action( 'wp_ajax_n88_get_step_456_videos_comments', array( $this, 'ajax_get_step_456_videos_comments' ) );
+
         // Create custom roles on activation
         add_action( 'init', array( $this, 'create_custom_roles' ) );
 
@@ -3559,11 +3565,11 @@ class N88_RFQ_Auth {
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
                     var w4WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Coming soon.</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var stepRow = '';
                     if (paymentNotif) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
@@ -3582,8 +3588,9 @@ class N88_RFQ_Auth {
                         }
                         stepRow += '</div>';
                     }
+                    // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4–6 show video evidence, not "Coming soon")
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
-                        (paymentNotif ? (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) : '<div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div>') + '</div>';
+                        (paymentNotif ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #00ff00;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
@@ -3610,9 +3617,18 @@ class N88_RFQ_Auth {
                     setTimeout(function() {
                         var tabContent = document.getElementById('n88-supplier-tab-content');
                         if (tabContent && defaultTab !== 'workflow') tabContent.scrollTop = 0;
-                        if (defaultTab === 'workflow' && item.supplier_workflow_active_step >= 0 && item.supplier_workflow_active_step <= 5) {
-                            var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
-                            if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        if (defaultTab === 'workflow') {
+                            if (typeof window.n88LoadSupplierWorkflowTimeline === 'function') window.n88LoadSupplierWorkflowTimeline();
+                            if (item.supplier_workflow_active_step >= 0 && item.supplier_workflow_active_step <= 5) {
+                                var stepEl = document.getElementById('n88-supplier-workflow-step-' + item.supplier_workflow_active_step);
+                                if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        } else if (paymentNotif) {
+                            // Preload timeline so when supplier clicks The WorkFlow tab, Step 4–6 and [ Submit Step Video ] show instead of staying on "Loading timeline…"
+                            setTimeout(function() {
+                                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                                if (wrap && wrap.getAttribute('data-timeline-loaded') !== '1' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') window.n88LoadSupplierWorkflowTimeline();
+                            }, 300);
                         }
                         var clarificationForm = document.getElementById('n88-supplier-clarification-form-' + itemId);
                         if (clarificationForm && defaultTab === 'overview') clarificationForm.style.display = 'flex';
@@ -3978,12 +3994,37 @@ class N88_RFQ_Auth {
                         var darkBorder = '#555';
                         var selectedIdx = 0;
                         var supplierEvidenceByStep = data.data.supplier_step_evidence_by_step || {};
+                        var step456Videos = data.data.step_456_videos || {};
                         function buildSupplierStepEvidenceBlock(sel, itemId) {
                             if (!sel || !sel.step_id) return '';
                             var stepId = sel.step_id;
-                            var ev = supplierEvidenceByStep[stepId] || supplierEvidenceByStep[String(stepId)];
-                            var canSubmit = sel.display_status === 'in_progress' || sel.display_status === 'completed';
+                            var stepNumber = sel.step_number || 0;
+                            var isStep456 = stepNumber >= 4 && stepNumber <= 6;
                             var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>';
+                            // Acceptance: Supplier can submit video for Steps 4–6 only; Steps 1–3 never show [ Submit Step Video ].
+                            // Allow submit for Pending/In Progress/Completed (steps 4–6 default to Pending until operator starts them).
+                            if (isStep456) {
+                                var videos = step456Videos[stepNumber] || [];
+                                if (videos.length > 0) {
+                                    for (var vi = 0; vi < videos.length; vi++) {
+                                        var sub = videos[vi];
+                                        block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 6px;">Video Evidence v' + (sub.version || '') + ' (' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + ')</div>';
+                                        if (sub.optional_note) block += '<div style="font-size: 11px; color: #888; margin-bottom: 4px; font-style: italic;">' + (sub.optional_note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                        if (sub.links && sub.links.length) {
+                                            block += '<ul style="margin: 0 0 8px 18px; padding: 0; font-size: 11px;">';
+                                            for (var li = 0; li < sub.links.length; li++) {
+                                                var lk = sub.links[li];
+                                                block += '<li><a href="' + (lk.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">' + (lk.provider || 'Link') + '</a></li>';
+                                            }
+                                            block += '</ul>';
+                                        }
+                                    }
+                                }
+                                block += '<button type="button" onclick="n88SupplierOpenStepVideo456Form(' + itemId + ',' + stepNumber + ');" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Submit Step Video ]</button>';
+                                block += '<div id="n88-supplier-step-video-456-form-wrap" style="display: none; margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: #0a0a0a;"></div></div>';
+                                return block;
+                            }
+                            var ev = supplierEvidenceByStep[stepId] || supplierEvidenceByStep[String(stepId)];
                             if (ev && ev.links && ev.links.length) {
                                 block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Evidence submitted (v' + (ev.version || '') + ')</div>';
                                 block += '<ul style="margin: 0 0 10px 18px; padding: 0; font-size: 11px;">';
@@ -3992,11 +4033,6 @@ class N88_RFQ_Auth {
                                     block += '<li><a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">' + (link.provider || 'Link') + '</a></li>';
                                 }
                                 block += '</ul>';
-                                if (canSubmit) block += '<button type="button" onclick="n88SupplierOpenStepEvidenceForm(' + itemId + ',' + stepId + ', true);" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Submit New Version ]</button>';
-                            } else if (canSubmit) {
-                                block += '<button type="button" onclick="n88SupplierOpenStepEvidenceForm(' + itemId + ',' + stepId + ', false);" style="padding: 6px 12px; font-size: 11px; background: #111; color: ' + green + '; border: 1px solid ' + green + '; border-radius: 4px; cursor: pointer; font-family: monospace;">[ Submit Step Video ]</button>';
-                            } else {
-                                block += '<div style="font-size: 11px; color: #888;">Submit evidence when step is In Progress or Completed.</div>';
                             }
                             block += '<div id="n88-supplier-step-evidence-form-wrap" style="display: none; margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: #0a0a0a;"></div></div>';
                             return block;
@@ -4130,6 +4166,74 @@ class N88_RFQ_Auth {
                             alert('Request failed. Please try again.');
                             btn.disabled = false;
                             btn.textContent = 'Submit Evidence';
+                        });
+                };
+            };
+
+            window.n88SupplierOpenStepVideo456Form = function(itemId, stepNumber) {
+                var formWrap = document.getElementById('n88-supplier-step-video-456-form-wrap');
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                if (!formWrap) return;
+                var darkBorder = '#555';
+                var green = '#00ff00';
+                var darkText = '#ccc';
+                var stepLabel = stepNumber === 4 ? 'Production / Fabrication' : stepNumber === 5 ? 'Quality Review & Packing' : 'Ready for Delivery';
+                formWrap.style.display = 'block';
+                formWrap.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 10px;">Submit Video Evidence — Step ' + stepNumber + '</div>' +
+                    '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Video Link (YouTube / Vimeo / Loom only)</p>' +
+                    '<input type="url" id="n88-step-456-url-1" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 6px;" />' +
+                    '<input type="url" id="n88-step-456-url-2" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 6px;" />' +
+                    '<input type="url" id="n88-step-456-url-3" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 10px;" />' +
+                    '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Optional Note (visible to operator + designer)</p>' +
+                    '<textarea id="n88-step-456-optional-note" placeholder="Add a note…" rows="3" style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 12px; resize: vertical;"></textarea>' +
+                    '<div style="display: flex; gap: 8px;">' +
+                    '<button type="button" id="n88-step-456-submit-btn" style="padding: 8px 16px; font-size: 12px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Submit</button>' +
+                    '<button type="button" id="n88-step-456-cancel-btn" style="padding: 8px 16px; font-size: 12px; background: #333; color: #ccc; border: 1px solid ' + darkBorder + '; border-radius: 4px; cursor: pointer; font-family: monospace;">Cancel</button>' +
+                    '</div>';
+                document.getElementById('n88-step-456-cancel-btn').onclick = function() {
+                    formWrap.style.display = 'none';
+                    formWrap.innerHTML = '';
+                };
+                document.getElementById('n88-step-456-submit-btn').onclick = function() {
+                    var u1 = (document.getElementById('n88-step-456-url-1').value || '').trim();
+                    var u2 = (document.getElementById('n88-step-456-url-2').value || '').trim();
+                    var u3 = (document.getElementById('n88-step-456-url-3').value || '').trim();
+                    var urls = [u1, u2, u3].filter(function(u) { return u.length > 0; });
+                    if (urls.length < 1 || urls.length > 3) {
+                        alert('Please enter between 1 and 3 video links (YouTube, Vimeo, or Loom).');
+                        return;
+                    }
+                    var optionalNote = (document.getElementById('n88-step-456-optional-note').value || '').trim();
+                    var btn = this;
+                    btn.disabled = true;
+                    btn.textContent = 'Submitting…';
+                    var formData = new FormData();
+                    formData.append('action', 'n88_supplier_submit_step_video_456');
+                    formData.append('item_id', String(itemId));
+                    formData.append('step_number', String(stepNumber));
+                    formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                    if (urls[0]) formData.append('url_1', urls[0]);
+                    if (urls[1]) formData.append('url_2', urls[1]);
+                    if (urls[2]) formData.append('url_3', urls[2]);
+                    if (optionalNote) formData.append('optional_note', optionalNote);
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.success) {
+                                formWrap.style.display = 'none';
+                                formWrap.innerHTML = '';
+                                if (wrap) wrap.removeAttribute('data-timeline-loaded');
+                                if (typeof window.n88LoadSupplierWorkflowTimeline === 'function') window.n88LoadSupplierWorkflowTimeline();
+                            } else {
+                                alert(data.data && data.data.message ? data.data.message : 'Failed to submit.');
+                                btn.disabled = false;
+                                btn.textContent = 'Submit';
+                            }
+                        })
+                        .catch(function() {
+                            alert('Request failed. Please try again.');
+                            btn.disabled = false;
+                            btn.textContent = 'Submit';
                         });
                 };
             };
@@ -17254,8 +17358,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
                 if (idx === 2) {
                     var opWrap = document.getElementById('n88-operator-workflow-timeline-wrap');
-                    if (opWrap && opWrap.getAttribute('data-item-id') && typeof window.n88LoadOperatorWorkflowTimeline === 'function') {
-                        window.n88LoadOperatorWorkflowTimeline();
+                    if (opWrap && opWrap.getAttribute('data-item-id')) {
+                        if (typeof window.n88LoadOperatorWorkflowTimeline === 'function') window.n88LoadOperatorWorkflowTimeline();
+                        if (typeof window.n88LoadOperatorCaseStep456 === 'function') window.n88LoadOperatorCaseStep456();
                     }
                     if (opWrap) window.n88OperatorWorkflowShowStep(parseInt(opWrap.getAttribute('data-active-step'), 10) || 0);
                 }
@@ -17553,6 +17658,184 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     })
                     .catch(function(err) {
                         container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">Failed to load timeline.</div>';
+                    });
+            };
+
+            // Commit 3.B.5.A1: Load Step 4–6 Video + Designer Comments for operator case view (dynamic panels)
+            window.n88LoadOperatorCaseStep456 = function() {
+                var wrap = document.getElementById('n88-operator-workflow-timeline-wrap');
+                if (!wrap) return;
+                var itemId = wrap.getAttribute('data-item-id');
+                if (!itemId) return;
+                var containers = [document.getElementById('n88-op-step456-content-4'), document.getElementById('n88-op-step456-content-5'), document.getElementById('n88-op-step456-content-6')];
+                if (!containers[0] && !containers[1] && !containers[2]) return;
+                var green = '#00ff00';
+                var darkText = '#ccc';
+                var darkBorder = '#555';
+                var nonce = typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '';
+                var evNonce = typeof n88OperatorEvidenceNonce !== 'undefined' ? n88OperatorEvidenceNonce : '';
+                var ajaxUrl = '<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>';
+                for (var c = 0; c < containers.length; c++) {
+                    if (containers[c]) containers[c].innerHTML = 'Loading…';
+                }
+                var fd = new FormData();
+                fd.append('action', 'n88_get_item_timeline');
+                fd.append('item_id', itemId);
+                fd.append('_ajax_nonce', nonce);
+                fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success || !data.data) {
+                            for (var c = 0; c < containers.length; c++) {
+                                if (containers[c]) containers[c].innerHTML = '<div style="color:#cc6666;font-size:11px;">Failed to load.</div>';
+                            }
+                            return;
+                        }
+                        var t = data.data.timeline || {};
+                        var steps = t.steps || [];
+                        var step456Videos = data.data.step_456_videos || { 4: [], 5: [], 6: [] };
+                        var step456Comments = data.data.step_456_comments || { 4: [], 5: [], 6: [] };
+                        var stepNumMap = [4, 5, 6];
+                        for (var i = 0; i < 3; i++) {
+                            var stepNum = stepNumMap[i];
+                            var cont = containers[i];
+                            if (!cont) continue;
+                            var stepData = steps.filter(function(s) { return (s.step_number || s.step_id) == stepNum; })[0] || {};
+                            var videos = step456Videos[stepNum] || [];
+                            var comments = step456Comments[stepNum] || [];
+                            var status = stepData.status || 'pending';
+                            var hasEvidence = stepData.has_required_evidence !== false;
+                            var h = '';
+                            h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-bottom:8px;">Video Submissions</div>';
+                            if (videos.length > 0) {
+                                for (var vi = 0; vi < videos.length; vi++) {
+                                    var sub = videos[vi];
+                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:6px;">v' + (sub.version || '') + ' — ' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + '</div>';
+                                    if (sub.optional_note) h += '<div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px;">' + (sub.optional_note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                    if (sub.links && sub.links.length) {
+                                        h += '<ul style="margin:0 0 8px 18px;padding:0;font-size:11px;">';
+                                        for (var li = 0; li < sub.links.length; li++) {
+                                            var lk = sub.links[li];
+                                            h += '<li><a href="' + (lk.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:' + green + ';">' + (lk.provider || 'Link') + '</a></li>';
+                                        }
+                                        h += '</ul>';
+                                    }
+                                }
+                            } else {
+                                h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No video submissions yet.</div>';
+                            }
+                            h += '<button type="button" class="n88-op-attach-video-btn" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:#111;color:' + green + ';border:1px solid ' + green + ';border-radius:4px;cursor:pointer;font-family:monospace;margin-bottom:12px;">Attach video link</button>';
+                            h += '<div id="n88-op-attach-form-' + stepNum + '" style="display:none;margin-bottom:12px;padding:10px;border:1px solid ' + darkBorder + ';border-radius:4px;background:rgba(0,0,0,0.2);">';
+                            h += '<input type="url" id="n88-op-video-url1-' + stepNum + '" placeholder="Video URL 1 (YouTube/Vimeo/Loom)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                            h += '<input type="url" id="n88-op-video-url2-' + stepNum + '" placeholder="URL 2 (optional)" style="width:100%;padding:6px;margin-bottom:6px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                            h += '<input type="url" id="n88-op-video-url3-' + stepNum + '" placeholder="URL 3 (optional)" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;">';
+                            h += '<textarea id="n88-op-video-note-' + stepNum + '" placeholder="Optional note" rows="2" style="width:100%;padding:6px;margin-bottom:8px;font-size:11px;background:#111;color:#ccc;border:1px solid ' + darkBorder + ';border-radius:4px;resize:vertical;"></textarea>';
+                            h += '<div style="display:flex;gap:8px;"><button type="button" class="n88-op-attach-submit" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:' + green + ';color:#000;border:none;border-radius:4px;cursor:pointer;">Submit</button>';
+                            h += '<button type="button" class="n88-op-attach-cancel" data-step="' + stepNum + '" style="padding:6px 12px;font-size:11px;background:transparent;color:' + darkText + ';border:1px solid ' + darkBorder + ';border-radius:4px;cursor:pointer;">Cancel</button></div></div>';
+                            h += '<div style="font-size:12px;font-weight:600;color:' + green + ';margin-top:12px;margin-bottom:8px;">Designer Comments</div>';
+                            if (comments.length > 0) {
+                                h += '<ul style="margin:0;padding-left:18px;font-size:11px;color:' + darkText + ';">';
+                                for (var ci = 0; ci < comments.length; ci++) {
+                                    var cm = comments[ci];
+                                    h += '<li style="margin-bottom:6px;">' + (cm.created_at || '').split(' ')[0] + ' ' + (cm.designer_name || '') + ': &quot;' + (cm.comment_text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '&quot;</li>';
+                                }
+                                h += '</ul>';
+                            } else {
+                                h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:10px;">No designer comments yet.</div>';
+                            }
+                            h += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+                            if (status === 'pending') {
+                                h += '<button type="button" class="n88-op-start-step-btn" data-step="' + stepNum + '" style="padding:6px 12px;background:' + green + ';color:#000;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:monospace;">Start Step</button>';
+                            } else if (status === 'in_progress') {
+                                h += '<button type="button" class="n88-op-complete-step-btn" data-step="' + stepNum + '" data-has-evidence="' + (hasEvidence ? '1' : '0') + '" style="padding:6px 12px;background:' + (hasEvidence ? green : '#333') + ';color:' + (hasEvidence ? '#000' : '#666') + ';border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:' + (hasEvidence ? 'pointer' : 'not-allowed') + ';font-family:monospace;"' + (hasEvidence ? '' : ' disabled title="Evidence required to complete."') + '>Mark Completed</button>';
+                            }
+                            h += '</div>';
+                            cont.innerHTML = h;
+                        }
+                        if (wrap._n88Step456ClickListener) return;
+                        wrap._n88Step456ClickListener = true;
+                        wrap.addEventListener('click', function(ev) {
+                            var tg = ev.target;
+                            if (!tg || !tg.classList) return;
+                            if (tg.classList.contains('n88-op-attach-video-btn')) {
+                                var step = tg.getAttribute('data-step');
+                                var formEl = document.getElementById('n88-op-attach-form-' + step);
+                                if (formEl) formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none';
+                                return;
+                            }
+                            if (tg.classList.contains('n88-op-attach-cancel')) {
+                                var step = tg.getAttribute('data-step');
+                                var formEl = document.getElementById('n88-op-attach-form-' + step);
+                                if (formEl) formEl.style.display = 'none';
+                                return;
+                            }
+                            if (tg.classList.contains('n88-op-attach-submit')) {
+                                var step = parseInt(tg.getAttribute('data-step'), 10);
+                                var u1 = (document.getElementById('n88-op-video-url1-' + step) || {}).value || '';
+                                var u2 = (document.getElementById('n88-op-video-url2-' + step) || {}).value || '';
+                                var u3 = (document.getElementById('n88-op-video-url3-' + step) || {}).value || '';
+                                var urls = [u1, u2, u3].filter(function(x) { return x.trim(); });
+                                if (urls.length < 1 || urls.length > 3) { alert('Enter 1 to 3 video links (YouTube, Vimeo, Loom).'); return; }
+                                var note = (document.getElementById('n88-op-video-note-' + step) || {}).value || '';
+                                tg.disabled = true;
+                                tg.textContent = 'Submitting…';
+                                var f = new FormData();
+                                f.append('action', 'n88_operator_add_step_video');
+                                f.append('item_id', itemId);
+                                f.append('step_number', String(step));
+                                f.append('_ajax_nonce', evNonce);
+                                if (urls[0]) f.append('url_1', urls[0]); if (urls[1]) f.append('url_2', urls[1]); if (urls[2]) f.append('url_3', urls[2]);
+                                if (note) f.append('optional_note', note);
+                                fetch(ajaxUrl, { method: 'POST', body: f, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(res) {
+                                    tg.disabled = false;
+                                    tg.textContent = 'Submit';
+                                    if (res.success) {
+                                        document.getElementById('n88-op-attach-form-' + step).style.display = 'none';
+                                        if (typeof window.n88LoadOperatorCaseStep456 === 'function') window.n88LoadOperatorCaseStep456();
+                                    } else {
+                                        alert((res.data && res.data.message) || res.message || 'Failed.');
+                                    }
+                                }).catch(function() { tg.disabled = false; tg.textContent = 'Submit'; alert('Failed.'); });
+                                return;
+                            }
+                            if (tg.classList.contains('n88-op-start-step-btn')) {
+                                var step = parseInt(tg.getAttribute('data-step'), 10);
+                                tg.disabled = true;
+                                var f = new FormData();
+                                f.append('action', 'n88_timeline_start_step');
+                                f.append('item_id', itemId);
+                                f.append('step_number', String(step));
+                                f.append('_ajax_nonce', nonce);
+                                fetch(ajaxUrl, { method: 'POST', body: f, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(res) {
+                                    if (res.success && typeof window.n88LoadOperatorCaseStep456 === 'function') window.n88LoadOperatorCaseStep456();
+                                    else if (!res.success) alert(res.message || 'Failed.');
+                                    tg.disabled = false;
+                                }).catch(function() { tg.disabled = false; });
+                                return;
+                            }
+                            if (tg.classList.contains('n88-op-complete-step-btn')) {
+                                var step = parseInt(tg.getAttribute('data-step'), 10);
+                                if (tg.getAttribute('data-has-evidence') !== '1') return;
+                                tg.disabled = true;
+                                var f = new FormData();
+                                f.append('action', 'n88_timeline_complete_step');
+                                f.append('item_id', itemId);
+                                f.append('step_number', String(step));
+                                f.append('evidence_override', '0');
+                                f.append('_ajax_nonce', nonce);
+                                fetch(ajaxUrl, { method: 'POST', body: f, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(res) {
+                                    if (res.success && typeof window.n88LoadOperatorCaseStep456 === 'function') window.n88LoadOperatorCaseStep456();
+                                    else if (!res.success) alert((res.data && res.data.message) || res.message || 'Failed.');
+                                    tg.disabled = false;
+                                }).catch(function() { tg.disabled = false; });
+                                return;
+                            }
+                        });
+                    })
+                    .catch(function() {
+                        for (var c = 0; c < containers.length; c++) {
+                            if (containers[c]) containers[c].innerHTML = '<div style="color:#cc6666;font-size:11px;">Failed to load timeline.</div>';
+                        }
                     });
             };
 
@@ -19198,23 +19481,21 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600;"><?php echo esc_html( $gate_state ); ?></div>
                                 <?php endif; ?>
                             </div>
-                            <!-- Step 4 -->
+                            <!-- Step 4–6: Commit 3.B.5.A1 — Dynamic Video Evidence + Designer Comments -->
                             <?php $panel_display_3 = ( $operator_current_step === 3 ) ? 'block' : 'none'; ?>
-                            <div data-n88-op-workflow-step="3" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_3; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                            <div data-n88-op-workflow-step="3" data-step-number="4" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_3; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 4. Production / Fabrication</div>
-                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                                <div id="n88-op-step456-content-4" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
                             </div>
-                            <!-- Step 5 -->
                             <?php $panel_display_4 = ( $operator_current_step === 4 ) ? 'block' : 'none'; ?>
-                            <div data-n88-op-workflow-step="4" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_4; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                            <div data-n88-op-workflow-step="4" data-step-number="5" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_4; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 5. Quality Review & Packing</div>
-                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                                <div id="n88-op-step456-content-5" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
                             </div>
-                            <!-- Step 6 -->
                             <?php $panel_display_5 = ( $operator_current_step === 5 ) ? 'block' : 'none'; ?>
-                            <div data-n88-op-workflow-step="5" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_5; ?>; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
+                            <div data-n88-op-workflow-step="5" data-step-number="6" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_5; ?>; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 6. Ready for Delivery</div>
-                                <div style="font-size: 11px; color: #666;">To be completed.</div>
+                                <div id="n88-op-step456-content-6" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
                             </div>
                         </div>
                     </div>
@@ -21164,6 +21445,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $supplier_step_evidence_by_step = N88_Step_Evidence_Submissions::get_by_item_for_supplier( $item_id, $current_user->ID );
             }
         }
+        $step_456_videos = array();
+        $step_456_comments = array();
+        if ( class_exists( 'N88_Timeline_Step_Videos' ) ) {
+            $step_456_videos = array(
+                4 => N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, 4 ),
+                5 => N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, 5 ),
+                6 => N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, 6 ),
+            );
+        }
+        if ( class_exists( 'N88_Timeline_Step_Comments' ) ) {
+            $step_456_comments = array(
+                4 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 4 ),
+                5 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 5 ),
+                6 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 6 ),
+            );
+        }
         wp_send_json_success( array(
             'timeline'                       => $timeline,
             'is_operator'                    => $is_operator,
@@ -21171,11 +21468,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'can_add_evidence_comment'       => $can_add_evidence_comment,
             'steps_with_supplier_evidence'   => $steps_with_supplier_evidence,
             'supplier_step_evidence_by_step' => $supplier_step_evidence_by_step,
+            'step_456_videos'                => $step_456_videos,
+            'step_456_comments'               => $step_456_comments,
         ) );
     }
 
     /**
-     * Commit 3.A.3: True if current user is the designer (item owner) who may add evidence comments.
+     * Commit 3.A.3 / 3.B.5.A1: True if current user is the designer (item owner) who may add evidence comments and step comments.
+     * Item owner = designer in this workflow; allow any role if they own the item.
      */
     private function user_is_designer_owner_of_item( $item_id ) {
         global $wpdb;
@@ -21627,6 +21927,161 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_success( array( 'for_step' => $data ) );
         }
         wp_send_json_success( array( 'for_step' => null ) );
+    }
+
+    /**
+     * Commit 3.B.5.A1: Supplier submit video evidence for Step 4, 5, or 6 only (append-only, optional note).
+     */
+    public function ajax_supplier_submit_step_video_456() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+        if ( ! $is_supplier ) {
+            wp_send_json_error( array( 'message' => 'Supplier access required.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        }
+        if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'You are not routed to this item.' ), 403 );
+        }
+        $urls = array();
+        if ( ! empty( $_POST['url_1'] ) ) {
+            $urls[] = trim( (string) $_POST['url_1'] );
+        }
+        if ( ! empty( $_POST['url_2'] ) ) {
+            $urls[] = trim( (string) $_POST['url_2'] );
+        }
+        if ( ! empty( $_POST['url_3'] ) ) {
+            $urls[] = trim( (string) $_POST['url_3'] );
+        }
+        $optional_note = isset( $_POST['optional_note'] ) ? trim( (string) $_POST['optional_note'] ) : '';
+        if ( ! class_exists( 'N88_Timeline_Step_Videos' ) ) {
+            wp_send_json_error( array( 'message' => 'Video submission not available.' ) );
+        }
+        $result = N88_Timeline_Step_Videos::submit_supplier( $item_id, $step_number, $current_user->ID, $urls, $optional_note );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'submission_id' => isset( $result['submission_id'] ) ? $result['submission_id'] : 0, 'version' => isset( $result['version'] ) ? $result['version'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Submit failed.' ) );
+    }
+
+    /**
+     * Commit 3.B.5.A1: Operator add video evidence for Step 4, 5, or 6.
+     */
+    public function ajax_operator_add_step_video() {
+        check_ajax_referer( 'n88_timeline_step_evidence', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        $is_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_admin   = current_user_can( 'manage_options' );
+        if ( ! $is_operator && ! $is_admin ) {
+            wp_send_json_error( array( 'message' => 'Operator access required.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        }
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        $urls = array();
+        if ( ! empty( $_POST['url_1'] ) ) {
+            $urls[] = trim( (string) $_POST['url_1'] );
+        }
+        if ( ! empty( $_POST['url_2'] ) ) {
+            $urls[] = trim( (string) $_POST['url_2'] );
+        }
+        if ( ! empty( $_POST['url_3'] ) ) {
+            $urls[] = trim( (string) $_POST['url_3'] );
+        }
+        $optional_note = isset( $_POST['optional_note'] ) ? trim( (string) $_POST['optional_note'] ) : '';
+        if ( ! class_exists( 'N88_Timeline_Step_Videos' ) ) {
+            wp_send_json_error( array( 'message' => 'Video submission not available.' ) );
+        }
+        $result = N88_Timeline_Step_Videos::submit_operator( $item_id, $step_number, $current_user->ID, $urls, $optional_note );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'submission_id' => isset( $result['submission_id'] ) ? $result['submission_id'] : 0, 'version' => isset( $result['version'] ) ? $result['version'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Submit failed.' ) );
+    }
+
+    /**
+     * Commit 3.B.5.A1: Designer submit immutable step comment for Step 4, 5, or 6.
+     */
+    public function ajax_designer_submit_step_comment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        $comment_text = isset( $_POST['comment_text'] ) ? trim( (string) $_POST['comment_text'] ) : '';
+        $media_version = isset( $_POST['media_version'] ) ? absint( $_POST['media_version'] ) : null;
+        if ( $media_version === 0 ) {
+            $media_version = null;
+        }
+        if ( ! $item_id || ! in_array( $step_number, array( 4, 5, 6 ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or step. Steps 4, 5, 6 only.' ) );
+        }
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        if ( ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Only the item owner (designer) can add step comments.' ), 403 );
+        }
+        if ( ! class_exists( 'N88_Timeline_Step_Comments' ) ) {
+            wp_send_json_error( array( 'message' => 'Comments not available.' ) );
+        }
+        $result = N88_Timeline_Step_Comments::add_comment( $item_id, $step_number, $current_user->ID, $comment_text, $media_version );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( array( 'message' => $result['message'], 'comment_id' => isset( $result['comment_id'] ) ? $result['comment_id'] : 0 ) );
+        }
+        wp_send_json_error( array( 'message' => isset( $result['message'] ) ? $result['message'] : 'Submit failed.' ) );
+    }
+
+    /**
+     * Commit 3.B.5.A1: Get video submissions and designer comments for Step 4, 5, 6 (by item_id; optional step_number).
+     */
+    public function ajax_get_step_456_videos_comments() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $step_number = isset( $_POST['step_number'] ) ? absint( $_POST['step_number'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item.' ) );
+        }
+        if ( ! $this->user_can_view_item_timeline( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        $steps = $step_number ? array( $step_number ) : array( 4, 5, 6 );
+        $out = array();
+        if ( class_exists( 'N88_Timeline_Step_Videos' ) ) {
+            foreach ( $steps as $sn ) {
+                if ( in_array( $sn, array( 4, 5, 6 ), true ) ) {
+                    $out[ 'videos_' . $sn ] = N88_Timeline_Step_Videos::get_submissions_for_step( $item_id, $sn );
+                }
+            }
+        }
+        if ( class_exists( 'N88_Timeline_Step_Comments' ) ) {
+            foreach ( $steps as $sn ) {
+                if ( in_array( $sn, array( 4, 5, 6 ), true ) ) {
+                    $out[ 'comments_' . $sn ] = N88_Timeline_Step_Comments::get_comments_for_step( $item_id, $sn );
+                }
+            }
+        }
+        wp_send_json_success( $out );
     }
 
     /**

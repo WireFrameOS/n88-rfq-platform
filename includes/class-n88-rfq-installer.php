@@ -1237,6 +1237,9 @@ class N88_RFQ_Installer {
         // Commit 3.A.2S: Supplier step evidence (video links only, append-only, versioned)
         self::create_phase_3_a_2s_supplier_step_evidence_tables( $charset_collate );
 
+        // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
+        self::create_phase_3_b_5_a1_timeline_step_tables( $charset_collate );
+
         // Ensure core tables exist (handles upgrades where plugin wasn't reactivated)
         $table_schemas = array(
             $projects_table => "CREATE TABLE {$projects_table} (
@@ -3454,7 +3457,79 @@ class N88_RFQ_Installer {
             self::safe_add_foreign_key( $links_table, 'fk_step_ev_link_submission', 'submission_id', $submissions_table, 'id', 'CASCADE' );
         }
     }
-    
+
+    /**
+     * Commit 3.B.5.A1: Step 4–6 video submissions (supplier + operator) and designer step comments.
+     */
+    private static function create_phase_3_b_5_a1_timeline_step_tables( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+        $links_table = $wpdb->prefix . 'n88_timeline_step_video_links';
+        $comments_table = $wpdb->prefix . 'n88_timeline_step_comments';
+        $items_table = $wpdb->prefix . 'n88_items';
+        $users_table = $wpdb->prefix . 'users';
+
+        $sql_sub = "CREATE TABLE {$sub_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            step_number TINYINT UNSIGNED NOT NULL,
+            supplier_id BIGINT UNSIGNED NULL,
+            operator_id BIGINT UNSIGNED NULL,
+            version INT UNSIGNED NOT NULL DEFAULT 1,
+            optional_note TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY item_step_version (item_id, step_number, version),
+            KEY item_step (item_id, step_number),
+            KEY supplier_id (supplier_id),
+            KEY operator_id (operator_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        $sql_links = "CREATE TABLE {$links_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            submission_id BIGINT UNSIGNED NOT NULL,
+            provider VARCHAR(20) NOT NULL DEFAULT 'youtube',
+            url VARCHAR(500) NOT NULL,
+            sort_order TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (id),
+            KEY submission_id (submission_id)
+        ) {$charset_collate};";
+
+        $sql_comments = "CREATE TABLE {$comments_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            step_number TINYINT UNSIGNED NOT NULL,
+            designer_id BIGINT UNSIGNED NOT NULL,
+            media_version INT UNSIGNED NULL,
+            comment_text TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY item_step (item_id, step_number),
+            KEY designer_id (designer_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql_sub );
+        dbDelta( $sql_links );
+        dbDelta( $sql_comments );
+
+        if ( ! self::foreign_key_exists( $sub_table, 'fk_tsvs_item' ) ) {
+            self::safe_add_foreign_key( $sub_table, 'fk_tsvs_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $links_table, 'fk_tsvl_submission' ) ) {
+            self::safe_add_foreign_key( $links_table, 'fk_tsvl_submission', 'submission_id', $sub_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $comments_table, 'fk_tsc_item' ) ) {
+            self::safe_add_foreign_key( $comments_table, 'fk_tsc_item', 'item_id', $items_table, 'id', 'CASCADE' );
+        }
+        if ( ! self::foreign_key_exists( $comments_table, 'fk_tsc_designer' ) ) {
+            self::safe_add_foreign_key( $comments_table, 'fk_tsc_designer', 'designer_id', $users_table, 'ID', 'CASCADE' );
+        }
+    }
+
     /**
      * Commit 2.3.10: Migrate item_delivery_context table for delivery quoting
      * Adds fields for storing computed CBM, shipping mode, and delivery cost

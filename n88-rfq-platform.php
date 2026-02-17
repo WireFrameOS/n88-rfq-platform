@@ -74,6 +74,7 @@ $includes = array(
     'includes/class-n88-timeline-step-evidence.php', // Commit 3.A.2: Timeline step evidence (media binding + watermark)
     'includes/class-n88-evidence-comments.php', // Commit 3.A.3: Evidence comments (anchored, immutable)
     'includes/class-n88-step-evidence-submissions.php', // Commit 3.A.2S: Supplier step evidence (video links)
+    'includes/class-n88-timeline-step-videos.php', // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
     'includes/class-n88-authorization.php',
     'includes/class-n88-intelligence.php',
     'includes/class-n88-items.php',

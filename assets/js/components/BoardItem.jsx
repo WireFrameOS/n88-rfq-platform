@@ -168,7 +168,11 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
             return { text: 'Proposals Received', color: '#2196f3', dot: '#2196f3' };
         }
 
-        // Priority 5: In Production
+        // Priority 5: Step 4–6 status (supplier video, designer comment, operator video, step started/completed)
+        if (item.step456_status_text) {
+            return { text: item.step456_status_text, color: item.step456_status_color || '#4caf50', dot: item.step456_status_color || '#4caf50' };
+        }
+        // Priority 6: In Production
         if (truthy(item.award_set)) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
         }
