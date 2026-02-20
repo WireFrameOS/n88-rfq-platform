@@ -4959,16 +4959,18 @@ class N88_RFQ_Admin {
                 contain: layout style paint;
             }
             
-            /* Add Item Modal - dark theme per design; light backdrop so board stays visible behind */
+            /* Add Item Modal - dark theme per design; 50px margin, blur so board visible behind */
             #n88-add-item-modal-backdrop {
                 display: none;
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.35);
+                background: rgba(0,0,0,0.2);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
                 z-index: 10000000;
                 align-items: center;
                 justify-content: center;
-                padding: 20px;
+                padding: 50px;
                 box-sizing: border-box;
             }
             #n88-add-item-modal-backdrop.n88-modal-open {
@@ -5152,11 +5154,13 @@ class N88_RFQ_Admin {
                 display: none;
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.35);
+                background: rgba(0,0,0,0.2);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(1px);
                 z-index: 10000000;
                 align-items: center;
                 justify-content: center;
-                padding: 20px;
+                padding: 50px;
                 box-sizing: border-box;
             }
             #n88-add-project-modal-backdrop.n88-modal-open,
@@ -12089,7 +12093,7 @@ class N88_RFQ_Admin {
                     // Use ReactDOM.createPortal to render modal outside canvas container
                     // Build children array for Fragment
                     var fragmentChildren = [
-                        // Backdrop
+                        // Backdrop - 50px margin area, blur so board visible behind
                         React.createElement('div', {
                             onClick: onClose,
                             style: {
@@ -12098,19 +12102,21 @@ class N88_RFQ_Admin {
                                 left: 0,
                                 right: 0,
                                 bottom: 0,
-                                // backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                                backdropFilter: 'blur(6px)',
+                                WebkitBackdropFilter: 'blur(0.5px)',
                                 zIndex: 9999999,
                             }
                         }),
-                        // Modal - Full screen with 50px margin on all sides
+                        // Modal - 50px margin from viewport edges
                         React.createElement('div', {
                             onClick: function(e) { e.stopPropagation(); },
                             style: {
                                 position: 'fixed',
-                                top: '0px',
-                                left: '0px',
-                                right: '0px',
-                                bottom: '0px',
+                                top: '30px',
+                                left: '30px',
+                                right: '30px',
+                                bottom: '30px',
                                 backgroundColor: darkBg,
                                 color: darkText,
                                 fontFamily: 'monospace',
@@ -12120,9 +12126,9 @@ class N88_RFQ_Admin {
                                 overflow: 'hidden',
                                 border: '1px solid ' + darkBorder,
                                 borderRadius: '8px',
-                                margin: '20px',
+                                margin: 0,
                                 padding: 0,
-
+                                boxSizing: 'border-box',
                             }
                         },
                             // Header with Board/Item info (left) and Action Dropdown + Close (right)

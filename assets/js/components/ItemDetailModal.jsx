@@ -3478,7 +3478,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         <AnimatePresence>
             {isOpen && (
                 <>
-                    {/* Backdrop */}
+                    {/* Backdrop - 50px margin area, blur so board visible behind */}
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -3490,12 +3490,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             left: 0,
                             right: 0,
                             bottom: 0,
-                            // backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            // zIndex: 999999,
+                            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                            backdropFilter: 'blur(6px)',
+                            WebkitBackdropFilter: 'blur(1px)',
+                            zIndex: 999999,
                         }}
                     />
                     
-                    {/* Modal - 1300px x 700px centered */}
+                    {/* Modal - 50px margin from viewport edges, centered */}
                     <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -3503,13 +3505,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                         style={{
                             position: 'fixed',
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            width: '1300px',
-                            height: '700px',
-                            maxWidth: '95vw',
-                            maxHeight: '95vh',
+                            top: '50px',
+                            left: '50px',
+                            right: '50px',
+                            bottom: '50px',
+                            width: 'auto',
+                            height: 'auto',
+                            maxWidth: 'calc(100vw - 100px)',
+                            maxHeight: 'calc(100vh - 100px)',
+                            transform: 'none',
+                            boxSizing: 'border-box',
                             backgroundColor: darkBg,
                             color: darkText,
                             fontFamily: 'monospace',

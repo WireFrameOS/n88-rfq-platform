@@ -481,11 +481,14 @@ class N88_RFQ_Auth {
      * Render login form shortcode
      */
     public function render_login_form( $atts = array() ) {
-        // Maker flow: After onboarding (step 2), user lands here logged in. Logout and redirect to login with success message.
+        // Fallback: If user lands on login with n88_post_onboarding while logged in, redirect to role-appropriate page (no logout).
         if ( is_user_logged_in() && isset( $_GET['n88_post_onboarding'] ) ) {
-            wp_logout();
-            wp_safe_redirect( home_url( '/login/?n88_onboarding_complete=1' ) );
-            exit;
+            $current_user = wp_get_current_user();
+            $redirect_url = $this->get_role_redirect_url( $current_user );
+            if ( $redirect_url ) {
+                wp_safe_redirect( $redirect_url );
+                exit;
+            }
         }
 
         // If user is already logged in, redirect based on role (Commit 2.2.1)
@@ -2054,7 +2057,7 @@ class N88_RFQ_Auth {
 
             if ( $action_badge === 'awarded' ) {
                 $status_label = __( 'Awarded', 'n88-rfq-platform' );
-                $status_color = '#FF0065';
+                $status_color = '#00ff00';
             } elseif ( $action_badge === 'expired' ) {
                 $status_label = __( 'Expired', 'n88-rfq-platform' );
                 $status_color = '#999';
@@ -2085,7 +2088,7 @@ class N88_RFQ_Auth {
                 $is_action_required = true;
             } elseif ( $action_badge === 'cad_video_approved' || ( $cad_released && $prototype_status === 'approved' ) ) {
                 $status_label = __( 'Video approved', 'n88-rfq-platform' );
-                $status_color = '#FF0065';
+                $status_color = '#00ff00';
             } elseif ( $action_badge === 'submitted' && $cad_released && $prototype_status === 'submitted' ) {
                 $status_label = __( 'Prototype video submitted - Under review', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
@@ -2106,7 +2109,7 @@ class N88_RFQ_Auth {
             } else {
                 if ( $cad_released && $prototype_status === 'approved' ) {
                     $status_label = __( 'Video approved', 'n88-rfq-platform' );
-                    $status_color = '#FF0065';
+                    $status_color = '#00ff00';
                 } elseif ( $cad_released && $prototype_status === 'changes_requested' ) {
                     $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
                     $status_color = '#ff8800';
@@ -2212,15 +2215,18 @@ class N88_RFQ_Auth {
         <div class="n88-supplier-queue">
             <!-- Header -->
             <div class="n88-supplier-queue-header">
-                <div class="n88-supplier-queue-header-left">
-                    <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-supplier-queue-back" title="Back">←</a>
-                    <div class="n88-supplier-queue-logo">
-                        <h1 class="n88-supplier-queue-logo-title">WireFrame (OS)</h1>
-                        <p class="n88-supplier-queue-logo-by">By Neev</p>
-                    </div>
+                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-supplier-queue-close" title="Close">×</a>
+                <div class="n88-supplier-queue-logo">
+                    <h1 class="n88-supplier-queue-logo-title">WireFrame (OS)</h1>
+                    <p class="n88-supplier-queue-logo-by">By Neev</p>
                 </div>
-                <div class="n88-supplier-queue-user">
-                    <?php echo esc_html( $current_user->display_name ); ?> ▼
+                <div class="n88-supplier-queue-user-dropdown">
+                    <button type="button" class="n88-supplier-queue-user-trigger" aria-expanded="false" aria-haspopup="true">
+                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                    </button>
+                    <div class="n88-supplier-queue-user-menu">
+                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>">Logout</a>
+                    </div>
                 </div>
             </div>
             
@@ -2228,7 +2234,7 @@ class N88_RFQ_Auth {
             <div class="n88-supplier-queue-section">
                 <h2 class="n88-supplier-queue-section-title">Supplier Queue - RFQs Requiring Action</h2>
                 <div class="n88-supplier-queue-filters">
-                    <div class="n88-supplier-queue-filter">
+                    <div class="n88-supplier-queue-filter n88-supplier-queue-filter-status">
                         <label class="n88-supplier-queue-filter-label">Status:</label>
                         <select id="n88-supplier-status">
                             <option value="needs_action" <?php selected( $status_filter, 'needs_action' ); ?>><?php esc_html_e( 'Needs Action', 'n88-rfq-platform' ); ?></option>
@@ -2239,7 +2245,7 @@ class N88_RFQ_Auth {
                             <option value="all" <?php selected( $status_filter, 'all' ); ?>><?php esc_html_e( 'All', 'n88-rfq-platform' ); ?></option>
                         </select>
                     </div>
-                    <div class="n88-supplier-queue-filter">
+                    <div class="n88-supplier-queue-filter n88-supplier-queue-filter-time">
                         <label class="n88-supplier-queue-filter-label">Time Remaining:</label>
                         <select id="n88-supplier-time-remaining">
                             <option value="all" <?php selected( $time_remaining_filter, 'all' ); ?>>All</option>
@@ -2248,7 +2254,7 @@ class N88_RFQ_Auth {
                             <option value="later" <?php selected( $time_remaining_filter, 'later' ); ?>>Later (>72h)</option>
                         </select>
                     </div>
-                    <div class="n88-supplier-queue-filter">
+                    <div class="n88-supplier-queue-filter n88-supplier-queue-filter-category">
                         <label class="n88-supplier-queue-filter-label">Category:</label>
                         <select id="n88-supplier-category">
                             <option value="all" <?php selected( $category_filter, 'all' ); ?>>All</option>
@@ -2257,6 +2263,7 @@ class N88_RFQ_Auth {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="n88-supplier-queue-filter-gap"></div>
                     <div class="n88-supplier-queue-search-wrap">
                         <input type="text" id="n88-supplier-search" value="<?php echo esc_attr( $search ); ?>" placeholder="Search item label / Item #">
                     </div>
@@ -2357,10 +2364,12 @@ class N88_RFQ_Auth {
                                         if ( $show_action_badge ) : ?>
                                             <span class="n88-supplier-queue-action-required">Action Required</span>
                                         <?php endif; ?>
-                                        <?php if ( ! empty( $item_data['unread_operator_messages'] ) && $item_data['unread_operator_messages'] > 0 ) : ?>
-                                            <span style="font-size: 11px; color: #fff;"><?php echo intval( $item_data['unread_operator_messages'] ); ?> msg from operator</span>
-                                        <?php endif; ?>
                                         </div>
+                                        <?php
+                                        $status_label = isset( $item_data['supplier_status_label'] ) ? $item_data['supplier_status_label'] : ucfirst( str_replace( '_', ' ', $item_data['action_badge'] ) );
+                                        $status_color = isset( $item_data['supplier_status_color'] ) ? $item_data['supplier_status_color'] : '#fff';
+                                        ?>
+                                        <div style="margin-top: 4px;"><span style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px;"><?php echo esc_html( $status_label ); ?></span></div>
                                         <?php if ( $item_data['time_remaining'] ) : ?>
                                             <div style="font-size: 11px; margin-top: 4px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
                                         <?php endif; ?>
@@ -2431,9 +2440,13 @@ class N88_RFQ_Auth {
             <?php endif; ?>
         </div>
         
-        <!-- Supplier RFQ Detail Modal - User specs: bg #3C3C3C, labels #C8C8C8, values #FFFFFF, borders #555555, accent #FF0065 -->
-        <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
-            <div id="n88-supplier-bid-modal-content" class="n88-supplier-modal" style="position: fixed; top: 24px; left: 24px; right: 24px; bottom: 24px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); background-color: #3C3C3C !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+        <!-- Supplier RFQ Detail Modal - no solid overlay; 4 transparent edge panels so queue visible in gaps, click to close -->
+        <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10000; pointer-events: none;">
+            <div id="n88-supplier-bid-modal-top" class="n88-supplier-modal-edge" onclick="if(typeof closeBidModal==='function')closeBidModal();" style="position: fixed; top: 0; left: 0; right: 0; height: 30px; pointer-events: auto; cursor: pointer;"></div>
+            <div id="n88-supplier-bid-modal-left" class="n88-supplier-modal-edge" onclick="if(typeof closeBidModal==='function')closeBidModal();" style="position: fixed; top: 30px; left: 0; width: 150px; bottom: 30px; pointer-events: auto; cursor: pointer;"></div>
+            <div id="n88-supplier-bid-modal-right" class="n88-supplier-modal-edge" onclick="if(typeof closeBidModal==='function')closeBidModal();" style="position: fixed; top: 30px; right: 0; width: 150px; bottom: 30px; pointer-events: auto; cursor: pointer;"></div>
+            <div id="n88-supplier-bid-modal-bottom" class="n88-supplier-modal-edge" onclick="if(typeof closeBidModal==='function')closeBidModal();" style="position: fixed; bottom: 0; left: 0; right: 0; height: 30px; pointer-events: auto; cursor: pointer;"></div>
+            <div id="n88-supplier-bid-modal-content" class="n88-supplier-modal" style="position: fixed; top: 30px; left: 150px; right: 150px; bottom: 30px; max-width: calc(100vw - 300px); max-height: calc(100vh - 60px); background-color: #3C3C3C !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px; border: 1px solid #555555;  pointer-events: auto;">
                 <!-- Modal content will be populated by JavaScript: header, then left (images) + right (tabs) -->
             </div>
         </div>
@@ -2519,6 +2532,21 @@ class N88_RFQ_Auth {
                     searchInput.addEventListener('input', function() {
                         clearTimeout(searchTimeout);
                         searchTimeout = setTimeout(updateSupplierQueueURL, 500);
+                    });
+                }
+                
+                // User dropdown toggle
+                var userTrigger = document.querySelector('.n88-supplier-queue-user-trigger');
+                var userMenu = document.querySelector('.n88-supplier-queue-user-menu');
+                if (userTrigger && userMenu) {
+                    userTrigger.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        userMenu.classList.toggle('show');
+                        userTrigger.setAttribute('aria-expanded', userMenu.classList.contains('show'));
+                    });
+                    document.addEventListener('click', function() {
+                        userMenu.classList.remove('show');
+                        userTrigger.setAttribute('aria-expanded', 'false');
                     });
                 }
                 
@@ -3029,6 +3057,9 @@ class N88_RFQ_Auth {
                 // Show loading state
                 modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Loading item details...</div>';
                 modal.style.display = 'block';
+                modal.style.setProperty('background', 'transparent', 'important');
+                modal.style.setProperty('background-color', 'transparent', 'important');
+                modal.style.setProperty('backdrop-filter', 'blur(0.6px)', 'important');
                 document.body.style.overflow = 'hidden';
                 
                 // Fetch item details via AJAX (Commit 2.3.2)
@@ -3203,7 +3234,7 @@ class N88_RFQ_Auth {
                     }
                     
                     // Build modal HTML - Full-width: left images + right tabs (Item Overview, Messages, Bid, Prototype)
-                    var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+                    var tabStyle = 'flex: 1; padding: 12px 16px; background: #000; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                     var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                     var leftColImages = (item.image_url || item.primary_image_url ? (function() {
                         var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
@@ -3644,7 +3675,7 @@ class N88_RFQ_Auth {
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
                         '</div>' +
                         '<div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">' +
-                        '<div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
+                        '<div style="width: 30%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
                         '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Overview</button>' +
@@ -3951,7 +3982,7 @@ class N88_RFQ_Auth {
             
             window.n88SupplierModalSwitchTab = function(tabName) {
                 var tabs = ['overview', 'bid', 'workflow'];
-                var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
+                var tabStyle = 'flex: 1; padding: 12px 16px; background: #000; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                 var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 tabs.forEach(function(name) {
                     var btn = document.getElementById('n88-supplier-tab-' + name);
@@ -7876,11 +7907,11 @@ class N88_RFQ_Auth {
                     });
                 });
                 
-                // Close modal on backdrop click
+                // Close modal on backdrop click (edge panels or wrapper)
                 var modal = document.getElementById('n88-supplier-bid-modal');
                 if (modal) {
                     modal.addEventListener('click', function(e) {
-                        if (e.target === modal) {
+                        if (e.target === modal || e.target.closest('.n88-supplier-modal-edge') || e.target.classList.contains('n88-supplier-modal-edge')) {
                             closeBidModal();
                         }
                     });
@@ -8883,7 +8914,7 @@ class N88_RFQ_Auth {
                         messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
                         
-                        var redirectUrl = (data.data.first_time_onboarding) ? '<?php echo esc_url( home_url( '/login/?n88_post_onboarding=1' ) ); ?>' : '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
+                        var redirectUrl = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
                         setTimeout(function() {
                             window.location.href = redirectUrl;
                         }, 2000);
@@ -9539,7 +9570,7 @@ class N88_RFQ_Auth {
                         messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
                         
-                        var redirectUrl = (data.data.first_time_onboarding) ? '<?php echo esc_url( home_url( '/login/?n88_post_onboarding=1' ) ); ?>' : '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
+                        var redirectUrl = '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
                         setTimeout(function() {
                             window.location.href = redirectUrl;
                         }, 2000);
@@ -16139,37 +16170,40 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         ob_start();
         ?>
-        <div class="n88-operator-queue" style="background-color: #000; color: #fff; font-family: 'Courier New', Courier, monospace; min-height: 100vh; padding: 20px;">
-            <!-- Header Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1 style="margin: 0; font-size: 18px; font-weight: normal; color: #fff; font-family: 'Courier New', Courier, monospace;">WIRE FRAME OS — OPERATOR CONSOLE</h1>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="font-size: 14px; color: #fff;">System Operator (Operational)</span>
-                        <span style="font-size: 12px; color: #999;">Purpose: Monitor execution states, confirm payments, unblock suppliers</span>
-                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="padding: 4px 8px; border: 1px solid #fff; color: #fff; text-decoration: none; font-size: 12px; font-family: 'Courier New', Courier, monospace;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='transparent';">[ Logout ]</a>
+        <div class="n88-operator-queue">
+            <!-- Header: back (left), logo (center), user + logout (right) - same as supplier -->
+            <div class="n88-operator-queue-header">
+                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-operator-queue-close" title="Back">×</a>
+                <div class="n88-operator-queue-logo">
+                    <h1 class="n88-operator-queue-logo-title">WireFrame (OS)</h1>
+                    <p class="n88-operator-queue-logo-by">By Neev</p>
+                </div>
+                <div class="n88-operator-queue-user-dropdown">
+                    <button type="button" class="n88-operator-queue-user-trigger" aria-expanded="false" aria-haspopup="true">
+                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                    </button>
+                    <div class="n88-operator-queue-user-menu">
+                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>">Logout</a>
                     </div>
                 </div>
             </div>
 
-            <!-- Filter Bar Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">FILTER BAR</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 15px;">
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Status:</label>
-                        <select id="n88-operator-status-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
-                            <option value="prototype_requested" <?php selected( $status_filter, 'prototype_requested' ); ?>>Prototype Requested</option>
-                            <option value="payment_requested" <?php selected( $status_filter, 'payment_requested' ); ?>>Payment Requested</option>
-                            <option value="payment_received" <?php selected( $status_filter, 'payment_received' ); ?>>Payment Received</option>
-                            <option value="in_production" <?php selected( $status_filter, 'in_production' ); ?>>In Production (future)</option>
+            <!-- Filters Section - same design as supplier queue -->
+            <div class="n88-operator-queue-section">
+                <h2 class="n88-operator-queue-section-title">Operator Queue - RFQs Requiring Action</h2>
+                <div class="n88-operator-queue-filters">
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Status:</label>
+                        <select id="n88-operator-status-filter">
+                            <option value="requested" <?php selected( $status_filter, 'requested' ); ?>>Payment Requested</option>
+                            <option value="marked_received" <?php selected( $status_filter, 'marked_received' ); ?>>Payment Received</option>
                             <option value="all" <?php selected( $status_filter, 'all' ); ?>>All</option>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Supplier:</label>
-                        <select id="n88-operator-supplier-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
-                            <option value="all" <?php selected( $supplier_filter, 'all' ); ?>>[ All ]</option>
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Supplier:</label>
+                        <select id="n88-operator-supplier-filter">
+                            <option value="all" <?php selected( $supplier_filter, 'all' ); ?>>All</option>
                             <?php foreach ( $unique_suppliers as $sup ) : ?>
                                 <option value="<?php echo esc_attr( $sup['supplier_id'] ); ?>" <?php selected( $supplier_filter, $sup['supplier_id'] ); ?>>
                                     <?php echo esc_html( $sup['display_name'] ?: $sup['user_login'] ?: 'Supplier #' . $sup['supplier_id'] ); ?>
@@ -16177,10 +16211,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Category:</label>
-                        <select id="n88-operator-category-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
-                            <option value="all" <?php selected( $category_filter, 'all' ); ?>>[ All ]</option>
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Designer:</label>
+                        <select id="n88-operator-designer-filter">
+                            <option value="all" <?php selected( $designer_filter, 'all' ); ?>>All</option>
+                            <?php foreach ( $unique_designers as $des ) : ?>
+                                <?php if ( ! empty( $des['designer_user_id'] ) ) : ?>
+                                    <option value="<?php echo esc_attr( $des['designer_user_id'] ); ?>" <?php selected( $designer_filter, $des['designer_user_id'] ); ?>>
+                                        <?php echo esc_html( $des['display_name'] ?: $des['user_login'] ?: 'Designer #' . $des['designer_user_id'] ); ?>
+                                    </option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Category:</label>
+                        <select id="n88-operator-category-filter">
+                            <option value="all" <?php selected( $category_filter, 'all' ); ?>>All</option>
                             <?php foreach ( $unique_categories as $cat ) : ?>
                                 <?php if ( ! empty( $cat['item_type'] ) ) : ?>
                                     <option value="<?php echo esc_attr( $cat['item_type'] ); ?>" <?php selected( $category_filter, $cat['item_type'] ); ?>>
@@ -16190,38 +16237,38 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Time:</label>
-                        <select id="n88-operator-time-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Time:</label>
+                        <select id="n88-operator-time-filter">
                             <option value="all" <?php selected( $time_filter, 'all' ); ?>>All</option>
                             <option value="24h" <?php selected( $time_filter, '24h' ); ?>>24h</option>
                             <option value="7d" <?php selected( $time_filter, '7d' ); ?>>7d</option>
                             <option value="30d" <?php selected( $time_filter, '30d' ); ?>>30d</option>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Needs Attention:</label>
-                        <select id="n88-operator-needs-attention-filter" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                    <div class="n88-operator-queue-filter">
+                        <label class="n88-operator-queue-filter-label">Needs Attention:</label>
+                        <select id="n88-operator-needs-attention-filter">
                             <option value="all" <?php selected( $needs_attention_filter, 'all' ); ?>>All</option>
-                            <option value="yes" <?php selected( $needs_attention_filter, 'yes' ); ?>>Yes (Clarifications + Payment Requested)</option>
-                            <option value="no" <?php selected( $needs_attention_filter, 'no' ); ?>>No (Payment Received)</option>
+                            <option value="yes" <?php selected( $needs_attention_filter, 'yes' ); ?>>Yes</option>
+                            <option value="no" <?php selected( $needs_attention_filter, 'no' ); ?>>No</option>
                         </select>
                     </div>
-                    <div style="flex: 1; min-width: 200px;">
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Search:</label>
-                        <input type="text" id="n88-operator-search-filter" value="<?php echo esc_attr( $search_filter ); ?>" placeholder="item id / bid id / payment id" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 100%; max-width: 300px;">
+                    <div class="n88-operator-queue-filter-gap"></div>
+                    <div class="n88-operator-queue-search-wrap">
+                        <label class="n88-operator-queue-filter-label">Search</label>
+                        <input type="text" id="n88-operator-search-filter" value="<?php echo esc_attr( $search_filter ); ?>" placeholder="Search item id / bid id / payment id">
                     </div>
                 </div>
             </div>
 
-            <!-- Operator Queue - Item Case Files Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">OPERATOR QUEUE — ITEM CASE FILES</div>
-                <div style="font-size: 11px; color: #ccc; margin-bottom: 10px;">One row = one item (source of truth)</div>
+            <!-- Item Case Files Section -->
+            <div class="n88-operator-queue-section">
+                <h2 class="n88-operator-queue-section-title">Item Case Files</h2>
+                <p class="n88-operator-queue-items-desc">One row = one item (source of truth)</p>
 
-                <!-- Items Table -->
-                <div style="border: 2px solid #fff; overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-family: 'Courier New', Courier, monospace;">
+                <div style="border: 1px solid #fff; overflow-x: auto;">
+                    <table class="n88-operator-queue-table">
                         <thead>
                             <tr style="border-bottom: 2px solid #fff; background-color: #1a1a1a;">
                                 <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">ITEM / PROJECT</th>
@@ -16234,7 +16281,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <tbody>
                             <?php if ( empty( $requests ) ) : ?>
                                 <tr>
-                                    <td colspan="5" style="padding: 20px; text-align: center; color: #999; font-size: 12px;">No requests found matching the selected filters.</td>
+                                    <td colspan="5" class="n88-operator-queue-empty">No requests found matching the selected filters.</td>
                                 </tr>
                             <?php else :
                                     $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
@@ -16839,8 +16886,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         </div>
 
         <!-- Operator Case Modal — Same as supplier item modal: 20px gap, no page scroll, content scrolls inside -->
-        <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
-            <div id="n88-operator-case-modal-inner" style="position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); background-color: #000; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+        <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 30px; left: 30px; right: 30px; bottom: 30px;    background: transparent !important;
+    backdrop-filter: blur(0.6px) !important; z-index: 10000; overflow: hidden;">
+            <div id="n88-operator-case-modal-inner" style="position: fixed; top: 20px; left: 20px; right: 30px; bottom: 20px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); background-color: #000; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
                 <div id="n88-case-modal-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;">
                     <!-- Content populated by loadCaseDetails(): header + left (images) + right (tabs) -->
                 </div>
@@ -16897,6 +16945,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         updateOperatorQueueURL();
                         window.location.reload();
                     }, 500);
+                });
+            }
+
+            // Operator queue user dropdown (same as supplier)
+            var opUserTrigger = document.querySelector('.n88-operator-queue-user-trigger');
+            var opUserMenu = document.querySelector('.n88-operator-queue-user-menu');
+            if (opUserTrigger && opUserMenu) {
+                opUserTrigger.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    opUserMenu.classList.toggle('show');
+                });
+                document.addEventListener('click', function() {
+                    opUserMenu.classList.remove('show');
                 });
             }
 
@@ -18609,7 +18670,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
         <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
-            <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
+            <div style="width: 30%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
                 <?php if ( ! empty( $thumbnail_url ) ) : ?>
                 <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
                 <?php else : ?>
@@ -19305,7 +19366,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         <!-- Body: left 42% + right tabs (same as supplier) -->
         <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
             <!-- Left: image + item # (supplier-style) -->
-            <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
+            <div style="width: 30%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
                 <?php if ( ! empty( $thumbnail_url ) ) : ?>
                 <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
                 <?php else : ?>
