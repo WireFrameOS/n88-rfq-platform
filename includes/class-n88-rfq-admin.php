@@ -4089,6 +4089,77 @@ class N88_RFQ_Admin {
                             }
                         }
                         
+                        // Commit 3.B.5.A1: Step 4–6 status for designer/operator item cards (supplier video, operator video, designer comment, step started/completed)
+                        $step456_status_text = null;
+                        $step456_status_color = null;
+                        if ( $prototype_status === 'approved' || $has_awarded_bid ) {
+                            $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+                            $comments_table_456 = $wpdb->prefix . 'n88_timeline_step_comments';
+                            $steps_table_456 = $wpdb->prefix . 'n88_item_timeline_steps';
+                            $timelines_table = $wpdb->prefix . 'n88_item_timelines';
+                            $has_supplier_video = false;
+                            $has_operator_video = false;
+                            $has_designer_comment = false;
+                            $latest_step_status = null;
+                            $latest_step_num = null;
+                            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table ) {
+                                $has_supplier_video = (int) $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND supplier_id IS NOT NULL",
+                                    $item_id
+                                ) ) > 0;
+                                $has_operator_video = (int) $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND operator_id IS NOT NULL",
+                                    $item_id
+                                ) ) > 0;
+                            }
+                            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$comments_table_456}'" ) === $comments_table_456 ) {
+                                $has_designer_comment = (int) $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT COUNT(*) FROM {$comments_table_456} WHERE item_id = %d AND step_number IN (4,5,6)",
+                                    $item_id
+                                ) ) > 0;
+                            }
+                            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_table}'" ) === $timelines_table
+                                && $wpdb->get_var( "SHOW TABLES LIKE '{$steps_table_456}'" ) === $steps_table_456 ) {
+                                $timeline_id = $wpdb->get_var( $wpdb->prepare( "SELECT timeline_id FROM {$timelines_table} WHERE item_id = %d", $item_id ) );
+                                if ( $timeline_id ) {
+                                    $step_row = $wpdb->get_row( $wpdb->prepare(
+                                        "SELECT step_number, status FROM {$steps_table_456} WHERE timeline_id = %d AND step_number IN (4,5,6) ORDER BY step_number DESC LIMIT 1",
+                                        $timeline_id
+                                    ), ARRAY_A );
+                                    if ( $step_row ) {
+                                        $latest_step_num = (int) $step_row['step_number'];
+                                        $latest_step_status = $step_row['status'];
+                                    }
+                                }
+                            }
+                            if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
+                                $step456_status_text = 'Step 6 Completed';
+                                $step456_status_color = '#00ff00';
+                            } elseif ( $latest_step_status === 'completed' ) {
+                                $step456_status_text = 'Step ' . $latest_step_num . ' Completed';
+                                $step456_status_color = '#00ff00';
+                            } elseif ( $latest_step_status === 'in_progress' ) {
+                                $step456_status_text = 'Step ' . $latest_step_num . ' In Progress';
+                                $step456_status_color = '#2196f3';
+                            }
+                            if ( ! $step456_status_text && $has_designer_comment ) {
+                                $step456_status_text = 'Designer commented';
+                                $step456_status_color = '#ff9800';
+                            }
+                            if ( ! $step456_status_text && $has_operator_video ) {
+                                $step456_status_text = 'Operator video added';
+                                $step456_status_color = '#2196f3';
+                            }
+                            if ( ! $step456_status_text && $has_supplier_video ) {
+                                $step456_status_text = 'Supplier video received';
+                                $step456_status_color = '#4caf50';
+                            }
+                            if ( ! $step456_status_text && ( $latest_step_status === 'pending' || $latest_step_num ) ) {
+                                $step456_status_text = 'Step 4–6 Pending';
+                                $step456_status_color = '#999';
+                            }
+                        }
+                        
                         $items[] = array(
                             'id' => $item_id_string,
                             'x' => isset( $layout_item['x'] ) ? floatval( $layout_item['x'] ) : 50 + ( count( $items ) * 250 ),
@@ -4134,6 +4205,9 @@ class N88_RFQ_Admin {
                             'action_required' => $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ),
                             // Commit 2.3.9.1C: Prototype payment status; Fix #27: cad_status for CAD Approved / Review CAD label
                             'has_prototype_payment' => $has_prototype_payment,
+                            // Commit 3.B.5.A1: Step 4–6 status (supplier/operator video, designer comment, step started/completed)
+                            'step456_status_text' => $step456_status_text,
+                            'step456_status_color' => $step456_status_color,
                             'prototype_payment_status' => $prototype_payment_status,
                             'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
                             'cad_status' => $cad_status,
@@ -4425,6 +4499,48 @@ class N88_RFQ_Admin {
                             }
                         }
                         
+                        // Commit 3.B.5.A1: Step 4–6 status for new items (no layout)
+                        $step456_status_text_else = null;
+                        $step456_status_color_else = null;
+                        if ( $prototype_status === 'approved' || $has_awarded_bid ) {
+                            $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+                            $comments_table_456 = $wpdb->prefix . 'n88_timeline_step_comments';
+                            $steps_table_456 = $wpdb->prefix . 'n88_item_timeline_steps';
+                            $timelines_table = $wpdb->prefix . 'n88_item_timelines';
+                            $has_supplier_video = ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table )
+                                ? ( (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND supplier_id IS NOT NULL", $item_id ) ) > 0 ) : false;
+                            $has_operator_video = ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table )
+                                ? ( (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND operator_id IS NOT NULL", $item_id ) ) > 0 ) : false;
+                            $has_designer_comment = ( $wpdb->get_var( "SHOW TABLES LIKE '{$comments_table_456}'" ) === $comments_table_456 )
+                                ? ( (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$comments_table_456} WHERE item_id = %d AND step_number IN (4,5,6)", $item_id ) ) > 0 ) : false;
+                            $latest_step_status = null;
+                            $latest_step_num = null;
+                            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_table}'" ) === $timelines_table && $wpdb->get_var( "SHOW TABLES LIKE '{$steps_table_456}'" ) === $steps_table_456 ) {
+                                $timeline_id = $wpdb->get_var( $wpdb->prepare( "SELECT timeline_id FROM {$timelines_table} WHERE item_id = %d", $item_id ) );
+                                if ( $timeline_id ) {
+                                    $step_row = $wpdb->get_row( $wpdb->prepare( "SELECT step_number, status FROM {$steps_table_456} WHERE timeline_id = %d AND step_number IN (4,5,6) ORDER BY step_number DESC LIMIT 1", $timeline_id ), ARRAY_A );
+                                    if ( $step_row ) {
+                                        $latest_step_num = (int) $step_row['step_number'];
+                                        $latest_step_status = $step_row['status'];
+                                    }
+                                }
+                            }
+                            if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
+                                $step456_status_text_else = 'Step 6 Completed';
+                                $step456_status_color_else = '#00ff00';
+                            } elseif ( $latest_step_status === 'completed' ) {
+                                $step456_status_text_else = 'Step ' . $latest_step_num . ' Completed';
+                                $step456_status_color_else = '#00ff00';
+                            } elseif ( $latest_step_status === 'in_progress' ) {
+                                $step456_status_text_else = 'Step ' . $latest_step_num . ' In Progress';
+                                $step456_status_color_else = '#2196f3';
+                            }
+                            if ( ! $step456_status_text_else && $has_designer_comment ) { $step456_status_text_else = 'Designer commented'; $step456_status_color_else = '#ff9800'; }
+                            if ( ! $step456_status_text_else && $has_operator_video ) { $step456_status_text_else = 'Operator video added'; $step456_status_color_else = '#2196f3'; }
+                            if ( ! $step456_status_text_else && $has_supplier_video ) { $step456_status_text_else = 'Supplier video received'; $step456_status_color_else = '#4caf50'; }
+                            if ( ! $step456_status_text_else ) { $step456_status_text_else = 'Step 4–6 Pending'; $step456_status_color_else = '#999'; }
+                        }
+                        
                         // Calculate position for new items - arrange in grid side-by-side
                         // Items will be arranged horizontally, wrapping to new rows as needed
                         $item_spacing = 20; // Space between items
@@ -4498,6 +4614,8 @@ class N88_RFQ_Admin {
                             'prototype_payment_status' => $prototype_payment_status,
                             'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
                             'cad_status' => $cad_status,
+                            'step456_status_text' => $step456_status_text_else,
+                            'step456_status_color' => $step456_status_color_else,
                             'cad_current_version' => $cad_current_version,
                             // Also add meta object for backward compatibility
                             'meta' => $item_meta,
@@ -14661,8 +14779,6 @@ class N88_RFQ_Admin {
                                                 }, (function() {
                                                     var stepEls = [];
                                                     timelineData.steps.forEach(function(step, idx) {
-                                                        var isActive = step.display_status === 'in_progress' || step.display_status === 'delayed';
-                                                        var isCompleted = step.display_status === 'completed';
                                                         var isSelected = selectedStepIndex === idx;
                                                         stepEls.push(React.createElement('div', {
                                                             key: step.step_id || idx,
@@ -14681,9 +14797,9 @@ class N88_RFQ_Admin {
                                                                     width: '28px',
                                                                     height: '28px',
                                                                     borderRadius: '50%',
-                                                                    border: '2px solid ' + (isCompleted ? greenAccent : isActive ? greenAccent : darkBorder),
-                                                                    background: isCompleted ? greenAccent : 'transparent',
-                                                                    color: isCompleted ? '#0a0a0a' : isActive ? greenAccent : darkText,
+                                                                    border: '2px solid ' + (isSelected ? greenAccent : darkBorder),
+                                                                    background: isSelected ? greenAccent : '#333',
+                                                                    color: isSelected ? '#0a0a0a' : '#888',
                                                                     fontSize: '12px',
                                                                     fontWeight: '600',
                                                                     display: 'flex',
@@ -14695,7 +14811,7 @@ class N88_RFQ_Admin {
                                                             React.createElement('div', {
                                                                 style: {
                                                                     fontSize: '10px',
-                                                                    color: isSelected ? greenAccent : darkText,
+                                                                    color: isSelected ? greenAccent : '#888',
                                                                     textAlign: 'center',
                                                                     lineHeight: 1.2,
                                                                     overflow: 'hidden',
@@ -15073,7 +15189,7 @@ class N88_RFQ_Admin {
                                                                             if (urls[0]) fd.append('url_1', urls[0]); if (urls[1]) fd.append('url_2', urls[1]); if (urls[2]) fd.append('url_3', urls[2]);
                                                                             if (note) fd.append('optional_note', note);
                                                                             fetch(ajaxUrlOp, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(res) {
-                                                                                if (res.success) { setOperatorStep456VideoFormStep(null); if (typeof fetchTimeline === 'function') fetchTimeline(); }
+                                                                                if (res.success) { setOperatorStep456VideoFormStep(null); if (typeof fetchTimeline === 'function') fetchTimeline(); try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {} }
                                                                                 else { alert((res.data && res.data.message) || res.message || 'Failed.'); }
                                                                             }).finally(function() { if (btn) { btn.disabled = false; btn.textContent = 'Submit'; } });
                                                                         }, style: { padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' } }, 'Submit'),
@@ -15106,7 +15222,7 @@ class N88_RFQ_Admin {
                                                                             fd.append('comment_text', draft.trim());
                                                                             fd.append('_ajax_nonce', nonceRfq);
                                                                             fetch(ajaxUrlOp, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(res) {
-                                                                                if (res.success) { setDesignerStep456CommentDraft(function(prev) { var n = Object.assign({}, prev); n[s.step_number] = ''; return n; }); if (typeof fetchTimeline === 'function') fetchTimeline(); }
+                                                                                if (res.success) { setDesignerStep456CommentDraft(function(prev) { var n = Object.assign({}, prev); n[s.step_number] = ''; return n; }); if (typeof fetchTimeline === 'function') fetchTimeline(); try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {} }
                                                                                 else { alert((res.data && res.data.message) || res.message || 'Failed to submit comment.'); }
                                                                             }).finally(function() { setDesignerStep456CommentSubmitting(false); });
                                                                         },

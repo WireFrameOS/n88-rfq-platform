@@ -251,12 +251,17 @@ class N88_RFQ_Auth {
             array(),
             null
         );
+        $css_file = ( defined( 'N88_RFQ_PLUGIN_DIR' ) ? N88_RFQ_PLUGIN_DIR : dirname( dirname( __FILE__ ) ) . '/' ) . 'assets/css/n88-rfq-auth.css';
+        $css_ver = file_exists( $css_file ) ? filemtime( $css_file ) : N88_RFQ_VERSION;
         wp_enqueue_style(
             'n88-rfq-auth',
             $plugin_url . 'assets/css/n88-rfq-auth.css',
             array( 'n88-ibm-plex-mono' ),
-            N88_RFQ_VERSION
+            $css_ver
         );
+        $sq_css = ( defined( 'N88_RFQ_PLUGIN_DIR' ) ? N88_RFQ_PLUGIN_DIR : dirname( dirname( __FILE__ ) ) . '/' ) . 'assets/css/n88-supplier-queue.css';
+        $sq_ver = file_exists( $sq_css ) ? filemtime( $sq_css ) : N88_RFQ_VERSION;
+        wp_enqueue_style( 'n88-supplier-queue', $plugin_url . 'assets/css/n88-supplier-queue.css', array( 'n88-rfq-auth' ), $sq_ver );
     }
 
     /**
@@ -340,7 +345,7 @@ class N88_RFQ_Auth {
                         <label for="n88_signup_password">Password <span class="n88-required-asterisk">*</span></label>
                         <div class="n88-password-wrapper">
                             <input type="password" id="n88_signup_password" name="password" required minlength="6" placeholder="Enter your password">
-                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password"><?php echo '👁'; ?></button>
+                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Show password', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password"><svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
                         </div>
                     </div>
 
@@ -348,7 +353,7 @@ class N88_RFQ_Auth {
                         <label for="n88_signup_password_confirm">Confirm Password <span class="n88-required-asterisk">*</span></label>
                         <div class="n88-password-wrapper">
                             <input type="password" id="n88_signup_password_confirm" name="password_confirm" required minlength="6" placeholder="Re-enter your password">
-                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password_confirm"><?php echo '👁'; ?></button>
+                            <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Show password', 'n88-rfq-platform' ); ?>" data-target="n88_signup_password_confirm"><svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
                         </div>
                     </div>
 
@@ -384,6 +389,19 @@ class N88_RFQ_Auth {
 
         <script>
         (function() {
+            // Password visibility toggle (signup form) - eye / eye-off icons
+            var eyeSvg = '<svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+            var eyeOffSvg = '<svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+            document.addEventListener('click', function(e) {
+                var btn = e.target.closest('.n88-password-toggle');
+                if (!btn || !btn.dataset.target) return;
+                var input = document.getElementById(btn.dataset.target);
+                if (!input) return;
+                input.type = input.type === 'password' ? 'text' : 'password';
+                btn.innerHTML = input.type === 'password' ? eyeSvg : eyeOffSvg;
+                btn.setAttribute('aria-label', input.type === 'password' ? '<?php echo esc_js( __( 'Show password', 'n88-rfq-platform' ) ); ?>' : '<?php echo esc_js( __( 'Hide password', 'n88-rfq-platform' ) ); ?>');
+            });
+
             const form = document.getElementById('n88-signup-form');
             if (!form) return;
 
@@ -463,6 +481,13 @@ class N88_RFQ_Auth {
      * Render login form shortcode
      */
     public function render_login_form( $atts = array() ) {
+        // Maker flow: After onboarding (step 2), user lands here logged in. Logout and redirect to login with success message.
+        if ( is_user_logged_in() && isset( $_GET['n88_post_onboarding'] ) ) {
+            wp_logout();
+            wp_safe_redirect( home_url( '/login/?n88_onboarding_complete=1' ) );
+            exit;
+        }
+
         // If user is already logged in, redirect based on role (Commit 2.2.1)
         if ( is_user_logged_in() ) {
             $current_user = wp_get_current_user();
@@ -491,6 +516,11 @@ class N88_RFQ_Auth {
         if ( isset( $_GET['n88_signup_success'] ) ) {
             $message_type = 'success';
             $message = 'Registration successful! Please log in.';
+        }
+
+        if ( isset( $_GET['n88_onboarding_complete'] ) ) {
+            $message_type = 'success';
+            $message = 'Onboarding complete! Please log in to continue.';
         }
 
         ob_start();
@@ -565,7 +595,7 @@ class N88_RFQ_Auth {
                             <label for="n88_login_password">Password <span class="n88-required-asterisk">*</span></label>
                             <div class="n88-password-wrapper">
                                 <input type="password" id="n88_login_password" name="password" required placeholder="Please enter your password">
-                                <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Toggle password visibility', 'n88-rfq-platform' ); ?>" data-target="n88_login_password"><?php echo '👁'; ?></button>
+                                <button type="button" class="n88-password-toggle" aria-label="<?php esc_attr_e( 'Show password', 'n88-rfq-platform' ); ?>" data-target="n88_login_password"><svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
                             </div>
                         </div>
 
@@ -590,13 +620,17 @@ class N88_RFQ_Auth {
 
         <script>
         (function() {
-            // Password visibility toggle (login + signup)
+            // Password visibility toggle (login + signup) - eye / eye-off icons
+            var eyeSvg = '<svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+            var eyeOffSvg = '<svg class="n88-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
             document.addEventListener('click', function(e) {
                 var btn = e.target.closest('.n88-password-toggle');
                 if (!btn || !btn.dataset.target) return;
                 var input = document.getElementById(btn.dataset.target);
                 if (!input) return;
                 input.type = input.type === 'password' ? 'text' : 'password';
+                btn.innerHTML = input.type === 'password' ? eyeSvg : eyeOffSvg;
+                btn.setAttribute('aria-label', input.type === 'password' ? '<?php echo esc_js( __( 'Show password', 'n88-rfq-platform' ) ); ?>' : '<?php echo esc_js( __( 'Hide password', 'n88-rfq-platform' ) ); ?>');
             });
 
             // Commit 2.6.1: Handle invitation acceptance form
@@ -793,6 +827,30 @@ class N88_RFQ_Auth {
                     'user_id' => $user_id,
                 )
             );
+        }
+
+        // Maker flow: Step 1 Signup → Step 2 Onboarding → Login → Queue. Log maker in and send to onboarding.
+        if ( $user_role === 'n88_supplier_admin' ) {
+            wp_clear_auth_cookie();
+            wp_set_current_user( $user_id );
+            wp_set_auth_cookie( $user_id, true );
+            do_action( 'wp_login', $username, new WP_User( $user_id ) );
+            wp_send_json_success( array(
+                'message' => 'Registration successful! Complete your profile.',
+                'redirect_url' => home_url( '/supplier/onboarding' ),
+            ) );
+        }
+
+        // Creator flow: Same as Maker - Step 1 Signup → Step 2 Onboarding → Login → Workspace.
+        if ( $user_role === 'n88_designer' ) {
+            wp_clear_auth_cookie();
+            wp_set_current_user( $user_id );
+            wp_set_auth_cookie( $user_id, true );
+            do_action( 'wp_login', $username, new WP_User( $user_id ) );
+            wp_send_json_success( array(
+                'message' => 'Registration successful! Complete your profile.',
+                'redirect_url' => home_url( '/designer/onboarding' ),
+            ) );
         }
 
         wp_send_json_success( array(
@@ -1996,7 +2054,7 @@ class N88_RFQ_Auth {
 
             if ( $action_badge === 'awarded' ) {
                 $status_label = __( 'Awarded', 'n88-rfq-platform' );
-                $status_color = '#00ff00';
+                $status_color = '#FF0065';
             } elseif ( $action_badge === 'expired' ) {
                 $status_label = __( 'Expired', 'n88-rfq-platform' );
                 $status_color = '#999';
@@ -2027,7 +2085,7 @@ class N88_RFQ_Auth {
                 $is_action_required = true;
             } elseif ( $action_badge === 'cad_video_approved' || ( $cad_released && $prototype_status === 'approved' ) ) {
                 $status_label = __( 'Video approved', 'n88-rfq-platform' );
-                $status_color = '#00ff00';
+                $status_color = '#FF0065';
             } elseif ( $action_badge === 'submitted' && $cad_released && $prototype_status === 'submitted' ) {
                 $status_label = __( 'Prototype video submitted - Under review', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
@@ -2048,7 +2106,7 @@ class N88_RFQ_Auth {
             } else {
                 if ( $cad_released && $prototype_status === 'approved' ) {
                     $status_label = __( 'Video approved', 'n88-rfq-platform' );
-                    $status_color = '#00ff00';
+                    $status_color = '#FF0065';
                 } elseif ( $cad_released && $prototype_status === 'changes_requested' ) {
                     $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
                     $status_color = '#ff8800';
@@ -2150,27 +2208,30 @@ class N88_RFQ_Auth {
         
         ob_start();
         ?>
-        <!-- Supplier Queue - Dark Theme Terminal Style (M) -->
-        <div class="n88-supplier-queue" style="background-color: #000; color: #fff; font-family: 'Courier New', Courier, monospace; min-height: 100vh; padding: 20px;">
-            <!-- Header Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1 style="margin: 0; font-size: 18px; font-weight: normal; color: #fff; font-family: 'Courier New', Courier, monospace;">Supplier Queue — RFQs Requiring Action</h1>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="font-size: 14px; color: #fff;">Logged in as: <?php echo esc_html( strtolower( $current_user->display_name ) ); ?></span>
-                        <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="padding: 4px 8px; border: 1px solid #fff; color: #fff; text-decoration: none; font-size: 12px; font-family: 'Courier New', Courier, monospace;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='transparent';">[ Logout ]</a>
+        <!-- Supplier Queue - Screenshot design (pink #FF0065) -->
+        <div class="n88-supplier-queue">
+            <!-- Header -->
+            <div class="n88-supplier-queue-header">
+                <div class="n88-supplier-queue-header-left">
+                    <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-supplier-queue-back" title="Back">←</a>
+                    <div class="n88-supplier-queue-logo">
+                        <h1 class="n88-supplier-queue-logo-title">WireFrame (OS)</h1>
+                        <p class="n88-supplier-queue-logo-by">By Neev</p>
                     </div>
+                </div>
+                <div class="n88-supplier-queue-user">
+                    <?php echo esc_html( $current_user->display_name ); ?> ▼
                 </div>
             </div>
             
             <!-- Filters Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">FILTERS</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Status:</label>
-                        <select id="n88-supplier-status" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
-                            <option value="needs_action" <?php selected( $status_filter, 'needs_action' ); ?>><?php esc_html_e( 'Action Required', 'n88-rfq-platform' ); ?></option>
+            <div class="n88-supplier-queue-section">
+                <h2 class="n88-supplier-queue-section-title">Supplier Queue - RFQs Requiring Action</h2>
+                <div class="n88-supplier-queue-filters">
+                    <div class="n88-supplier-queue-filter">
+                        <label class="n88-supplier-queue-filter-label">Status:</label>
+                        <select id="n88-supplier-status">
+                            <option value="needs_action" <?php selected( $status_filter, 'needs_action' ); ?>><?php esc_html_e( 'Needs Action', 'n88-rfq-platform' ); ?></option>
                             <option value="draft_saved" <?php selected( $status_filter, 'draft_saved' ); ?>><?php esc_html_e( 'Draft Saved', 'n88-rfq-platform' ); ?></option>
                             <option value="submitted" <?php selected( $status_filter, 'submitted' ); ?>><?php esc_html_e( 'Submitted', 'n88-rfq-platform' ); ?></option>
                             <option value="awarded" <?php selected( $status_filter, 'awarded' ); ?>><?php esc_html_e( 'Awarded', 'n88-rfq-platform' ); ?></option>
@@ -2178,56 +2239,50 @@ class N88_RFQ_Auth {
                             <option value="all" <?php selected( $status_filter, 'all' ); ?>><?php esc_html_e( 'All', 'n88-rfq-platform' ); ?></option>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Time Remaining:</label>
-                        <select id="n88-supplier-time-remaining" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                    <div class="n88-supplier-queue-filter">
+                        <label class="n88-supplier-queue-filter-label">Time Remaining:</label>
+                        <select id="n88-supplier-time-remaining">
                             <option value="all" <?php selected( $time_remaining_filter, 'all' ); ?>>All</option>
-                            <option value="due_soon" <?php selected( $time_remaining_filter, 'due_soon' ); ?>>Due Soon (≤24h)</option>
-                            <option value="active" <?php selected( $time_remaining_filter, 'active' ); ?>>Active (24–72h)</option>
+                            <option value="due_soon" <?php selected( $time_remaining_filter, 'due_soon' ); ?>>All Due Soon (≤24h)</option>
+                            <option value="active" <?php selected( $time_remaining_filter, 'active' ); ?>>Active (24-72h)</option>
                             <option value="later" <?php selected( $time_remaining_filter, 'later' ); ?>>Later (>72h)</option>
                         </select>
                     </div>
-                    <div>
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Category:</label>
-                        <select id="n88-supplier-category" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;">
+                    <div class="n88-supplier-queue-filter">
+                        <label class="n88-supplier-queue-filter-label">Category:</label>
+                        <select id="n88-supplier-category">
                             <option value="all" <?php selected( $category_filter, 'all' ); ?>>All</option>
                             <?php foreach ( $all_categories as $cat ) : ?>
                                 <option value="<?php echo esc_attr( $cat['name'] ); ?>" <?php selected( $category_filter, $cat['name'] ); ?>><?php echo esc_html( $cat['name'] ); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div style="flex: 1; min-width: 200px;">
-                        <label style="font-size: 12px; color: #fff; margin-right: 5px;">Search:</label>
-                        <input type="text" id="n88-supplier-search" value="<?php echo esc_attr( $search ); ?>" placeholder="Search item label / Item #" style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 100%; max-width: 300px;">
+                    <div class="n88-supplier-queue-search-wrap">
+                        <input type="text" id="n88-supplier-search" value="<?php echo esc_attr( $search ); ?>" placeholder="Search item label / Item #">
                     </div>
-                </div>
-                <div style="margin-top: 10px; font-size: 11px; color: #ccc; font-style: italic;">
-                    <?php esc_html_e( 'Action Required = Submit proposal | Continue draft | Specs changed | Video changes | Message from operator', 'n88-rfq-platform' ); ?>
                 </div>
             </div>
             
             <!-- Routed Items Section -->
-            <div style="border: 2px dashed #fff; padding: 15px; margin-bottom: 20px;">
-                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #fff; font-family: 'Courier New', Courier, monospace;">ROUTED ITEMS (ANONYMOUS RFQs)</div>
-                <div style="font-size: 11px; color: #ccc; margin-bottom: 5px;">Supplier sees ONLY items routed to them</div>
-                <div style="font-size: 11px; color: #ccc;">No designer identity shown anywhere</div>
-            </div>
+            <div class="n88-supplier-queue-section">
+                <h2 class="n88-supplier-queue-section-title">Routed Items (Anonymous RFQs)</h2>
+                <p class="n88-supplier-queue-items-desc">Supplier sees ONLY items routed to them</p>
+                <p class="n88-supplier-queue-items-desc">No designer identity shown anywhere</p>
             
             <!-- Items Table -->
-            <div style="border: 2px solid #fff; overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-family: 'Courier New', Courier, monospace;">
+            <div style="border: 1px solid #fff; overflow-x: auto;">
+                <table class="n88-supplier-queue-table">
                     <thead>
-                        <tr style="border-bottom: 2px solid #fff;">
-                            <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">Thumbnail</th>
-                            <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">Item Label</th>
-                            <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff; border-right: 1px solid #fff;">Category</th>
-                            <th style="padding: 12px; text-align: left; font-size: 12px; font-weight: bold; color: #fff;">Action</th>
+                        <tr>
+                            <th>Item</th>
+                            <th>Category</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if ( empty( $paginated_items ) ) : ?>
                             <tr>
-                                <td colspan="4" style="padding: 20px; text-align: center; color: #999; font-size: 12px;">No items found matching the selected filters.</td>
+                                <td colspan="3" class="n88-supplier-queue-empty">No items found matching the selected filters.</td>
                             </tr>
                         <?php else : ?>
                             <?php foreach ( $paginated_items as $item_id => $item_data ) : 
@@ -2272,51 +2327,43 @@ class N88_RFQ_Auth {
                                         break;
                                 }
                             ?>
-                                <tr style="border-bottom: 1px dashed #666;">
-                                    <td style="padding: 12px; border-right: 1px solid #fff;">
-                                        <?php if ( $thumbnail_url ) : ?>
-                                            <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="Thumbnail" style="width: 60px; height: 60px; object-fit: cover; border: 1px solid #fff;">
-                                        <?php else : ?>
-                                            <div style="width: 60px; height: 60px; border: 1px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #999;">[ img ]</div>
-                                        <?php endif; ?>
+                                <tr>
+                                    <td>
+                                        <div style="display: flex; align-items: center; gap: 12px;">
+                                            <?php if ( $thumbnail_url ) : ?>
+                                                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="width: 60px; height: 60px; object-fit: cover; border: 1px solid #fff; flex-shrink: 0;">
+                                            <?php else : ?>
+                                                <div style="width: 60px; height: 60px; border: 1px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #999; flex-shrink: 0;">[ img ]</div>
+                                            <?php endif; ?>
+                                            <span><?php echo esc_html( $item_title ); ?></span>
+                                        </div>
                                     </td>
-                                    <td style="padding: 12px; border-right: 1px solid #fff; font-size: 12px; color: #fff;">
-                                        <?php echo esc_html( $item_title ); ?> (Item #<?php echo esc_html( $item_id ); ?>)
-                                    </td>
-                                    <td style="padding: 12px; border-right: 1px solid #fff; font-size: 12px; color: #fff;">
-                                        <?php echo esc_html( $category ); ?>
-                                    </td>
-                                    <td style="padding: 12px; font-size: 12px;">
+                                    <td><?php echo esc_html( $category ); ?></td>
+                                    <td>
                                         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                         <?php if ( ! $is_expired ) : ?>
-                                            <button class="n88-open-bid-modal" 
+                                            <button class="n88-open-bid-modal n88-supplier-queue-action-btn" 
                                                     data-item-id="<?php echo esc_attr( $item_id ); ?>" 
                                                     data-item-title="<?php echo esc_attr( $item_title ); ?>" 
                                                     data-category="<?php echo esc_attr( $category ); ?>"
-                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
-                                                        style="padding: 4px 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 11px; cursor: pointer;" 
-                                                    onmouseover="this.style.backgroundColor='#333';" 
-                                                    onmouseout="this.style.backgroundColor='#000';">
-                                                [ <?php echo esc_html( $action_button_text ); ?> ]
-                                        </button>
+                                                    data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>">
+                                                [ <?php echo esc_html( preg_replace( '/\s*►\s*$/', '', $action_button_text ) ); ?> ]
+                                            </button>
                                         <?php else : ?>
-                                            <span style="color: #999; font-size: 11px;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
+                                            <span style="color: #999;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
+                                        <?php endif; ?>
+                                        <?php
+                                        $show_action_badge = ! empty( $item_data['show_action_required'] ) || ! empty( $item_data['supplier_is_action_required'] );
+                                        if ( $show_action_badge ) : ?>
+                                            <span class="n88-supplier-queue-action-required">Action Required</span>
+                                        <?php endif; ?>
+                                        <?php if ( ! empty( $item_data['unread_operator_messages'] ) && $item_data['unread_operator_messages'] > 0 ) : ?>
+                                            <span style="font-size: 11px; color: #fff;"><?php echo intval( $item_data['unread_operator_messages'] ); ?> msg from operator</span>
                                         <?php endif; ?>
                                         </div>
-                                        <div style="margin-top: 5px;">
-                                            <?php
-                                            $status_label = isset( $item_data['supplier_status_label'] ) ? $item_data['supplier_status_label'] : ucfirst( str_replace( '_', ' ', $item_data['action_badge'] ) );
-                                            $status_color = isset( $item_data['supplier_status_color'] ) ? $item_data['supplier_status_color'] : '#fff';
-                                            $is_action = ! empty( $item_data['supplier_is_action_required'] );
-                                            ?>
-                                            <span style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px; font-weight: <?php echo $is_action ? '600' : 'normal'; ?>;"><?php echo $is_action ? '⚠ ' : ''; ?><?php echo esc_html( $status_label ); ?></span>
-                                        <?php if ( $item_data['action_badge'] === 'specs_changed' ) : ?>
-                                            <div style="color: #ff0; font-size: 10px; margin-top: 3px;">Revision mismatch</div>
-                                        <?php endif; ?>
                                         <?php if ( $item_data['time_remaining'] ) : ?>
-                                            <div style="color: #fff; font-size: 11px; margin-top: 3px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
+                                            <div style="font-size: 11px; margin-top: 4px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
                                         <?php endif; ?>
-                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -2327,7 +2374,7 @@ class N88_RFQ_Auth {
             
             <!-- Pagination Controls -->
             <?php if ( $total_pages > 1 ) : ?>
-                <div style="border: 2px dashed #fff; padding: 15px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+                <div class="n88-supplier-queue-pagination">
                     <div style="font-size: 12px; color: #fff;">
                         Showing <?php echo esc_html( $offset + 1 ); ?>-<?php echo esc_html( min( $offset + $items_per_page, $total_items ) ); ?> of <?php echo esc_html( $total_items ); ?> items
             </div>
@@ -2384,16 +2431,16 @@ class N88_RFQ_Auth {
             <?php endif; ?>
         </div>
         
-        <!-- Supplier RFQ Detail Modal - Contained layout with spacing and rounded corners (like designer modal) -->
+        <!-- Supplier RFQ Detail Modal - User specs: bg #3C3C3C, labels #C8C8C8, values #FFFFFF, borders #555555, accent #FF0065 -->
         <div id="n88-supplier-bid-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10000; overflow: hidden;">
-            <div id="n88-supplier-bid-modal-content" style="position: fixed; top: 24px; left: 24px; right: 24px; bottom: 24px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); background-color: #000 !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
+            <div id="n88-supplier-bid-modal-content" class="n88-supplier-modal" style="position: fixed; top: 24px; left: 24px; right: 24px; bottom: 24px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); background-color: #3C3C3C !important; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
                 <!-- Modal content will be populated by JavaScript: header, then left (images) + right (tabs) -->
             </div>
         </div>
         
-        <!-- Supplier Bid Form Modal (Commit 2.3.5.2: Dark theme with green accents) -->
+        <!-- Supplier Bid Form Modal - User specs: bg #3C3C3C, pink accent #FF0065 -->
         <div id="n88-supplier-bid-form-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10002; overflow: hidden;">
-            <div id="n88-supplier-bid-form-modal-content" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 95vw; max-height: 95vh; background-color: #000; box-shadow: 0 4px 20px rgba(0,255,0,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border: none; border-radius: 4px;">
+            <div id="n88-supplier-bid-form-modal-content" class="n88-supplier-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 700px; max-width: 95vw; max-height: 95vh; background-color: #3C3C3C !important; box-shadow: 0 4px 20px rgba(255,0,101,0.3); z-index: 10003; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555555; border-radius: 4px;">
                 <!-- Modal content will be populated by JavaScript -->
             </div>
         </div>
@@ -2615,7 +2662,7 @@ class N88_RFQ_Auth {
                     
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isSupplier ? 'flex-end' : 'flex-start') + '; width: 100%;">';
                     html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isSupplier ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid #555; border-radius: ' + (isSupplier ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
-                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
+                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#FF0065' : '#C8C8C8') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
                     html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                     
                     // Commit 2.3.9.2A: Render CAD file cards for "Approved CAD Released" messages
@@ -2625,10 +2672,10 @@ class N88_RFQ_Auth {
                             var isPdf = file.ext === 'pdf';
                             var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
                             var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
-                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
+                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
                             html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
                             html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            html += '<div style="font-size: 10px; color: #00ff00; flex-shrink: 0;">Open →</div>';
+                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open →</div>';
                             html += '</a>';
                         });
                         html += '</div>';
@@ -2644,15 +2691,15 @@ class N88_RFQ_Auth {
                     html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">';
                     if (opts.has_operator_reply_after_confirmation) {
                         var bidIdVal = (opts.bid_id || 0);
-                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
+                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
                     } else if (opts.supplier_confirmed_clarification) {
-                        html += '<span style="font-size: 11px; color: #00aa00;">✓ Clarified</span>';
+                        html += '<span style="font-size: 11px; color: #FF0065;">✓ Clarified</span>';
                         if (!opts.supplier_has_submitted_bid) {
-                            html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Submit Proposal</button>';
+                            html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Submit Proposal</button>';
                         }
                     } else {
                         var bidIdVal = (opts.bid_id || 0);
-                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #00ff00; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
+                        html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
                     }
                     html += '</div>';
                 }
@@ -3123,7 +3170,7 @@ class N88_RFQ_Auth {
                                 
                                 // Commit 2.3.5.4: Handle PDFs differently - show as [PDF] filename.pdf link
                                 if (imgType === 'pdf' || imgUrl.toLowerCase().endsWith('.pdf')) {
-                                    refImagesHTMLDark += '<div style="padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #00ff00; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px; color: #00ff00;" ' +
+                                    refImagesHTMLDark += '<div style="padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #FF0065; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px; color: #FF0065;" ' +
                                         'onclick="window.open(\'' + escapedFullUrl + '\', \'_blank\');" ' +
                                         'onmouseover="this.style.backgroundColor=\'#222\';" ' +
                                         'onmouseout="this.style.backgroundColor=\'#1a1a1a\';" ' +
@@ -3137,9 +3184,9 @@ class N88_RFQ_Auth {
                                         'src="' + imgUrl.replace(/"/g, '&quot;') + '" ' +
                                         'data-full-url="' + (fullUrl || imgUrl).replace(/"/g, '&quot;') + '" ' +
                                         'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3EImage%3C/text%3E%3C/svg%3E\';" ' +
-                                        'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                                        'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                                        'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                        'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #FF0065; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                        'onmouseover="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                        'onmouseout="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                                         'onclick="event.preventDefault();event.stopPropagation();(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(url);}else{console.error(\'openSupplierImageLightbox not available\');}}else{console.error(\'No URL found for image\');}})(this);return false;" ' +
                                         'title="Click to enlarge" ' +
                                         'alt="Reference image ' + (index + 1) + '" />' +
@@ -3157,33 +3204,33 @@ class N88_RFQ_Auth {
                     
                     // Build modal HTML - Full-width: left images + right tabs (Item Overview, Messages, Bid, Prototype)
                     var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
-                    var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                    var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                     var leftColImages = (item.image_url || item.primary_image_url ? (function() {
                         var imgUrl = (item.primary_image_url || item.image_url).replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;');
                         return '<div style="margin-bottom: 16px;">' +
-                            '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,255,0,0.3);" onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" title="Click to enlarge" />' +
+                            '<img src="' + (item.primary_image_url || item.image_url) + '" onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + imgUrl + '\');}return false;" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,255,0,0.3);" onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" title="Click to enlarge" />' +
                             '</div>' +
-                            (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '');
-                    })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #00ff00;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
+                            (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #FF0065;">References</label>' + refImagesHTMLDark + '</div>' : '');
+                    })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #FF0065;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
                     // Item box only (for 40% column) — font 14px inside detail box
                     var itemBoxHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
                             '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
                         '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; height: 100%; box-sizing: border-box; font-size: 14px;">' +
-                        '<div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
+                        '<div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
-                        (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Routing:</strong> <span style="color: #00ff00;">' + item.route_label + '</span></div>' : '') +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
-                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Description:</strong></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
+                        (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Routing:</strong> <span style="color: #FF0065;">' + item.route_label + '</span></div>' : '') +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
+                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
                         '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || '—') + '</div>' +
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
-                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong></div>' +
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Designer notes:</strong></div>' +
                             '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
-                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
                         ) +
                         '</div></div>';
                     // Support section: open by default (display: flex), in 70% column — light borders, 10px radius on input + Send
@@ -3214,7 +3261,7 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">' +
                         '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
-                        '<button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#00cc00\';" onmouseout="this.style.backgroundColor=\'#00ff00\';">Send</button>' +
+                        '<button type="submit" style="padding: 10px 20px; background-color: #FF0065; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#cc0052\';" onmouseout="this.style.backgroundColor=\'#FF0065\';">Send</button>' +
                         '</div>' +
                         '</form>' +
                         '</div></div>';
@@ -3235,19 +3282,19 @@ class N88_RFQ_Auth {
                                 var keywordsHTML = '';
                                 if (notif.keywords && Array.isArray(notif.keywords) && notif.keywords.length > 0) {
                                     keywordsHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
-                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Video Direction Keywords:</div>' +
+                                        '<div style="font-size: 11px; color: #FF0065; margin-bottom: 8px; font-weight: 600;">Video Direction Keywords:</div>' +
                                         '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
                                     notif.keywords.forEach(function(keyword) {
                                         if (keyword && String(keyword).trim() !== '') {
-                                            keywordsHTML += '<span style="display: inline-block; padding: 4px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 12px; font-size: 11px; color: #00ff00; font-family: monospace;">' + String(keyword).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                                            keywordsHTML += '<span style="display: inline-block; padding: 4px 10px; background-color: #003300; border: 1px solid #FF0065; border-radius: 12px; font-size: 11px; color: #FF0065; font-family: monospace;">' + String(keyword).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
                                         }
                                     });
                                     keywordsHTML += '</div></div>';
                                 }
                                 var noteHTML = '';
                                 if (notif.note && notif.note.trim()) {
-                                    noteHTML = '<div style="margin-top: 12px; padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px;">' +
-                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px; font-weight: 600;">Note:</div>' +
+                                    noteHTML = '<div style="margin-top: 12px; padding: 10px; background-color: #0a0a0a; border-left: 3px solid #FF0065; border-radius: 2px;">' +
+                                        '<div style="font-size: 11px; color: #FF0065; margin-bottom: 6px; font-weight: 600;">Note:</div>' +
                                         '<div style="font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + (notif.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                         '</div>';
                                 }
@@ -3255,16 +3302,16 @@ class N88_RFQ_Auth {
                                 var cadFilesHTML = '';
                                 if (notif.cad_status === 'approved' && cadReleasedToSupplier && notif.cad_files && Array.isArray(notif.cad_files) && notif.cad_files.length > 0) {
                                     cadFilesHTML = '<div style="margin-top: 12px; margin-bottom: 12px;">' +
-                                        '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
+                                        '<div style="font-size: 11px; color: #FF0065; margin-bottom: 8px; font-weight: 600;">Approved CAD Files:</div>' +
                                         '<div style="display: flex; flex-direction: column; gap: 6px;">';
                                     notif.cad_files.forEach(function(file) {
                                         var isPdf = file.ext === 'pdf';
                                         var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
                                         var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
-                                        cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
+                                        cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
                                             '<span style="font-size: 16px;">' + icon + '</span>' +
                                             '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (file.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                                            '<span style="font-size: 9px; color: #00ff00;">Open →</span>' +
+                                            '<span style="font-size: 9px; color: #FF0065;">Open →</span>' +
                                             '</a>';
                                     });
                                     cadFilesHTML += '</div></div>';
@@ -3328,7 +3375,7 @@ class N88_RFQ_Auth {
                                         window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
                                         viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer;">View Changes</button>';
                                     } else if (notif.prototype_status === 'approved') {
-                                        statusBadge = '<div style="font-size: 11px; color: #00ff00; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
+                                        statusBadge = '<div style="font-size: 11px; color: #FF0065; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
                                         statusMessage = 'Prototype video has been approved by the designer.';
                                     }
                                     var step3Box = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
@@ -3354,7 +3401,7 @@ class N88_RFQ_Auth {
                             var videoLinksHTML = '';
                             if (bid.video_links && bid.video_links.length > 0) {
                                 bid.video_links.forEach(function(link, index) {
-                                    videoLinksHTML += '<div style="margin-bottom: 4px;"><a href="' + link.replace(/"/g, '&quot;') + '" target="_blank" style="color: #00ff00; text-decoration: none;">' + link + '</a></div>';
+                                    videoLinksHTML += '<div style="margin-bottom: 4px;"><a href="' + link.replace(/"/g, '&quot;') + '" target="_blank" style="color: #FF0065; text-decoration: none;">' + link + '</a></div>';
                                 });
                             } else {
                                 videoLinksHTML = '<span style="color: #999;">None</span>';
@@ -3459,14 +3506,14 @@ class N88_RFQ_Auth {
                                             'increases-2w-plus': 'Increases 2+ weeks'
                                         };
                                         
-                                        smartAltHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
-                                            '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Smart Alternative Suggestion:</strong></div>' +
+                                        smartAltHTML = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065;">' +
+                                            '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Smart Alternative Suggestion:</strong></div>' +
                                             '<div style="padding-left: 12px; font-size: 13px; color: #fff; line-height: 1.6;">' +
-                                            (hasCategory ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;">' + (categoryLabels[smartAlt.category] || smartAlt.category) + '</span></div>' : '') +
-                                            (hasFrom && hasTo ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">From:</strong> <span style="color: #fff;">' + (fromLabels[smartAlt.from] || smartAlt.from) + '</span> <strong style="color: #00ff00;">To:</strong> <span style="color: #fff;">' + (toLabels[smartAlt.to] || smartAlt.to) + '</span></div>' : '') +
-                                            (hasComparisons ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Comparison Points:</strong> <span style="color: #fff;">' + smartAlt.comparison_points.map(function(cp) { return comparisonLabels[cp] || cp; }).join(', ') + '</span></div>' : '') +
-                                            (hasPrice ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Price Impact:</strong> <span style="color: #fff;">' + (priceLabels[smartAlt.price_impact] || smartAlt.price_impact) + '</span></div>' : '') +
-                                            (hasLeadTime ? '<div style="margin-bottom: 4px;"><strong style="color: #00ff00;">Lead Time Impact:</strong> <span style="color: #fff;">' + (leadTimeLabels[smartAlt.lead_time_impact] || smartAlt.lead_time_impact) + '</span></div>' : '') +
+                                            (hasCategory ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;">' + (categoryLabels[smartAlt.category] || smartAlt.category) + '</span></div>' : '') +
+                                            (hasFrom && hasTo ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">From:</strong> <span style="color: #fff;">' + (fromLabels[smartAlt.from] || smartAlt.from) + '</span> <strong style="color: #C8C8C8;">To:</strong> <span style="color: #fff;">' + (toLabels[smartAlt.to] || smartAlt.to) + '</span></div>' : '') +
+                                            (hasComparisons ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Comparison Points:</strong> <span style="color: #fff;">' + smartAlt.comparison_points.map(function(cp) { return comparisonLabels[cp] || cp; }).join(', ') + '</span></div>' : '') +
+                                            (hasPrice ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Price Impact:</strong> <span style="color: #fff;">' + (priceLabels[smartAlt.price_impact] || smartAlt.price_impact) + '</span></div>' : '') +
+                                            (hasLeadTime ? '<div style="margin-bottom: 4px;"><strong style="color: #C8C8C8;">Lead Time Impact:</strong> <span style="color: #fff;">' + (leadTimeLabels[smartAlt.lead_time_impact] || smartAlt.lead_time_impact) + '</span></div>' : '') +
                                             '</div>' +
                                             '</div>';
                                     }
@@ -3477,27 +3524,27 @@ class N88_RFQ_Auth {
                             // Check multiple sources: item.bid_status, bid.bid_status, and bid.is_awarded
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
                             
-                            return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 24px; font-family: monospace;">' +
-                                '<div style="font-size: 16px; font-weight: 600; color: #00ff00; margin-bottom: 16px; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">Your Submitted Bid' + (isBidAwarded ? ' <span style="color: #00ff00; font-size: 14px;">✓ AWARDED</span>' : '') + '</div>' +
+                            return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 24px; font-family: monospace;">' +
+                                '<div style="font-size: 16px; font-weight: 600; color: #FF0065; margin-bottom: 16px; border-bottom: 1px solid #FF0065; padding-bottom: 8px;">Your Submitted Bid' + (isBidAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ AWARDED</span>' : '') + '</div>' +
                                 // Commit 2.4.1: Awarded Status Message
-                                (isBidAwarded ? '<div style="background-color: #003300; border: 2px solid #00ff00; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #00ff00; line-height: 1.6;">' +
+                                (isBidAwarded ? '<div style="background-color: #003300; border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
                                     '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">🎉 Congratulations! Your Bid Has Been Awarded</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Item:</strong> ' + (item.title || 'Item #' + itemId) + '</div>' +
-                                    '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #00ff00; font-weight: 600;">Awarded</span></div>' +
-                                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
+                                    '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #FF0065; font-weight: 600;">Awarded</span></div>' +
+                                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
                                     '</div>' : '') +
                                 (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
-                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
-                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
-                                '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #fff;">' + (bid.prototype_video_yes ? 'YES' : 'NO') + '</span></div>' +
-                                (bid.prototype_timeline ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Timeline:</strong> <span style="color: #fff;">' + bid.prototype_timeline + '</span></div>' : '') +
-                                (bid.prototype_cost !== null && bid.prototype_cost !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype Cost:</strong> <span style="color: #fff;">$' + parseFloat(bid.prototype_cost).toFixed(2) + '</span></div>' : '') +
-                                (bid.production_lead_time ? '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Production Lead Time:</strong> <span style="color: #fff;">' + bid.production_lead_time + '</span></div>' : '') +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Bid Photos:</strong> <div style="margin-top: 4px;">' + bidPhotosHTML + '</div></div>' +
+                                '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #fff;">' + (bid.prototype_video_yes ? 'YES' : 'NO') + '</span></div>' +
+                                (bid.prototype_timeline ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype Timeline:</strong> <span style="color: #fff;">' + bid.prototype_timeline + '</span></div>' : '') +
+                                (bid.prototype_cost !== null && bid.prototype_cost !== undefined ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype Cost:</strong> <span style="color: #fff;">$' + parseFloat(bid.prototype_cost).toFixed(2) + '</span></div>' : '') +
+                                (bid.production_lead_time ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Production Lead Time:</strong> <span style="color: #fff;">' + bid.production_lead_time + '</span></div>' : '') +
                                 (bid.unit_price !== null && bid.unit_price !== undefined ? (function() {
-                                    var unitPriceHtml = '<div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Unit Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>';
+                                    var unitPriceHtml = '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Unit Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>';
                                     if (bid.total_price && bid.item_quantity && bid.item_quantity > 1) {
-                                        unitPriceHtml += '<div style="margin-bottom: 8px; margin-left: 16px; font-size: 12px;"><strong style="color: #00ff00;">Total Price:</strong> <span style="color: #00ff00; font-weight: 600;">$' + parseFloat(bid.total_price).toFixed(2) + '</span> <span style="color: #999; font-size: 11px;">(' + parseFloat(bid.unit_price).toFixed(2) + ' × ' + bid.item_quantity + ')</span></div>';
+                                        unitPriceHtml += '<div style="margin-bottom: 8px; margin-left: 16px; font-size: 12px;"><strong style="color: #C8C8C8;">Total Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.total_price).toFixed(2) + '</span> <span style="color: #999; font-size: 11px;">(' + parseFloat(bid.unit_price).toFixed(2) + ' × ' + bid.item_quantity + ')</span></div>';
                                     }
                                     return unitPriceHtml;
                                 })() : '') +
@@ -3512,7 +3559,7 @@ class N88_RFQ_Auth {
                         ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
                             // Normal submitted/awarded state - check if resubmission
                             '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
-                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + (item.bid_status === 'awarded' ? 'Bid Awarded' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted')) + '</div>' +
+                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + (item.bid_status === 'awarded' ? 'Bid Awarded' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted')) + '</div>' +
                             (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
                             '</div>' :
                             ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.has_revision_mismatch ?
@@ -3520,9 +3567,9 @@ class N88_RFQ_Auth {
                                 '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
                                 (item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined ?
                                     // Draft exists - show continue draft button (only when valid draft is saved)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Draft ]</button>' :
+                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Continue Draft ]</button>' :
                                     // No bid yet or no valid draft - show submit proposal button (default)
-                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
+                                    '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-toggle-bid-form-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>'
                                 )
                             )
                         ) +
@@ -3548,38 +3595,37 @@ class N88_RFQ_Auth {
                     if (m.step3 && m.step3.video_approved_at) step3DatesArr.push('Video approved: ' + fmtDate(m.step3.video_approved_at));
                     var step3Dates = step3DatesArr.length ? step3DatesArr.map(function(l) { return '<div style="font-size: 11px; color: #888; margin-bottom: 4px;">' + l + '</div>'; }).join('') : '';
                     var w1 = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">1. CAD Requested - payment received</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">1. Design & Specifications</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
                     var w2 = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">2. Approved CAD drawings</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">2. Technical Review & Documentation</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3Show = paymentNotif && (bidAndPrototype.workflowStep3 || (m.step3 && (m.step3.video_submitted_at || (m.step3.changes_requested_dates && m.step3.changes_requested_dates.length) || m.step3.video_approved_at)));
                     var w3 = w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '';
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">3. Pre-Production Approval</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '';
                     var activeStepIdx = (item.supplier_workflow_active_step != null && item.supplier_workflow_active_step !== undefined) ? parseInt(item.supplier_workflow_active_step, 10) : 0;
-                    var green = '#00ff00';
+                    var green = '#FF0065';
                     var darkBorder = '#555';
-                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
+                    var stepLabels = ['Design & Specifications', 'Technical Review & Documentation', 'Pre-Production Approval', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                     var w1WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">1. CAD Requested - payment received</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">1. Design & Specifications</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
                     var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">2. Approved CAD drawings</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">2. Technical Review & Documentation</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">3. Prototype videos</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">3. Pre-Production Approval</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
                     var w4WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var stepRow = '';
                     if (paymentNotif) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var si = 0; si < 6; si++) {
-                            var isCompleted = activeStepIdx > si;
                             var isActive = activeStepIdx === si;
-                            var circleBg = isCompleted ? green : (isActive ? '#111' : '#444');
-                            var circleBorder = isCompleted || isActive ? green : darkBorder;
-                            var circleColor = isCompleted ? '#0a0a0a' : (isActive ? '#00ff00' : '#fff');
-                            var labelColor = isActive ? green : '#ccc';
+                            var circleBg = isActive ? green : '#333';
+                            var circleBorder = isActive ? green : darkBorder;
+                            var circleColor = isActive ? '#0a0a0a' : '#888';
+                            var labelColor = isActive ? green : '#888';
                             stepRow += '<div data-step-idx="' + si + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer;" onclick="n88SupplierWorkflowShowStep(' + si + ');">';
                             stepRow += '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid ' + circleBorder + '; background: ' + circleBg + '; color: ' + circleColor + '; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 8px;">' + (si + 1) + '</div>';
                             stepRow += '<div style="font-size: 10px; color: ' + labelColor + '; text-align: center; line-height: 1.2;">' + (stepLabels[si] || '') + '</div>';
@@ -3591,11 +3637,11 @@ class N88_RFQ_Auth {
                     // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4–6 show video evidence, not "Coming soon")
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
                         (paymentNotif ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
-                    var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #00ff00;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
+                    var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
-                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
+                        '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
                         '</div>' +
                         '<div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">' +
                         '<div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
@@ -3672,7 +3718,7 @@ class N88_RFQ_Auth {
                                                 keywordFeedback.keyword_status === 'needs_adjustment' ? '⚠️' : '❌';
                                 var statusText = keywordFeedback.keyword_status === 'satisfied' ? 'Satisfied' : 
                                                 keywordFeedback.keyword_status === 'needs_adjustment' ? 'Needs Adjustment' : 'Not Addressed';
-                                var statusColor = keywordFeedback.keyword_status === 'satisfied' ? '#00ff00' : 
+                                var statusColor = keywordFeedback.keyword_status === 'satisfied' ? '#FF0065' : 
                                                  keywordFeedback.keyword_status === 'needs_adjustment' ? '#ff8800' : '#ff4444';
                                 var severityText = keywordFeedback.severity ? 
                                     (keywordFeedback.severity === 'must_fix' ? ' (Must Fix)' : 
@@ -3703,8 +3749,8 @@ class N88_RFQ_Auth {
                                 // Commit 3.B.5A: Designer revision detail (optional)
                                 if (keywordFeedback.revision_detail && String(keywordFeedback.revision_detail).trim() !== '') {
                                     feedbackHTML += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">';
-                                    feedbackHTML += '<div style="font-size: 11px; color: #00ff00; margin-bottom: 6px;">Designer Detail:</div>';
-                                    feedbackHTML += '<div style="padding: 10px; background-color: #0a0a0a; border-left: 3px solid #00ff00; border-radius: 2px; font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + String(keywordFeedback.revision_detail).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                    feedbackHTML += '<div style="font-size: 11px; color: #FF0065; margin-bottom: 6px;">Designer Detail:</div>';
+                                    feedbackHTML += '<div style="padding: 10px; background-color: #0a0a0a; border-left: 3px solid #FF0065; border-radius: 2px; font-size: 12px; color: #fff; line-height: 1.5; white-space: pre-wrap;">' + String(keywordFeedback.revision_detail).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                                     feedbackHTML += '</div>';
                                 }
                                 
@@ -3906,7 +3952,7 @@ class N88_RFQ_Auth {
             window.n88SupplierModalSwitchTab = function(tabName) {
                 var tabs = ['overview', 'bid', 'workflow'];
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
-                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 tabs.forEach(function(name) {
                     var btn = document.getElementById('n88-supplier-tab-' + name);
                     var panel = document.getElementById('n88-supplier-panel-' + name);
@@ -3940,18 +3986,17 @@ class N88_RFQ_Auth {
                 var row = document.getElementById('n88-supplier-workflow-step-row');
                 if (row) {
                     row.setAttribute('data-active-idx', String(idx));
-                    var green = '#00ff00';
+                    var green = '#FF0065';
                     var darkBorder = '#555';
-                    var stepLabels = ['CAD Requested - payment received', 'Approved CAD drawings', 'Prototype videos', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
+                    var stepLabels = ['Design & Specifications', 'Technical Review & Documentation', 'Pre-Production Approval', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                     var steps = row.querySelectorAll('[data-step-idx]');
                     for (var s = 0; s < steps.length; s++) {
                         var si = parseInt(steps[s].getAttribute('data-step-idx'), 10);
-                        var isCompleted = idx > si;
                         var isActive = idx === si;
-                        var circleBg = isCompleted ? green : (isActive ? '#111' : '#444');
-                        var circleBorder = isCompleted || isActive ? green : darkBorder;
-                        var circleColor = isCompleted ? '#0a0a0a' : (isActive ? '#00ff00' : '#fff');
-                        var labelColor = isActive ? green : '#ccc';
+                        var circleBg = isActive ? green : '#333';
+                        var circleBorder = isActive ? green : darkBorder;
+                        var circleColor = isActive ? '#0a0a0a' : '#888';
+                        var labelColor = isActive ? green : '#888';
                         var circle = steps[s].querySelector('div[style*="border-radius: 50%"]');
                         var label = steps[s].querySelector('div[style*="font-size: 10px"]');
                         if (circle) { circle.style.background = circleBg; circle.style.borderColor = circleBorder; circle.style.color = circleColor; }
@@ -3970,7 +4015,19 @@ class N88_RFQ_Auth {
                 if (!itemId) return;
                 var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                 if (!nonce) return;
-                container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                // Preserve Steps 1-3: only show loading in Steps 4-6, never wipe the container
+                var step4El = document.getElementById('n88-supplier-workflow-step-3');
+                var step5El = document.getElementById('n88-supplier-workflow-step-4');
+                var step6El = document.getElementById('n88-supplier-workflow-step-5');
+                var hasOriginalStructure = !!(step4El && step5El && step6El);
+                if (hasOriginalStructure) {
+                    var loadingHtml = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                    step4El.innerHTML = loadingHtml;
+                    step5El.innerHTML = loadingHtml;
+                    step6El.innerHTML = loadingHtml;
+                } else {
+                    container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                }
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_timeline');
                 formData.append('item_id', itemId);
@@ -3978,18 +4035,36 @@ class N88_RFQ_Auth {
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
+                        var step4ElPost = document.getElementById('n88-supplier-workflow-step-3');
+                        var step5ElPost = document.getElementById('n88-supplier-workflow-step-4');
+                        var step6ElPost = document.getElementById('n88-supplier-workflow-step-5');
+                        var hasOriginalPost = !!(step4ElPost && step5ElPost && step6ElPost);
+                        var errHtml = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">' + (data.message || 'Failed to load timeline.') + '</div>';
+                        var errHtml2 = '<div style="padding: 12px; color: #888;">Timeline data incomplete.</div>';
                         if (!data.success || !data.data || !data.data.timeline) {
-                            container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">' + (data.message || 'Failed to load timeline.') + '</div>';
+                            if (hasOriginalPost) {
+                                if (step4ElPost) step4ElPost.innerHTML = errHtml;
+                                if (step5ElPost) step5ElPost.innerHTML = errHtml;
+                                if (step6ElPost) step6ElPost.innerHTML = errHtml;
+                            } else {
+                                container.innerHTML = errHtml;
+                            }
                             return;
                         }
                         var t = data.data.timeline;
                         var steps = t.steps || [];
                         if (steps.length < 6) {
-                            container.innerHTML = '<div style="padding: 12px; color: #888;">Timeline data incomplete.</div>';
+                            if (hasOriginalPost) {
+                                if (step4ElPost) step4ElPost.innerHTML = errHtml2;
+                                if (step5ElPost) step5ElPost.innerHTML = errHtml2;
+                                if (step6ElPost) step6ElPost.innerHTML = errHtml2;
+                            } else {
+                                container.innerHTML = errHtml2;
+                            }
                             wrap.setAttribute('data-timeline-loaded', '1');
                             return;
                         }
-                        var green = '#00ff00';
+                        var green = '#FF0065';
                         var darkText = '#ccc';
                         var darkBorder = '#555';
                         var selectedIdx = 0;
@@ -4048,8 +4123,8 @@ class N88_RFQ_Auth {
                             var itemId = w.getAttribute('data-item-id');
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
-                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#00ff00' : '#ccc') + ';">' + sl + '</span></div>' +
+                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
@@ -4065,38 +4140,62 @@ class N88_RFQ_Auth {
                                 if (lbl) lbl.style.color = bidx === idx ? green : darkText;
                             }
                         };
-                        var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
-                        for (var i = 0; i < steps.length; i++) {
-                            var s = steps[i];
-                            var isActive = s.display_status === 'in_progress' || s.display_status === 'delayed';
-                            var isCompleted = s.display_status === 'completed';
-                            var isSelected = selectedIdx === i;
-                            row += '<div onclick="if(typeof n88SupplierTimelineSelectStep===\'function\')n88SupplierTimelineSelectStep(' + i + ');" data-n88-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
-                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
-                            row += '<div class="n88-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
-                            row += '</div>';
-                            if (i < steps.length - 1) {
-                                row += '<div style="flex: 0 0 20px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 20px;" aria-hidden="true"></div>';
+                        // Commit fix: Preserve Steps 1-3 (CAD / CAD Approved / Prototype) — only update Steps 4-6.
+                        // Steps 1-3 show supplier-specific content: CAD Request Pending Payment, keywords, files, prototype video submit.
+                        var step456Labels = ['Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
+                        var step4El = document.getElementById('n88-supplier-workflow-step-3');
+                        var step5El = document.getElementById('n88-supplier-workflow-step-4');
+                        var step6El = document.getElementById('n88-supplier-workflow-step-5');
+                        if (step4El && step5El && step6El) {
+                            // Original supplier structure exists — only update Steps 4, 5, 6 content. Do NOT replace Steps 1-3.
+                            for (var idx = 3; idx <= 5; idx++) {
+                                var s = steps[idx];
+                                var el = document.getElementById('n88-supplier-workflow-step-' + idx);
+                                if (!el || !s) continue;
+                                var sl = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
+                                var content = '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (idx + 1) + '. ' + step456Labels[idx - 3] + '</div>';
+                                content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">· State: <span style="color: ' + (s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? green : darkText) + ';">' + sl + '</span></div>';
+                                if (s.started_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Started: ' + s.started_at + '</div>';
+                                if (s.completed_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + s.completed_at + '</div>';
+                                if (s.expected_by) content += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + s.expected_by + '</div>';
+                                content += buildSupplierStepEvidenceBlock(s, itemId);
+                                el.innerHTML = content;
                             }
+                        } else {
+                            // Fallback: no original structure (e.g. direct timeline view) — full replace
+                            var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
+                            for (var i = 0; i < steps.length; i++) {
+                                var s = steps[i];
+                                var isActive = s.display_status === 'in_progress' || s.display_status === 'delayed';
+                                var isCompleted = s.display_status === 'completed';
+                                var isSelected = selectedIdx === i;
+                                row += '<div onclick="if(typeof n88SupplierTimelineSelectStep===\'function\')n88SupplierTimelineSelectStep(' + i + ');" data-n88-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
+                                row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                                row += '<div class="n88-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                                if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
+                                row += '</div>';
+                                if (i < steps.length - 1) {
+                                    row += '<div style="flex: 0 0 20px; align-self: center; height: 2px; background: ' + darkBorder + '; margin-bottom: 20px;" aria-hidden="true"></div>';
+                                }
+                            }
+                            row += '</div>';
+                            var sel = steps[0];
+                            var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                            var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
+                            detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
+                            if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
+                            if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
+                            if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                            detail += buildSupplierStepEvidenceBlock(sel, itemId);
+                            detail += '</div>';
+                            if (t.show_prototype_mini) {
+                                detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
+                                detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
+                                detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
+                            }
+                            container.innerHTML = row + detail;
                         }
-                        row += '</div>';
-                        var sel = steps[0];
-                        var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                        var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
-                        detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                        detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
-                        if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
-                        if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
-                        if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
-                        detail += buildSupplierStepEvidenceBlock(sel, itemId);
-                        detail += '</div>';
-                        if (t.show_prototype_mini) {
-                            detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
-                            detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
-                            detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
-                        }
-                        container.innerHTML = row + detail;
                         wrap._n88SelectedStep = 0;
                         wrap._n88StepsData = steps;
                         wrap.setAttribute('data-timeline-loaded', '1');
@@ -4111,7 +4210,7 @@ class N88_RFQ_Auth {
                 var formWrap = document.getElementById('n88-supplier-step-evidence-form-wrap');
                 if (!formWrap) return;
                 var darkBorder = '#555';
-                var green = '#00ff00';
+                var green = '#FF0065';
                 var darkText = '#ccc';
                 formWrap.style.display = 'block';
                 formWrap.innerHTML = '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Allowed: YouTube / Vimeo / Loom</p>' +
@@ -4175,7 +4274,7 @@ class N88_RFQ_Auth {
                 var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
                 if (!formWrap) return;
                 var darkBorder = '#555';
-                var green = '#00ff00';
+                var green = '#FF0065';
                 var darkText = '#ccc';
                 var stepLabel = stepNumber === 4 ? 'Production / Fabrication' : stepNumber === 5 ? 'Quality Review & Packing' : 'Ready for Delivery';
                 formWrap.style.display = 'block';
@@ -4255,13 +4354,13 @@ class N88_RFQ_Auth {
                     if (toggleBtn) {
                         toggleBtn.textContent = '[ Hide Bid Form ]';
                         toggleBtn.style.backgroundColor = '#1a1a1a';
-                        toggleBtn.style.color = '#00ff00';
-                        toggleBtn.style.borderColor = '#00ff00';
+                        toggleBtn.style.color = '#FF0065';
+                        toggleBtn.style.borderColor = '#FF0065';
                     }
                     if (resubmitBtn) {
                         resubmitBtn.textContent = '[ Hide Bid Form ]';
                         resubmitBtn.style.backgroundColor = '#1a1a1a';
-                        resubmitBtn.style.color = '#00ff00';
+                        resubmitBtn.style.color = '#FF0065';
                     }
                     
                     // Hide specs changed banner and show form when resubmitting
@@ -4289,8 +4388,8 @@ class N88_RFQ_Auth {
                         var hasDraft = item && item.bid_status === 'draft' && item.bid_status !== null && item.bid_status !== undefined;
                         toggleBtn.textContent = hasDraft ? '[ Continue Draft ]' : '[ Submit Proposal ]';
                         toggleBtn.style.backgroundColor = '#1a1a1a';
-                        toggleBtn.style.color = '#00ff00';
-                        toggleBtn.style.borderColor = '#00ff00';
+                        toggleBtn.style.color = '#FF0065';
+                        toggleBtn.style.borderColor = '#FF0065';
                     }
                     if (resubmitBtn) {
                         resubmitBtn.textContent = '[ Resubmit Bid ]';
@@ -4433,9 +4532,9 @@ class N88_RFQ_Auth {
                             'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                             'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                             'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                            'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                            'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #FF0065; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'onmouseover="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                             'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                             'title="Click to view full size" ' +
                             'alt="Reference photo" />' +
@@ -4447,14 +4546,14 @@ class N88_RFQ_Auth {
                     if (primaryImageUrl) {
                         centerColumnHTML += '<img src="' + primaryImageUrl.replace(/"/g, '&quot;') + '" ' +
                             'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23f0f0f0\' width=\'400\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EItem Image%3C/text%3E%3C/svg%3E\';" ' +
-                            'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
                             'onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + primaryImageUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}return false;" ' +
-                            'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
-                            'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
+                            'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
                             'title="Click to enlarge" ' +
                             'alt="Item main image" />';
                     } else {
-                        centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #00ff00; font-family: monospace; font-size: 12px;">No main image available</div>';
+                        centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #FF0065; font-family: monospace; font-size: 12px;">No main image available</div>';
                     }
                     centerColumnHTML += '</div>';
                     
@@ -4466,9 +4565,9 @@ class N88_RFQ_Auth {
                             'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                             'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                             'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                            'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                            'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                            'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #FF0065; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                            'onmouseover="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                            'onmouseout="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                             'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                             'title="Click to view full size" ' +
                             'alt="Reference photo" />' +
@@ -4488,8 +4587,8 @@ class N88_RFQ_Auth {
                     // Commit 2.3.5.4: Images removed from bid form (only shown at top of modal)
                     
                     // BID FORM Title (Commit 2.3.5.4: Remove "Anonymous • No contact info allowed")
-                    '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
-                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM</h2>' +
+                    '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
+                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
                     // 1. Video links (0-3, optional) - Commit 2.3.5.4: Field order 1
@@ -4498,12 +4597,12 @@ class N88_RFQ_Auth {
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
                     '<div id="n88-video-links-container-embedded-' + itemId + '">' +
                     '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
-                    '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">1)</span>' +
+                    '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
                     '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button>' +
                         '</div>' +
                         '</div>' +
-                    '<button type="button" onclick="addVideoLinkEmbedded(' + itemId + ')" id="n88-add-video-link-btn-embedded-' + itemId + '" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
+                    '<button type="button" onclick="addVideoLinkEmbedded(' + itemId + ')" id="n88-add-video-link-btn-embedded-' + itemId + '" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
                     '<div id="n88-video-links-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
@@ -4512,7 +4611,7 @@ class N88_RFQ_Auth {
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
                     '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
-                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
                     '<div id="n88-bid-photos-preview-embedded-' + itemId + '" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
                     '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -4523,15 +4622,15 @@ class N88_RFQ_Auth {
                     '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Will you prepare and video a prototype?</div>' +
                     '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
                     '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                    '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<span style="font-size: 12px; color: #fff; font-family: monospace;">YES</span>' +
                     '</label>' +
                     '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                    '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<span style="font-size: 12px; color: #fff; font-family: monospace;">NO</span>' +
                     '</label>' +
                         '</div>' +
-                    '<div style="font-size: 10px; color: #00ff00; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
+                    '<div style="font-size: 10px; color: #FF0065; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
                     '<div id="n88-prototype-video-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                     // Prototype timeline - white subheading
                         '<div style="margin-bottom: 12px;">' +
@@ -4578,18 +4677,18 @@ class N88_RFQ_Auth {
                     // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.5: Remove designer notes from Smart Alternatives (they belong in Item Context)
                     ((item.smart_alternatives_enabled) ? 
                     '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
                     // C1: Display designer's Smart Alternatives setting (read-only) - NO designer notes here
-                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
-                    '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
-                    '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
+                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 12px;">' +
+                    '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">' +
+                    '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#FF0065' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
                         '</div>' +
-                    (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
+                    (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
                         '</div>' +
                     // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
                     (item.smart_alternatives_enabled ? 
-                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-top: 12px;">' +
-                    '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
+                    '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #FF0065; margin-top: 12px;">' +
+                    '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
                     // Category dropdown
                     '<div style="margin-bottom: 12px;">' +
                     '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Category:</label>' +
@@ -4639,12 +4738,12 @@ class N88_RFQ_Auth {
                     '<div style="margin-bottom: 12px;">' +
                     '<label style="display: block; font-size: 11px; margin-bottom: 6px; color: #fff; font-family: monospace;">Comparison Points (max 3):</label>' +
                     '<div style="display: flex; flex-direction: column; gap: 6px;">' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
-                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
+                    '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox" onchange="updateSmartAltPreview(' + itemId + ');" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
                     '</div>' +
                     '</div>' +
                     // Price impact dropdown
@@ -4674,20 +4773,20 @@ class N88_RFQ_Auth {
                     '</select>' +
                     '</div>' +
                     // Preview sentence (read-only)
-                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
-                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace; font-weight: 600;">Preview:</label>' +
+                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065;">' +
+                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace; font-weight: 600;">Preview:</label>' +
                     '<div id="n88-smart-alt-preview-' + itemId + '" style="padding: 8px; background-color: #1a1a1a; border: none; border-radius: 2px; font-size: 11px; color: #999; font-family: monospace; min-height: 40px; font-style: italic;">Fill in the fields above to generate preview...</div>' +
                     '</div>' +
                     '</div>' : '') +
                     '</div>' : '') +
                     
                     // Footer buttons
-                    '<div style="padding: 20px 0; border-top: 1px solid #00ff00; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
-                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
+                    '<div style="padding: 20px 0; border-top: 1px solid #FF0065; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
+                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
                     // Commit 2.3.5.4: Buttons row - Validate, Cancel, Save for later
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
-                    '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
-                    '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                    '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
+                    '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                         '</div>' +
                     '</form>';
                 
@@ -4854,9 +4953,9 @@ class N88_RFQ_Auth {
                                     'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                                     'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                                     'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #FF0065; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                    'onmouseover="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                    'onmouseout="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                                     'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
@@ -4873,14 +4972,14 @@ class N88_RFQ_Auth {
                         if (primaryImageUrl) {
                             centerColumnHTML += '<img src="' + primaryImageUrl.replace(/"/g, '&quot;') + '" ' +
                                 'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23f0f0f0\' width=\'400\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EItem Image%3C/text%3E%3C/svg%3E\';" ' +
-                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                'style="max-width: 100%; max-height: 350px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; box-shadow: 0 2px 8px rgba(0,255,0,0.3); cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
                                 'onclick="event.preventDefault();event.stopPropagation();if(typeof window.openSupplierImageLightbox === \'function\'){window.openSupplierImageLightbox(\'' + primaryImageUrl.replace(/'/g, "\\'").replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '\');}return false;" ' +
-                                'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
-                                'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#00ff00\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
+                                'onmouseover="this.style.opacity=\'0.9\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 4px 12px rgba(0,255,0,0.5)\';" ' +
+                                'onmouseout="this.style.opacity=\'1\'; this.style.borderColor=\'#FF0065\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.3)\';" ' +
                                 'title="Click to enlarge" ' +
                                 'alt="Item main image" />';
                         } else {
-                            centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #00ff00; font-family: monospace; font-size: 12px;">No main image available</div>';
+                            centerColumnHTML += '<div style="width: 100%; height: 300px; background-color: #1a1a1a; border-radius: 2px; border: none; display: flex; align-items: center; justify-content: center; color: #FF0065; font-family: monospace; font-size: 12px;">No main image available</div>';
                         }
                         centerColumnHTML += '</div>';
                         
@@ -4894,9 +4993,9 @@ class N88_RFQ_Auth {
                                     'src="' + img.url.replace(/"/g, '&quot;') + '" ' +
                                     'data-full-url="' + img.fullUrl.replace(/"/g, '&quot;') + '" ' +
                                     'onerror="this.onerror=null; this.src=\'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23000\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23fff\' font-size=\'12\'%3Ereference photo%3C/text%3E%3C/svg%3E\';" ' +
-                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #00ff00; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
-                                    'onmouseover="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
-                                    'onmouseout="this.style.borderColor=\'#00ff00\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
+                                    'style="width: 100px; height: 100px; object-fit: cover; border-radius: 2px; border: 2px solid #FF0065; cursor: pointer; transition: all 0.2s; background-color: #1a1a1a;" ' +
+                                    'onmouseover="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1.05)\'; this.style.boxShadow=\'0 2px 8px rgba(0,255,0,0.5)\';" ' +
+                                    'onmouseout="this.style.borderColor=\'#FF0065\'; this.style.transform=\'scale(1)\'; this.style.boxShadow=\'none\';" ' +
                                     'onclick="(function(elem){var url=elem.getAttribute(\'data-full-url\')||elem.src;if(url&&url.trim()){openSupplierImageLightbox(url);}else{console.error(\'No URL found for image\');}})(this);" ' +
                                     'title="Click to view full size" ' +
                                     'alt="Reference photo" />' +
@@ -4909,7 +5008,7 @@ class N88_RFQ_Auth {
                         rightColumnHTML += '</div>';
                         
                         // Combine into gallery layout (Commit 2.3.5.2: Dark theme)
-                        imageGalleryHTML = '<div style="margin-bottom: 24px; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 16px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #00ff00;">' +
+                        imageGalleryHTML = '<div style="margin-bottom: 24px; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 16px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #FF0065;">' +
                             leftColumnHTML +
                             centerColumnHTML +
                             rightColumnHTML +
@@ -4919,16 +5018,16 @@ class N88_RFQ_Auth {
                     // Build bid form modal HTML (Commit 2.3.5.2: Dark theme with green accents - terminal style)
                     var modalHTML = 
                         // Item Header Section (RFQ, Qty, Dims, Delivery)
-                        '<div style="padding: 16px 20px; border-bottom: 1px solid #00ff00; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
+                        '<div style="padding: 16px 20px; border-bottom: 1px solid #FF0065; background-color: #000; display: flex; justify-content: space-between; align-items: center;">' +
                         '<div style="flex: 1;">' +
-                        '<div style="font-size: 12px; color: #00ff00; font-family: monospace; margin-bottom: 4px;">RFQ: <span style="color: #fff;">' + itemTitleText + '</span></div>' +
-                        '<div style="display: flex; gap: 16px; font-size: 11px; color: #00ff00; font-family: monospace; flex-wrap: wrap;">' +
+                        '<div style="font-size: 12px; color: #FF0065; font-family: monospace; margin-bottom: 4px;">RFQ: <span style="color: #fff;">' + itemTitleText + '</span></div>' +
+                        '<div style="display: flex; gap: 16px; font-size: 11px; color: #FF0065; font-family: monospace; flex-wrap: wrap;">' +
                         '<span>Qty: <span style="color: #fff;">' + (item.quantity || '—') + '</span></span>' +
                         '<span>Dims: <span style="color: #fff;">' + dimsText + '</span></span>' +
                         '<span>Delivery: <span style="color: #fff;">' + deliveryText + '</span></span>' +
                         '</div>' +
                         '</div>' +
-                        '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[x Close]</button>' +
+                        '<button onclick="closeBidFormModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[x Close]</button>' +
                         '</div>' +
                         '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #000;">' +
                         
@@ -4947,22 +5046,22 @@ class N88_RFQ_Auth {
                         imageGalleryHTML +
                         
                         // Commit 2.3.5.4: BID FORM Title - Remove "Anonymous • No contact info allowed"
-                        '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #00ff00;">' +
-                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #00ff00; font-family: monospace;">BID FORM</h2>' +
+                        '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
+                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
                         // 1. Video links (optional, 0-3) - Commit 2.3.5.4: Field order 1
                         '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
                         '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
                         '<div id="n88-video-links-container">' +
                         '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
-                        '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">1)</span>' +
+                        '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
                         '<input type="url" name="video_links[]" class="n88-video-link-input" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLink(this);" oninput="validateBidForm();" />' +
                         '<button type="button" onclick="removeVideoLink(this)" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button>' +
                         '</div>' +
                         '</div>' +
-                        '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
+                        '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
                         '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
@@ -4971,7 +5070,7 @@ class N88_RFQ_Auth {
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
                         '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
                         '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
-                        '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
+                        '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
                         '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
                         '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -4982,19 +5081,19 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Will you prepare and video a prototype?</div>' +
                         '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
                         '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                        '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidForm();" />' +
+                        '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidForm();" />' +
                         '<span style="font-size: 12px; color: #fff; font-family: monospace;">(●) YES</span>' +
                         '</label>' +
                         '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
-                        '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #00ff00;" onchange="validateBidForm();" />' +
+                        '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidForm();" />' +
                         '<span style="font-size: 12px; color: #fff; font-family: monospace;">() NO</span>' +
                         '</label>' +
                         '</div>' +
-                        '<div style="font-size: 10px; color: #00ff00; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
+                        '<div style="font-size: 10px; color: #FF0065; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
                         '<div id="n88-prototype-video-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         // Prototype timeline
                         '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace;">Prototype timeline (Required):</label>' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace;">Prototype timeline (Required):</label>' +
                         '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
                         '<option value="">[ Select timeline... ▼ ]</option>' +
                         '<option value="1-2w">1–2w</option>' +
@@ -5007,7 +5106,7 @@ class N88_RFQ_Auth {
                         '</div>' +
                         // Prototype cost
                         '<div style="margin-bottom: 0;">' +
-                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace;">Prototype cost (Required):</label>' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace;">Prototype cost (Required):</label>' +
                         '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
                         '<div id="n88-prototype-cost-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -5037,18 +5136,18 @@ class N88_RFQ_Auth {
                         // 8. SMART ALTERNATIVE (DFM) - Commit 2.3.5.5: Remove designer notes from Smart Alternatives (they belong in Item Context)
                         ((item.smart_alternatives_enabled) ? 
                         '<div style="margin-bottom: 24px; padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: none;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #00ff00; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">SMART ALTERNATIVE (DFM)</label>' +
                         // C1: Display designer's Smart Alternatives setting (read-only) - NO designer notes here
-                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-bottom: 12px;">' +
-                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">' +
-                        '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#00ff00' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
+                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 12px;">' +
+                        '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">' +
+                        '<strong>Smart Alternatives:</strong> <span style="color: ' + (item.smart_alternatives_enabled ? '#FF0065' : '#666') + ';">' + (item.smart_alternatives_enabled ? 'Enabled' : 'Disabled') + '</span>' +
                         '</div>' +
-                        (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
+                        (item.smart_alternatives_enabled ? '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">Creator is open to comparable material/spec alternatives.</div>' : '') +
                         '</div>' +
                         // C2: Supplier can add ONE structured Smart Alternative suggestion (only if enabled)
                         (item.smart_alternatives_enabled ? 
-                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #00ff00; margin-top: 12px;">' +
-                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
+                        '<div style="padding: 12px; background-color: #000; border-radius: 2px; border: 1px solid #FF0065; margin-top: 12px;">' +
+                        '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 12px; font-weight: 600;">Propose Smart Alternative (Optional):</div>' +
                         // Category dropdown
                         '<div style="margin-bottom: 12px;">' +
                         '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Category:</label>' +
@@ -5098,12 +5197,12 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 12px;">' +
                         '<label style="display: block; font-size: 11px; margin-bottom: 6px; color: #fff; font-family: monospace;">Comparison Points (max 3):</label>' +
                         '<div style="display: flex; flex-direction: column; gap: 6px;">' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
-                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #00ff00;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="cost-reduction" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Cost Reduction</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="faster-production" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Faster Production</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="better-durability" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Better Durability</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="easier-sourcing" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Easier Sourcing</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="lighter-weight" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Lighter Weight</span></label>' +
+                        '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" name="smart_alt_comparison[]" value="eco-friendly" class="n88-smart-alt-checkbox-modal" onchange="updateSmartAltPreviewModal();" style="width: 14px; height: 14px; cursor: pointer; accent-color: #FF0065;" /><span style="font-size: 11px; color: #fff; font-family: monospace;">Eco-Friendly</span></label>' +
                         '</div>' +
                         '</div>' +
                         // Price impact dropdown
@@ -5133,8 +5232,8 @@ class N88_RFQ_Auth {
                         '</select>' +
                         '</div>' +
                         // Preview sentence (read-only)
-                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #00ff00;">' +
-                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #00ff00; font-family: monospace; font-weight: 600;">Preview:</label>' +
+                        '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065;">' +
+                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace; font-weight: 600;">Preview:</label>' +
                         '<div id="n88-smart-alt-preview-modal" style="padding: 8px; background-color: #1a1a1a; border: none; border-radius: 2px; font-size: 11px; color: #999; font-family: monospace; min-height: 40px; font-style: italic;">Fill in the fields above to generate preview...</div>' +
                         '</div>' +
                         '</div>' : '') +
@@ -5143,16 +5242,16 @@ class N88_RFQ_Auth {
                         '</form>' +
                         '</div>' +
                         // Footer with submit button - Commit 2.3.5.2: Dark theme with green buttons
-                        '<div style="padding: 20px; border-top: 1px solid #00ff00; background-color: #000; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
+                        '<div style="padding: 20px; border-top: 1px solid #FF0065; background-color: #000; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
                         '<div style="flex: 1; min-width: 200px;">' +
-                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-bottom: 8px;">Rules:</div>' +
+                        '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-bottom: 8px;">Rules:</div>' +
                         '<div style="font-size: 10px; color: #fff; font-family: monospace;">Rules: No emails / phones / URLs / contact text. No uploads. No links here.</div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">' +
-                        '<div style="font-size: 11px; color: #00ff00; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
-                        '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
-                        '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #00ff00; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
+                        '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
+                        '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
+                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                        '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                         '</div>' +
                         '</div>';
                     
@@ -6215,8 +6314,8 @@ class N88_RFQ_Auth {
                         var placeholderId = 'n88-bid-photo-placeholder-embedded-' + itemId + '-' + index;
                         var placeholder = document.createElement('div');
                         placeholder.id = placeholderId;
-                        placeholder.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px dashed #00ff00; border-radius: 4px; display: flex; align-items: center; justify-content: center; background-color: #1a1a1a;';
-                        placeholder.innerHTML = '<div style="font-size: 11px; color: #00ff00; font-family: monospace;">Uploading...</div>';
+                        placeholder.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px dashed #FF0065; border-radius: 4px; display: flex; align-items: center; justify-content: center; background-color: #1a1a1a;';
+                        placeholder.innerHTML = '<div style="font-size: 11px; color: #FF0065; font-family: monospace;">Uploading...</div>';
                         previewContainer.appendChild(placeholder);
                         
                         fetch(ajaxUrl, {
@@ -6244,7 +6343,7 @@ class N88_RFQ_Auth {
                             if (data.success && data.data && data.data.id && data.data.url) {
                                 // Create thumbnail
                                 var thumbDiv = document.createElement('div');
-                                thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                                thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                                 thumbDiv.innerHTML = '<img src="' + data.data.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                     '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + data.data.id + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(220, 53, 69, 0.9); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                                 
@@ -6471,7 +6570,7 @@ class N88_RFQ_Auth {
                 var newLinkDiv = document.createElement('div');
                 newLinkDiv.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px; align-items: center;';
                 var linkNum = linkCount + 1;
-                newLinkDiv.innerHTML = '<span style="color: #00ff00; font-family: monospace; font-size: 12px;">' + linkNum + ')</span>' +
+                newLinkDiv.innerHTML = '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">' + linkNum + ')</span>' +
                     '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
                     '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px;">Remove</button>';
                 
@@ -6517,7 +6616,7 @@ class N88_RFQ_Auth {
                 var errorDiv = document.getElementById('n88-video-links-error-embedded-' + itemId);
                 
                 if (!url) {
-                    input.style.borderColor = '#00ff00';
+                    input.style.borderColor = '#FF0065';
                     return true;
                 }
                 
@@ -6553,7 +6652,7 @@ class N88_RFQ_Auth {
                     return false;
                 }
                 
-                input.style.borderColor = '#00ff00';
+                input.style.borderColor = '#FF0065';
                 if (errorDiv) {
                     errorDiv.style.display = 'none';
                 }
@@ -6664,7 +6763,7 @@ class N88_RFQ_Auth {
                     if (data.success) {
                         // Show success message
                         var successMsg = document.createElement('div');
-                        successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
                         successMsg.textContent = '✓ Draft saved successfully';
                         document.body.appendChild(successMsg);
                         
@@ -7104,7 +7203,7 @@ class N88_RFQ_Auth {
                             if (draft.bid_photo_urls && draft.bid_photo_urls.length > 0) {
                                 draft.bid_photo_urls.forEach(function(photo) {
                                     var thumbDiv = document.createElement('div');
-                                    thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
+                                    thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
                                     thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                         '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                                     thumbDiv.setAttribute('data-photo-id', photo.id || '');
@@ -7124,7 +7223,7 @@ class N88_RFQ_Auth {
                                 // Fallback: restore from bid_photos URLs
                                 draft.bid_photos.forEach(function(photoUrl) {
                                     var thumbDiv = document.createElement('div');
-                                    thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
+                                    thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
                                     thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                         '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                                     previewContainer.appendChild(thumbDiv);
@@ -7139,7 +7238,7 @@ class N88_RFQ_Auth {
                         
                         // Show notification that draft was loaded
                         var notification = document.createElement('div');
-                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
                         notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
                         document.body.appendChild(notification);
                         setTimeout(function() {
@@ -7194,7 +7293,7 @@ class N88_RFQ_Auth {
                         
                         // Show notification
                         var notification = document.createElement('div');
-                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #00ff00; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
                         notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
                         document.body.appendChild(notification);
                         setTimeout(function() {
@@ -7250,7 +7349,7 @@ class N88_RFQ_Auth {
                         previewContainer.innerHTML = '';
                         bidData.bid_photo_urls.forEach(function(photo) {
                             var thumbDiv = document.createElement('div');
-                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                 '<button type="button" onclick="removeBidPhoto(this, ' + photo.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                             thumbDiv.setAttribute('data-photo-id', photo.id);
@@ -7273,7 +7372,7 @@ class N88_RFQ_Auth {
                         previewContainer.innerHTML = '';
                         bidData.bid_photos.forEach(function(photoUrl, index) {
                             var thumbDiv = document.createElement('div');
-                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                 '<button type="button" onclick="removeBidPhoto(this, null);" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                             previewContainer.appendChild(thumbDiv);
@@ -7397,7 +7496,7 @@ class N88_RFQ_Auth {
                     if (bidData.bid_photo_urls && bidData.bid_photo_urls.length > 0) {
                         bidData.bid_photo_urls.forEach(function(photo) {
                             var thumbDiv = document.createElement('div');
-                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                 '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                             thumbDiv.setAttribute('data-photo-id', photo.id || '');
@@ -7414,7 +7513,7 @@ class N88_RFQ_Auth {
                     } else if (bidData.bid_photos && bidData.bid_photos.length > 0) {
                         bidData.bid_photos.forEach(function(photoUrl) {
                             var thumbDiv = document.createElement('div');
-                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #00ff00; border-radius: 4px; overflow: hidden;';
+                            thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
                                 '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
                             previewContainer.appendChild(thumbDiv);
@@ -7651,7 +7750,7 @@ class N88_RFQ_Auth {
                 
                 if (parts.length > 0) {
                     preview.textContent = parts.join(' | ');
-                    preview.style.color = '#00ff00';
+                    preview.style.color = '#FF0065';
                     preview.style.fontStyle = 'normal';
                 } else {
                     preview.textContent = 'Fill in the fields above to generate preview...';
@@ -7746,7 +7845,7 @@ class N88_RFQ_Auth {
                 
                 if (parts.length > 0) {
                     preview.textContent = parts.join(' | ');
-                    preview.style.color = '#00ff00';
+                    preview.style.color = '#FF0065';
                     preview.style.fontStyle = 'normal';
                 } else {
                     preview.textContent = 'Fill in the fields above to generate preview...';
@@ -8784,8 +8883,9 @@ class N88_RFQ_Auth {
                         messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
                         
+                        var redirectUrl = (data.data.first_time_onboarding) ? '<?php echo esc_url( home_url( '/login/?n88_post_onboarding=1' ) ); ?>' : '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
                         setTimeout(function() {
-                            window.location.href = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
+                            window.location.href = redirectUrl;
                         }, 2000);
                     } else {
                         messageDiv.className = 'n88-auth-message n88-auth-message-error';
@@ -9184,6 +9284,7 @@ class N88_RFQ_Auth {
 
             wp_send_json_success( array(
                 'message' => 'Profile saved successfully!',
+                'first_time_onboarding' => ! $existing_profile,
             ) );
 
         } catch ( Exception $e ) {
@@ -9315,108 +9416,100 @@ class N88_RFQ_Auth {
 
         ob_start();
         ?>
-        <div class="n88-designer-onboarding" style="max-width: 800px; margin: 40px auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
-            <h1 style="margin: 0 0 30px 0; font-size: 28px; font-weight: 600; color: #333;"><?php echo esc_html( $form_title ); ?></h1>
-            <p style="margin: 0 0 30px 0; font-size: 14px; color: #666;"><?php echo esc_html( $form_description ); ?></p>
+        <div class="n88-designer-onboarding-wrap">
+            <div class="n88-designer-onboarding-card">
+                <div class="n88-auth-logo">
+                    <h1 class="n88-auth-logo-title">WireFrame (OS)</h1>
+                    <p class="n88-auth-logo-by">By Neev</p>
+                </div>
+                <h1 class="n88-onboarding-title"><?php echo esc_html( $form_title ); ?></h1>
+                <p class="n88-onboarding-subtitle"><?php echo esc_html( $form_description ); ?></p>
             
-            <form id="n88-designer-onboarding-form" style="background-color: #fff; padding: 30px; border: 1px solid #e0e0e0; border-radius: 8px;">
+            <form id="n88-designer-onboarding-form" class="n88-auth-form">
                 <?php wp_nonce_field( 'n88_save_designer_profile', 'n88_designer_profile_nonce' ); ?>
                 
-                <!-- Firm Name -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Firm Name <span style="color: #d63638;">*</span>
-                    </label>
-                    <input type="text" id="n88-firm-name" name="firm_name" value="<?php echo $existing_profile ? esc_attr( $existing_profile->firm_name ) : ''; ?>" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                <div class="n88-form-group">
+                    <label for="n88-firm-name">Firm Name <span class="n88-required-asterisk">*</span></label>
+                    <input type="text" id="n88-firm-name" name="firm_name" value="<?php echo $existing_profile ? esc_attr( $existing_profile->firm_name ) : ''; ?>" required placeholder="Enter your firm name">
                 </div>
 
-                <!-- Display Nickname -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Display Nickname
-                    </label>
-                    <input type="text" id="n88-display-nickname" name="display_nickname" value="<?php echo $existing_profile ? esc_attr( $existing_profile->display_nickname ) : ''; ?>" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                </div>
-
-                <!-- Contact Name -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Contact Name <span style="color: #d63638;">*</span>
-                    </label>
-                    <input type="text" id="n88-contact-name" name="contact_name" value="<?php echo $existing_profile ? esc_attr( $existing_profile->contact_name ) : ''; ?>" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                </div>
-
-                <!-- Email -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Email <span style="color: #d63638;">*</span>
-                    </label>
-                    <input type="email" id="n88-email" name="email" value="<?php echo $existing_profile ? esc_attr( $existing_profile->email ) : esc_attr( $current_user->user_email ); ?>" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                </div>
-
-                <!-- Address Fields -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: #333;">
-                        Address
-                    </label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Country Code (2 letters)</label>
-                            <input type="text" id="n88-country-code" name="country_code" value="<?php echo $existing_profile ? esc_attr( $existing_profile->country_code ) : ''; ?>" maxlength="2" placeholder="US" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">State/Region</label>
-                            <input type="text" id="n88-state-region" name="state_region" value="<?php echo $existing_profile ? esc_attr( $existing_profile->state_region ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                        </div>
+                <div class="n88-designer-name-row">
+                    <div class="n88-form-group">
+                        <label for="n88-contact-name">Contact Name <span class="n88-required-asterisk">*</span></label>
+                        <input type="text" id="n88-contact-name" name="contact_name" value="<?php echo $existing_profile ? esc_attr( $existing_profile->contact_name ) : ''; ?>" required placeholder="Enter your contact name">
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">City</label>
-                            <input type="text" id="n88-city" name="city" value="<?php echo $existing_profile ? esc_attr( $existing_profile->city ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">ZipCommit 2.3.2 — Supplier RFQ Detail View (Read-Only)</label>
-                            <input type="text" id="n88-postal-code" name="postal_code" value="<?php echo $existing_profile ? esc_attr( $existing_profile->postal_code ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                        </div>
-                    </div>
-                    <div>
-                        <label style="display: block; margin-bottom: 6px; font-size: 13px; color: #666;">Address Line 1</label>
-                        <input type="text" id="n88-address-line1" name="address_line1" value="<?php echo $existing_profile ? esc_attr( $existing_profile->address_line1 ) : ''; ?>" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                    <div class="n88-form-group">
+                        <label for="n88-display-nickname">Display Nickname</label>
+                        <input type="text" id="n88-display-nickname" name="display_nickname" value="<?php echo $existing_profile ? esc_attr( $existing_profile->display_nickname ) : ''; ?>" placeholder="Enter your display nickname">
                     </div>
                 </div>
 
-                <!-- Practice Types -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: #333;">
-                        Practice Types
-                    </label>
-                    <p style="margin: 0 0 12px 0; font-size: 13px; color: #666;">Select the practice types that apply to your firm.</p>
-                    <div style="display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;">
+                <div class="n88-form-group">
+                    <label for="n88-email">Email <span class="n88-required-asterisk">*</span></label>
+                    <input type="email" id="n88-email" name="email" value="<?php echo $existing_profile ? esc_attr( $existing_profile->email ) : esc_attr( $current_user->user_email ); ?>" required placeholder="Enter your email">
+                </div>
+
+                <div class="n88-form-group">
+                    <label>Address</label>
+                    <div class="n88-address-grid">
+                        <div class="n88-form-group">
+                            <label for="n88-country-code" class="n88-field-sublabel">Country</label>
+                            <select id="n88-country-code" name="country_code">
+                                <option value="">Select country</option>
+                                <?php
+                                $countries = $this->get_countries_list();
+                                $country_val = $existing_profile ? $existing_profile->country_code : '';
+                                foreach ( $countries as $code => $name ) {
+                                    echo '<option value="' . esc_attr( $code ) . '"' . selected( $country_val, $code, false ) . '>' . esc_html( $name ) . '</option>';
+                                }
+                                ?>
+                            </select>
+                        </div>
+                        <div class="n88-form-group">
+                            <label for="n88-state-region" class="n88-field-sublabel">State/Region</label>
+                            <input type="text" id="n88-state-region" name="state_region" value="<?php echo $existing_profile ? esc_attr( $existing_profile->state_region ) : ''; ?>" placeholder="Enter State/Region">
+                        </div>
+                        <div class="n88-form-group">
+                            <label for="n88-city" class="n88-field-sublabel">City</label>
+                            <input type="text" id="n88-city" name="city" value="<?php echo $existing_profile ? esc_attr( $existing_profile->city ) : ''; ?>" placeholder="Enter City">
+                        </div>
+                        <div class="n88-form-group">
+                            <label for="n88-postal-code" class="n88-field-sublabel">Postal</label>
+                            <input type="text" id="n88-postal-code" name="postal_code" value="<?php echo $existing_profile ? esc_attr( $existing_profile->postal_code ) : ''; ?>" placeholder="Enter Postal">
+                        </div>
+                    </div>
+                    <div class="n88-form-group">
+                        <label for="n88-address-line1" class="n88-field-sublabel">Address</label>
+                        <input type="text" id="n88-address-line1" name="address_line1" value="<?php echo $existing_profile ? esc_attr( $existing_profile->address_line1 ) : ''; ?>" placeholder="Enter your address">
+                    </div>
+                </div>
+
+                <div class="n88-form-group">
+                    <label>Practice Types</label>
+                    <p class="n88-field-desc">Select the practice types that apply to your firm.</p>
+                    <div class="n88-practice-types-container">
                         <?php foreach ( $practice_types as $practice ) : ?>
-                            <label style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background-color: #fff; border: 1px solid #ddd; border-radius: 20px; cursor: pointer; font-size: 14px;">
-                                <input type="checkbox" name="practice_types[]" value="<?php echo esc_attr( $practice->practice_id ); ?>" <?php checked( in_array( $practice->practice_id, $existing_practice_ids ) ); ?> style="width: 18px; height: 18px; cursor: pointer; margin: 0;">
-                                <span style="color: #333;"><?php echo esc_html( $practice->name ); ?></span>
+                            <label class="n88-practice-chip">
+                                <input type="checkbox" name="practice_types[]" value="<?php echo esc_attr( $practice->practice_id ); ?>" <?php checked( in_array( $practice->practice_id, $existing_practice_ids ) ); ?>>
+                                <span><?php echo esc_html( $practice->name ); ?></span>
                             </label>
                         <?php endforeach; ?>
                     </div>
                 </div>
 
-                <!-- Default Allow System Invites -->
-                <div style="margin-bottom: 25px;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="n88-default-allow-system-invites" name="default_allow_system_invites" value="1" <?php checked( $existing_profile && $existing_profile->default_allow_system_invites == 1 ); ?> style="width: 18px; height: 18px; cursor: pointer;">
-                        <span style="font-size: 14px; color: #333;">Default Allow System Invites</span>
+                <div class="n88-form-group">
+                    <label class="n88-capability-item">
+                        <input type="checkbox" id="n88-default-allow-system-invites" name="default_allow_system_invites" value="1" <?php checked( $existing_profile && $existing_profile->default_allow_system_invites == 1 ); ?>>
+                        <span>Default Allow System Invites</span>
                     </label>
                 </div>
 
-                <!-- Submit Button -->
-                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-                    <button type="submit" id="n88-submit-designer-profile" style="padding: 12px 24px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;">
-                        Save Profile
-                    </button>
-                    <div id="n88-designer-form-message" style="margin-top: 15px; font-size: 14px; display: none;"></div>
+                <div class="n88-form-group" style="margin-top: 24px;">
+                    <button type="submit" id="n88-submit-designer-profile" class="n88-auth-submit">Save Profile</button>
+                    <div id="n88-designer-form-message" class="n88-auth-message" style="margin-top: 15px; display: none;"></div>
                 </div>
             </form>
+            </div>
         </div>
 
         <script>
@@ -9425,7 +9518,6 @@ class N88_RFQ_Auth {
             var submitButton = document.getElementById('n88-submit-designer-profile');
             var messageDiv = document.getElementById('n88-designer-form-message');
 
-            // Handle form submission
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
 
@@ -9443,22 +9535,25 @@ class N88_RFQ_Auth {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 4px;';
+                        messageDiv.className = 'n88-auth-message n88-auth-message-success';
+                        messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Profile saved successfully!';
                         
-                        // Redirect after 2 seconds
+                        var redirectUrl = (data.data.first_time_onboarding) ? '<?php echo esc_url( home_url( '/login/?n88_post_onboarding=1' ) ); ?>' : '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
                         setTimeout(function() {
-                            window.location.href = '<?php echo esc_url( home_url( '/workspace' ) ); ?>';
+                            window.location.href = redirectUrl;
                         }, 2000);
                     } else {
-                        messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;';
+                        messageDiv.className = 'n88-auth-message n88-auth-message-error';
+                        messageDiv.style.display = 'block';
                         messageDiv.textContent = data.data.message || 'Error saving profile. Please try again.';
                         submitButton.disabled = false;
                         submitButton.textContent = 'Save Profile';
                     }
                 })
                 .catch(error => {
-                    messageDiv.style.cssText = 'margin-top: 15px; font-size: 14px; display: block; padding: 12px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;';
+                    messageDiv.className = 'n88-auth-message n88-auth-message-error';
+                    messageDiv.style.display = 'block';
                     messageDiv.textContent = 'Error saving profile. Please try again.';
                     submitButton.disabled = false;
                     submitButton.textContent = 'Save Profile';
@@ -9598,6 +9693,7 @@ class N88_RFQ_Auth {
 
             wp_send_json_success( array(
                 'message' => 'Profile saved successfully!',
+                'first_time_onboarding' => ! $existing_profile,
             ) );
 
         } catch ( Exception $e ) {
@@ -16394,7 +16490,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                     // Show action hint when: (a) messages needing reply, (b) designer approved CAD but operator has not sent to supplier, or (c) operator has released CAD to supplier
                                                     if ( $effective_unread > 0 || $pending_release_to_supplier || $is_cad_released ) :
                                                     ?>
-                                                        <div style="font-size: 11px; color: #00ff00; margin-top: 4px;">
+                                                        <div style="font-size: 11px; color: #FF0065; margin-top: 4px;">
                                                             <?php
                                                             $action_lines = array();
                                                             if ( $is_cad_released ) {
@@ -16447,7 +16543,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div><?php echo esc_html( $status_display ); ?></div>
                                             <?php if ( $effective_unread > 0 ) : ?>
-                                                <div style="font-size: 11px; color: #00ff00;"><?php echo ( $effective_designer_unread > 0 && $cad_status_val === 'revision_requested' ) ? 'Designer CAD revision' : ( ( $effective_designer_unread > 0 ) ? 'Designer message' : 'Clarification Request' ); ?></div>
+                                                <div style="font-size: 11px; color: #FF0065;"><?php echo ( $effective_designer_unread > 0 && $cad_status_val === 'revision_requested' ) ? 'Designer CAD revision' : ( ( $effective_designer_unread > 0 ) ? 'Designer message' : 'Clarification Request' ); ?></div>
                                                 <?php if ( $show_action_required ) : ?>
                                                     <div style="font-size: 10px; color: #ff0000; margin-top: 2px;"><?php echo esc_html( $effective_unread ); ?> unread</div>
                                                 <?php endif; ?>
@@ -16467,7 +16563,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                             <?php if ( $has_clarification && ! $payment_id ) : ?>
                                                 <!-- Clarification-Only Item Details -->
                                                 <div style="margin-bottom: 16px;">
-                                                    <div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">⚠️ <?php echo ( $designer_unread_count > 0 ) ? 'Designer message' : 'Clarification Request'; ?></div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">⚠️ <?php echo ( $designer_unread_count > 0 ) ? 'Designer message' : 'Clarification Request'; ?></div>
                                                     <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
                                                         <li>Item: <?php echo esc_html( $item_label ); ?> (ID: <?php echo esc_html( $item_id ); ?>)</li>
                                                         <?php if ( $bid_id ) : ?>
@@ -16485,7 +16581,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                         <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="0" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             Message Threads
                                                         </button>
-                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #FF0065; border: 1px solid #FF0065; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                         Mark Clarification Resolved
                                                         </button>
                                                     </div>
@@ -16532,14 +16628,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                         <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             Message Threads
                                                         </button>
-                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                        <button class="n88-mark-resolved-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #FF0065; border: 1px solid #FF0065; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                         Mark Clarification Resolved                                                        </button>
                                                         <?php if ( $request['status'] === 'requested' ) : ?>
-                                                            <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                                                            <button class="n88-mark-payment-received-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #003300; color: #FF0065; border: 1px solid #FF0065; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                                                             View Payment Receipt
                                                             </button>
                                                         <?php else : ?>
-                                                            <div style="font-size: 11px; color: #00ff00; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
+                                                            <div style="font-size: 11px; color: #FF0065; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
                                                         <?php endif; ?>
                                                         <?php
                                                             // Commit 2.3.9.2A: Release Approved CAD to Supplier (Operator-only)
@@ -16588,7 +16684,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                                                     <!-- Designer ⇄ Operator Thread -->
                                                     <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
-                                                        <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Designer ⇄ Operator</div>
+                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Designer ⇄ Operator</div>
                                                         <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
                                                             <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
@@ -16611,7 +16707,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                                 </button>
                                                             </form>
                                                         <?php elseif ( $payment_id && $request['status'] === 'marked_received' && $cad_status_for_upload === 'approved' ) : ?>
-                                                            <div style="font-size: 11px; color: #00ff00; padding: 8px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; margin-bottom: 10px; text-align: center;">
+                                                            <div style="font-size: 11px; color: #FF0065; padding: 8px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; margin-bottom: 10px; text-align: center;">
                                                                 ✓ CAD Approved - No further uploads needed
                                                             </div>
                                                         <?php else : ?>
@@ -16619,7 +16715,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                         <?php endif; ?>
                                                         <form class="n88-send-designer-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
                                                             <textarea name="message_text" required rows="2" placeholder="Type your message to designer..." style="flex: 1; padding: 10px 12px; background-color: #111; color: #fff; border: 1px solid #333; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: none; min-height: 40px; max-height: 100px;"></textarea>
-                                                            <button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                            <button type="submit" style="padding: 10px 20px; background-color: #FF0065; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#FF0065';">
                                                                 Send
                                                             </button>
                                                         </form>
@@ -16627,13 +16723,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                     
                                                     <!-- Supplier ⇄ Operator Thread -->
                                                     <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
-                                                        <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">Supplier ⇄ Operator</div>
+                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Supplier ⇄ Operator</div>
                                                         <div id="n88-supplier-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
                                                             <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
                                                         <form class="n88-send-supplier-message-form" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-supplier-id="<?php echo esc_attr( $request['supplier_id'] ?: '0' ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
                                                             <textarea name="message_text" required rows="2" placeholder="Type your message to supplier..." style="flex: 1; padding: 10px 12px; background-color: #111; color: #fff; border: 1px solid #333; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; resize: none; min-height: 40px; max-height: 100px;"></textarea>
-                                                            <button type="submit" style="padding: 10px 20px; background-color: #00ff00; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#00ff00';">
+                                                            <button type="submit" style="padding: 10px 20px; background-color: #FF0065; color: #000; border: none; border-radius: 20px; font-family: 'Courier New', Courier, monospace; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;" onmouseover="this.style.backgroundColor='#00cc00';" onmouseout="this.style.backgroundColor='#FF0065';">
                                                                 Send
                                                             </button>
                                                         </form>
@@ -16678,32 +16774,32 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         <!-- Commit 2.3.9.1D: Payment Confirmation Modal -->
         <div id="n88-payment-confirm-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.8); z-index: 10001; overflow-y: auto;">
-            <div style="max-width: 500px; margin: 100px auto; padding: 20px; background-color: #000; border: 2px solid #00ff00; font-family: 'Courier New', Courier, monospace;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #00ff00; padding-bottom: 10px;">
-                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #00ff00;">Confirm Payment Received</h2>
-                    <button id="n88-close-payment-confirm-modal" style="background: none; border: none; color: #00ff00; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+            <div style="max-width: 500px; margin: 100px auto; padding: 20px; background-color: #000; border: 2px solid #FF0065; font-family: 'Courier New', Courier, monospace;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #FF0065; padding-bottom: 10px;">
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #FF0065;">Confirm Payment Received</h2>
+                    <button id="n88-close-payment-confirm-modal" style="background: none; border: none; color: #FF0065; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
                 </div>
                 <div style="color: #fff; font-size: 12px; margin-bottom: 20px;">
                     <div style="margin-bottom: 12px;">
-                        <span style="color: #00ff00;">Item #</span><span id="n88-confirm-item-id" style="margin-left: 8px;"></span>
-                        <span style="color: #00ff00; margin-left: 16px;">Bid #</span><span id="n88-confirm-bid-id" style="margin-left: 8px;"></span>
+                        <span style="color: #FF0065;">Item #</span><span id="n88-confirm-item-id" style="margin-left: 8px;"></span>
+                        <span style="color: #FF0065; margin-left: 16px;">Bid #</span><span id="n88-confirm-bid-id" style="margin-left: 8px;"></span>
                     </div>
                     <div style="margin-bottom: 16px;">
-                        <span style="color: #00ff00;">Total Due:</span>
+                        <span style="color: #FF0065;">Total Due:</span>
                         <span id="n88-confirm-total-due" style="margin-left: 8px; font-weight: 600; font-size: 14px;"></span>
                     </div>
                     <div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ff8800; border-radius: 4px; color: #ffaa00; font-size: 11px; line-height: 1.5;">
                         <strong>Warning:</strong> This confirms offline payment and unlocks the next CAD drafting step (future commit).
                     </div>
-                    <div id="n88-payment-receipts-container" style="margin-top: 14px; padding: 10px; background-color: #0a1a0a; border: 1px solid #00ff00; border-radius: 4px; font-size: 12px; color: #ccc;">
-                        <span style="color: #00ff00;">Payment receipts:</span> <span id="n88-receipts-list">—</span>
+                    <div id="n88-payment-receipts-container" style="margin-top: 14px; padding: 10px; background-color: #0a1a0a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #ccc;">
+                        <span style="color: #FF0065;">Payment receipts:</span> <span id="n88-receipts-list">—</span>
                     </div>
                 </div>
                 <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
                     <button id="n88-cancel-payment-confirm" style="padding: 8px 16px; background-color: #333; color: #fff; border: 1px solid #666; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#444';" onmouseout="this.style.backgroundColor='#333';">
                         Cancel
                     </button>
-                    <button id="n88-confirm-payment-received" style="padding: 8px 16px; background-color: #003300; color: #00ff00; border: 1px solid #00ff00; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
+                    <button id="n88-confirm-payment-received" style="padding: 8px 16px; background-color: #003300; color: #FF0065; border: 1px solid #FF0065; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; font-weight: 600;" onmouseover="this.style.backgroundColor='#005500';" onmouseout="this.style.backgroundColor='#003300';">
                         Confirm Payment Received
                     </button>
                 </div>
@@ -17067,8 +17163,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     }
                     
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isOperator ? 'flex-end' : 'flex-start') + '; width: 100%;">';
-                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isOperator ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isOperator ? '#00ff00' : '#333') + '; border-radius: ' + (isOperator ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
-                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isOperator ? '#00ff00' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
+                    html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isOperator ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isOperator ? '#FF0065' : '#333') + '; border-radius: ' + (isOperator ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
+                    html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isOperator ? '#FF0065' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
                     html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                     
                     // Commit 2.3.9.2A: Render CAD file cards (for CAD uploads, revision requests, and CAD released messages)
@@ -17079,10 +17175,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
                             var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
                             
-                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#00ff00\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
+                            html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
                             html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
                             html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            html += '<div style="font-size: 10px; color: #00ff00; flex-shrink: 0;">Open →</div>';
+                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open →</div>';
                             html += '</a>';
                         });
                         html += '</div>';
@@ -17349,7 +17445,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 var tabs = container.querySelectorAll('[data-n88-op-tab]');
                 var panels = container.querySelectorAll('[data-n88-op-panel]');
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
-                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
                 for (var i = 0; i < tabs.length; i++) {
                     tabs[i].style.cssText = (i === idx) ? tabActiveStyle : tabStyle;
                 }
@@ -17366,7 +17462,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
             };
 
-            // Workflow step switcher: show only the selected step panel; highlight active step in row
+            // Workflow step switcher: show only the selected step panel; highlight active step (green filled circle + green text), others gray
             window.n88OperatorWorkflowShowStep = function(idx) {
                 var wrap = document.getElementById('n88-operator-workflow-timeline-wrap');
                 if (!wrap) return;
@@ -17379,11 +17475,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     panels[p].style.display = (stepNum === idx) ? 'block' : 'none';
                 }
                 var btns = wrap.querySelectorAll('[data-n88-op-workflow-step-btn]');
-                var wfGreen = '#00ff00';
-                var wfText = '#ccc';
+                var wfGreen = '#FF0065';
+                var wfInactive = '#888';
                 for (var b = 0; b < btns.length; b++) {
+                    var isActive = (parseInt(btns[b].getAttribute('data-n88-op-workflow-step-btn'), 10) === idx);
+                    var circle = btns[b].querySelector('.n88-op-step-circle');
                     var lbl = btns[b].querySelector('.n88-op-step-label');
-                    if (lbl) lbl.style.color = (parseInt(btns[b].getAttribute('data-n88-op-workflow-step-btn'), 10) === idx) ? wfGreen : wfText;
+                    if (circle) {
+                        circle.style.background = isActive ? wfGreen : '#333';
+                        circle.style.borderColor = isActive ? wfGreen : '#555';
+                        circle.style.color = isActive ? '#0a0a0a' : wfInactive;
+                    }
+                    if (lbl) lbl.style.color = isActive ? wfGreen : wfInactive;
                 }
             };
 
@@ -17459,7 +17562,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             wrap.setAttribute('data-timeline-loaded', '1');
                             return;
                         }
-                        var green = '#00ff00';
+                        var green = '#FF0065';
                         var darkText = '#ccc';
                         var darkBorder = '#555';
                         var selectedIdx = 0;
@@ -17488,8 +17591,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var detEl = document.getElementById('n88-operator-timeline-detail');
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #00ff00; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
-                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#00ff00' : '#ccc') + ';">' + sl + '</span></div>' +
+                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
@@ -17500,21 +17603,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             for (var j = 0; j < btns.length; j++) {
                                 var b = btns[j];
                                 var bidx = parseInt(b.getAttribute('data-idx'), 10);
+                                var isActive = bidx === idx;
+                                var circle = b.querySelector('.n88-operator-step-circle');
                                 var lbl = b.querySelector('.n88-operator-step-label');
-                                if (lbl) lbl.style.color = bidx === idx ? green : darkText;
+                                if (circle) {
+                                    circle.style.background = isActive ? green : '#333';
+                                    circle.style.borderColor = isActive ? green : '#555';
+                                    circle.style.color = isActive ? '#0a0a0a' : '#888';
+                                }
+                                if (lbl) lbl.style.color = isActive ? green : '#888';
                             }
                             var itemId = wrap.getAttribute('data-item-id');
                             if (itemId && typeof window.n88LoadOperatorStepEvidence === 'function') window.n88LoadOperatorStepEvidence(itemId, sel.step_id);
                         }
+                        var opStepLabels = ['Design & Specifications', 'Technical Review & Documentation', 'Pre-Production Approval', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                         var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var i = 0; i < steps.length; i++) {
                             var s = steps[i];
-                            var isActive = s.display_status === 'in_progress' || s.display_status === 'delayed';
-                            var isCompleted = s.display_status === 'completed';
                             var isSelected = selectedIdx === i;
+                            var rowLabel = opStepLabels[i] || (s.label || '');
                             row += '<div onclick="(function(idx){ var w=document.getElementById(\'n88-operator-workflow-timeline-wrap\'); if(w._n88OpUpdateDetail) w._n88OpUpdateDetail(idx); })(' + i + ');" data-n88-operator-step-btn data-idx="' + i + '" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; cursor: pointer; padding: 4px; border-radius: 4px; border: none;">';
-                            row += '<div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isCompleted ? green : isActive ? green : darkBorder) + '; background: ' + (isCompleted ? green : 'transparent') + '; color: ' + (isCompleted ? '#0a0a0a' : isActive ? green : darkText) + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
-                            row += '<div class="n88-operator-step-label" style="font-size: 10px; color: ' + (isSelected ? green : darkText) + '; text-align: center; line-height: 1.2;">' + (s.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            row += '<div class="n88-operator-step-circle" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (isSelected ? green : darkBorder) + '; background: ' + (isSelected ? green : '#333') + '; color: ' + (isSelected ? '#0a0a0a' : '#888') + '; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-bottom: 6px;">' + (s.step_number || (i + 1)) + '</div>';
+                            row += '<div class="n88-operator-step-label" style="font-size: 10px; color: ' + (isSelected ? green : '#888') + '; text-align: center; line-height: 1.2;">' + (rowLabel || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             if (s.is_delayed) row += '<span style="font-size: 9px; color: #ff6666; margin-top: 2px;">[ ! Delayed ]</span>';
                             row += '</div>';
                             if (i < steps.length - 1) {
@@ -17669,7 +17779,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if (!itemId) return;
                 var containers = [document.getElementById('n88-op-step456-content-4'), document.getElementById('n88-op-step456-content-5'), document.getElementById('n88-op-step456-content-6')];
                 if (!containers[0] && !containers[1] && !containers[2]) return;
-                var green = '#00ff00';
+                var green = '#FF0065';
                 var darkText = '#ccc';
                 var darkBorder = '#555';
                 var nonce = typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '';
@@ -17903,7 +18013,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     var tag = isResubmitted ? '<span style="display:inline-block;margin-right:8px;padding:2px 6px;font-size:10px;font-weight:600;background-color:#331100;color:#ff8800;border:1px solid #ff8800;border-radius:2px;">Resubmitted</span>' : '';
                                     var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                                     var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">— ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
-                                    return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#00ff00">' + name + '</a>' + msg + '</div>';
+                                    return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#FF0065">' + name + '</a>' + msg + '</div>';
                                 });
                                 listEl.innerHTML = parts.join('');
                             } else {
@@ -18035,13 +18145,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 if (typeof loadCaseDetails === 'function') loadCaseDetails(paymentId, { openTab: 1 });
                             } else {
                                 btn.style.backgroundColor = '#001100';
-                                btn.style.borderColor = '#00ff00';
-                                btn.style.color = '#00ff00';
+                                btn.style.borderColor = '#FF0065';
+                                btn.style.color = '#FF0065';
                                 btn.textContent = '✓ Payment Confirmed';
                                 btn.disabled = true;
                                 var statusCell = btn.closest('tr') && btn.closest('tr').previousElementSibling ? btn.closest('tr').previousElementSibling.querySelector('td:nth-child(4)') : null;
                                 if (statusCell) {
-                                    statusCell.innerHTML = '<div>Payment Received</div><div style="font-size: 11px; color: #00ff00;">Confirmed</div>';
+                                    statusCell.innerHTML = '<div>Payment Received</div><div style="font-size: 11px; color: #FF0065;">Confirmed</div>';
                                 }
                                 setTimeout(function() { window.location.reload(); }, 2000);
                             }
@@ -18260,7 +18370,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $url_attr = esc_url( $f['url'] );
                 $name_esc = esc_html( $f['name'] );
                 $is_img = in_array( $f['ext'], array( 'jpg', 'jpeg', 'png', 'gif', 'webp' ), true );
-                $out .= '<a href="' . $url_attr . '" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0a0a0a; border: 1px solid #555; border-radius: 4px; text-decoration: none; color: #00ff00; font-size: 11px; max-width: 100%;" onmouseover="this.style.borderColor=\'#00ff00\';" onmouseout="this.style.borderColor=\'#555\';" title="Click to open in new tab">';
+                $out .= '<a href="' . $url_attr . '" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0a0a0a; border: 1px solid #555; border-radius: 4px; text-decoration: none; color: #FF0065; font-size: 11px; max-width: 100%;" onmouseover="this.style.borderColor=\'#FF0065\';" onmouseout="this.style.borderColor=\'#555\';" title="Click to open in new tab">';
                 if ( $is_img ) {
                     $out .= '<img src="' . $url_attr . '" alt="" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; flex-shrink: 0; background: #000;">';
                 } else {
@@ -18485,9 +18595,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $op_tab_style = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
-        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
         $wf_border = '#555';
-        $wf_green = '#00ff00';
+        $wf_green = '#FF0065';
         $wf_text = '#ccc';
         $operator_current_step = 0;
         $gate_state_clarification = 'Clarification only — no prototype payment yet.';
@@ -18496,12 +18606,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ?>
         <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
             <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $item['title'] ?: 'Item' ); ?></h2>
-            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>
+            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
         <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
             <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
                 <?php if ( ! empty( $thumbnail_url ) ) : ?>
-                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
+                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
                 <?php else : ?>
                 <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
                 <?php endif; ?>
@@ -18518,37 +18628,37 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
                         <div style="margin-right: 20px;">
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $item_id ); ?><?php echo $bid_id ? ' · Bid #' . esc_html( $bid_id ) : ''; ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Requested:</strong> <span style="color: #888;">—</span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $item_id ); ?><?php echo $bid_id ? ' · Bid #' . esc_html( $bid_id ) : ''; ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Requested:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
                             </div>
                         </div>
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">CAD Fee:</strong> <span style="color: #888;">—</span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">CAD Fee:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #888;">—</span></div>
                                 <?php if ( $delivery_quoting_note !== '' ) : ?>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
                                 <?php endif; ?>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Total Due:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Total Due:</strong> <span style="color: #888;">—</span></div>
                             </div>
                         </div>
                         <div style="margin-bottom: 0; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
                                 <?php if ( ! empty( $invited_suppliers ) ) : ?>
                                     <ul style="margin: 0; padding-left: 18px;">
                                         <?php foreach ( $invited_suppliers as $inv ) : ?>
                                             <li style="margin-bottom: 8px;">
-                                                <strong style="color: #00ff00;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
+                                                <strong style="color: #C8C8C8;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
                                                 <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
-                                                <span style="color: #00ff00;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                                <span style="color: #FF0065;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
@@ -18563,7 +18673,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <div style="display: flex; gap: 20px; min-height: 0;">
                             <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                                 <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Designer ⇄ Operator</div>
+                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer ⇄ Operator</div>
                                     <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?></div>
                                 </div>
                                 <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -18580,7 +18690,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         ?>
                                             <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                                 <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                                    <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo $sender_name; ?></div>
+                                                    <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo $sender_name; ?></div>
                                                     <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                                     <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                                 </div>
@@ -18591,13 +18701,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
                                     <form data-payment-id="0" data-item-id="<?php echo (int) $item_id; ?>" data-bid-id="<?php echo (int) $bid_id; ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo (int) $item_id; ?>, <?php echo (int) $designer_id; ?>, null, null);" style="display: flex; gap: 8px; align-items: center;">
                                         <input type="text" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to designer...">
-                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #FF0065; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                                     </form>
                                 </div>
                             </div>
                             <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                                 <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Supplier ⇄ Operator</div>
+                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier ⇄ Operator</div>
                                     <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?> · Bid #<?php echo esc_html( $bid_id ?: '—' ); ?></div>
                                 </div>
                                 <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -18614,7 +18724,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         ?>
                                             <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                                 <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                                    <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?></div>
+                                                    <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?></div>
                                                     <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                                     <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                                 </div>
@@ -18625,7 +18735,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
                                     <form data-payment-id="0" data-item-id="<?php echo (int) $item_id; ?>" data-bid-id="<?php echo (int) $bid_id; ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo (int) $item_id; ?>, null, <?php echo (int) $bid_id; ?>, <?php echo (int) $supplier_id; ?>);" style="display: flex; gap: 8px; align-items: center;">
                                         <input type="text" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to supplier...">
-                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                                        <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #FF0065; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                                     </form>
                                 </div>
                             </div>
@@ -18638,28 +18748,26 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0;">
                                 <?php
                                 $wf_steps = array(
-                                    array( 'num' => 1, 'label' => 'Prototype Direction Keywords', 'done' => false ),
-                                    array( 'num' => 2, 'label' => 'Key Dates', 'done' => false ),
-                                    array( 'num' => 3, 'label' => 'Workflow State', 'done' => false ),
-                                    array( 'num' => 4, 'label' => 'Production / Fabrication', 'done' => false ),
-                                    array( 'num' => 5, 'label' => 'Quality Review & Packing', 'done' => false ),
-                                    array( 'num' => 6, 'label' => 'Ready for Delivery', 'done' => false ),
+                                    array( 'num' => 1, 'label' => 'Design & Specifications' ),
+                                    array( 'num' => 2, 'label' => 'Technical Review & Documentation' ),
+                                    array( 'num' => 3, 'label' => 'Pre-Production Approval' ),
+                                    array( 'num' => 4, 'label' => 'Production / Fabrication' ),
+                                    array( 'num' => 5, 'label' => 'Quality Review & Packing' ),
+                                    array( 'num' => 6, 'label' => 'Ready for Delivery' ),
                                 );
-                                $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
+                                $step_label_style = 'font-size: 10px; color: #888; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                 foreach ( $wf_steps as $i => $s ) :
                                     $is_current = ( (int) $i ) === $operator_current_step;
                                     if ( $is_current ) {
                                         $border = $wf_green;
-                                        $bg    = 'transparent';
-                                        $color = $wf_green;
-                                    } elseif ( $s['done'] ) {
-                                        $border = $wf_green;
                                         $bg    = $wf_green;
                                         $color = '#0a0a0a';
+                                        $step_label_style = 'font-size: 10px; color: ' . $wf_green . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                     } else {
                                         $border = $wf_border;
-                                        $bg    = 'transparent';
-                                        $color = $wf_text;
+                                        $bg    = '#333';
+                                        $color = '#888';
+                                        $step_label_style = 'font-size: 10px; color: #888; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                     }
                                 ?>
                                 <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit;">
@@ -19180,7 +19288,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ?>
         <?php
         $op_tab_style = 'flex: 1; padding: 12px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
-        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #00ff00; color: #00ff00; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+        $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
         $op_tab_0_style = $operator_open_tab === 0 ? $op_tab_active : $op_tab_style;
         $op_tab_1_style = $operator_open_tab === 1 ? $op_tab_active : $op_tab_style;
         $op_tab_2_style = $operator_open_tab === 2 ? $op_tab_active : $op_tab_style;
@@ -19191,7 +19299,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         <!-- Header: title + Close only (Payment/CAD/Prototype chips and action buttons hidden) -->
         <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
             <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $payment['item_title'] ?: 'Item' ); ?></h2>
-            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #00ff00; font-family: monospace; line-height: 1;">[ x Close ]</button>
+            <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
 
         <!-- Body: left 42% + right tabs (same as supplier) -->
@@ -19199,7 +19307,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             <!-- Left: image + item # (supplier-style) -->
             <div style="width: 42%; min-width: 280px; border-right: 1px solid #555; padding: 20px; overflow-y: auto; background-color: #000;">
                 <?php if ( ! empty( $thumbnail_url ) ) : ?>
-                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #00ff00; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
+                <img src="<?php echo esc_url( $thumbnail_url ); ?>" alt="" style="max-width: 100%; max-height: 280px; width: auto; height: auto; border-radius: 2px; border: 2px solid #FF0065; object-fit: contain; background-color: #1a1a1a; display: block; margin-bottom: 16px;">
                 <?php else : ?>
                 <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
                 <?php endif; ?>
@@ -19218,42 +19326,42 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <div style="margin-right: 20px;">
                         <!-- 1. Case Summary (same box style as supplier Item Overview) -->
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Requested:</strong> <span style="color: #f59e0b;"><?php echo esc_html( $created_date ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Requested:</strong> <span style="color: #f59e0b;"><?php echo esc_html( $created_date ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
                             </div>
                         </div>
                         <!-- 2. Costs Snapshot (same box style) -->
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
                                 <?php if ( isset( $payment['unit_price'] ) && $payment['unit_price'] !== null && $payment['unit_price'] !== '' ) : ?>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Supplier bid unit price:</strong> <span style="color: #00ff00;">$<?php echo number_format( floatval( $payment['unit_price'] ), 2 ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Supplier bid unit price:</strong> <span style="color: #FF0065;">$<?php echo number_format( floatval( $payment['unit_price'] ), 2 ); ?></span></div>
                                 <?php endif; ?>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">CAD Fee:</strong> <span style="color: #fff;">$<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Prototype:</strong> <span style="color: #fff;"><?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">CAD Fee:</strong> <span style="color: #fff;">$<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #fff;"><?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></span></div>
                                 <?php if ( $delivery_quoting_note !== '' ) : ?>
-                                <div style="margin-bottom: 8px;"><strong style="color: #00ff00;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
                                 <?php endif; ?>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #00ff00;">Total Due:</strong> <span style="color: #00ff00; font-weight: 600;">$<?php echo number_format( $total_due_for_display, 2 ); ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Total Due:</strong> <span style="color: #FF0065; font-weight: 600;">$<?php echo number_format( $total_due_for_display, 2 ); ?></span></div>
                             </div>
                         </div>
                         <!-- 3. Routing / Suppliers (same box style) -->
                         <div style="margin-bottom: 0; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #00ff00; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Routing / Suppliers</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
                                 <?php if ( ! empty( $invited_suppliers ) ) : ?>
                                     <ul style="margin: 0; padding-left: 18px;">
                                         <?php foreach ( $invited_suppliers as $inv ) : ?>
                                             <li style="margin-bottom: 8px;">
-                                                <strong style="color: #00ff00;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
+                                                <strong style="color: #C8C8C8;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
                                                 <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
-                                                <span style="color: #00ff00;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                                <span style="color: #FF0065;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
@@ -19264,13 +19372,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         </div>
                         </div>
                     </div>
-                    <!-- Tab 2: Messages (green #00ff00; operator right, designer/supplier left; short height; inline send; file View links) -->
+                    <!-- Tab 2: Messages (green #FF0065; operator right, designer/supplier left; short height; inline send; file View links) -->
                     <div data-n88-op-panel="1" class="n88-operator-tab-panel" style="display: <?php echo $op_panel_1_display; ?>; flex: 1; min-height: 0; overflow-y: auto;">
                         <div style="display: flex; gap: 20px; min-height: 0;">
                 <!-- Designer Thread -->
                 <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                     <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                        <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Designer ⇄ Operator</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer ⇄ Operator</div>
                         <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?></div>
                     </div>
                     <div id="n88-operator-designer-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -19287,7 +19395,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             ?>
                                 <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                     <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                        <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
                                         <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                         <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
@@ -19313,20 +19421,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     </div>
                     <?php elseif ( $payment_id && $pay_status === 'marked_received' && $cad_status_val === 'approved' ) : ?>
                     <div style="padding: 8px 12px; border-top: 1px solid #333; background: #0a0a0a;">
-                        <div style="font-size: 11px; color: #00ff00; padding: 6px; background-color: #003300; border: 1px solid #00ff00; border-radius: 4px; text-align: center;">✓ CAD Approved – No further uploads needed</div>
+                        <div style="font-size: 11px; color: #FF0065; padding: 6px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; text-align: center;">✓ CAD Approved – No further uploads needed</div>
                     </div>
                     <?php endif; ?>
                     <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
                         <form id="n88-operator-designer-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'designer_operator', <?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, null, null);" style="display: flex; gap: 8px; align-items: center;">
                             <input type="text" id="n88-operator-designer-message" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to designer...">
-                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #FF0065; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                         </form>
                     </div>
                 </div>
                 <!-- Supplier Thread -->
                 <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                     <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                        <div style="font-size: 12px; font-weight: 600; color: #00ff00;">Supplier ⇄ Operator</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier ⇄ Operator</div>
                         <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
                     </div>
                     <div id="n88-operator-supplier-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -19343,7 +19451,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             ?>
                                 <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                     <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                        <div style="font-weight: 600; color: #00ff00; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
                                         <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                         <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
@@ -19354,25 +19462,25 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
                         <form id="n88-operator-supplier-form" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" onsubmit="return sendOperatorMessage(event, 'supplier_operator', <?php echo esc_js( $payment['item_id'] ); ?>, null, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>);" style="display: flex; gap: 8px; align-items: center;">
                             <input type="text" id="n88-operator-supplier-message" name="message_text" required style="flex: 1; height: 36px; padding: 8px 12px; background: #0c0c0c; color: #fff; border: 1px solid #555; border-radius: 8px; font-size: 12px; box-sizing: border-box;" placeholder="Type your message to supplier...">
-                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #00ff00; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
+                            <button type="submit" style="flex: 0 0 30%; max-width: 120px; height: 36px; padding: 0 12px; background: #FF0065; color: #000; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send</button>
                         </form>
                     </div>
                 </div>
             </div>
             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
-                <?php if ( $show_mark_payment && $payment_proof_pending ) : ?>
-                <button type="button" class="n88-operator-view-payment-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="padding: 8px 16px; background: #003300; color: #00ff00; border: 1px solid #00ff00; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">View Payment</button>
+                <?php if ( $show_mark_payment ) : ?>
+                <button type="button" class="n88-operator-view-payment-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" data-total-due="<?php echo esc_attr( $total_due_for_display ); ?>" style="padding: 8px 16px; background: #003300; color: #FF0065; border: 1px solid #FF0065; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">View Payment</button>
                 <?php endif; ?>
                 <?php if ( $show_release_cad ) : ?>
                 <button type="button" class="n88-operator-release-cad-btn n88-release-cad-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>" data-bid-id="<?php echo esc_attr( $payment['bid_id'] ); ?>" data-supplier-id="<?php echo esc_attr( $payment['supplier_id'] ); ?>" data-approved-version="<?php echo esc_attr( isset( $payment['cad_approved_version'] ) ? $payment['cad_approved_version'] : 0 ); ?>" style="padding: 8px 16px; background: #000033; color: #66aaff; border: 1px solid #66aaff; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Send Approved CAD to Supplier</button>
                 <?php endif; ?>
-                <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 8px 16px; background: #1f1f1f; color: #00ff00; border: 1px solid #555; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer;">Copy to Other Side</button>
+                <button onclick="copyMessageToOtherSide(<?php echo esc_js( $payment['item_id'] ); ?>, <?php echo esc_js( $payment['designer_user_id'] ); ?>, <?php echo esc_js( $payment['bid_id'] ); ?>, <?php echo esc_js( $payment['supplier_id'] ); ?>, <?php echo esc_js( $payment_id ); ?>);" style="padding: 8px 16px; background: #1f1f1f; color: #FF0065; border: 1px solid #555; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer;">Copy to Other Side</button>
                 <span style="font-size: 11px; color: #737373;">Forwards the last message from one thread to the other</span>
             </div>
                     </div>
                     <!-- Tab 3: The WorkFlow — 6-step timeline (Steps 1–3 content; 4–6 placeholder) -->
                     <?php
-                    $wf_green = '#00ff00';
+                    $wf_green = '#FF0065';
                     $wf_border = '#555';
                     $wf_text = '#ccc';
                     ?>
@@ -19383,28 +19491,26 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0;">
                                 <?php
                                 $wf_steps = array(
-                                    array( 'num' => 1, 'label' => 'Prototype Direction Keywords', 'done' => ! empty( $keyword_names ) ),
-                                    array( 'num' => 2, 'label' => 'Key Dates', 'done' => true ),
-                                    array( 'num' => 3, 'label' => 'Workflow State', 'done' => true ),
-                                    array( 'num' => 4, 'label' => 'Production / Fabrication', 'done' => false ),
-                                    array( 'num' => 5, 'label' => 'Quality Review & Packing', 'done' => false ),
-                                    array( 'num' => 6, 'label' => 'Ready for Delivery', 'done' => false ),
+                                    array( 'num' => 1, 'label' => 'Design & Specifications' ),
+                                    array( 'num' => 2, 'label' => 'Technical Review & Documentation' ),
+                                    array( 'num' => 3, 'label' => 'Pre-Production Approval' ),
+                                    array( 'num' => 4, 'label' => 'Production / Fabrication' ),
+                                    array( 'num' => 5, 'label' => 'Quality Review & Packing' ),
+                                    array( 'num' => 6, 'label' => 'Ready for Delivery' ),
                                 );
-                                $step_label_style = 'font-size: 10px; color: ' . $wf_text . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
+                                $step_label_style = 'font-size: 10px; color: #888; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                 foreach ( $wf_steps as $i => $s ) :
                                     $is_current = ( (int) $i ) === $operator_current_step;
                                     if ( $is_current ) {
                                         $border = $wf_green;
-                                        $bg    = 'transparent';
-                                        $color = $wf_green;
-                                    } elseif ( $s['done'] ) {
-                                        $border = $wf_green;
                                         $bg    = $wf_green;
                                         $color = '#0a0a0a';
+                                        $step_label_style = 'font-size: 10px; color: ' . $wf_green . '; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                     } else {
                                         $border = $wf_border;
-                                        $bg    = 'transparent';
-                                        $color = $wf_text;
+                                        $bg    = '#333';
+                                        $color = '#888';
+                                        $step_label_style = 'font-size: 10px; color: #888; text-align: center; line-height: 1.2; white-space: normal; word-break: break-word; max-width: 72px;';
                                     }
                                 ?>
                                 <button type="button" data-n88-op-workflow-step-btn="<?php echo (int) $i; ?>" data-n88-op-current="<?php echo $is_current ? '1' : '0'; ?>" onclick="typeof window.n88OperatorWorkflowShowStep === 'function' && window.n88OperatorWorkflowShowStep(<?php echo (int) $i; ?>);" style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 4px; cursor: pointer; background: none; border: none; font: inherit;">
@@ -19472,7 +19578,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         <div style="margin-top: 4px; color: #ccc;">Phrase: <?php echo esc_html( $ph['phrase_text'] ); ?></div>
                                         <?php endforeach; endif; ?>
                                         <?php if ( ! empty( $kf['revision_detail'] ) ) : ?>
-                                        <div style="margin-top: 6px; color: #00ff00;">Designer Detail: <?php echo esc_html( $kf['revision_detail'] ); ?></div>
+                                        <div style="margin-top: 6px; color: #FF0065;">Designer Detail: <?php echo esc_html( $kf['revision_detail'] ); ?></div>
                                         <?php endif; ?>
                                     </div>
                                     <?php endforeach; ?>

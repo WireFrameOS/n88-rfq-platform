@@ -4385,8 +4385,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         borderBottom: `1px solid ${darkBorder}`,
                                                     }}>
                                                         {timelineData.steps.flatMap((step, idx) => {
-                                                            const isActive = step.display_status === 'in_progress' || step.display_status === 'delayed';
-                                                            const isCompleted = step.display_status === 'completed';
                                                             const isSelected = selectedStepIndex === idx;
                                                             const stepEl = (
                                                                 <div
@@ -4405,9 +4403,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         width: '28px',
                                                                         height: '28px',
                                                                         borderRadius: '50%',
-                                                                        border: `2px solid ${isCompleted ? greenAccent : isActive ? greenAccent : darkBorder}`,
-                                                                        background: isCompleted ? greenAccent : 'transparent',
-                                                                        color: isCompleted ? '#0a0a0a' : isActive ? greenAccent : darkText,
+                                                                        border: `2px solid ${isSelected ? greenAccent : darkBorder}`,
+                                                                        background: isSelected ? greenAccent : '#333',
+                                                                        color: isSelected ? '#0a0a0a' : '#888',
                                                                         fontSize: '12px',
                                                                         fontWeight: '600',
                                                                         display: 'flex',
@@ -4419,7 +4417,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     </div>
                                                                     <div style={{
                                                                         fontSize: '10px',
-                                                                        color: isSelected ? greenAccent : darkText,
+                                                                        color: isSelected ? greenAccent : '#888',
                                                                         textAlign: 'center',
                                                                         lineHeight: 1.2,
                                                                         overflow: 'hidden',
@@ -4888,6 +4886,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                     if (data.success) {
                                                                                                         setDesignerStep456CommentDraft((prev) => { const n = { ...prev }; n[s.step_number] = ''; return n; });
                                                                                                         fetchTimeline();
+                                                                                                        try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
                                                                                                     } else {
                                                                                                         alert(data.data?.message || 'Failed to submit comment.');
                                                                                                     }
