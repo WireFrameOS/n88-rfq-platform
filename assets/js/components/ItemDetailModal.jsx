@@ -843,10 +843,10 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                 {bid.is_awarded ? (
                                     <div style={{
                                         padding: '4px 8px',
-                                        backgroundColor: '#003300',
-                                        border: '1px solid #00ff00',
+                                        backgroundColor: 'rgba(255,0,101,0.15)',
+                                        border: '1px solid #FF0065',
                                         borderRadius: '4px',
-                                        color: '#00ff00',
+                                        color: '#FF0065',
                                         fontSize: '9px',
                                         fontWeight: '600',
                                     }}>
@@ -916,7 +916,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                         }}
                                         style={{
                                             padding: '6px 12px',
-                                            backgroundColor: '#00ff00',
+                                            backgroundColor: '#FF0065',
                                             color: '#000',
                                             border: 'none',
                                             borderRadius: '4px',
@@ -929,7 +929,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                             e.target.style.backgroundColor = '#00cc00';
                                         }}
                                         onMouseOut={(e) => {
-                                            e.target.style.backgroundColor = '#00ff00';
+                                            e.target.style.backgroundColor = '#FF0065';
                                         }}
                                     >
                                         Award
@@ -1492,7 +1492,7 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
                         }}
                         style={{
                             padding: '10px 20px',
-                            backgroundColor: '#00ff00',
+                            backgroundColor: '#FF0065',
                             color: '#000',
                             border: 'none',
                             borderRadius: '4px',
@@ -1506,7 +1506,7 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
                             e.target.style.backgroundColor = '#00cc00';
                         }}
                         onMouseOut={(e) => {
-                            e.target.style.backgroundColor = '#00ff00';
+                            e.target.style.backgroundColor = '#FF0065';
                         }}
                     >
                         [ Award Bid ]
@@ -1520,11 +1520,11 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
                     marginTop: '12px', 
                     marginBottom: '8px',
                     padding: '10px',
-                    backgroundColor: '#003300',
-                    border: '1px solid #00ff00',
+                    backgroundColor: 'rgba(255,0,101,0.15)',
+                    border: '1px solid #FF0065',
                     borderRadius: '4px',
                     fontSize: '12px',
-                    color: '#00ff00',
+                    color: '#FF0065',
                     fontWeight: '600',
                     textAlign: 'center',
                 }}>
@@ -3471,7 +3471,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     // Dark theme colors (matching wireframes)
     const darkBg = '#000000';
     const darkText = '#d3d3d3';
-    const greenAccent = '#00ff00';
+    const greenAccent = '#FF0065'; /* pink accent - same as supplier queue */
     const darkBorder = '#333333';
     
     return (
@@ -3497,7 +3497,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         }}
                     />
                     
-                    {/* Modal - 50px margin from viewport edges, centered */}
+                    {/* Modal - inset top 30px, left/right 150px, bottom 30px */}
                     <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -3505,14 +3505,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                         style={{
                             position: 'fixed',
-                            top: '50px',
-                            left: '50px',
-                            right: '50px',
-                            bottom: '50px',
+                            top: '30px',
+                            left: '150px',
+                            right: '150px',
+                            bottom: '30px',
                             width: 'auto',
                             height: 'auto',
-                            maxWidth: 'calc(100vw - 100px)',
-                            maxHeight: 'calc(100vh - 100px)',
                             transform: 'none',
                             boxSizing: 'border-box',
                             backgroundColor: darkBg,
@@ -3529,7 +3527,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Header with Close Button (left) and Action Dropdown (right) */}
+                        {/* Header: Close + Wireframe(OS) + Board/Item (left), Action Dropdown (right) */}
                         <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -3538,26 +3536,42 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             borderBottom: `1px solid ${darkBorder}`,
                             flexShrink: 0,
                         }}>
-                            {/* Close Button - Left */}
-                            <button
-                                onClick={onClose}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <button
+                                    onClick={onClose}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: darkText,
+                                        fontSize: '24px',
+                                        cursor: 'pointer',
+                                        padding: '0',
+                                        width: '32px',
+                                        height: '32px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontFamily: 'monospace',
+                                    }}
+                                    aria-label="Close"
+                                >
+                                    ×
+                                </button>
+                                <div style={{
+                                    fontSize: '12px',
                                     color: darkText,
-                                    fontSize: '24px',
-                                    cursor: 'pointer',
-                                    padding: '0',
-                                    width: '32px',
-                                    height: '32px',
+                                    fontFamily: 'monospace',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontFamily: 'monospace',
-                                }}
-                            >
-                                ×
-                            </button>
+                                }}>
+                                    <span style={{ color: greenAccent, fontWeight: '600', marginRight: '12px' }}>Wireframe(OS)</span>
+                                    <span>Board : </span>
+                                    <span style={{ color: greenAccent }}>{(typeof window !== 'undefined' && window.n88BoardData && window.n88BoardData.boardName) || 'Demo Board'}</span>
+                                    <span style={{ margin: '0 8px' }}> / </span>
+                                    <span>Item </span>
+                                    <span style={{ color: greenAccent }}>{itemId ? String(itemId) : (item.id ? (typeof item.id === 'string' && item.id.indexOf('item-') === 0 ? item.id.replace('item-', '') : String(item.id)) : 'N/A')}</span>
+                                </div>
+                            </div>
                             
                             {/* Action Dropdown - Right (Add to Project / Room) */}
                             <div style={{ position: 'relative' }}>
@@ -3653,7 +3667,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         )}
 
                                         {assignmentSaving && (
-                                            <div style={{ marginTop: '10px', fontSize: '11px', color: '#00ff00' }}>
+                                            <div style={{ marginTop: '10px', fontSize: '11px', color: '#FF0065' }}>
                                                 Saving…
                                             </div>
                                         )}
@@ -3706,9 +3720,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             flex: 1,
                             overflow: 'hidden',
                         }}>
-                            {/* Left Column - Images */}
+                            {/* Left Column - Images (30%) */}
                             <div style={{
-                                width: '50%',
+                                width: '30%',
+                                minWidth: 0,
                                 borderRight: `1px solid ${darkBorder}`,
                                 padding: '20px',
                                 overflowY: 'auto',
@@ -3953,9 +3968,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     )}
                                 </div>
                             
-                            {/* Right Column - Tabs */}
+                            {/* Right Column - Tabs (remaining) */}
                             <div style={{
-                                width: '50%',
+                                flex: 1,
+                                minWidth: 0,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 overflow: 'hidden',
@@ -4459,8 +4475,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                 borderRadius: '4px',
                                                                 backgroundColor: 'rgba(0,0,0,0.2)',
                                                             }}>
-                                                                <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>
+                                                                <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>
                                                                     {s.step_number}. {s.label}
+                                                                </div>
+                                                                <div style={{ fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 }}>
+                                                                    {({ 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' })[s.step_number] || ''}
                                                                 </div>
                                                                 {/* Step 1: Design & Specifications — dot + CAD requested, Payment sent, Payment approved with dates (no generic status dot) */}
                                                                 {s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1 && (
@@ -4529,9 +4548,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         {itemState.prototype_status && (
                                                                             <div style={{
                                                                                 display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600',
-                                                                                backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
-                                                                                border: `1px solid ${itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'}`,
-                                                                                color: itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
+                                                                                backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
+                                                                                border: `1px solid ${itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'}`,
+                                                                                color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
                                                                             }}>
                                                                                 {itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? `Submitted (v${itemState.prototype_current_version || 0})` : 'Not Submitted'}
                                                                             </div>
@@ -4563,7 +4582,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                     const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
                                                                                     const data = await res.json();
                                                                                     if (data.success) fetchItemState(); else alert(data.message || 'Failed');
-                                                                                }} style={{ padding: '8px 12px', background: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Approve</button>
+                                                                                }} style={{ padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Approve</button>
                                                                                 <button type="button" onClick={() => setShowRequestChangesModal(true)} style={{ padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Request Changes</button>
                                                                             </div>
                                                                         )}
@@ -4721,7 +4740,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                                     {!showRevisionUpload ? (
                                                                                                         <>
                                                                                                             <button type="button" onClick={() => setShowRevisionUpload(true)} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>Submit revised CAD</button>
-                                                                                                            <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#003300', border: '1px solid #00ff00', borderRadius: '4px', color: '#00ff00', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
+                                                                                                            <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: 'rgba(255,0,101,0.2)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
                                                                                                         </>
                                                                                                     ) : (
                                                                                                         <div style={{ width: '100%' }}>
@@ -7321,7 +7340,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     </div>
 
                                     {/* Upload Payment Receipt (JPG/PDF) — operator sees these when marking received */}
-                                    <div style={{ marginTop: '20px', padding: '12px', backgroundColor: '#0a1a0a', borderRadius: '4px', border: '1px solid #00ff00' }}>
+                                    <div style={{ marginTop: '20px', padding: '12px', backgroundColor: '#1a0a14', borderRadius: '4px', border: '1px solid #FF0065' }}>
                                         {(() => {
                                             const paymentApproved = itemState.prototype_payment_status === 'marked_received';
                                             const hasReceipts = paymentReceipts.length > 0;
@@ -7332,17 +7351,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                     <>
                                                         {/* Message (optional) only when showing form (first time or resubmit) */}
                                                         <div style={{ marginBottom: '14px' }}>
-                                                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#00ff00', marginBottom: '6px' }}>Message (optional):</label>
+                                                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#FF0065', marginBottom: '6px' }}>Message (optional):</label>
                                                             <textarea
                                                                 value={paymentReceiptMessage}
                                                                 onChange={(e) => setPaymentReceiptMessage(e.target.value)}
                                                                 placeholder="e.g. Paid via Zelle, ref #123 or bank transfer confirmation"
                                                                 rows={2}
                                                                 maxLength={500}
-                                                                style={{ width: '100%', padding: '8px 10px', fontSize: '12px', color: '#fff', backgroundColor: '#0d1f0d', border: '1px solid #004400', borderRadius: '4px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
+                                                                style={{ width: '100%', padding: '8px 10px', fontSize: '12px', color: '#fff', backgroundColor: '#1a0d14', border: '1px solid #33001a', borderRadius: '4px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
                                                             />
                                                         </div>
-                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>{hasReceipts ? 'Resubmit payment proof' : 'Upload Payment Receipt'}</div>
+                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#FF0065', marginBottom: '8px' }}>{hasReceipts ? 'Resubmit payment proof' : 'Upload Payment Receipt'}</div>
                                                         <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>JPG or PDF. Operator will review before confirming payment.</p>
                                                         <input
                                                             ref={paymentReceiptInputRef}
@@ -7353,7 +7372,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             style={{ display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' }}
                                                         />
                                                         {paymentReceiptSelectedFile && (
-                                                            <div style={{ fontSize: '12px', color: '#00ff00', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#0d1f0d', borderRadius: '4px', border: '1px solid #004400' }}>
+                                                            <div style={{ fontSize: '12px', color: '#FF0065', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#1a0d14', borderRadius: '4px', border: '1px solid #33001a' }}>
                                                                 Selected: {paymentReceiptSelectedFile.name}
                                                             </div>
                                                         )}
@@ -7362,7 +7381,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                 type="button"
                                                                 onClick={submitPaymentReceiptUpload}
                                                                 disabled={!paymentReceiptSelectedFile || paymentReceiptUploading}
-                                                                style={{ padding: '6px 14px', backgroundColor: '#00ff00', color: '#0a1a0a', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
+                                                                style={{ padding: '6px 14px', backgroundColor: '#FF0065', color: '#1a0a14', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
                                                             >
                                                                 {hasReceipts ? 'Submit' : 'Submit'}
                                                             </button>
@@ -7370,12 +7389,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => { setShowResubmitReceiptForm(false); setPaymentReceiptMessage(''); setPaymentReceiptSelectedFile(null); if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = ''; }}
-                                                                    style={{ padding: '6px 14px', backgroundColor: 'transparent', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace' }}
+                                                                    style={{ padding: '6px 14px', backgroundColor: 'transparent', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontFamily: 'monospace' }}
                                                                 >
                                                                     Cancel
                                                                 </button>
                                                             )}
-                                                            {paymentReceiptUploading && <span style={{ fontSize: '11px', color: '#00ff00' }}>Uploading…</span>}
+                                                            {paymentReceiptUploading && <span style={{ fontSize: '11px', color: '#FF0065' }}>Uploading…</span>}
                                                         </div>
                                                         {paymentReceiptsLoading && <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>Loading receipts…</div>}
                                                     </>
@@ -7384,7 +7403,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             // Has receipts: show list; if payment not approved, show Resubmit button (no message box)
                                             return (
                                                 <>
-                                                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#00ff00', marginBottom: '8px' }}>Payment proof attachment: Uploaded</div>
+                                                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#FF0065', marginBottom: '8px' }}>Payment proof attachment: Uploaded</div>
                                                     <ul style={{ margin: 0, paddingLeft: '18px', color: '#ccc', fontSize: '12px' }}>
                                                         {paymentReceipts.map((r, index) => {
                                                             const isResubmitted = paymentReceipts.length > 1 && index < paymentReceipts.length - 1;
@@ -7393,7 +7412,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     {isResubmitted && (
                                                                         <span style={{ display: 'inline-block', marginRight: '8px', padding: '2px 6px', fontSize: '10px', fontWeight: '600', backgroundColor: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '2px' }}>Resubmitted</span>
                                                                     )}
-                                                                    <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: '#00ff00' }}>{r.file_name}</a>
+                                                                    <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: '#FF0065' }}>{r.file_name}</a>
                                                                     {r.message && <span style={{ display: 'block', marginTop: '4px', color: '#aaa', fontStyle: 'italic' }}>— {r.message}</span>}
                                                                 </li>
                                                             );
@@ -7403,7 +7422,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         <button
                                                             type="button"
                                                             onClick={() => setShowResubmitReceiptForm(true)}
-                                                            style={{ marginTop: '12px', padding: '8px 16px', backgroundColor: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
+                                                            style={{ marginTop: '12px', padding: '8px 16px', backgroundColor: '#003300', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
                                                         >
                                                             Resubmit
                                                         </button>

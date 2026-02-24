@@ -126,51 +126,97 @@ class N88_Items {
 
         $user_id = get_current_user_id();
 
-        // Handle file upload if provided
+        // Handle file upload(s) if provided (single or multiple Reference Images / Inspiration)
         $image_id = 0;
         $image_url = '';
-        if ( ! empty( $_FILES['image_file'] ) && $_FILES['image_file']['error'] === UPLOAD_ERR_OK ) {
+        $uploaded_attachment_ids = array();
+        $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif' );
+        $mimes = array(
+            'jpg|jpeg|jpe' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+        );
+
+        if ( ! empty( $_FILES['image_file'] ) ) {
             require_once( ABSPATH . 'wp-admin/includes/file.php' );
             require_once( ABSPATH . 'wp-admin/includes/media.php' );
             require_once( ABSPATH . 'wp-admin/includes/image.php' );
-            
-            // Validate file type - allow HEIC images
-            $file_type = wp_check_filetype( $_FILES['image_file']['name'] );
-            $allowed_types = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif' );
-            if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
-                wp_send_json_error( array( 'message' => 'Invalid file type. Only images are allowed (JPG, PNG, GIF, WEBP, HEIC).' ) );
-                return;
+
+            $names = $_FILES['image_file']['name'];
+            $is_multi = is_array( $names );
+
+            if ( $is_multi ) {
+                $count = count( $names );
+                for ( $i = 0; $i < $count; $i++ ) {
+                    $file = array(
+                        'name'     => $names[ $i ],
+                        'type'     => isset( $_FILES['image_file']['type'][ $i ] ) ? $_FILES['image_file']['type'][ $i ] : '',
+                        'tmp_name' => isset( $_FILES['image_file']['tmp_name'][ $i ] ) ? $_FILES['image_file']['tmp_name'][ $i ] : '',
+                        'error'    => isset( $_FILES['image_file']['error'][ $i ] ) ? (int) $_FILES['image_file']['error'][ $i ] : UPLOAD_ERR_NO_FILE,
+                        'size'     => isset( $_FILES['image_file']['size'][ $i ] ) ? (int) $_FILES['image_file']['size'][ $i ] : 0,
+                    );
+                    if ( $file['error'] !== UPLOAD_ERR_OK || empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+                        continue;
+                    }
+                    $file_type = wp_check_filetype( $file['name'] );
+                    if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
+                        continue;
+                    }
+                    $upload = wp_handle_upload( $file, array( 'test_form' => false, 'mimes' => $mimes ) );
+                    if ( isset( $upload['error'] ) ) {
+                        continue;
+                    }
+                    $attachment = array(
+                        'post_mime_type' => $upload['type'],
+                        'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                        'post_content'   => '',
+                        'post_status'    => 'inherit',
+                    );
+                    $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                    if ( $attach_id && ! is_wp_error( $attach_id ) ) {
+                        $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                        wp_update_attachment_metadata( $attach_id, $attach_data );
+                        $uploaded_attachment_ids[] = $attach_id;
+                    }
+                }
+                if ( ! empty( $uploaded_attachment_ids ) ) {
+                    $image_id = $uploaded_attachment_ids[0];
+                    $image_url = wp_get_attachment_url( $image_id );
+                    if ( ! $image_url ) {
+                        $image_url = '';
+                    }
+                }
+            } else {
+                // Single file (legacy)
+                if ( $_FILES['image_file']['error'] === UPLOAD_ERR_OK ) {
+                    $file_type = wp_check_filetype( $_FILES['image_file']['name'] );
+                    if ( ! in_array( strtolower( $file_type['ext'] ), $allowed_types, true ) ) {
+                        wp_send_json_error( array( 'message' => 'Invalid file type. Only images are allowed (JPG, PNG, GIF, WEBP, HEIC).' ) );
+                        return;
+                    }
+                    $upload = wp_handle_upload( $_FILES['image_file'], array( 'test_form' => false, 'mimes' => $mimes ) );
+                    if ( ! isset( $upload['error'] ) ) {
+                        $attachment = array(
+                            'post_mime_type' => $upload['type'],
+                            'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
+                            'post_content'   => '',
+                            'post_status'    => 'inherit',
+                        );
+                        $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
+                        $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
+                        wp_update_attachment_metadata( $attach_id, $attach_data );
+                        $image_id = $attach_id;
+                        $image_url = $upload['url'];
+                        $uploaded_attachment_ids[] = $attach_id;
+                    }
+                }
             }
-            
-            // Allow HEIC MIME types in upload
-            $mimes = array(
-                'jpg|jpeg|jpe' => 'image/jpeg',
-                'gif' => 'image/gif',
-                'png' => 'image/png',
-                'webp' => 'image/webp',
-                'heic' => 'image/heic',
-                'heif' => 'image/heif',
-            );
-            
-            $upload = wp_handle_upload( $_FILES['image_file'], array( 
-                'test_form' => false,
-                'mimes' => $mimes,
-            ) );
-            if ( ! isset( $upload['error'] ) ) {
-                $attachment = array(
-                    'post_mime_type' => $upload['type'],
-                    'post_title'     => sanitize_file_name( pathinfo( $upload['file'], PATHINFO_FILENAME ) ),
-                    'post_content'   => '',
-                    'post_status'    => 'inherit'
-                );
-                $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
-                $attach_data = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
-                wp_update_attachment_metadata( $attach_id, $attach_data );
-                $image_id = $attach_id;
-                $image_url = $upload['url'];
-            }
-        } else {
-            // Fallback to POST data if no file upload
+        }
+
+        if ( empty( $uploaded_attachment_ids ) ) {
             $image_id = isset( $_POST['image_id'] ) ? absint( $_POST['image_id'] ) : 0;
             $image_url = isset( $_POST['image_url'] ) ? esc_url_raw( wp_unslash( $_POST['image_url'] ) ) : '';
         }
@@ -250,6 +296,17 @@ class N88_Items {
         if ( ! empty( $image_url ) && ! $primary_image_id ) {
             // Store image URL in meta if we couldn't find attachment ID
             $meta_json['image_url'] = $image_url;
+        }
+        // Store all uploaded reference/inspiration image IDs for Item Detail modal
+        if ( ! empty( $uploaded_attachment_ids ) ) {
+            $meta_json['inspiration'] = array();
+            foreach ( $uploaded_attachment_ids as $aid ) {
+                $meta_json['inspiration'][] = array(
+                    'type' => 'image',
+                    'id'   => (int) $aid,
+                    'url'  => wp_get_attachment_url( $aid ) ?: null,
+                );
+            }
         }
         
         // Add quantity and dimensions to meta_json if provided

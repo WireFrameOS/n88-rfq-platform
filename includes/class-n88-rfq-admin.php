@@ -3701,7 +3701,7 @@ class N88_RFQ_Admin {
                         );
                     }
                 } else {
-                    // Fix 1: Show only items WITHOUT project (exclude project items from main board)
+                    // Default: no project/room selected — show ALL items (every project, every room, and unassigned)
                     $join_project = ( $has_project_room && $projects_table_exists ) ? " LEFT JOIN {$projects_table} p ON i.project_id = p.id" : '';
                     $join_room = ( $has_project_room && $rooms_table_exists ) ? " LEFT JOIN {$rooms_table} r ON i.room_id = r.id" : '';
                     $board_items = $wpdb->get_results(
@@ -3710,7 +3710,6 @@ class N88_RFQ_Admin {
                              FROM {$board_items_table} bi
                              INNER JOIN {$items_table} i ON bi.item_id = i.id{$join_project}{$join_room}
                              WHERE bi.board_id = %d 
-                             AND (i.project_id IS NULL OR i.project_id = 0)
                              AND bi.removed_at IS NULL
                              AND i.deleted_at IS NULL
                              ORDER BY bi.added_at ASC",
@@ -5054,6 +5053,9 @@ class N88_RFQ_Admin {
                 background-position: right 12px center;
                 background-color: #2d2d2d;
             }
+            #n88-add-item-modal #n88-modal-item-type {
+                font-size: 12px;
+            }
             #n88-add-item-modal input::placeholder,
             #n88-add-item-modal textarea::placeholder { color: #888; }
             #n88-add-item-modal textarea { min-height: 80px; resize: vertical; }
@@ -5125,6 +5127,19 @@ class N88_RFQ_Admin {
                 border-radius: 4px;
                 object-fit: contain;
                 display: block;
+            }
+            #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview.visible { display: flex; }
+            #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview img {
+                max-width: 80px;
+                max-height: 80px;
+                width: 80px;
+                height: 80px;
+                object-fit: cover;
             }
             #n88-add-item-modal .n88-add-item-footer {
                 padding: 14px 20px 18px;
@@ -5991,16 +6006,19 @@ class N88_RFQ_Admin {
                     <form id="n88-add-item-modal-form" class="n88-add-item-body">
                         <div class="n88-field">
                             <label for="n88-modal-item-title">Title <span class="n88-required">*</span></label>
+                            <p class="n88-hint">Use a clear, specific name (e.g., "Outdoor Teak Dining Chair")</p>
                             <input type="text" id="n88-modal-item-title" name="title" required placeholder="Curved Lobby Sofa">
                         </div>
                         <div class="n88-field">
                             <label for="n88-modal-item-description">Description</label>
-                            <textarea id="n88-modal-item-description" name="description" rows="4" placeholder="Tell us what you're sourcing"></textarea>
+                           
+                            <textarea id="n88-modal-item-description" name="description" rows="4" placeholder="Describe any specs, materials, finishes and timeline for this item"></textarea>
                         </div>
                         <div class="n88-field">
                             <label for="n88-modal-item-type">Category</label>
+                            <!-- <p class="n88-hint">Select the closest category for accurate routing and quoting.</p> -->
                             <select id="n88-modal-item-type" name="item_type">
-                                <option value="">Select Category</option>
+                                <option value="">Select the closest category for accurate routing and quoting.</option>
                                 <option value="UPHOLSTERY">UPHOLSTERY</option>
                                 <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
                                 <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
@@ -6020,6 +6038,7 @@ class N88_RFQ_Admin {
                         </div>
                         <div class="n88-field">
                             <label for="n88-modal-item-quantity">Quantity</label>
+                            <p class="n88-hint">Total units required for this item.</p>
                             <div class="n88-quantity-wrap">
                                 <button type="button" id="n88-modal-qty-minus" aria-label="Decrease">−</button>
                                 <input type="number" id="n88-modal-item-quantity" name="quantity" min="1" value="1">
@@ -6028,7 +6047,7 @@ class N88_RFQ_Admin {
                         </div>
                         <div class="n88-field">
                             <label>Dimensions</label>
-                            <p class="n88-hint">Provide ideal dimensions when applicable</p>
+                            <p class="n88-hint">Enter target dimensions to improve pricing accuracy and shipping calculations</p>
                             <div class="n88-dims-row">
                                 <div class="n88-field">
                                     <label for="n88-modal-item-width" style="font-size:11px;">Width</label>
@@ -6054,30 +6073,22 @@ class N88_RFQ_Admin {
                             </div>
                         </div>
                         <div class="n88-field">
-                            <label>Image</label>
+                            <label>Reference Images / Inspiration</label>
+                            <!-- <p class="n88-hint">Upload sketches, inspiration photos, shop drawings, or material references</p> -->
                             <div class="n88-upload-zone" id="n88-modal-upload-zone">
                                 <span class="n88-upload-icon">↑</span>
-                                <span id="n88-modal-upload-text">Upload an image from your device</span>
-                                <input type="file" id="n88-modal-item-image-file" accept="image/*,.heic,.heif">
+                                <span id="n88-modal-upload-text">Upload sketches, inspiration photos, shop drawings, or material references</span>
+                                <input type="file" id="n88-modal-item-image-file" accept="image/*,.heic,.heif" multiple>
                             </div>
-                            <div class="n88-image-preview-wrap" id="n88-modal-image-preview-wrap">
-                                <img id="n88-modal-image-preview-img" src="" alt="Preview">
-                            </div>
+                            <div class="n88-image-preview-wrap n88-multi-preview" id="n88-modal-image-preview-wrap"></div>
                             <input type="hidden" id="n88-modal-item-image-id" name="image_id">
                         </div>
-                        <div class="n88-field">
-                            <label for="n88-modal-item-size">Default Size</label>
-                            <select id="n88-modal-item-size" name="size">
-                                <option value="S">S (160×200px)</option>
-                                <option value="D">D (200×250px)</option>
-                                <option value="L" selected>L (280×350px) - Default</option>
-                                <option value="XL">XL (360×450px)</option>
-                            </select>
-                        </div>
+                        <input type="hidden" id="n88-modal-item-size" name="size" value="L">
                         <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
                         <?php if ( $add_item_modal_board_id > 0 ) : ?>
                         <div class="n88-field">
                             <label for="n88-modal-item-project">Project</label>
+                            <!-- <p class="n88-hint">Select a project to organize this item</p> -->
                             <select id="n88-modal-item-project" name="project_id">
                                 <option value="">Select a project to organize this item</option>
                                 <?php foreach ( $add_item_modal_projects as $proj ) : ?>
@@ -6212,32 +6223,35 @@ class N88_RFQ_Admin {
                 var uploadText = document.getElementById('n88-modal-upload-text');
                 var fileInput = document.getElementById('n88-modal-item-image-file');
                 var previewWrap = document.getElementById('n88-modal-image-preview-wrap');
-                var previewImg = document.getElementById('n88-modal-image-preview-img');
+                var defaultUploadLabel = 'Upload sketches, inspiration photos, shop drawings, or material references';
                 if (uploadZone && fileInput) {
                     uploadZone.addEventListener('click', function() { fileInput.click(); });
                     fileInput.addEventListener('change', function() {
-                        if (fileInput.files && fileInput.files[0]) {
-                            var file = fileInput.files[0];
+                        var files = fileInput.files;
+                        if (files && files.length > 0) {
                             uploadZone.classList.add('has-file');
-                            if (uploadText) uploadText.textContent = file.name;
-                            if (previewWrap && previewImg) {
-                                var name = (file.name || '').toLowerCase();
-                                var isHeic = name.endsWith('.heic') || name.endsWith('.heif');
-                                if (!isHeic && file.type.indexOf('image/') === 0) {
-                                    var url = URL.createObjectURL(file);
-                                    previewImg.src = url;
-                                    previewImg.onload = function() { URL.revokeObjectURL(url); };
-                                    previewWrap.classList.add('visible');
-                                } else {
-                                    previewWrap.classList.remove('visible');
-                                    previewImg.src = '';
+                            if (uploadText) uploadText.textContent = files.length === 1 ? files[0].name : (files.length + ' files selected');
+                            if (previewWrap) {
+                                previewWrap.innerHTML = '';
+                                for (var i = 0; i < files.length; i++) {
+                                    var file = files[i];
+                                    var name = (file.name || '').toLowerCase();
+                                    var isHeic = name.endsWith('.heic') || name.endsWith('.heif');
+                                    if (!isHeic && file.type.indexOf('image/') === 0) {
+                                        var url = URL.createObjectURL(file);
+                                        var img = document.createElement('img');
+                                        img.src = url;
+                                        img.alt = 'Preview ' + (i + 1);
+                                        (function(u){ img.onload = function() { URL.revokeObjectURL(u); }; })(url);
+                                        previewWrap.appendChild(img);
+                                    }
                                 }
+                                previewWrap.classList.toggle('visible', previewWrap.children.length > 0);
                             }
                         } else {
                             uploadZone.classList.remove('has-file');
-                            if (uploadText) uploadText.textContent = 'Upload an image from your device';
-                            if (previewWrap) previewWrap.classList.remove('visible');
-                            if (previewImg) previewImg.src = '';
+                            if (uploadText) uploadText.textContent = defaultUploadLabel;
+                            if (previewWrap) { previewWrap.innerHTML = ''; previewWrap.classList.remove('visible'); }
                         }
                     });
                 }
@@ -6316,8 +6330,11 @@ class N88_RFQ_Admin {
                         if (w || d || h) {
                             formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
                         }
-                        if (fileInput && fileInput.files && fileInput.files[0]) formData.append('image_file', fileInput.files[0]);
-                        else {
+                        if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                            for (var i = 0; i < fileInput.files.length; i++) {
+                                formData.append('image_file[]', fileInput.files[i]);
+                            }
+                        } else {
                             var imgId = document.getElementById('n88-modal-item-image-id').value;
                             if (imgId && parseInt(imgId, 10) > 0) formData.append('image_id', imgId);
                         }
@@ -6348,10 +6365,9 @@ class N88_RFQ_Admin {
                                     }
                                     <?php else : ?>
                                     form.reset();
-                                    if (uploadZone) { uploadZone.classList.remove('has-file'); if (uploadText) uploadText.textContent = 'Upload an image from your device'; }
+                                    if (uploadZone) { uploadZone.classList.remove('has-file'); if (uploadText) uploadText.textContent = 'Upload sketches, inspiration photos, shop drawings, or material references'; }
                                     if (fileInput) fileInput.value = '';
-                                    if (previewWrap) previewWrap.classList.remove('visible');
-                                    if (previewImg) previewImg.src = '';
+                                    if (previewWrap) { previewWrap.innerHTML = ''; previewWrap.classList.remove('visible'); }
                                     <?php endif; ?>
                                 } else {
                                     resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
@@ -8954,8 +8970,8 @@ class N88_RFQ_Admin {
                                         },
                                         style: {
                                             padding: '10px 20px',
-                                            backgroundColor: '#00ff00',
-                                            color: '#000',
+                                            backgroundColor: '#FF0065',
+                                            color: '#fff',
                                             border: 'none',
                                             borderRadius: '4px',
                                             fontSize: '12px',
@@ -8965,10 +8981,10 @@ class N88_RFQ_Admin {
                                             width: '100%',
                                         },
                                         onMouseOver: function(e) {
-                                            e.target.style.backgroundColor = '#00cc00';
+                                            e.target.style.backgroundColor = '#cc0052';
                                         },
                                         onMouseOut: function(e) {
-                                            e.target.style.backgroundColor = '#00ff00';
+                                            e.target.style.backgroundColor = '#FF0065';
                                         }
                                     }, '[ Award Bid ]')
                                 ) : null,
@@ -8978,11 +8994,11 @@ class N88_RFQ_Admin {
                                         marginTop: '12px',
                                         marginBottom: '8px',
                                         padding: '10px',
-                                        backgroundColor: '#003300',
-                                        border: '1px solid #00ff00',
+                                        backgroundColor: 'rgba(255,0,101,0.15)',
+                                        border: '1px solid #FF0065',
                                         borderRadius: '4px',
                                         fontSize: '12px',
-                                        color: '#00ff00',
+                                        color: '#FF0065',
                                         fontWeight: '600',
                                         textAlign: 'center',
                                     }
@@ -9408,10 +9424,10 @@ class N88_RFQ_Admin {
                                             React.createElement('div', {
                                                 style: {
                                                     padding: '4px 8px',
-                                                    backgroundColor: '#003300',
-                                                    border: '1px solid #00ff00',
+                                                    backgroundColor: 'rgba(255,0,101,0.15)',
+                                                    border: '1px solid #FF0065',
                                                     borderRadius: '4px',
-                                                    color: '#00ff00',
+                                                    color: '#FF0065',
                                                     fontSize: '9px',
                                                     fontWeight: '600',
                                                     display: 'inline-block',
@@ -9500,8 +9516,8 @@ class N88_RFQ_Admin {
                                                 },
                                                 style: {
                                                     padding: '6px 12px',
-                                                    backgroundColor: '#00ff00',
-                                                    color: '#000',
+                                                    backgroundColor: '#FF0065',
+                                                    color: '#fff',
                                                     border: 'none',
                                                     borderRadius: '4px',
                                                     fontSize: '9px',
@@ -9510,10 +9526,10 @@ class N88_RFQ_Admin {
                                                     fontFamily: 'monospace',
                                                 },
                                                 onMouseOver: function(e) {
-                                                    e.target.style.backgroundColor = '#00cc00';
+                                                    e.target.style.backgroundColor = '#cc0052';
                                                 },
                                                 onMouseOut: function(e) {
-                                                    e.target.style.backgroundColor = '#00ff00';
+                                                    e.target.style.backgroundColor = '#FF0065';
                                                 }
                                             }, 'Award')
                                         );
@@ -12087,7 +12103,7 @@ class N88_RFQ_Admin {
                     // Dark theme colors (matching wireframes)
                     var darkBg = '#000000';
                     var darkText = '#d3d3d3';
-                    var greenAccent = '#00ff00';
+                    var greenAccent = '#FF0065';
                     var darkBorder = '#333333';
                     
                     // Use ReactDOM.createPortal to render modal outside canvas container
@@ -12104,7 +12120,7 @@ class N88_RFQ_Admin {
                                 bottom: 0,
                                 backgroundColor: 'rgba(0, 0, 0, 0.2)',
                                 backdropFilter: 'blur(6px)',
-                                WebkitBackdropFilter: 'blur(0.5px)',
+                                WebkitBackdropFilter: 'blur(0.6px)',
                                 zIndex: 9999999,
                             }
                         }),
@@ -12114,8 +12130,8 @@ class N88_RFQ_Admin {
                             style: {
                                 position: 'fixed',
                                 top: '30px',
-                                left: '30px',
-                                right: '30px',
+                                left: '150px',
+                                right: '150px',
                                 bottom: '30px',
                                 backgroundColor: darkBg,
                                 color: darkText,
@@ -12142,7 +12158,7 @@ class N88_RFQ_Admin {
                                     flexShrink: 0,
                                 }
                             },
-                                // Board Name and Item ID - Left
+                                // Wireframe(OS) (pink) + Board Name and Item ID - Left
                                 React.createElement('div', {
                                     style: {
                                         fontSize: '12px',
@@ -12152,6 +12168,7 @@ class N88_RFQ_Admin {
                                         alignItems: 'center',
                                     }
                                 },
+                                    React.createElement('span', { style: { color: greenAccent, fontWeight: '600', marginRight: '12px' } }, 'Wireframe(OS)'),
                                     React.createElement('span', null, 'Board : '),
                                     React.createElement('span', { style: { color: greenAccent } }, (window.n88BoardData && window.n88BoardData.boardName) || 'Demo Board'),
                                     React.createElement('span', { style: { margin: '0 8px' } }, ' / '),
@@ -12272,10 +12289,11 @@ class N88_RFQ_Admin {
                                     overflow: 'hidden',
                                 }
                             },
-                                // Left Column - Images
+                                // Left Column - Images (30%)
                                 React.createElement('div', {
                                     style: {
-                                        width: '50%',
+                                        width: '30%',
+                                        minWidth: 0,
                                         borderRight: '1px solid ' + darkBorder,
                                         padding: '20px',
                                         overflowY: 'auto',
@@ -12484,10 +12502,11 @@ class N88_RFQ_Admin {
                                         )
                                     ) : null
                                 ),
-                                // Right Column - Tabs
+                                // Right Column - Tabs (remaining)
                                 React.createElement('div', {
                                     style: {
-                                        width: '50%',
+                                        flex: 1,
+                                        minWidth: 0,
                                         display: 'flex',
                                         flexDirection: 'column',
                                         overflow: 'hidden',
@@ -13643,7 +13662,7 @@ class N88_RFQ_Admin {
                                             (false) ? React.createElement('div', {
                                                 style: {
                                                     marginBottom: '24px',
-                                                    border: '2px solid #00ff00',
+                                                    border: '2px solid #FF0065',
                                                     borderRadius: '4px',
                                                     overflow: 'hidden',
                                                 }
@@ -13653,7 +13672,7 @@ class N88_RFQ_Admin {
                                                     onClick: function() { setPrototypeSectionExpanded(!prototypeSectionExpanded); },
                                                     style: {
                                                         padding: '20px',
-                                                        backgroundColor: '#003300',
+                                                        backgroundColor: 'rgba(255,0,101,0.15)',
                                                         cursor: 'pointer',
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
@@ -13665,14 +13684,14 @@ class N88_RFQ_Admin {
                                                             style: {
                                                                 fontSize: '16px',
                                                                 fontWeight: '600',
-                                                                color: '#00ff00',
+                                                                color: '#FF0065',
                                                                 marginBottom: '4px',
                                                             }
                                                         }, (itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) ? 'View Prototype Videos' : 'Payment Confirmed'),
                                                         React.createElement('div', {
                                                             style: {
                                                                 fontSize: '13px',
-                                                                color: '#00cc00',
+                                                                color: '#FF0065',
                                                                 lineHeight: '1.5',
                                                             }
                                                         }, (itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) ? 'Supplier has submitted prototype video(s).' : 'CAD drafting has begun.')
@@ -13680,7 +13699,7 @@ class N88_RFQ_Admin {
                                                     React.createElement('div', {
                                                         style: {
                                                             fontSize: '20px',
-                                                            color: '#00ff00',
+                                                            color: '#FF0065',
                                                             fontWeight: 'bold',
                                                         }
                                                     }, prototypeSectionExpanded ? '−' : '+')
@@ -13689,8 +13708,8 @@ class N88_RFQ_Admin {
                                                 prototypeSectionExpanded ? React.createElement('div', {
                                                     style: {
                                                         padding: '20px',
-                                                        backgroundColor: '#001100',
-                                                        borderTop: '1px solid #00ff00',
+                                                        backgroundColor: 'rgba(255,0,101,0.08)',
+                                                        borderTop: '1px solid #FF0065',
                                                     }
                                                 },
                                                     // Prototype Video Header
@@ -13698,7 +13717,7 @@ class N88_RFQ_Admin {
                                                         style: {
                                                             fontSize: '18px',
                                                             fontWeight: '600',
-                                                            color: '#00ff00',
+                                                            color: '#FF0065',
                                                             marginBottom: '16px',
                                                         }
                                                     }, 'Prototype Video'),
@@ -13707,14 +13726,14 @@ class N88_RFQ_Admin {
                                                         style: {
                                                             display: 'inline-block',
                                                             padding: '6px 12px',
-                                                            backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : 
+                                                            backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : 
                                                                            itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
-                                                            border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                            border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#FF0065' : 
                                                                                    itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'),
                                                             borderRadius: '4px',
                                                             fontSize: '12px',
                                                             fontWeight: '600',
-                                                            color: itemState.prototype_status === 'approved' ? '#00ff00' : 
+                                                            color: itemState.prototype_status === 'approved' ? '#FF0065' : 
                                                                    itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
                                                             marginBottom: '16px',
                                                         }
@@ -13890,10 +13909,10 @@ class N88_RFQ_Admin {
                                                             },
                                                             style: {
                                                                 padding: '10px 20px',
-                                                                backgroundColor: '#003300',
-                                                                border: '1px solid #00ff00',
+                                                                backgroundColor: 'rgba(255,0,101,0.15)',
+                                                                border: '1px solid #FF0065',
                                                                 borderRadius: '4px',
-                                                                color: '#00ff00',
+                                                                color: '#FF0065',
                                                                 fontSize: '13px',
                                                                 fontWeight: '600',
                                                                 cursor: 'pointer',
@@ -13911,7 +13930,7 @@ class N88_RFQ_Admin {
                                                     itemState.prototype_status === 'approved' ? React.createElement('div', {
                                                         style: {
                                                             fontSize: '12px',
-                                                            color: '#00ff00',
+                                                            color: '#FF0065',
                                                             marginTop: '12px',
                                                         }
                                                     }, '✓ Prototype approved (v' + (itemState.prototype_approved_version || itemState.prototype_current_version) + ')') : null
@@ -14842,6 +14861,7 @@ class N88_RFQ_Admin {
                                                 timelineData.steps[selectedStepIndex] ? (function() {
                                                     var s = timelineData.steps[selectedStepIndex];
                                                     var statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
+                                                    var stepDescriptions = { 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' };
                                                     return React.createElement('div', {
                                                         style: {
                                                             padding: '16px',
@@ -14850,7 +14870,8 @@ class N88_RFQ_Admin {
                                                             backgroundColor: 'rgba(0,0,0,0.2)',
                                                         }
                                                     },
-                                                        React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '12px' } }, s.step_number + '. ' + s.label),
+                                                        React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, s.step_number + '. ' + s.label),
+                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 } }, stepDescriptions[s.step_number] || ''),
                                                         (s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } },
                                                             itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '· CAD requested — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.cad_requested_at)) : null,
                                                             itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '· Payment sent — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.payment_sent_at)) : null,
@@ -14858,7 +14879,7 @@ class N88_RFQ_Admin {
                                                             (!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment) ? React.createElement('div', { style: { fontStyle: 'italic', opacity: 0.8 } }, '· Design & specifications in progress') : null
                                                         ) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', {
-                                                            style: { marginTop: '12px', padding: '16px', backgroundColor: '#001100', border: '1px solid ' + greenAccent, borderRadius: '4px' }
+                                                            style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' }
                                                         }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.')) : null,
                                                         s.step_number !== 1 ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
                                                             '· State: ',
@@ -14875,9 +14896,9 @@ class N88_RFQ_Admin {
                                                         ) : null,
                                                         (s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Prototype Video'),
-                                                            itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? '#003300' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#00ff00' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
+                                                            itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
                                                             itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px' } }, React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px' } }, link.provider || 'Link')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null) : null,
-                                                            itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: '#003300', color: '#00ff00', border: '1px solid #00ff00', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
+                                                            itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
                                                                 if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
                                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                                                                     var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
@@ -14939,7 +14960,7 @@ class N88_RFQ_Admin {
                                                                         React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' } },
                                                                             React.createElement('span', null, 'Current CAD: '),
                                                                             React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
-                                                                            itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', { style: { marginLeft: '10px', color: '#00ff00' } }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
+                                                                            itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', { style: { marginLeft: '10px', color: greenAccent } }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
                                                                         ),
                                                                         React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' } },
                                                                             React.createElement('span', null, 'Rounds Used: '),
@@ -14951,7 +14972,7 @@ class N88_RFQ_Admin {
                                                                         itemState.cad_status !== 'approved' ? (
                                                                             !showRevisionUpload ? React.createElement('div', { style: { display: 'flex', gap: '10px' } },
                                                                                 React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(true); }, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '12px', cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Submit revised CAD'),
-                                                                                React.createElement('button', { type: 'button', onClick: approveCad, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#003300', border: '1px solid #00ff00', borderRadius: '4px', color: '#00ff00', fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Approve CAD')
+                                                                                React.createElement('button', { type: 'button', onClick: approveCad, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: 'rgba(255,0,101,0.15)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Approve CAD')
                                                                             ) : React.createElement('div', { style: { padding: '12px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } },
                                                                                 React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Upload Files for Revision Request'),
                                                                                 React.createElement('div', {
@@ -15664,9 +15685,9 @@ class N88_RFQ_Admin {
                                             style: {
                                                 marginTop: '20px',
                                                 padding: '12px',
-                                                backgroundColor: '#0a1a0a',
+                                                backgroundColor: 'rgba(255,0,101,0.08)',
                                                 borderRadius: '4px',
-                                                border: '1px solid #00ff00',
+                                                border: '1px solid #FF0065',
                                             }
                                         },
                                             (function() {
@@ -15731,7 +15752,7 @@ class N88_RFQ_Admin {
                                                     !paymentApproved ? React.createElement('button', {
                                                         type: 'button',
                                                         onClick: function() { setShowResubmitReceiptForm(true); },
-                                                        style: { marginTop: '12px', padding: '8px 16px', backgroundColor: '#003300', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }
+                                                        style: { marginTop: '12px', padding: '8px 16px', backgroundColor: 'rgba(255,0,101,0.15)', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }
                                                     }, 'Resubmit') : null
                                                 );
                                             })()
