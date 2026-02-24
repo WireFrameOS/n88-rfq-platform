@@ -3636,18 +3636,24 @@ class N88_RFQ_Auth {
                     var green = '#FF0065';
                     var darkBorder = '#555';
                     var stepLabels = ['Design & Specifications', 'Technical Review & Documentation', 'Pre-Production Approval', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
+                    var supplierDesc1 = 'Review the item scope and submit your quote. Respond to clarification requests as needed.';
+                    var supplierDesc2 = 'Provide drawings, samples, and technical documentation as requested.';
+                    var supplierDesc3 = 'Submit prototype videos and address revision requests until final approval.';
+                    var supplierDesc4 = 'Manufacture the approved item and upload production progress documentation.';
+                    var supplierDesc5 = 'Upload quality control and packing documentation prior to shipment.';
+                    var supplierDesc6 = 'Upload shipping documents, tracking information, and delivery confirmation.';
                     var w1WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-0" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 0 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">1. Design & Specifications</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">1. Design & Specifications</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc1 + '</div>' + step1Dates + (bidAndPrototype.workflowStep1 || '') + '</div>' : '');
                     var w2WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-1" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 1 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">2. Technical Review & Documentation</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">2. Technical Review & Documentation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">3. Pre-Production Approval</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">3. Pre-Production Approval</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
                     var w4WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">4. Production / Fabrication</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">4. Production / Fabrication</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">5. Quality Review & Packing</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">5. Quality Review & Packing</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc5 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">6. Ready for Delivery</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">6. Ready for Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var stepRow = '';
                     if (paymentNotif) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
@@ -3671,7 +3677,10 @@ class N88_RFQ_Auth {
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
-                        '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;">' + (item.title || 'Untitled Item') + '</h2>' +
+                        '<div style="display: flex; align-items: center; gap: 12px; font-family: monospace;">' +
+                        '<span style="color: #FF0065; font-weight: 600; font-size: 14px;">Wireframe(OS)</span>' +
+                        (item.board_name != null && item.board_name !== '' && (itemId || item.item_id) ? ('<span style="font-size: 12px; color: #888;">Board :</span><span style="font-size: 12px; color: #FF0065;">' + (item.board_name || '—') + '</span><span style="margin: 0 8px; font-size: 12px; color: #888;">/</span><span style="font-size: 12px; color: #888;">Item</span><span style="font-size: 12px; color: #FF0065;">' + (itemId || item.item_id || '') + '</span>') : ('<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff;">' + (item.title || 'Untitled Item') + '</h2>')) +
+                        '</div>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
                         '</div>' +
                         '<div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">' +
@@ -4154,7 +4163,11 @@ class N88_RFQ_Auth {
                             var itemId = w.getAttribute('data-item-id');
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
-                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                var supplierStepDescriptions = { 1: 'Review the item scope and submit your quote. Respond to clarification requests as needed.', 2: 'Provide drawings, samples, and technical documentation as requested.', 3: 'Submit prototype videos and address revision requests until final approval.', 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                                var stepNum = sel.step_number || (idx + 1);
+                                var desc = supplierStepDescriptions[stepNum] || '';
+                                detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
+                                    (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
                                     '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
@@ -4184,7 +4197,11 @@ class N88_RFQ_Auth {
                                 var el = document.getElementById('n88-supplier-workflow-step-' + idx);
                                 if (!el || !s) continue;
                                 var sl = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                var content = '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (idx + 1) + '. ' + step456Labels[idx - 3] + '</div>';
+                                var supplierStepDescriptions456 = { 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                                var stepN = idx + 1;
+                                var desc456 = supplierStepDescriptions456[stepN] || '';
+                                var content = '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepN + '. ' + step456Labels[idx - 3] + '</div>';
+                                if (desc456) content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc456.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                                 content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">· State: <span style="color: ' + (s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? green : darkText) + ';">' + sl + '</span></div>';
                                 if (s.started_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Started: ' + s.started_at + '</div>';
                                 if (s.completed_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + s.completed_at + '</div>';
@@ -4212,8 +4229,12 @@ class N88_RFQ_Auth {
                             row += '</div>';
                             var sel = steps[0];
                             var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
+                            var supplierStepDescriptionsFull = { 1: 'Review the item scope and submit your quote. Respond to clarification requests as needed.', 2: 'Provide drawings, samples, and technical documentation as requested.', 3: 'Submit prototype videos and address revision requests until final approval.', 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
+                            var stepNum0 = sel.step_number || 1;
+                            var desc0 = supplierStepDescriptionsFull[stepNum0] || '';
                             var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
-                            detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                            if (desc0) detail += '<div style="font-size: 12px; color: ' + darkText + '; margin-bottom: 12px; line-height: 1.4;">' + desc0.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
                             if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                             if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
