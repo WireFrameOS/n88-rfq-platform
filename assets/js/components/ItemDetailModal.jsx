@@ -1688,8 +1688,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [isSaving, setIsSaving] = React.useState(false);
     const [isUploadingInspiration, setIsUploadingInspiration] = React.useState(false);
     
-    // RFQ form expansion state
-    const [showRfqForm, setShowRfqForm] = React.useState(false);
+    // RFQ form always expanded (no expand/collapse button)
+    const [showRfqForm, setShowRfqForm] = React.useState(true);
     
     // Invite Makers state
     const [invitedSuppliers, setInvitedSuppliers] = React.useState([]);
@@ -3725,7 +3725,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                 width: '30%',
                                 minWidth: 0,
                                 borderRight: `1px solid ${darkBorder}`,
-                                padding: '20px',
+                                padding: '0px 10px',
                                 overflowY: 'auto',
                                 scrollbarWidth: 'none',
                                 msOverflowStyle: 'none',
@@ -4058,7 +4058,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                 <div style={{
                                     flex: 1,
                                     overflowY: 'auto',
-                                    padding: '20px',
+                                    padding: '0px 20px',
                                     scrollbarWidth: 'none',
                                     msOverflowStyle: 'none',
                                 }}
@@ -4395,15 +4395,21 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             )}
                                             {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
                                                 <>
-                                                    {/* Horizontal 6-step row with connector lines between steps */}
+                                                    {/* Horizontal 6-step row with connector lines between steps — sticky */}
                                                     <div style={{
+                                                        position: 'sticky',
+                                                        top: 0,
+                                                        zIndex: 10,
+                                                        backgroundColor: '#0a0a0a',
+                                                        marginTop: '-20px',
+                                                        marginBottom: '24px',
+                                                        paddingTop: '20px',
+                                                        paddingBottom: '12px',
+                                                        borderBottom: `1px solid ${darkBorder}`,
                                                         display: 'flex',
                                                         alignItems: 'flex-start',
                                                         justifyContent: 'space-between',
                                                         gap: 0,
-                                                        marginBottom: '24px',
-                                                        paddingBottom: '12px',
-                                                        borderBottom: `1px solid ${darkBorder}`,
                                                     }}>
                                                         {timelineData.steps.flatMap((step, idx) => {
                                                             const isSelected = selectedStepIndex === idx;
@@ -5306,24 +5312,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 })()}
                                             </div>
                                         </div>
-                                    ) : !showRfqForm ? (
-                                        <button
-                                            onClick={() => setShowRfqForm(true)}
-                                        style={{
-                                            width: '100%',
-                                                padding: '12px',
-                                                backgroundColor: '#111111',
-                                                border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                                color: darkText,
-                                                fontSize: '14px',
-                                                fontFamily: 'monospace',
-                                            cursor: 'pointer',
-                                    fontWeight: '600', 
-                                            }}
-                                        >
-                                            Request Quote
-                                        </button>
                                     ) : (
                                         <div style={{
                                             border: `1px solid ${darkBorder}`,
@@ -5331,34 +5319,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             padding: '16px',
                                             backgroundColor: '#111111',
                                         }}>
-                                            <div style={{
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                marginBottom: '16px',
-                                            }}>
-                                                <div style={{ fontSize: '14px', fontWeight: '600' }}>
-                                        Request Quote
-                                                </div>
-                                    <button
-                                                    onClick={() => setShowRfqForm(false)}
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: darkText,
-                                                        fontSize: '20px',
-                                                        cursor: 'pointer',
-                                                        padding: '0',
-                                                        width: '24px',
-                                                        height: '24px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                    }}
-                                                >
-                                                    ×
-                                </button>
-                                </div>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '16px' }}>
+                                                Request Quote
+                                            </div>
                                 
                                             {/* RFQ Form Fields */}
                                 {/* Dimensions */}

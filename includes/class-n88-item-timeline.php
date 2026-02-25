@@ -17,7 +17,7 @@ class N88_Item_Timeline {
         3 => 'Pre-Production Approval',
         4 => 'Production / Fabrication',
         5 => 'Quality Review & Packing',
-        6 => 'Ready for Delivery',
+        6 => 'Logistics & Delivery',
     );
 
     const STATUS_PENDING    = 'pending';

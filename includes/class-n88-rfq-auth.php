@@ -3677,9 +3677,8 @@ class N88_RFQ_Auth {
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
-                        '<div style="display: flex; align-items: center; gap: 12px; font-family: monospace;">' +
-                        '<span style="color: #FF0065; font-weight: 600; font-size: 14px;">Wireframe(OS)</span>' +
-                        (item.board_name != null && item.board_name !== '' && (itemId || item.item_id) ? ('<span style="font-size: 12px; color: #888;">Board :</span><span style="font-size: 12px; color: #FF0065;">' + (item.board_name || '—') + '</span><span style="margin: 0 8px; font-size: 12px; color: #888;">/</span><span style="font-size: 12px; color: #888;">Item</span><span style="font-size: 12px; color: #FF0065;">' + (itemId || item.item_id || '') + '</span>') : ('<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff;">' + (item.title || 'Untitled Item') + '</h2>')) +
+                        '<div style="display: flex; align-items: center; font-family: monospace;">' +
+                        '<span style="color: #FF0065; font-weight: 600; font-size: 28px;">Wireframe(OS)</span>' +
                         '</div>' +
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
                         '</div>' +
@@ -12235,8 +12234,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         // Designer Workflow tab: milestone dates for Step 1 (Design & Specs), Step 2 (CAD), Step 3 (Prototype video)
+        $proposals_received_at = null;
+        if ( ! empty( $bids ) ) {
+            $bid_dates = array_filter( array_map( function( $b ) {
+                return isset( $b['created_at'] ) && trim( (string) $b['created_at'] ) !== '' ? $b['created_at'] : null;
+            }, $bids ) );
+            $proposals_received_at = ! empty( $bid_dates ) ? min( $bid_dates ) : null;
+        }
         $workflow_milestones = array(
             'step1' => array(
+                'proposals_received_at' => $proposals_received_at,
                 'cad_requested_at' => null,
                 'payment_sent_at' => null,
                 'payment_approved_at' => null,
@@ -17699,7 +17706,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             if (itemId && typeof window.n88LoadOperatorStepEvidence === 'function') window.n88LoadOperatorStepEvidence(itemId, sel.step_id);
                         }
                         var opStepLabels = ['Design & Specifications', 'Technical Review & Documentation', 'Pre-Production Approval', 'Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
-                        var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
+                        var row = '<div style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var i = 0; i < steps.length; i++) {
                             var s = steps[i];
                             var isSelected = selectedIdx === i;
@@ -18687,7 +18694,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ob_start();
         ?>
         <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-            <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $item['title'] ?: 'Item' ); ?></h2>
+            <span style="color: #FF0065; font-weight: 600; font-size: 28px; font-family: monospace;">Wireframe(OS)</span>
             <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
         <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
@@ -19378,9 +19385,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $op_panel_1_display = $operator_open_tab === 1 ? 'block' : 'none';
         $op_panel_2_display = $operator_open_tab === 2 ? 'block' : 'none';
         ?>
-        <!-- Header: title + Close only (Payment/CAD/Prototype chips and action buttons hidden) -->
+        <!-- Header: Wireframe(OS) + Close only -->
         <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-            <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #fff; font-family: monospace;"><?php echo esc_html( $payment['item_title'] ?: 'Item' ); ?></h2>
+            <span style="color: #FF0065; font-weight: 600; font-size: 28px; font-family: monospace;">Wireframe(OS)</span>
             <button id="n88-close-case-modal" type="button" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>
         </div>
 
