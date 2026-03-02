@@ -268,24 +268,47 @@ class N88_Boards {
             wp_send_json_error( array( 'message' => 'Item is not on this board or has already been removed.' ), 404 );
         }
 
-        // Soft delete: set removed_at timestamp
         $now = current_time( 'mysql' );
-        $updated = $wpdb->update(
-            $board_items_table,
-            array( 'removed_at' => $now ),
-            array( 'id' => $relationship->id ),
-            array( '%s' ),
-            array( '%d' )
-        );
 
-        if ( $updated === false ) {
-            wp_send_json_error( array( 'message' => 'Failed to remove item from board.' ), 500 );
-        }
-        
-        // Verify the update was successful
-        if ( $updated === 0 ) {
-            // No rows were updated - item might already be deleted
-            wp_send_json_error( array( 'message' => 'Item not found or already removed.' ), 404 );
+        // Check if current user is the item owner (designer)
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_owner_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
+            $item_id
+        ) );
+        $is_item_owner = $item_owner_id && (int) $item_owner_id === (int) $user_id;
+
+        if ( $is_item_owner ) {
+            // Designer deleting: remove from ALL boards (designer, supplier, operator) and soft-delete the item
+            $updated = $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$board_items_table} SET removed_at = %s WHERE item_id = %d AND (removed_at IS NULL OR removed_at = '')",
+                    $now,
+                    $item_id
+                )
+            );
+            if ( $updated === false ) {
+                wp_send_json_error( array( 'message' => 'Failed to remove item from board.' ), 500 );
+            }
+            if ( $updated === 0 ) {
+                wp_send_json_error( array( 'message' => 'Item not found or already removed.' ), 404 );
+            }
+            $wpdb->update( $items_table, array( 'deleted_at' => $now ), array( 'id' => $item_id ), array( '%s' ), array( '%d' ) );
+        } else {
+            // Non-owner (e.g. admin): remove only from this board
+            $updated = $wpdb->update(
+                $board_items_table,
+                array( 'removed_at' => $now ),
+                array( 'id' => $relationship->id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+            if ( $updated === false ) {
+                wp_send_json_error( array( 'message' => 'Failed to remove item from board.' ), 500 );
+            }
+            if ( $updated === 0 ) {
+                wp_send_json_error( array( 'message' => 'Item not found or already removed.' ), 404 );
+            }
         }
 
         // Clear cache to ensure deleted item doesn't reappear on refresh

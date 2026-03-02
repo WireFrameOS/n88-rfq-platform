@@ -109,15 +109,27 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         const prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
         const hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
 
-        // Priority 1: Action Required (unread operator messages; or supplier submitted/resubmitted prototype video — designer must review)
-        if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+        // Compute awarded state once so it can override Prototype Approved when a bid is awarded
+        let hasAwardedBid = truthy(item.has_awarded_bid);
+        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
+        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
+
+        // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video — show View Prototype video
+        if (hasUnreadOperatorMessages) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+        }
+        if (ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+            return { text: 'View Prototype video', color: '#2196f3', dot: '#2196f3' };
         }
 
         // Priority 2: Prototype workflow — when prototype payment exists, show the current stage so status progresses after Proposals Received
         if (hasPrototypePayment) {
             // 2a: Prototype Approved (designer approved video)
             if (ps === 'approved') {
+                // If bid has been awarded, card should show "Awarded" instead of "Prototype Approved"
+                if (hasAwardedBid) {
+                    return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                }
                 return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
             }
             // 2b: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
@@ -154,11 +166,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         }
 
         // Priority 3: Bid Awarded — when designer has awarded a bid (and no prototype stage above)
-        let hasAwardedBid = truthy(item.has_awarded_bid);
-        if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
-        if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
         if (hasAwardedBid) {
-            return { text: 'Project Awarded', color: '#00ff00', dot: '#00ff00' };
+            return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
         }
 
         // Priority 4: Proposals Received — when supplier has submitted proposal(s)
@@ -224,6 +233,9 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 displayMode: item.displayMode,
             });
         }
+
+        // Close the three-dots menu after any size change
+        setContextMenuOpen(false);
     };
 
     const handlePointerDown = () => {
@@ -667,13 +679,14 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         handleSizeChange(size, e);
+                                        setContextMenuOpen(false);
                                     }}
                                     style={{
                                         padding: '4px 10px',
                                         fontSize: '12px',
                                         cursor: 'pointer',
                                         backgroundColor: 'transparent',
-                                        color: currentSize === size ? '#e91e8c' : '#fff',
+                                        color: currentSize === size ? 'rgb(255, 0, 101)' : '#fff',
                                         border: 'none',
                                         borderRadius: '2px',
                                         fontWeight: currentSize === size ? 600 : 400,
@@ -719,7 +732,7 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                                     textAlign: 'left',
                                     background: 'none',
                                     border: 'none',
-                                    color: '#e91e8c',
+                                    color: 'rgb(255, 0, 101)',
                                     cursor: 'pointer',
                                     fontSize: '13px',
                                     marginTop: '4px',

@@ -71,6 +71,9 @@ class N88_RFQ_Auth {
         // Commit 2.4.1: Award bid (designer action)
         add_action( 'wp_ajax_n88_award_bid', array( $this, 'ajax_award_bid' ) );
         
+        // Commit 28: Operator marks deposit received (production Step 4 can then start)
+        add_action( 'wp_ajax_n88_mark_deposit_received', array( $this, 'ajax_mark_deposit_received' ) );
+        
         // Commit 2.6.1: Invite team member (designer action)
         add_action( 'wp_ajax_n88_invite_team_member', array( $this, 'ajax_invite_team_member' ) );
         // Commit 2.6.1: Accept team invitation (first-time login)
@@ -3308,6 +3311,7 @@ class N88_RFQ_Auth {
                         var bidAndPrototype = (function() {
                             var bid = item.bid_data || {};
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
+                            var prototypeApprovedNotAwarded = paymentNotif && paymentNotif.prototype_status === 'approved' && !isBidAwarded;
                             var protoResult = paymentNotif ? (function() {
                                 var notif = paymentNotif;
                                 var keywordsHTML = '';
@@ -3551,19 +3555,26 @@ class N88_RFQ_Auth {
                                 }
                             }
                             
-                            // Commit 2.4.1: Check if bid is awarded
+                            // Commit 2.4.1: Check if bid is awarded; show "Prototype approved" when prototype approved but not awarded
                             // Check multiple sources: item.bid_status, bid.bid_status, and bid.is_awarded
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
+                            var prototypeApprovedNotAwarded = paymentNotif && paymentNotif.prototype_status === 'approved' && !isBidAwarded;
                             
-                            return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 24px; font-family: monospace;">' +
-                                '<div style="font-size: 16px; font-weight: 600; color: #FF0065; margin-bottom: 16px; border-bottom: 1px solid #FF0065; padding-bottom: 8px;">Your Submitted Bid' + (isBidAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ AWARDED</span>' : '') + '</div>' +
-                                // Commit 2.4.1: Awarded Status Message
-                                (isBidAwarded ? '<div style="background-color: #003300; border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
+                            var bidHeaderLabel = isBidAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ AWARDED</span>' : (prototypeApprovedNotAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ Prototype Approved</span>' : '');
+                            var statusBlockHTML = isBidAwarded ? ('<div style="background-color: #003300; border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
                                     '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">🎉 Congratulations! Your Bid Has Been Awarded</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Item:</strong> ' + (item.title || 'Item #' + itemId) + '</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #FF0065; font-weight: 600;">Awarded</span></div>' +
                                     '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
-                                    '</div>' : '') +
+                                    '</div>') : (prototypeApprovedNotAwarded ? '<div style="background-color: rgba(0, 51, 0, 0.3); border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
+                                    '<div style="font-weight: 600; margin-bottom: 8px;">✓ Prototype Approved</div>' +
+                                    '<div style="font-size: 13px;">Your prototype video has been approved by the designer. The project has not been awarded yet; you will be notified if the designer awards the project.</div>' +
+                                    '</div>' : '');
+                            
+                            return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 24px; font-family: monospace;">' +
+                                '<div style="font-size: 16px; font-weight: 600; color: #FF0065; margin-bottom: 16px; border-bottom: 1px solid #FF0065; padding-bottom: 8px;">Your Submitted Bid' + bidHeaderLabel + '</div>' +
+                                // Commit 2.4.1: Awarded Status Message (or Prototype approved when not yet awarded)
+                                statusBlockHTML +
                                 (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
                                 '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Video Links:</strong> <div style="margin-top: 4px;">' + videoLinksHTML + '</div></div>' +
@@ -3588,11 +3599,17 @@ class N88_RFQ_Auth {
                     var bidTabHTML = bidAndPrototype.bidBox +
                         '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
                         ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && !item.has_revision_mismatch ? 
-                            // Normal submitted/awarded state - check if resubmission
-                            '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
-                            '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + (item.bid_status === 'awarded' ? 'Bid Awarded' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted')) + '</div>' +
-                            (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
-                            '</div>' :
+                            // Normal submitted/awarded state - check if resubmission; show "Prototype approved" when prototype approved but not awarded
+                            (function() {
+                                var paymentNotifFooter = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
+                                var isAwarded = item.bid_status === 'awarded';
+                                var protoApprovedOnly = !isAwarded && paymentNotifFooter && paymentNotifFooter.prototype_status === 'approved';
+                                var label = isAwarded ? 'Bid Awarded' : (protoApprovedOnly ? 'Prototype Approved' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted'));
+                                return '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
+                                '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + label + '</div>' +
+                                (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
+                                '</div>';
+                            })() :
                             ((item.bid_status === 'submitted' || item.bid_status === 'awarded') && item.has_revision_mismatch ?
                                 // Specs changed - show resubmit button (opens form inside modal)
                                 '<button onclick="toggleBidForm(' + item.item_id + ')" id="n88-resubmit-bid-btn-' + item.item_id + '" style="padding: 12px 24px; background-color: #ff9800; color: #000; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Resubmit Bid ]</button>' :
@@ -4642,10 +4659,20 @@ class N88_RFQ_Auth {
                     '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
-                    // 1. Video links (0-3, optional) - Commit 2.3.5.4: Field order 1
+                    // 1. Reference photo(s) and media
                         '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
-                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) and media <span style="color: #ff0000;">*</span></label>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos AND short videos of similar items or your work. Minimum 2 photos and 1 video required (recommended 2-5).</div>' +
+                    '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Media</button>' +
+                    '<div id="n88-bid-photos-preview-embedded-' + itemId + '" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                    '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                    // 2. Video links (1-3, required at least one)
+                        '<div style="margin-bottom: 24px;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">VIDEO LINKS</label>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1–3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
                     '<div id="n88-video-links-container-embedded-' + itemId + '">' +
                     '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
                     '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
@@ -4655,16 +4682,6 @@ class N88_RFQ_Auth {
                         '</div>' +
                     '<button type="button" onclick="addVideoLinkEmbedded(' + itemId + ')" id="n88-add-video-link-btn-embedded-' + itemId + '" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
                     '<div id="n88-video-links-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
-                        
-                    // 2. Reference photo(s) (required, min 1, max 5) - Commit 2.3.5.4: Renamed from "BID PHOTOS" to "Reference photo(s)"
-                        '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
-                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
-                    '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
-                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
-                    '<div id="n88-bid-photos-preview-embedded-' + itemId + '" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
-                    '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                         
                     // 3. Prototype (Yes/No or required commitment) - Commit 2.3.5.4: Field order 3
@@ -5101,10 +5118,20 @@ class N88_RFQ_Auth {
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
                         
-                        // 1. Video links (optional, 0-3) - Commit 2.3.5.4: Field order 1
+                        // 1. Reference photo(s) and media
                         '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">VIDEO LINKS (Optional)</label>' +
-                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Min 0, Max 3. Allowed: YouTube / Vimeo / Loom</div>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) and media <span style="color: #ff0000;">*</span></label>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos AND short videos of similar items or your work. Minimum 2 photos and 1 video required (recommended 2-5).</div>' +
+                        '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
+                        '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Media</button>' +
+                        '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                        '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                        '</div>' +
+                        
+                        // 2. Video links (1-3, required at least one)
+                        '<div style="margin-bottom: 24px;">' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">VIDEO LINKS</label>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1–3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
                         '<div id="n88-video-links-container">' +
                         '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
                         '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
@@ -5114,16 +5141,6 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<button type="button" onclick="addVideoLink()" id="n88-add-video-link-btn" style="margin-top: 8px; padding: 6px 12px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">+ Add Another Link</button>' +
                         '<div id="n88-video-links-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
-                        
-                        // 2. Reference photo(s) (required, min 1, max 5) - Commit 2.3.5.4: Renamed from "BID PHOTOS"
-                        '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Reference photo(s) <span style="color: #ff0000;">*</span></label>' +
-                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Upload photos of similar items or your work. Minimum 1 photo required (recommended 1-5).</div>' +
-                        '<input type="file" id="n88-bid-photos-input" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChange(this);" />' +
-                        '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input\').click();" style="padding: 8px 16px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 12px; margin-bottom: 12px; font-family: monospace;">+ Add Photos</button>' +
-                        '<div id="n88-bid-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
-                        '<div id="n88-bid-photos-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
                     
                         // 2. Prototype video commitment (must be YES) - Commit 2.3.5.2: Dark theme
@@ -5696,7 +5713,7 @@ class N88_RFQ_Auth {
                     document.getElementById('n88-submit-bid-btn-embedded-' + itemId) : 
                     document.getElementById('n88-submit-bid-btn');
                 
-                // 1. Video links: optional, max 3, all valid (Commit 2.3.5.1: Remove mandatory requirement)
+                // 1. Video links: required min 1, max 3, all valid
                 var videoLinks = form.querySelectorAll('.n88-video-link-input');
                 var validVideoLinks = 0;
                 var allowedDomains = [
@@ -5725,8 +5742,8 @@ class N88_RFQ_Auth {
                     }
                 });
                 
-                // Video links are optional now, but if provided, max 3
-                if (validVideoLinks > 3) {
+                // Require at least 1 valid video link, max 3
+                if (validVideoLinks < 1 || validVideoLinks > 3) {
                     isValid = false;
                 }
                 
@@ -6489,7 +6506,7 @@ class N88_RFQ_Auth {
                 var isValid = true;
                 var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
                 
-                // 1. Video links: optional, max 3
+                // 1. Video links: required min 1, max 3
                 var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
                 var validVideoLinks = 0;
                 var allowedDomains = [
@@ -6517,7 +6534,7 @@ class N88_RFQ_Auth {
                     }
                 });
                 
-                if (validVideoLinks > 3) {
+                if (validVideoLinks < 1 || validVideoLinks > 3) {
                     isValid = false;
                 }
                 
@@ -12360,6 +12377,26 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        // Direction keyword names for display (when direction_keyword_ids present)
+        $direction_keyword_names = array();
+        if ( ! empty( $direction_keyword_ids ) && is_array( $direction_keyword_ids ) ) {
+            $keywords_table = $wpdb->prefix . 'n88_keywords';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$keywords_table}'" ) === $keywords_table ) {
+                $ids = array_map( 'absint', $direction_keyword_ids );
+                $ids = array_filter( array_unique( $ids ) );
+                if ( ! empty( $ids ) ) {
+                    $placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+                    $rows = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT keyword_id, keyword FROM {$keywords_table} WHERE keyword_id IN ({$placeholders})",
+                        ...$ids
+                    ), ARRAY_A );
+                    foreach ( $rows as $row ) {
+                        $direction_keyword_names[ intval( $row['keyword_id'] ) ] = $row['keyword'];
+                    }
+                }
+            }
+        }
+
         wp_send_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
@@ -12390,8 +12427,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'prototype_approved_version' => $prototype_approved_version,
             'prototype_submission' => $prototype_submission,
             'direction_keyword_ids' => $direction_keyword_ids,
+            'direction_keyword_names' => $direction_keyword_names, // Keyword names for display (id => name)
             // Designer Workflow tab: milestone dates per step
             'workflow_milestones' => $workflow_milestones,
+            // Commit 28: Deposit lifecycle (award + deposit; Step 4 starts only after deposit received)
+            'deposit_status' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_status'] ) ? $meta['deposit_status'] : '' ) : '',
+            'deposit_amount' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_amount'] ) ? floatval( $meta['deposit_amount'] ) : null ) : null,
+            'deposit_calculated_at' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_calculated_at'] ) ? $meta['deposit_calculated_at'] : null ) : null,
+            'deposit_received_at' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_received_at'] ) ? $meta['deposit_received_at'] : null ) : null,
         ) );
     }
 
@@ -13656,6 +13699,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $meta['awarded_bid_snapshot'] = $snapshot_data;
             $meta['item_status'] = 'Awarded'; // Update item status
             
+            // Commit 28: Deposit calculation on award (offline deposit submission; Step 4 starts only after operator marks deposit received)
+            $quantity = 1;
+            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$delivery_context_table}'" ) === $delivery_context_table ) {
+                $q = $wpdb->get_var( $wpdb->prepare( "SELECT quantity FROM {$delivery_context_table} WHERE item_id = %d", $item_id ) );
+                if ( $q !== null && (int) $q > 0 ) {
+                    $quantity = (int) $q;
+                }
+            }
+            $unit_price = $bid['unit_price'] ? floatval( $bid['unit_price'] ) : 0;
+            $deposit_percentage = 30; // configurable: 30% deposit
+            $deposit_amount = $unit_price > 0 ? round( $unit_price * $quantity * ( $deposit_percentage / 100 ), 2 ) : 0;
+            $deposit_calculated_at = current_time( 'mysql' );
+            $meta['deposit_status'] = 'pending';
+            $meta['deposit_amount'] = $deposit_amount;
+            $meta['deposit_calculated_at'] = $deposit_calculated_at;
+            $meta['deposit_calculation'] = array(
+                'unit_price' => $unit_price,
+                'quantity'   => $quantity,
+                'percentage' => $deposit_percentage,
+            );
+            
             $wpdb->update(
                 $items_table,
                 array( 'meta_json' => wp_json_encode( $meta ) ),
@@ -13664,7 +13729,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 array( '%d' )
             );
 
-            // 4. Log bid_awarded event
+            // 4. Log bid_awarded event (immutable)
             $wpdb->insert(
                 $events_table,
                 array(
@@ -13684,6 +13749,24 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 ),
                 array( '%d', '%s', '%s', '%d', '%d', '%s', '%s' )
             );
+
+            // Commit 28: Log deposit_calculated (immutable event for award + deposit lifecycle)
+            if ( function_exists( 'n88_log_event' ) ) {
+                n88_log_event( 'deposit_calculated', 'item', array(
+                    'item_id'      => $item_id,
+                    'object_id'    => $bid_id,
+                    'payload_json' => array(
+                        'item_id'               => $item_id,
+                        'bid_id'                => $bid_id,
+                        'deposit_amount'        => $deposit_amount,
+                        'deposit_calculated_at' => $deposit_calculated_at,
+                        'unit_price'            => $unit_price,
+                        'quantity'              => $quantity,
+                        'percentage'            => $deposit_percentage,
+                        'timestamp'             => current_time( 'mysql' ),
+                    ),
+                ) );
+            }
 
             // 5. Log bid_declined events for all other bids
             $declined_bids = $wpdb->get_results( $wpdb->prepare(
@@ -13728,6 +13811,63 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'message' => 'Failed to award bid: ' . $e->getMessage(),
             ) );
         }
+    }
+
+    /**
+     * Commit 28: AJAX — Operator marks deposit received. Production (Step 4) can start only after this.
+     * Immutable event: deposit_received logged.
+     */
+    public function ajax_mark_deposit_received() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_system_operator', $current_user->roles, true ) && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Operator only.' ), 403 );
+        }
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $item_meta = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+        $meta = ! empty( $item_meta ) ? json_decode( $item_meta, true ) : array();
+        if ( ! is_array( $meta ) ) {
+            $meta = array();
+        }
+        $deposit_status = isset( $meta['deposit_status'] ) ? $meta['deposit_status'] : '';
+        if ( $deposit_status !== 'pending' ) {
+            wp_send_json_error( array( 'message' => 'No pending deposit for this item, or deposit already marked received.' ) );
+        }
+        $now = current_time( 'mysql' );
+        $meta['deposit_status'] = 'received';
+        $meta['deposit_received_at'] = $now;
+        $meta['deposit_received_by'] = $current_user->ID;
+        $wpdb->update(
+            $items_table,
+            array( 'meta_json' => wp_json_encode( $meta ) ),
+            array( 'id' => $item_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'deposit_received', 'item', array(
+                'item_id'   => $item_id,
+                'payload_json' => array(
+                    'item_id'             => $item_id,
+                    'deposit_received_at' => $now,
+                    'deposit_received_by' => $current_user->ID,
+                    'deposit_amount'      => isset( $meta['deposit_amount'] ) ? $meta['deposit_amount'] : null,
+                    'timestamp'           => current_time( 'mysql' ),
+                ),
+            ) );
+        }
+        wp_send_json_success( array(
+            'message' => 'Deposit marked received. Production (Step 4) can now be started.',
+            'item_id' => $item_id,
+        ) );
     }
 
     /**
@@ -21116,6 +21256,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     
     /**
      * Commit 2.3.9.2B-D: AJAX handler to approve prototype video
+     *
+     * IMPORTANT: This handler must ONLY update prototype_payments (prototype_status).
+     * It must NEVER update the item_bids table or set any bid status to 'awarded'.
+     * Awarding the bid is a separate designer action via ajax_award_bid only.
      */
     public function ajax_approve_prototype() {
         check_ajax_referer( 'n88_approve_prototype', '_ajax_nonce' );
@@ -21195,103 +21339,52 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ) );
         }
         
-        // Commit 3.B.5B: Transition item into Awarded state if not already
-        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
-        $items_table = $wpdb->prefix . 'n88_items';
-        $events_table = $wpdb->prefix . 'n88_events';
-        $existing_awarded = $wpdb->get_var( $wpdb->prepare(
-            "SELECT bid_id FROM {$item_bids_table} WHERE item_id = %d AND status = 'awarded' LIMIT 1",
-            $item_id
-        ) );
-        if ( ! $existing_awarded ) {
-            $wpdb->update(
-                $item_bids_table,
-                array( 'status' => 'awarded' ),
-                array( 'bid_id' => $bid_id ),
-                array( '%s' ),
-                array( '%d' )
-            );
-            $wpdb->update(
-                $item_bids_table,
-                array( 'status' => 'declined' ),
-                array( 'item_id' => $item_id, 'status' => 'submitted' ),
-                array( '%s' ),
-                array( '%d', '%s' )
-            );
-            $bid = $wpdb->get_row( $wpdb->prepare(
-                "SELECT bid_id, supplier_id, unit_price, production_lead_time_text, prototype_video_yes, prototype_timeline_option, prototype_cost, cad_yes, meta_json FROM {$item_bids_table} WHERE bid_id = %d",
-                $bid_id
-            ), ARRAY_A );
-            if ( $bid ) {
-                $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
-                $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
-                $media_links = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT url, provider, sort_order FROM {$bid_media_links_table} WHERE bid_id = %d ORDER BY sort_order ASC, id ASC",
-                    $bid_id
-                ), ARRAY_A );
-                $bid_photos = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT file_url, sort_order FROM {$bid_media_files_table} WHERE bid_id = %d ORDER BY sort_order ASC, id ASC",
-                    $bid_id
-                ), ARRAY_A );
-                $snapshot_data = array(
-                    'bid_id' => intval( $bid['bid_id'] ),
-                    'item_id' => $item_id,
-                    'supplier_id' => intval( $bid['supplier_id'] ),
-                    'unit_price' => $bid['unit_price'] ? floatval( $bid['unit_price'] ) : null,
-                    'production_lead_time_text' => $bid['production_lead_time_text'],
-                    'prototype_video_yes' => intval( $bid['prototype_video_yes'] ) === 1,
-                    'prototype_timeline_option' => $bid['prototype_timeline_option'],
-                    'prototype_cost' => $bid['prototype_cost'] ? floatval( $bid['prototype_cost'] ) : null,
-                    'cad_yes' => $bid['cad_yes'] ? intval( $bid['cad_yes'] ) : null,
-                    'media_links' => $media_links,
-                    'bid_photos' => array_map( function( $p ) { return esc_url_raw( $p['file_url'] ); }, $bid_photos ),
-                    'meta_json' => $bid['meta_json'],
-                    'awarded_at' => $award_timestamp,
-                    'awarded_by' => $current_user->ID,
-                    'awarded_supplier_id' => isset( $payment['supplier_id'] ) ? intval( $payment['supplier_id'] ) : null,
-                    'award_timestamp' => $award_timestamp,
-                    'prototype_approved_at' => $prototype_approved_at,
-                );
-                $item_meta = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
-                $meta = ! empty( $item_meta ) ? json_decode( $item_meta, true ) : array();
-                if ( ! is_array( $meta ) ) { $meta = array(); }
-                $meta['awarded_bid_snapshot'] = $snapshot_data;
-                $meta['item_status'] = 'Awarded';
-                $meta['awarded_supplier_id'] = isset( $payment['supplier_id'] ) ? intval( $payment['supplier_id'] ) : null;
-                $meta['award_timestamp'] = $award_timestamp;
-                $meta['prototype_approved_at'] = $prototype_approved_at;
-                $wpdb->update( $items_table, array( 'meta_json' => wp_json_encode( $meta ) ), array( 'id' => $item_id ), array( '%s' ), array( '%d' ) );
-                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$events_table}'" ) === $events_table ) {
-                    $wpdb->insert( $events_table, array(
-                        'actor_user_id' => $current_user->ID,
-                        'event_type' => 'bid_awarded',
-                        'object_type' => 'bid',
-                        'object_id' => $bid_id,
-                        'item_id' => $item_id,
-                        'payload_json' => wp_json_encode( array(
-                            'bid_id' => $bid_id,
-                            'item_id' => $item_id,
-                            'designer_id' => $current_user->ID,
-                            'supplier_id' => intval( $bid['supplier_id'] ),
-                            'award_timestamp' => $award_timestamp,
-                            'prototype_approved_at' => $prototype_approved_at,
-                            'timestamp' => current_time( 'mysql' ),
-                        ) ),
-                        'created_at' => current_time( 'mysql' ),
-                    ), array( '%d', '%s', '%s', '%d', '%d', '%s', '%s' ) );
-                }
-            }
-        }
-        
+        // Do NOT auto-award the bid here. Designer must click "Award project" separately.
         // Commit 3.A.1: Timeline step 3 complete (logs timeline_step_completed step 3)
         if ( class_exists( 'N88_Item_Timeline' ) ) {
             N88_Item_Timeline::sync_from_prototype_approved( $item_id );
         }
-        
+
         wp_send_json_success( array(
             'message' => 'Prototype approved successfully.',
-            'item_awarded' => ! $existing_awarded,
         ) );
+    }
+    
+    /**
+     * Detect phone numbers, emails, or personal-contact keywords in Request Changes feedback text.
+     * Returns array with 'blocked' => true and 'message' => string if detected, else 'blocked' => false.
+     */
+    private function detect_personal_info_in_feedback( $text ) {
+        if ( ! is_string( $text ) || trim( $text ) === '' ) {
+            return array( 'blocked' => false );
+        }
+        $t = trim( $text );
+        // Email
+        if ( preg_match( '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $t ) ) {
+            return array(
+                'blocked' => true,
+                'message' => 'Please remove email addresses. Do not share personal contact info in feedback.',
+            );
+        }
+        // Phone: (123) 456-7890, 123-456-7890, 10+ digits, +1 234 567 8900
+        if ( preg_match( '/(?:\+\?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10,}/', $t ) ) {
+            return array(
+                'blocked' => true,
+                'message' => 'Please remove phone numbers. Do not share personal contact info in feedback.',
+            );
+        }
+        // Keywords suggesting personal contact
+        $lower = strtolower( $t );
+        $keywords = array( 'email me', 'call me', 'text me', 'whatsapp', 'wechat', 'skype', 'my number', 'my email', 'reach me at', 'contact me at', 'send to @', 'dm me', 'message me at' );
+        foreach ( $keywords as $kw ) {
+            if ( strpos( $lower, $kw ) !== false ) {
+                return array(
+                    'blocked' => true,
+                    'message' => 'Please remove personal contact phrases (e.g. "email me", "call me"). Do not share contact info in feedback.',
+                );
+            }
+        }
+        return array( 'blocked' => false );
     }
     
     /**
@@ -21388,6 +21481,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $total_phrases > 18 ) {
             wp_send_json_error( array( 'message' => 'Maximum 18 phrases total per packet.' ) );
             return;
+        }
+        
+        // Block phone numbers, emails, or personal contact keywords in revision_detail
+        $all_revision_text = '';
+        foreach ( $keyword_results as $kr ) {
+            if ( ! empty( $kr['revision_detail'] ) ) {
+                $all_revision_text .= ' ' . $kr['revision_detail'];
+            }
+        }
+        $all_revision_text = trim( $all_revision_text );
+        if ( $all_revision_text !== '' ) {
+            $personal_check = $this->detect_personal_info_in_feedback( $all_revision_text );
+            if ( $personal_check['blocked'] ) {
+                wp_send_json_error( array( 'message' => $personal_check['message'] ) );
+                return;
+            }
         }
         
         // Insert feedback packet

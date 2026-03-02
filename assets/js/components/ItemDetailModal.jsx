@@ -155,6 +155,81 @@ const getTimelineTypeFromCategory = (category) => {
 };
 
 /**
+ * Convert video watch URL to embed URL for YouTube, Vimeo, Loom (for on-screen inline play)
+ */
+const getVideoEmbedUrl = (url, provider) => {
+    if (!url || typeof url !== 'string') return null;
+    const u = url.trim();
+    try {
+        const prov = (provider || '').toLowerCase();
+        if (prov.includes('youtube') || u.includes('youtube.com') || u.includes('youtu.be')) {
+            const re = new RegExp('(?:youtube\\.com/watch\\?v=|youtu\\.be/)([^&\\s?]+)');
+            const m = u.match(re);
+            if (m && m[1]) return 'https://www.youtube.com/embed/' + m[1];
+        }
+        if (prov.includes('vimeo') || u.includes('vimeo.com')) {
+            const re = new RegExp('vimeo\\.com/(?:video/)?(\\d+)');
+            const m = u.match(re);
+            if (m && m[1]) return 'https://player.vimeo.com/video/' + m[1];
+        }
+        if (prov.includes('loom') || u.includes('loom.com')) {
+            const re = new RegExp('loom\\.com/share/([^?\\s]+)');
+            const m = u.match(re);
+            if (m && m[1]) return 'https://www.loom.com/embed/' + m[1];
+            if (u.includes('/embed/')) return u;
+        }
+    } catch (_) {}
+    return null;
+};
+
+/**
+ * Detect phone numbers, emails, or personal-contact keywords in Request Changes feedback text.
+ * Returns { blocked: true, message: string } if detected, else { blocked: false }.
+ */
+const detectPersonalInfoInFeedback = (text) => {
+    if (!text || typeof text !== 'string') return { blocked: false };
+    const t = text.trim();
+    if (!t.length) return { blocked: false };
+    try {
+        // Email
+        const emailRe = new RegExp('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}');
+        if (emailRe.test(t)) return { blocked: true, message: 'Please remove email addresses. Do not share personal contact info in feedback.' };
+        // Phone: (123) 456-7890, 123-456-7890, 123.456.7890, 10+ digits, +1 234 567 8900
+        const phoneRe = new RegExp('(?:\\+?\\d{1,3}[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}|\\d{10,}');
+        if (phoneRe.test(t)) return { blocked: true, message: 'Please remove phone numbers. Do not share personal contact info in feedback.' };
+        // Keywords suggesting personal contact
+        const lower = t.toLowerCase();
+        const keywords = ['email me', 'call me', 'text me', 'whatsapp', 'wechat', 'skype', 'my number', 'my email', 'reach me at', 'contact me at', 'send to @', 'dm me', 'message me at'];
+        for (let i = 0; i < keywords.length; i++) {
+            if (lower.indexOf(keywords[i]) !== -1) {
+                return { blocked: true, message: 'Please remove personal contact phrases (e.g. "email me", "call me"). Do not share contact info in feedback.' };
+            }
+        }
+    } catch (_) {}
+    return { blocked: false };
+};
+
+/**
+ * Format workflow date/time for display: "February 26th 2026 1:53:43 PM"
+ */
+const formatWorkflowDateTime = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const day = d.getDate();
+    const ord = (day % 10 === 1 && day % 100 !== 11) ? 'st' : (day % 10 === 2 && day % 100 !== 12) ? 'nd' : (day % 10 === 3 && day % 100 !== 13) ? 'rd' : 'th';
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const sec = String(d.getSeconds()).padStart(2, '0');
+    return `${month} ${day}${ord} ${year} ${h}:${min}:${sec} ${ampm}`;
+};
+
+/**
  * Bid Comparison Component - Shows single bid box or comparison table
  * Single bid: Compact box with all details (no CAD)
  * Multiple bids: Comparison table with 3 columns (Supplier A, B, C)
@@ -818,17 +893,17 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
-                    <div style={{
-                        padding: '6px 10px',
-                        borderRight: `1px solid ${darkBorder}`,
-                        fontSize: '10px',
-                        color: darkText,
-                        backgroundColor: '#0a0a0a',
-                        display: 'flex',
-                        alignItems: 'center',
-                    }}>
-                        Award Bid
-                    </div>
+                <div style={{
+                    padding: '6px 10px',
+                    borderRight: `1px solid ${darkBorder}`,
+                    fontSize: '10px',
+                    color: darkText,
+                    backgroundColor: '#0a0a0a',
+                    display: 'flex',
+                    alignItems: 'center',
+                }}>
+                    Award Bid
+                </div>
                     {displayBids.map((bid, idx) => {
                         return (
                             <div
@@ -1607,6 +1682,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         prototype_approved_version: null,
         prototype_submission: null, // { version, links: [], created_at }
         direction_keyword_ids: null, // Array of keyword IDs
+        direction_keyword_names: null, // { keyword_id: name } for display
     });
     
     // Payment Instructions Modal State
@@ -1633,6 +1709,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     // Commit 2.3.9.2B-D: Prototype section state
     const [prototypeSectionExpanded, setPrototypeSectionExpanded] = React.useState(false);
     const [showRequestChangesModal, setShowRequestChangesModal] = React.useState(false);
+    const [inlineVideoPlayer, setInlineVideoPlayer] = React.useState(null); // { url, provider } for Step 3 prototype video on-screen play
+    const [hoverVideoPlayIdx, setHoverVideoPlayIdx] = React.useState(null);
+    const [hoverVideoLinkIdx, setHoverVideoLinkIdx] = React.useState(null);
     const [feedbackPacket, setFeedbackPacket] = React.useState({}); // { keyword_id: { status, severity, phrase_ids } }
     const [availablePhrases, setAvailablePhrases] = React.useState({}); // { keyword_id: [phrases] }
     const [keywordNames, setKeywordNames] = React.useState({}); // { keyword_id: keyword_name }
@@ -1762,20 +1841,30 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             return;
         }
         const hasUnread = !!(itemState.has_unread_operator_messages || item?.action_required === true || item?.action_required === 'true' || item?.action_required === 1 || item?.has_unread_operator_messages === true || item?.has_unread_operator_messages === 'true' || item?.has_unread_operator_messages === 1);
-        const cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].includes(String(itemState.cad_status || '')));
+        const cadSubmitted = (Number(itemState.cad_current_version) || 0) > 0;
+        const cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && cadSubmitted && ['uploaded', 'revision_requested'].includes(String(itemState.cad_status || '')));
         const hasActionRequired = hasUnread || cadPendingDesignerReview;
-        if (hasActionRequired) {
+        if (cadPendingDesignerReview) {
             setActiveTab('workflow');
-            setSelectedStepIndex(1); // Step 2: Technical Review & Documentation
+            setSelectedStepIndex(1); // Step 2: CAD submitted, show message box
             setShowDesignerMessageForm(true);
             loadDesignerMessages();
-            if (cadPendingDesignerReview) {
-                const scrollToCad = () => {
-                    const el = document.getElementById('n88-designer-messages-container-workflow');
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                };
-                setTimeout(scrollToCad, 400);
-            }
+            const scrollToCad = () => {
+                const el = document.getElementById('n88-designer-messages-container-workflow');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            };
+            setTimeout(scrollToCad, 400);
+            return;
+        }
+        if (hasUnread && !cadSubmitted) {
+            setActiveTab('workflow');
+            setSelectedStepIndex(0); // Step 1: Clarifications before CAD submitted
+            setShowDesignerMessageForm(true);
+            loadDesignerMessages();
+            setTimeout(() => {
+                const el = document.getElementById('n88-designer-messages-container-workflow');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 400);
             return;
         }
         const cadReleasedToSupplier = !!(itemState.cad_released_to_supplier_at && String(itemState.cad_released_to_supplier_at).trim());
@@ -1904,7 +1993,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
                     prototype_submission: data.data.prototype_submission || null,
                     direction_keyword_ids: data.data.direction_keyword_ids || null,
+                    direction_keyword_names: data.data.direction_keyword_names || null,
                     workflow_milestones: data.data.workflow_milestones || null,
+                    // Commit 28: Deposit lifecycle
+                    deposit_status: data.data.deposit_status || '',
+                    deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
+                    deposit_calculated_at: data.data.deposit_calculated_at || null,
+                    deposit_received_at: data.data.deposit_received_at || null,
                     loading: false,
                 });
                 // Update board card so status progresses (CAD Requested, Awaiting payment, Payment received, Review CAD, Pending Prototype Video, etc.)
@@ -1915,6 +2010,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
                 if (data.data.has_prototype_payment !== undefined) cardUpdates.has_prototype_payment = !!data.data.has_prototype_payment;
                 if (data.data.has_awarded_bid !== undefined) cardUpdates.has_awarded_bid = !!data.data.has_awarded_bid;
+                if (data.data.deposit_status !== undefined) cardUpdates.deposit_status = data.data.deposit_status;
                 if (data.data.has_unread_operator_messages !== undefined) cardUpdates.has_unread_operator_messages = !!data.data.has_unread_operator_messages;
                 if (data.data.has_prototype_video_submitted !== undefined) cardUpdates.has_prototype_video_submitted = !!data.data.has_prototype_video_submitted;
                 if (data.data.has_payment_receipt_uploaded !== undefined) cardUpdates.has_payment_receipt_uploaded = !!data.data.has_payment_receipt_uploaded;
@@ -2486,10 +2582,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setPaymentReceiptSelectedFile(null);
                 setPaymentReceiptMessage('');
                 setShowResubmitReceiptForm(false);
+                setShowPaymentInstructions(false);
                 await fetchPaymentReceipts();
                 if (paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
                 // Update item card status to "Awaiting payment confirmation"
                 updateLayout(item.id, { has_payment_receipt_uploaded: true });
+                if (typeof fetchItemState === 'function') fetchItemState();
+                if (onClose) onClose();
             } else {
                 alert(d.data?.message || 'Upload failed.');
             }
@@ -2498,7 +2597,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         } finally {
             setPaymentReceiptUploading(false);
         }
-    }, [paymentReceiptSelectedFile, paymentReceiptMessage, itemState.prototype_payment_id, fetchPaymentReceipts]);
+    }, [paymentReceiptSelectedFile, paymentReceiptMessage, itemState.prototype_payment_id, fetchPaymentReceipts, onClose, item.id, updateLayout]);
     
     // Auto-scroll to bottom when messages load or new message is sent (Workflow Step 2 container)
     React.useEffect(() => {
@@ -4108,13 +4207,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                     backgroundColor: 'rgba(0,0,0,0.2)',
                                                 }}>
                                                     <div style={{ fontSize: '12px', color: darkText, marginBottom: '10px' }}>
-                                                        Review and Message (CAD review) has moved to Workflow tab → Step 2.
+                                                        {(Number(itemState.cad_current_version) || 0) > 0
+                                                            ? 'Review and Message (CAD review) has moved to Workflow tab → Step 2.'
+                                                            : 'Clarifications / Message Operator has moved to Workflow tab → Step 1.'}
                                                     </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            const cadDone = (Number(itemState.cad_current_version) || 0) > 0;
                                                             setActiveTab('workflow');
-                                                            setSelectedStepIndex(1);
+                                                            setSelectedStepIndex(cadDone ? 1 : 0);
                                                             setShowDesignerMessageForm(true);
                                                             loadDesignerMessages();
                                                         }}
@@ -4129,7 +4231,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             fontSize: '12px',
                                                         }}
                                                     >
-                                                        Open Workflow → Step 2
+                                                        Open Workflow → {(Number(itemState.cad_current_version) || 0) > 0 ? 'Step 2' : 'Step 1'}
                                                     </button>
                                                 </div>
                                             )}
@@ -4473,6 +4575,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                     {/* Selected step detail */}
                                                     {timelineData.steps[selectedStepIndex] && (() => {
                                                         const s = timelineData.steps[selectedStepIndex];
+                                                        const cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
                                                         const statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
                                                         return (
                                                             <div style={{
@@ -4492,13 +4595,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
                                                                         <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                                             {itemState.workflow_milestones.step1.cad_requested_at && (
-                                                                                <div>· CAD requested — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step1.cad_requested_at}</span></div>
+                                                                                <div>· CAD requested — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step1.payment_sent_at && (
-                                                                                <div>· Payment sent — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step1.payment_sent_at}</span></div>
+                                                                                <div>· Payment sent — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step1.payment_approved_at && (
-                                                                                <div>· Payment approved — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step1.payment_approved_at}</span></div>
+                                                                                <div>· Payment approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at)}</span></div>
                                                                             )}
                                                                             {!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment && (
                                                                                 <div style={{ color: '#888' }}>No milestone dates yet.</div>
@@ -4506,11 +4609,96 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         </div>
                                                                     </div>
                                                                 )}
-                                                                {/* Step 1: Payment Confirmed only (prototype video is in Step 3) */}
+                                                                {/* Step 1: CAD requested — when CAD request submitted */}
+                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && !itemState.workflow_milestones?.step1?.payment_sent_at && (
+                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: `1px solid #66aaff`, borderRadius: '4px' }}>
+                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' }}>CAD Requested</div>
+                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Designer has requested CAD with selected keywords.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Payment sent — pending approval */}
+                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones?.step1?.payment_sent_at && (
+                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: `1px solid #ff8800`, borderRadius: '4px' }}>
+                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' }}>Payment Sent — Pending Approval</div>
+                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Receipt uploaded. CAD drafting will begin once payment is confirmed.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Payment Confirmed (prototype video is in Step 3) */}
                                                                 {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
                                                                     <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,17,0,0.4)', border: `1px solid ${greenAccent}`, borderRadius: '4px' }}>
                                                                         <div style={{ fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>Payment Confirmed</div>
                                                                         <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>CAD drafting has begun.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Award project — when prototype approved but not yet awarded (button removed per requirements) */}
+                                                                {/* Step 1: Clarifications / Message Operator (before CAD submitted) */}
+                                                                {s.step_number === 1 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep && (
+                                                                    <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>Clarifications / Message Operator</div>
+                                                                        {!showDesignerMessageForm ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { setShowDesignerMessageForm(true); loadDesignerMessages(); }}
+                                                                                style={{ width: '100%', padding: '12px', backgroundColor: '#111', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' }}
+                                                                            >
+                                                                                Open Clarifications / Message Operator
+                                                                            </button>
+                                                                        ) : (
+                                                                            <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
+                                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                                                    <span style={{ fontSize: '12px', color: darkText }}>Clarifications with operator</span>
+                                                                                    <button type="button" onClick={() => setShowDesignerMessageForm(false)} style={{ background: 'none', border: 'none', color: darkText, fontSize: '18px', cursor: 'pointer', padding: '0 6px' }}>×</button>
+                                                                                </div>
+                                                                                <div id="n88-designer-messages-container-workflow" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
+                                                                                    {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
+                                                                                        [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
+                                                                                            const isDesigner = msg.sender_role === 'designer';
+                                                                                            const senderName = isDesigner ? 'You' : 'Operator';
+                                                                                            return (
+                                                                                                <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
+                                                                                                    <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
+                                                                                                        <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
+                                                                                                        {msg.message_text || ''}
+                                                                                                        <div style={{ fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            );
+                                                                                        })
+                                                                                    )}
+                                                                                </div>
+                                                                                <form onSubmit={sendDesignerMessage} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                                                                    <textarea
+                                                                                        value={designerMessageText}
+                                                                                        onChange={(e) => setDesignerMessageText(e.target.value)}
+                                                                                        required
+                                                                                        rows={2}
+                                                                                        style={{ flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }}
+                                                                                        placeholder="Type your message here..."
+                                                                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }}
+                                                                                    />
+                                                                                    <button
+                                                                                        type="submit"
+                                                                                        disabled={isSendingDesignerMessage || !designerMessageText.trim()}
+                                                                                        style={{ padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+                                                                                    >{isSendingDesignerMessage ? 'Sending...' : 'Send'}</button>
+                                                                                </form>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                                 {/* Generic State line: show for steps 2–6 only (Step 1 shows only milestone dots) */}
@@ -4520,29 +4708,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     </div>
                                                                 )}
                                                                 {s.started_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Started: {s.started_at}</div>
+                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Started: {formatWorkflowDateTime(s.started_at)}</div>
                                                                 )}
                                                                 {s.completed_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Completed: {s.completed_at}</div>
+                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Completed: {formatWorkflowDateTime(s.completed_at)}</div>
                                                                 )}
                                                                 {s.expected_by && (
-                                                                    <div style={{ fontSize: '11px', color: darkText }}>Expected by: {s.expected_by}</div>
+                                                                    <div style={{ fontSize: '11px', color: darkText }}>Expected by: {formatWorkflowDateTime(s.expected_by)}</div>
                                                                 )}
                                                                 {/* Step 3: Pre-Production Approval — prototype video timeline: Video submitted, Changes requested, Video resubmitted, Approved with dates */}
                                                                 {s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3 && (
                                                                     <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
                                                                         <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                                             {(itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) && (
-                                                                                <div>· Video submitted — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step3.video_submitted_at || itemState.prototype_submission.created_at}</span></div>
+                                                                                <div>· Video submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_submitted_at || itemState.prototype_submission.created_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step3.changes_requested_at && (
-                                                                                <div>· Changes requested — <span style={{ color: '#ffaa00' }}>{itemState.workflow_milestones.step3.changes_requested_at}</span></div>
+                                                                                <div>· Changes requested — <span style={{ color: '#ffaa00' }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step3.video_resubmitted_at && (
-                                                                                <div>· Video resubmitted — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step3.video_resubmitted_at}</span></div>
+                                                                                <div>· Video resubmitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step3.video_approved_at && (
-                                                                                <div>· Approved — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step3.video_approved_at}</span></div>
+                                                                                <div>· Approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at)}</span></div>
                                                                             )}
                                                                         </div>
                                                                     </div>
@@ -4565,12 +4753,51 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                             <div style={{ marginBottom: '8px' }}>
                                                                                 <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Video Links (v{itemState.prototype_submission.version}):</div>
                                                                                 {itemState.prototype_submission.links.map((link, idx) => (
-                                                                                    <div key={idx} style={{ marginBottom: '6px' }}>
-                                                                                        <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px' }}>{link.provider || 'Link'}</a>
+                                                                                    <div key={idx} style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            title="Play on screen"
+                                                                                            onClick={(e) => { e.preventDefault(); setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }}
+                                                                                            onMouseEnter={() => setHoverVideoPlayIdx(idx)}
+                                                                                            onMouseLeave={() => setHoverVideoPlayIdx(null)}
+                                                                                            style={{
+                                                                                                padding: '8px 12px',
+                                                                                                background: 'rgba(0,255,0,0.15)',
+                                                                                                color: greenAccent,
+                                                                                                border: `1px solid ${greenAccent}`,
+                                                                                                borderRadius: '4px',
+                                                                                                fontSize: '16px',
+                                                                                                cursor: 'pointer',
+                                                                                                transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                                                transition: 'transform 0.2s ease',
+                                                                                            }}
+                                                                                        >
+                                                                                            ▶
+                                                                                        </button>
+                                                                                        <a
+                                                                                            href={link.url}
+                                                                                            target="_blank"
+                                                                                            rel="noopener noreferrer"
+                                                                                            title="Open in new tab"
+                                                                                            onMouseEnter={() => setHoverVideoLinkIdx(idx)}
+                                                                                            onMouseLeave={() => setHoverVideoLinkIdx(null)}
+                                                                                            style={{
+                                                                                                color: greenAccent,
+                                                                                                fontSize: '18px',
+                                                                                                textDecoration: 'none',
+                                                                                                transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                                                transition: 'transform 0.2s ease',
+                                                                                                display: 'inline-flex',
+                                                                                                alignItems: 'center',
+                                                                                                gap: '4px',
+                                                                                            }}
+                                                                                        >
+                                                                                            {link.provider || 'Video'} →
+                                                                                        </a>
                                                                                     </div>
                                                                                 ))}
                                                                                 {itemState.prototype_submission.created_at && (
-                                                                                    <div style={{ fontSize: '10px', color: darkText, marginTop: '4px' }}>Submitted: {new Date(itemState.prototype_submission.created_at).toLocaleString()}</div>
+                                                                                    <div style={{ fontSize: '10px', color: darkText, marginTop: '4px' }}>Submitted: {formatWorkflowDateTime(itemState.prototype_submission.created_at)}</div>
                                                                                 )}
                                                                             </div>
                                                                         )}
@@ -4587,14 +4814,47 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                     fd.append('_ajax_nonce', window.n88BoardNonce?.nonce_approve_prototype || '');
                                                                                     const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
                                                                                     const data = await res.json();
-                                                                                    if (data.success) fetchItemState(); else alert(data.message || 'Failed');
+                                                                                    if (data.success) {
+                                                                                        fetchItemState();
+                                                                                        if (data.data && data.data.message) alert(data.data.message);
+                                                                                    } else alert(data.message || data.data?.message || 'Failed');
                                                                                 }} style={{ padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Approve</button>
                                                                                 <button type="button" onClick={() => setShowRequestChangesModal(true)} style={{ padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Request Changes</button>
                                                                             </div>
                                                                         )}
-                                                                        {itemState.prototype_status === 'approved' && (
-                                                                            <div style={{ fontSize: '11px', color: greenAccent, marginTop: '8px' }}>✓ Prototype approved (v{itemState.prototype_approved_version || itemState.prototype_current_version})</div>
-                                                                        )}
+                {itemState.prototype_status === 'approved' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+                        <div style={{ fontSize: '11px', color: greenAccent }}>✓ Prototype approved (v{itemState.prototype_approved_version || itemState.prototype_current_version})</div>
+                        {!isViewOnly && !itemState.has_awarded_bid && itemState.prototype_payment_bid_id && (
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                    const nonce = window.n88BoardNonce?.nonce_award_bid || window.n88BoardData?.nonce || window.n88?.nonce;
+                                    if (!nonce) { alert('Security token missing.'); return; }
+                                    const fd = new FormData();
+                                    fd.append('action', 'n88_award_bid');
+                                    fd.append('item_id', String(getItemId()));
+                                    fd.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                    fd.append('_ajax_nonce', nonce);
+                                    try {
+                                        const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                        const data = await res.json();
+                                        if (data.success) { if (onSave) await onSave(getItemId(), {}); fetchItemState(); onClose(); }
+                                        else alert(data.data?.message || 'Failed to award.');
+                                    } catch (e) { console.error(e); alert('Error awarding. Please try again.'); }
+                                }}
+                                style={{ padding: '8px 12px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }}
+                            >
+                                Award Bid
+                            </button>
+                        )}
+                        {itemState.has_awarded_bid && (
+                            <div style={{ fontSize: '11px', color: greenAccent }}>Bid Awarded</div>
+                        )}
+                    </div>
+                )}
                                                                     </div>
                                                                 )}
                                                                 {/* Step 2: Technical Review & Documentation — CAD received, Revision submitted, Revision sent, CAD approved, CAD released with dates */}
@@ -4602,25 +4862,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
                                                                         <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                                             {itemState.workflow_milestones.step2.cad_received_at && (
-                                                                                <div>· CAD file received — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step2.cad_received_at}</span></div>
+                                                                                <div>· CAD file received — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_received_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step2.revision_submitted_at && (
-                                                                                <div>· Revision submitted — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step2.revision_submitted_at}</span></div>
+                                                                                <div>· Revision submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_submitted_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step2.revision_sent_at && (
-                                                                                <div>· Revision sent (operator) — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step2.revision_sent_at}</span></div>
+                                                                                <div>· Revision sent (operator) — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_sent_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step2.cad_approved_at && (
-                                                                                <div>· CAD approved — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step2.cad_approved_at}</span></div>
+                                                                                <div>· CAD approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_approved_at)}</span></div>
                                                                             )}
                                                                             {itemState.workflow_milestones.step2.cad_released_to_supplier_at && (
-                                                                                <div>· Final CAD file submitted to supplier — <span style={{ color: greenAccent }}>{itemState.workflow_milestones.step2.cad_released_to_supplier_at}</span></div>
+                                                                                <div>· Final CAD file submitted to supplier — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_released_to_supplier_at)}</span></div>
                                                                             )}
                                                                         </div>
                                                                     </div>
                                                                 )}
-                                                                {/* Step 2: Review and Message + CAD Review (moved from Mission Spec) */}
-                                                                {s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && (
+                                                                {/* Step 2: Review and Message + CAD Review (after CAD submitted) */}
+                                                                {s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep && (
                                                                     <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
                                                                         <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>🎧 Review and Message</div>
                                                                         {!showDesignerMessageForm ? (
@@ -4737,33 +4997,33 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                             );
                                                                                         })
                                                                                     )}
-                                                                                    {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && itemState.cad_current_version && Number(itemState.cad_current_version) > 0 && (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') && (
-                                                                                        <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px' }}>
-                                                                                            <div style={{ fontSize: '12px', fontWeight: '700', color: '#66aaff', marginBottom: '8px' }}>CAD Review</div>
-                                                                                            <div style={{ fontSize: '11px', color: '#ccc', marginBottom: '8px' }}>Current CAD: v{itemState.cad_current_version} {itemState.cad_status === 'approved' && itemState.cad_approved_version ? <span style={{ color: greenAccent }}>· Approved v{itemState.cad_approved_version}</span> : null}</div>
-                                                                                            {!isViewOnly && itemState.cad_status !== 'approved' && (
-                                                                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                                                                    {!showRevisionUpload ? (
-                                                                                                        <>
-                                                                                                            <button type="button" onClick={() => setShowRevisionUpload(true)} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>Submit revised CAD</button>
-                                                                                                            <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: 'rgba(255,0,101,0.2)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
-                                                                                                        </>
-                                                                                                    ) : (
-                                                                                                        <div style={{ width: '100%' }}>
-                                                                                                            <div style={{ fontSize: '11px', marginBottom: '8px' }}>Upload files for revision</div>
-                                                                                                            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setRevisionFiles(prev => [...prev, ...Array.from(e.target.files || [])])} style={{ marginBottom: '8px', fontSize: '11px' }} />
-                                                                                                            {revisionFiles.length > 0 && <div style={{ marginBottom: '8px' }}>{revisionFiles.map((f, i) => <span key={i} style={{ marginRight: '8px', fontSize: '11px' }}>{f.name} <button type="button" onClick={() => setRevisionFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ color: '#ff6666', background: 'none', border: 'none', cursor: 'pointer' }}>×</button></span>)}</div>}
-                                                                                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                                                                                <button type="button" onClick={() => { requestCadRevision(revisionFiles); setShowRevisionUpload(false); setRevisionFiles([]); }} disabled={isCadActionBusy} style={{ padding: '6px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Send revision request</button>
-                                                                                                                <button type="button" onClick={() => { setShowRevisionUpload(false); setRevisionFiles([]); }} style={{ padding: '6px 12px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                                                                                                            </div>
-                                                                                                        </div>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    )}
                                                                                 </div>
+                                                                                {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && itemState.cad_current_version && Number(itemState.cad_current_version) > 0 && (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') && (
+                                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }}>
+                                                                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#66aaff', marginBottom: '8px' }}>CAD Review</div>
+                                                                                        <div style={{ fontSize: '11px', color: '#ccc', marginBottom: '8px' }}>Current CAD: v{itemState.cad_current_version} {itemState.cad_status === 'approved' && itemState.cad_approved_version ? <span style={{ color: greenAccent }}>· Approved v{itemState.cad_approved_version}</span> : null}</div>
+                                                                                        {!isViewOnly && itemState.cad_status !== 'approved' && (
+                                                                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                                                                {!showRevisionUpload ? (
+                                                                                                    <>
+                                                                                                        <button type="button" onClick={() => setShowRevisionUpload(true)} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>Submit revised CAD</button>
+                                                                                                        <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: 'rgba(255,0,101,0.2)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
+                                                                                                    </>
+                                                                                                ) : (
+                                                                                                    <div style={{ width: '100%' }}>
+                                                                                                        <div style={{ fontSize: '11px', marginBottom: '8px' }}>Upload files for revision</div>
+                                                                                                        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setRevisionFiles(prev => [...prev, ...Array.from(e.target.files || [])])} style={{ marginBottom: '8px', fontSize: '11px' }} />
+                                                                                                        {revisionFiles.length > 0 && <div style={{ marginBottom: '8px' }}>{revisionFiles.map((f, i) => <span key={i} style={{ marginRight: '8px', fontSize: '11px' }}>{f.name} <button type="button" onClick={() => setRevisionFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ color: '#ff6666', background: 'none', border: 'none', cursor: 'pointer' }}>×</button></span>)}</div>}
+                                                                                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                                                                                            <button type="button" onClick={() => { requestCadRevision(revisionFiles); setShowRevisionUpload(false); setRevisionFiles([]); }} disabled={isCadActionBusy} style={{ padding: '6px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Send revision request</button>
+                                                                                                            <button type="button" onClick={() => { setShowRevisionUpload(false); setRevisionFiles([]); }} style={{ padding: '6px 12px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                )}
                                                                                 <form onSubmit={(e) => { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); }} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                                                                                     <textarea value={designerMessageText} onChange={(e) => setDesignerMessageText(e.target.value)} required rows={2} placeholder="Type your message…" style={{ flex: 1, padding: '8px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '12px', minHeight: '40px' }} />
                                                                                     <button type="submit" disabled={isSendingDesignerMessage || !designerMessageText.trim()} style={{ padding: '10px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', fontSize: '12px' }}>{isSendingDesignerMessage ? 'Sending…' : 'Send'}</button>
@@ -4854,6 +5114,46 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         </div>
                                                                     );
                                                                 })()}
+                                                                {/* Commit 28: Deposit — show when Step 4 selected and item awarded; operator marks received before production can start */}
+                                                                {s.step_number === 4 && itemState.has_awarded_bid && (
+                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Deposit</div>
+                                                                        {itemState.deposit_status === 'received' ? (
+                                                                            <div style={{ fontSize: '11px', color: greenAccent }}>
+                                                                                ✓ Received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
+                                                                            </div>
+                                                                        ) : (
+                                                                            <>
+                                                                                <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
+                                                                                    {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'} Production can start only after the operator marks deposit received.
+                                                                                </div>
+                                                                                {window.n88BoardData && window.n88BoardData.isOperator && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={async () => {
+                                                                                            if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                                                            const fd = new FormData();
+                                                                                            fd.append('action', 'n88_mark_deposit_received');
+                                                                                            fd.append('item_id', String(getItemId()));
+                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                            try {
+                                                                                                const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                                const data = await res.json();
+                                                                                                if (data.success) { fetchItemState(); fetchTimeline(); }
+                                                                                                else alert(data.data?.message || 'Failed.');
+                                                                                            } catch (e) { console.error(e); alert('Error. Please try again.'); }
+                                                                                        }}
+                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
+                                                                                    >
+                                                                                        Mark deposit received
+                                                                                    </button>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                                 {/* Commit 3.B.5.A1: Step 4–6 — Video evidence + designer step comments */}
                                                                 {s.step_number >= 4 && s.step_number <= 6 && (() => {
                                                                     const videos = (timelineData.step_456_videos || {})[s.step_number] || [];
@@ -5811,19 +6111,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 return null;
                                             })()}
                                             {itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (
-                                                <div style={{
-                                                    marginBottom: '24px',
-                                                    padding: '20px',
-                                                    backgroundColor: '#331100',
-                                                    border: '2px solid #ff8800',
-                                                    borderRadius: '4px',
-                                                }}>
-                                                    <div style={{
-                                                        fontSize: '16px',
-                                                        fontWeight: '600',
-                                                        color: '#ff8800',
-                                                        marginBottom: '12px',
+                                                <div
+                                                    id="n88-step1-payment-required"
+                                                    style={{
+                                                        marginBottom: '24px',
+                                                        padding: '20px',
+                                                        backgroundColor: '#331100',
+                                                        border: '2px solid #ff8800',
+                                                        borderRadius: '4px',
                                                     }}>
+                                                    <div
+                                                        id="n88-step1-payment-required-heading"
+                                                        style={{
+                                                            fontSize: '16px',
+                                                            fontWeight: '600',
+                                                            color: '#ff8800',
+                                                            marginBottom: '12px',
+                                                        }}>
                                                         Payment Required — Prototype & CAD Not Started
                                                     </div>
                                                     <div style={{
@@ -5907,6 +6211,42 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         }}
                                                     >
                                                         Open Workflow
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {/* Prototype approved — Award project (Proposals tab) */}
+                                            {!isViewOnly && itemState.prototype_status === 'approved' && !itemState.has_awarded_bid && itemState.prototype_payment_bid_id && (
+                                                <div style={{
+                                                    marginBottom: '24px',
+                                                    padding: '16px',
+                                                    border: `1px solid ${greenAccent}`,
+                                                    borderRadius: '4px',
+                                                    backgroundColor: 'rgba(0,51,0,0.15)',
+                                                }}>
+                                                    <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Prototype approved</div>
+                                                    <div style={{ fontSize: '12px', color: darkText, marginBottom: '12px' }}>Award the project when ready.</div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                            const nonce = window.n88BoardNonce?.nonce_award_bid || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                            const fd = new FormData();
+                                                            fd.append('action', 'n88_award_bid');
+                                                            fd.append('item_id', String(getItemId()));
+                                                            fd.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                            fd.append('_ajax_nonce', nonce);
+                                                            try {
+                                                                const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                const data = await res.json();
+                                                                if (data.success) { if (onSave) await onSave(getItemId(), {}); fetchItemState(); onClose(); }
+                                                                else alert(data.data?.message || 'Failed to award.');
+                                                            } catch (e) { console.error(e); alert('Error awarding. Please try again.'); }
+                                                        }}
+                                                        style={{ padding: '10px 20px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }}
+                                                    >
+                                                        Award Bid
                                                     </button>
                                                 </div>
                                             )}
@@ -6199,6 +6539,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                     <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '6px' }}>
                                                                                         Additional Revision Detail (Optional)
                                                                                     </div>
+                                                                                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
+                                                                                        Do not include phone numbers, emails, or personal contact info.
+                                                                                    </div>
                                                                                     <textarea
                                                                                         placeholder="Describe exactly what should be different in the revised video…"
                                                                                         maxLength={200}
@@ -6274,7 +6617,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         alert('Maximum 18 phrases allowed.');
                                                                         return;
                                                                     }
-                                                                    
+                                                                    // Check all revision_detail fields for phone/email/personal info
+                                                                    const allRevisionText = Object.keys(feedbackPacket || {}).map((k) => {
+                                                                        const d = feedbackPacket[k];
+                                                                        return (d && typeof d.revision_detail === 'string') ? d.revision_detail : '';
+                                                                    }).join(' ');
+                                                                    const personalCheck = detectPersonalInfoInFeedback(allRevisionText);
+                                                                    if (personalCheck.blocked) {
+                                                                        alert(personalCheck.message);
+                                                                        return;
+                                                                    }
                                                                     try {
                                                                         const response = await fetch(ajaxurl, {
                                                                             method: 'POST',
@@ -6297,8 +6649,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                             setShowRequestChangesModal(false);
                                                                             setFeedbackPacket({});
                                                                             setTotalPhrasesSelected(0);
-                                                                            await fetchItemState();
-                                                                            setPrototypeSectionExpanded(true);
+                                                                            // Redirect to project main board (same project/room as this item) for easy return
+                                                                            const urlParams = new URLSearchParams(window.location.search);
+                                                                            const boardId = urlParams.get('board_id');
+                                                                            const pid = item.project_id ?? item.projectId ?? item.meta?.project_id;
+                                                                            const rid = item.room_id ?? item.roomId ?? item.meta?.room_id;
+                                                                            const params = new URLSearchParams();
+                                                                            params.set('page', 'n88-rfq-board-demo');
+                                                                            if (boardId) params.set('board_id', String(boardId));
+                                                                            if (pid) params.set('project_id', String(pid));
+                                                                            if (rid) params.set('room_id', String(rid));
+                                                                            window.location.href = window.location.pathname + '?' + params.toString();
+                                                                            return;
                                                                         } else {
                                                                             alert(data.data?.message || 'Failed to request changes');
                                                                         }
@@ -6721,13 +7083,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     setItemState(prev => ({ ...prev, has_prototype_payment: true, prototype_payment_status: 'requested' }));
                                                                     // Commit 2.3.9.1C: Refresh item state to show payment banner
                                                                     fetchItemState();
-                                                                    // Scroll to top of form to show success message
+                                                                    // Scroll to payment required box so it's visible at top (Step 1)
                                                                     setTimeout(() => {
-                                                                        const formElement = document.getElementById('cad-prototype-form-container');
-                                                                        if (formElement) {
-                                                                            formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                        const paymentEl = document.getElementById('n88-step1-payment-required-heading');
+                                                                        if (paymentEl) {
+                                                                            paymentEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                        } else {
+                                                                            const formElement = document.getElementById('cad-prototype-form-container');
+                                                                            if (formElement) formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                                                         }
-                                                                    }, 100);
+                                                                    }, 350);
                                                                 } else {
                                                                     setCadPrototypeError(data.data?.message || 'Failed to create request. Please try again.');
                                                                     // Scroll to top of form to show error message
@@ -7046,6 +7411,91 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         </div>
                         )}
                     </motion.div>
+                    
+                    {/* Inline video player overlay — Step 3 prototype video (play on screen, no new tab) */}
+                    {inlineVideoPlayer && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.92)',
+                                zIndex: 1000002,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '24px',
+                                boxSizing: 'border-box',
+                            }}
+                            onClick={(e) => { if (e.target === e.currentTarget) setInlineVideoPlayer(null); }}
+                        >
+                            <div
+                                style={{
+                                    position: 'relative',
+                                    width: '100%',
+                                    maxWidth: '900px',
+                                    maxHeight: '90vh',
+                                    aspectRatio: '16/9',
+                                    backgroundColor: '#111',
+                                    borderRadius: '8px',
+                                    overflow: 'hidden',
+                                    border: '1px solid #333',
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setInlineVideoPlayer(null)}
+                                    style={{
+                                        position: 'absolute',
+                                        top: '12px',
+                                        right: '12px',
+                                        zIndex: 10,
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '50%',
+                                        border: '1px solid #333',
+                                        background: 'rgba(0,0,0,0.8)',
+                                        color: '#fff',
+                                        fontSize: '20px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        lineHeight: 1,
+                                    }}
+                                    aria-label="Close video"
+                                >
+                                    ×
+                                </button>
+                                {getVideoEmbedUrl(inlineVideoPlayer.url, inlineVideoPlayer.provider) ? (
+                                    <iframe
+                                        title={`Prototype video — ${inlineVideoPlayer.provider}`}
+                                        src={getVideoEmbedUrl(inlineVideoPlayer.url, inlineVideoPlayer.provider)}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            height: '100%',
+                                            border: 'none',
+                                        }}
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                    />
+                                ) : (
+                                    <div style={{ padding: '24px', color: '#ccc', fontSize: '14px', textAlign: 'center' }}>
+                                        <p>This video link cannot be embedded. You can open it in a new tab:</p>
+                                        <a href={inlineVideoPlayer.url} target="_blank" rel="noopener noreferrer" style={{ color: '#FF0065', marginTop: '8px', display: 'inline-block' }}>Open {inlineVideoPlayer.provider} →</a>
+                                        <button type="button" onClick={() => setInlineVideoPlayer(null)} style={{ display: 'block', margin: '16px auto 0', padding: '8px 16px', background: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Close</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     
                     {/* Image Lightbox */}
                     {lightboxImage && (

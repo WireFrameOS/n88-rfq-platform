@@ -2567,9 +2567,9 @@
                                     <th><label for="item-size">Default Size</label></th>
                                     <td>
                                         <select id="item-size" name="size" style="width: 100%;">
-                                            <option value="S">S (160×200px)</option>
+                                            <option value="S" selected>S (160×200px) - Default</option>
                                             <option value="D">D (200×250px)</option>
-                                            <option value="L" selected>L (280×350px) - Default</option>
+                                            <option value="L">L (280×350px)</option>
                                             <option value="XL">XL (360×450px)</option>
                                         </select>
                                         <p class="description">Default size when item is added to a board</p>
@@ -4196,6 +4196,11 @@
                                 'has_warning' => $has_warning,
                                 'award_set' => $award_set,
                                 'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
+                                // Commit 28: Deposit lifecycle (Step 4 starts only after operator marks deposit received)
+                                'deposit_status' => isset( $item_meta['deposit_status'] ) ? $item_meta['deposit_status'] : '',
+                                'deposit_amount' => isset( $item_meta['deposit_amount'] ) ? floatval( $item_meta['deposit_amount'] ) : null,
+                                'deposit_calculated_at' => isset( $item_meta['deposit_calculated_at'] ) ? $item_meta['deposit_calculated_at'] : null,
+                                'deposit_received_at' => isset( $item_meta['deposit_received_at'] ) ? $item_meta['deposit_received_at'] : null,
                                 // Action Required: Unread operator messages; or prototype_status=submitted (supplier submitted/resubmitted — designer must review)
                                 'has_unread_operator_messages' => $has_unread_operator_messages,
                                 'unread_operator_messages' => $unread_operator_messages,
@@ -4602,6 +4607,11 @@
                                 'revision_changed' => $revision_changed,
                                 'award_set' => $award_set,
                                 'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Flag if any bid is awarded
+                                // Commit 28: Deposit lifecycle (Step 4 starts only after operator marks deposit received)
+                                'deposit_status' => isset( $item_meta['deposit_status'] ) ? $item_meta['deposit_status'] : '',
+                                'deposit_amount' => isset( $item_meta['deposit_amount'] ) ? floatval( $item_meta['deposit_amount'] ) : null,
+                                'deposit_calculated_at' => isset( $item_meta['deposit_calculated_at'] ) ? $item_meta['deposit_calculated_at'] : null,
+                                'deposit_received_at' => isset( $item_meta['deposit_received_at'] ) ? $item_meta['deposit_received_at'] : null,
                                 // Action Required: Unread operator messages; or prototype_status=submitted (supplier submitted/resubmitted — designer must review)
                                 'has_unread_operator_messages' => $has_unread_operator_messages,
                                 'unread_operator_messages' => $unread_operator_messages,
@@ -4891,7 +4901,7 @@
                 /* Board canvas container - dark theme with dotted grid */
                 #n88-board-canvas-container {
                     position: relative !important;
-                    top: 180px !important;
+                    top: 0px !important;
                     left: 0 !important;
                     right: 0 !important;
                     bottom: 0 !important;
@@ -5301,55 +5311,6 @@
                         <span class="n88-breadcrumb<?php echo $my_board_active ? ' active' : ''; ?>" data-tab="my">[ My Board ]</span>
                         <span class="n88-breadcrumb<?php echo $firm_board_active ? ' active' : ''; ?>" data-tab="firm">[ Firm Board ]</span>
                         <div class="n88-filter-row">
-                            <select id="n88-project-selector" class="n88-project-select">
-                                <option value="">All Items</option>
-                                <?php
-                                // Load projects for this board
-                                if ( $is_real_board && isset( $board_id ) && $board_id > 0 ) {
-                                    global $wpdb;
-                                    $projects_table = $wpdb->prefix . 'n88_projects';
-                                    
-                                    // Check if table exists
-                                    $table_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $projects_table ) ) === $projects_table;
-                                    
-                                    if ( $table_exists ) {
-                                        $projects = $wpdb->get_results(
-                                            $wpdb->prepare(
-                                                "SELECT id, name, status FROM {$projects_table}
-                                                WHERE board_id = %d AND deleted_at IS NULL
-                                                ORDER BY created_at ASC",
-                                                $board_id
-                                            ),
-                                            OBJECT
-                                        );
-                                        
-                                        // Debug: Log if no projects found
-                                        if ( empty( $projects ) ) {
-                                            error_log( 'N88 Projects: No projects found for board_id=' . $board_id );
-                                        } else {
-                                            error_log( 'N88 Projects: Found ' . count( $projects ) . ' projects for board_id=' . $board_id );
-                                        }
-                                        
-                                        if ( $projects && count( $projects ) > 0 ) {
-                                            foreach ( $projects as $project ) {
-                                                $selected = isset( $_GET['project_id'] ) && intval( $_GET['project_id'] ) === intval( $project->id ) ? 'selected' : '';
-                                                echo '<option value="' . esc_attr( $project->id ) . '" ' . $selected . '>' . esc_html( $project->name ) . '</option>';
-                                            }
-                                        }
-                                    } else {
-                                        error_log( 'N88 Projects: Table does not exist: ' . $projects_table );
-                                    }
-                                } else {
-                                    error_log( 'N88 Projects: Conditions not met - is_real_board=' . ( $is_real_board ? 'true' : 'false' ) . ', board_id=' . ( isset( $board_id ) ? $board_id : 'not set' ) );
-                                }
-                                ?>
-                            </select>
-                            <?php
-                            $sel_project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
-                            if ( $sel_project_id > 0 && ! $should_hide_buttons ) :
-                            ?>
-                            <button id="n88-delete-project-btn" type="button" data-project-id="<?php echo esc_attr( $sel_project_id ); ?>" style="padding: 4px 10px; background: #8b1538; color: #fff; border: 1px solid rgb(255, 0, 101); border-radius: 4px; font-size: 12px; cursor: pointer;" title="Delete this project and all its rooms and items">Delete project</button>
-                            <?php endif; ?>
                             <div class="n88-search-wrap">
                                 <span class="n88-search-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
                                 <input type="text" id="n88-board-search" placeholder="Search items" autocomplete="off">
@@ -5377,9 +5338,10 @@
                     </div>
                     <?php endif; ?>
                     
-                    <!-- Commit 2.5.2: Rooms Section (shown when project is selected) -->
+                    <!-- Commit 2.5.2: Project selector + Rooms Section (project dropdown always; Room/Delete/tabs when project selected) -->
                     <?php
                     $selected_project_id = isset( $_GET['project_id'] ) ? absint( $_GET['project_id'] ) : 0;
+                    $sel_project_id = $selected_project_id;
                     $project_rooms = array();
                     if ( $selected_project_id > 0 && $is_real_board ) {
                         global $wpdb;
@@ -5396,18 +5358,50 @@
                         );
                     }
                     ?>
-                    <?php if ( $selected_project_id > 0 && ! $should_hide_buttons ) : ?>
+                    <?php if ( $is_real_board && ! $should_hide_buttons ) : ?>
                     <div id="n88-rooms-section" class="n88-rooms-section" style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                        <div style="margin-bottom: 12px;">
-                            <h3 class="n88-rooms-heading" style="margin: 0; font-size: 16px; font-weight: 600;">[ Room ]</h3>
+                        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <?php if ( $selected_project_id > 0 ) : ?>
+                            <h3 class="n88-rooms-heading" style="margin: 0; font-size: 16px; font-weight: 600;"></h3>
+                            <?php endif; ?>
+                            <select id="n88-project-selector" class="n88-project-select" style="min-width: 160px;">
+                                <option value="">All Items</option>
+                                <?php
+                                if ( $is_real_board && isset( $board_id ) && $board_id > 0 ) {
+                                    $projects_table = $wpdb->prefix . 'n88_projects';
+                                    $table_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $projects_table ) ) === $projects_table;
+                                    if ( $table_exists ) {
+                                        $projects = $wpdb->get_results(
+                                            $wpdb->prepare(
+                                                "SELECT id, name, status FROM {$projects_table}
+                                                WHERE board_id = %d AND deleted_at IS NULL
+                                                ORDER BY created_at ASC",
+                                                $board_id
+                                            ),
+                                            OBJECT
+                                        );
+                                        if ( $projects && count( $projects ) > 0 ) {
+                                            foreach ( $projects as $project ) {
+                                                $sel = $selected_project_id > 0 && intval( $selected_project_id ) === intval( $project->id ) ? 'selected' : '';
+                                                echo '<option value="' . esc_attr( $project->id ) . '" ' . $sel . '>' . esc_html( $project->name ) . '</option>';
+                                            }
+                                        }
+                                    }
+                                }
+                                ?>
+                            </select>
+                            <?php if ( $selected_project_id > 0 ) : ?>
+                            <button id="n88-delete-project-btn" type="button" data-project-id="<?php echo esc_attr( $selected_project_id ); ?>" style="padding: 4px 10px; background: #8b1538; color: #fff; border: 1px solid rgb(255, 0, 101); border-radius: 4px; font-size: 12px; cursor: pointer;" title="Delete this project and all its rooms and items">Delete project</button>
+                            <?php endif; ?>
                         </div>
+                    <?php if ( $selected_project_id > 0 ) : ?>
                         <?php
                         $selected_room_id = isset( $_GET['room_id'] ) ? absint( $_GET['room_id'] ) : 0;
                         $all_items_active = $selected_room_id === 0;
                         ?>
                         <div id="n88-rooms-tabs" style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
                             <button class="n88-room-tab <?php echo $all_items_active ? 'n88-room-tab-active' : ''; ?>" data-room-id="0" type="button" style="padding: 8px 16px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: 500;">
-                                [ All Items ]
+                                [ All Project Items ]
                             </button>
                             <?php if ( ! empty( $project_rooms ) ) : ?>
                                 <?php foreach ( $project_rooms as $room ) : ?>
@@ -5425,6 +5419,7 @@
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php endif; ?>
                     <?php endif; ?>
                 </div>
                 
@@ -6109,7 +6104,7 @@
                                 <div class="n88-image-preview-wrap n88-multi-preview" id="n88-modal-image-preview-wrap"></div>
                                 <input type="hidden" id="n88-modal-item-image-id" name="image_id">
                             </div>
-                            <input type="hidden" id="n88-modal-item-size" name="size" value="L">
+                            <input type="hidden" id="n88-modal-item-size" name="size" value="S">
                             <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
                             <?php if ( $add_item_modal_board_id > 0 ) : ?>
                             <div class="n88-field">
@@ -6132,6 +6127,7 @@
                         </form>
                         <div class="n88-add-item-footer">
                             <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add Item ]">[ Add Item ]</button>
+                            <button type="button" id="n88-modal-add-another-item" class="n88-btn-add-item" style="margin-left:8px;">[ Add Another Item ]</button>
                             <div id="n88-add-item-modal-result" class="n88-result"></div>
                         </div>
                     </div>
@@ -6207,6 +6203,7 @@
                     var modal = document.getElementById('n88-add-item-modal');
                     var form = document.getElementById('n88-add-item-modal-form');
                     var submitBtn = document.getElementById('n88-modal-add-item-submit');
+                    var addAnotherBtn = document.getElementById('n88-modal-add-another-item');
                     var resultEl = document.getElementById('n88-add-item-modal-result');
                     
                     function openAddItemModal() {
@@ -6341,52 +6338,94 @@
                         return new Blob([u8arr], { type: mime });
                     }
                     
+                    function buildItemFormData() {
+                        var titleEl = document.getElementById('n88-modal-item-title');
+                        if (!titleEl || !titleEl.value.trim()) {
+                            resultEl.textContent = 'Title is required.';
+                            resultEl.className = 'n88-result error';
+                            return null;
+                        }
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!nonce) {
+                            resultEl.textContent = 'Security token missing. Please refresh the page.';
+                            resultEl.className = 'n88-result error';
+                            return null;
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
+                        var boardId = document.getElementById('n88-modal-item-board') ? document.getElementById('n88-modal-item-board').value : '';
+                        var formData = new FormData();
+                        formData.append('action', 'n88_create_item');
+                        formData.append('nonce', nonce);
+                        formData.append('title', titleEl.value.trim());
+                        formData.append('description', document.getElementById('n88-modal-item-description').value);
+                        formData.append('item_type', document.getElementById('n88-modal-item-type').value);
+                        formData.append('status', 'active');
+                        formData.append('size', document.getElementById('n88-modal-item-size').value);
+                        formData.append('board_id', boardId);
+                        var projectId = (projectSelect && projectSelect.value) ? projectSelect.value : '';
+                        var roomId = (roomSelect && roomSelect.value) ? roomSelect.value : '';
+                        if (projectId) formData.append('project_id', projectId);
+                        if (roomId) formData.append('room_id', roomId);
+                        var qty = document.getElementById('n88-modal-item-quantity').value;
+                        if (qty) formData.append('quantity', qty);
+                        var w = document.getElementById('n88-modal-item-width').value;
+                        var d = document.getElementById('n88-modal-item-depth').value;
+                        var h = document.getElementById('n88-modal-item-height').value;
+                        var unit = document.getElementById('n88-modal-item-dimension-unit').value || 'in';
+                        if (w || d || h) {
+                            formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
+                        }
+                        if (n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
+                            for (var i = 0; i < n88ModalSelectedFiles.length; i++) {
+                                formData.append('image_file[]', n88ModalSelectedFiles[i]);
+                            }
+                        } else {
+                            var imgId = document.getElementById('n88-modal-item-image-id').value;
+                            if (imgId && parseInt(imgId, 10) > 0) formData.append('image_id', imgId);
+                        }
+                        return { formData: formData, ajaxUrl: ajaxUrl, boardId: boardId, projectId: projectId, roomId: roomId };
+                    }
+
+                    function resetItemFieldsKeepProjectRoom() {
+                        var titleEl = document.getElementById('n88-modal-item-title');
+                        var descEl = document.getElementById('n88-modal-item-description');
+                        var qtyEl = document.getElementById('n88-modal-item-quantity');
+                        var wEl = document.getElementById('n88-modal-item-width');
+                        var dEl = document.getElementById('n88-modal-item-depth');
+                        var hEl = document.getElementById('n88-modal-item-height');
+                        var imgIdEl = document.getElementById('n88-modal-item-image-id');
+                        if (titleEl) titleEl.value = '';
+                        if (descEl) descEl.value = '';
+                        if (qtyEl) qtyEl.value = '1';
+                        if (wEl) wEl.value = '';
+                        if (dEl) dEl.value = '';
+                        if (hEl) hEl.value = '';
+                        if (imgIdEl) imgIdEl.value = '';
+                        n88ModalSelectedFiles = [];
+                        if (uploadZone) {
+                            uploadZone.classList.remove('has-file');
+                        }
+                        if (uploadText) {
+                            uploadText.textContent = defaultUploadLabel;
+                        }
+                        if (fileInput) {
+                            fileInput.value = '';
+                        }
+                        if (previewWrap) {
+                            previewWrap.innerHTML = '';
+                            previewWrap.classList.remove('visible');
+                        }
+                    }
+
                     if (submitBtn && form) {
                         submitBtn.addEventListener('click', function() {
-                            var titleEl = document.getElementById('n88-modal-item-title');
-                            if (!titleEl || !titleEl.value.trim()) {
-                                resultEl.textContent = 'Title is required.';
-                                resultEl.className = 'n88-result error';
-                                return;
-                            }
-                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
-                            if (!nonce) {
-                                resultEl.textContent = 'Security token missing. Please refresh the page.';
-                                resultEl.className = 'n88-result error';
-                                return;
-                            }
-                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
-                            var boardId = document.getElementById('n88-modal-item-board') ? document.getElementById('n88-modal-item-board').value : '';
-                            var formData = new FormData();
-                            formData.append('action', 'n88_create_item');
-                            formData.append('nonce', nonce);
-                            formData.append('title', titleEl.value.trim());
-                            formData.append('description', document.getElementById('n88-modal-item-description').value);
-                            formData.append('item_type', document.getElementById('n88-modal-item-type').value);
-                            formData.append('status', 'active');
-                            formData.append('size', document.getElementById('n88-modal-item-size').value);
-                            formData.append('board_id', boardId);
-                            var projectId = (projectSelect && projectSelect.value) ? projectSelect.value : '';
-                            var roomId = (roomSelect && roomSelect.value) ? roomSelect.value : '';
-                            if (projectId) formData.append('project_id', projectId);
-                            if (roomId) formData.append('room_id', roomId);
-                            var qty = document.getElementById('n88-modal-item-quantity').value;
-                            if (qty) formData.append('quantity', qty);
-                            var w = document.getElementById('n88-modal-item-width').value;
-                            var d = document.getElementById('n88-modal-item-depth').value;
-                            var h = document.getElementById('n88-modal-item-height').value;
-                            var unit = document.getElementById('n88-modal-item-dimension-unit').value || 'in';
-                            if (w || d || h) {
-                                formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
-                            }
-                            if (n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
-                                for (var i = 0; i < n88ModalSelectedFiles.length; i++) {
-                                    formData.append('image_file[]', n88ModalSelectedFiles[i]);
-                                }
-                            } else {
-                                var imgId = document.getElementById('n88-modal-item-image-id').value;
-                                if (imgId && parseInt(imgId, 10) > 0) formData.append('image_id', imgId);
-                            }
+                            var built = buildItemFormData();
+                            if (!built) return;
+                            var formData = built.formData;
+                            var ajaxUrl = built.ajaxUrl;
+                            var boardId = built.boardId;
+                            var projectId = built.projectId;
+                            var roomId = built.roomId;
                             
                             submitBtn.disabled = true;
                             var defaultText = submitBtn.getAttribute('data-default-text') || '[ Add Item ]';
@@ -6408,8 +6447,15 @@
                                             params.set('page', 'n88-rfq-board-demo');
                                             params.set('board_id', String(redirectBoardId));
                                             params.set('item_added', '1');
-                                            if (projectId) params.set('project_id', projectId);
-                                            if (roomId) params.set('room_id', roomId);
+                                            if (projectId) {
+                                                // Stay on this project's board after adding item
+                                                params.set('project_id', projectId);
+                                                // Show the main "All Project Items" view by default (room can still be selected by the user)
+                                                params.delete('room_id');
+                                            } else if (roomId) {
+                                                // If only a room was selected (no explicit project), preserve it
+                                                params.set('room_id', roomId);
+                                            }
                                             window.location.href = '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>?' + params.toString();
                                         }
                                         <?php else : ?>
@@ -6427,6 +6473,42 @@
                                 .catch(function() {
                                     submitBtn.disabled = false;
                                     submitBtn.innerHTML = submitBtn.getAttribute('data-default-text') || '[ Add Item ]';
+                                    resultEl.textContent = 'Request failed. Please try again.';
+                                    resultEl.className = 'n88-result error';
+                                });
+                        });
+                    }
+
+                    if (addAnotherBtn && form) {
+                        addAnotherBtn.addEventListener('click', function() {
+                            var built = buildItemFormData();
+                            if (!built) return;
+                            var formData = built.formData;
+                            var ajaxUrl = built.ajaxUrl;
+
+                            addAnotherBtn.disabled = true;
+                            var prevText = addAnotherBtn.textContent;
+                            addAnotherBtn.textContent = 'Adding...';
+                            resultEl.textContent = '';
+                            resultEl.className = 'n88-result';
+
+                            fetch(ajaxUrl, { method: 'POST', body: formData })
+                                .then(function(r) { return r.json(); })
+                                .then(function(res) {
+                                    addAnotherBtn.disabled = false;
+                                    addAnotherBtn.textContent = prevText;
+                                    if (res.success) {
+                                        resultEl.textContent = 'Item added. You can add another.';
+                                        resultEl.className = 'n88-result success';
+                                        resetItemFieldsKeepProjectRoom();
+                                    } else {
+                                        resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
+                                        resultEl.className = 'n88-result error';
+                                    }
+                                })
+                                .catch(function() {
+                                    addAnotherBtn.disabled = false;
+                                    addAnotherBtn.textContent = prevText;
                                     resultEl.textContent = 'Request failed. Please try again.';
                                     resultEl.className = 'n88-result error';
                                 });
@@ -7899,7 +7981,7 @@
                             fetch(ajaxUrl + '?action=n88_get_board_projects&board_id=' + encodeURIComponent(String(bid)) + '&nonce=' + encodeURIComponent(nonce), { method: 'GET', credentials: 'same-origin' })
                                 .then(function(r) { return r.json(); })
                                 .then(function(d) {
-                                    if (d && d.success && Array.isArray(d.data && d.data.projects)) setBoardProjects(d.data.projects);
+                                    if (d && d.success && d.data && Array.isArray(d.data.projects)) setBoardProjects(d.data.projects);
                                     else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
                                     else setBoardProjects([]);
                                 })
@@ -7962,13 +8044,25 @@
                             var prototypePaymentStatus = (item.prototype_payment_status || '').toLowerCase() || null;
                             var hasPaymentReceiptUploaded = truthy(item.has_payment_receipt_uploaded);
 
-                            // Priority 1: Action Required (unread operator messages; or supplier submitted prototype video — designer must review)
-                            if (hasUnreadOperatorMessages || ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+                            // Compute awarded state once so it can override Prototype Approved when a bid is awarded
+                            var hasAwardedBid = truthy(item.has_awarded_bid);
+                            if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
+                            if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
+
+                            // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video — show View Prototype video
+                            if (hasUnreadOperatorMessages) {
                                 return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                            }
+                            if (ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
+                                return { text: 'View Prototype video', color: '#2196f3', dot: '#2196f3' };
                             }
                             // Priority 2: Prototype workflow — when prototype payment exists, show current stage (so status progresses after Proposals Received)
                             if (hasPrototypePayment) {
                                 if (ps === 'approved') {
+                                    // If bid has been awarded, card should show "Awarded" instead of "Prototype Approved"
+                                    if (hasAwardedBid) {
+                                        return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                                    }
                                     return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
                                 }
                                 if (ps === 'changes_requested') {
@@ -7999,11 +8093,8 @@
                                 }
                             }
                             // Priority 3: Bid Awarded
-                            var hasAwardedBid = truthy(item.has_awarded_bid);
-                            if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
-                            if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
                             if (hasAwardedBid) {
-                                return { text: 'Bid Awarded', color: '#00ff00', dot: '#00ff00' };
+                                return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
                             }
                             // Priority 4: Proposals Received
                             var validBidCountEarly = 0;
@@ -8488,7 +8579,7 @@
                         }, 
                         !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
                         React.createElement('button', { type: 'button', title: 'Options', 'aria-label': 'Open menu', onClick: function(e) { e.stopPropagation(); e.preventDefault(); setContextMenuOpen(function(v) { return !v; }); }, style: { position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px', padding: 0, margin: 0, fontSize: '16px', lineHeight: '28px', textAlign: 'center', cursor: 'pointer', backgroundColor: contextMenuOpen ? '#000' : '#E5E5E5', color: 'rgb(255, 0, 101)', border: '1px solid rgb(255, 0, 101)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', zIndex: 20, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' } }, '\u22EE'),
-                        contextMenuOpen ? React.createElement('div', { style: { position: 'absolute', left: '100%', top: '0', marginLeft: '8px', minWidth: '220px', padding: '12px 14px', backgroundColor: '#3a3a3a', borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 25, fontSize: '13px', color: '#fff' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '8px' } }, 'Card size:'), React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } }, ['S', 'D', 'L', 'XL'].map(function(sz) { return React.createElement('button', { key: sz, type: 'button', onClick: function(ev) { ev.stopPropagation(); handleSizeChange(sz, ev); }, style: { padding: '4px 10px', fontSize: '12px', cursor: 'pointer', backgroundColor: 'transparent', color: currentSize === sz ? 'rgb(255, 0, 101)' : '#fff', border: 'none', borderRadius: '2px', fontWeight: currentSize === sz ? 600 : 400 } }, '[' + sz + ']'); })), React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(function(v) { return !v; }); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Move to project / room'), movePanelOpen ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.2)' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a project'), React.createElement('select', { value: selectedProjectId || '', onChange: function(e) { setSelectedProjectId(Number(e.target.value) || 0); setSelectedRoomId(0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No project'), (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: p.id }, p.name || (p.project_name || '')); })), React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a room (optional)'), React.createElement('select', { value: selectedRoomId || '', onChange: function(e) { setSelectedRoomId(Number(e.target.value) || 0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No room'), (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: r.id }, r.name || ''); })), React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', disabled: moveUpdateLoading, onClick: function(ev) { ev.preventDefault(); ev.stopPropagation(); if (!moveUpdateLoading) handleMoveUpdate(); }, style: { flex: 1, padding: '6px 10px', backgroundColor: moveUpdateLoading ? '#999' : 'rgb(255, 0, 101)', color: '#fff', border: 'none', borderRadius: '4px', cursor: moveUpdateLoading ? 'wait' : 'pointer', fontSize: '12px' } }, moveUpdateLoading ? 'Updating...' : 'Update'), React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(false); }, style: { padding: '6px 10px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } }, 'Close'))) : null, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); handleDeleteItem(); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: 'rgb(255, 0, 101)', cursor: 'pointer', fontSize: '13px', marginTop: '4px' } }, 'Delete'))) : null
+                        contextMenuOpen ? React.createElement('div', { style: { position: 'absolute', left: '100%', top: '0', marginLeft: '8px', minWidth: '220px', padding: '12px 14px', backgroundColor: '#3a3a3a', borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 25, fontSize: '13px', color: '#fff' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '8px' } }, 'Card size:'), React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } }, ['S', 'D', 'L', 'XL'].map(function(sz) { return React.createElement('button', { key: sz, type: 'button', onClick: function(ev) { ev.stopPropagation(); handleSizeChange(sz, ev); setContextMenuOpen(false); }, style: { padding: '4px 10px', fontSize: '12px', cursor: 'pointer', backgroundColor: 'transparent', color: currentSize === sz ? 'rgb(255, 0, 101)' : '#fff', border: 'none', borderRadius: '2px', fontWeight: currentSize === sz ? 600 : 400 } }, '[' + sz + ']'); })), React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(function(v) { return !v; }); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Move to project / room'), movePanelOpen ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.2)' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a project'), React.createElement('select', { value: selectedProjectId || '', onChange: function(e) { setSelectedProjectId(Number(e.target.value) || 0); setSelectedRoomId(0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No project'), (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: p.id }, p.name || (p.project_name || '')); })), React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a room (optional)'), React.createElement('select', { value: selectedRoomId || '', onChange: function(e) { setSelectedRoomId(Number(e.target.value) || 0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No room'), (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: r.id }, r.name || ''); })), React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', disabled: moveUpdateLoading, onClick: function(ev) { ev.preventDefault(); ev.stopPropagation(); if (!moveUpdateLoading) handleMoveUpdate(); }, style: { flex: 1, padding: '6px 10px', backgroundColor: moveUpdateLoading ? '#999' : 'rgb(255, 0, 101)', color: '#fff', border: 'none', borderRadius: '4px', cursor: moveUpdateLoading ? 'wait' : 'pointer', fontSize: '12px' } }, moveUpdateLoading ? 'Updating...' : 'Update'), React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(false); }, style: { padding: '6px 10px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } }, 'Close'))) : null, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); handleDeleteItem(); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: 'rgb(255, 0, 101)', cursor: 'pointer', fontSize: '13px', marginTop: '4px' } }, 'Delete'))) : null
                         )
                         ,
                         // Status Strip - 25% of card: title + status (match screenshot)
@@ -10309,7 +10400,7 @@
                         var setCadPrototypeSuccess = _cadPrototypeSuccessState[1];
                         
                         // Commit 2.3.9.1C-a: Designer message operator state
-                        var _showDesignerMessageFormState = React.useState(false);
+                        var _showDesignerMessageFormState = React.useState(true);
                         var showDesignerMessageForm = _showDesignerMessageFormState[0];
                         var setShowDesignerMessageForm = _showDesignerMessageFormState[1];
                         
@@ -10348,6 +10439,82 @@
                         var _lightboxImageState = React.useState(null);
                         var lightboxImage = _lightboxImageState[0];
                         var setLightboxImage = _lightboxImageState[1];
+                        
+                        // Inline video player for prototype video (play on screen)
+                        var _inlineVideoPlayerState = React.useState(null);
+                        var inlineVideoPlayer = _inlineVideoPlayerState[0];
+                        var setInlineVideoPlayer = _inlineVideoPlayerState[1];
+                        var _hoverVideoPlayIdxState = React.useState(null);
+                        var hoverVideoPlayIdx = _hoverVideoPlayIdxState[0];
+                        var setHoverVideoPlayIdx = _hoverVideoPlayIdxState[1];
+                        var _hoverVideoLinkIdxState = React.useState(null);
+                        var hoverVideoLinkIdx = _hoverVideoLinkIdxState[0];
+                        var setHoverVideoLinkIdx = _hoverVideoLinkIdxState[1];
+                        
+                        // Convert video watch URL to embed URL for YouTube, Vimeo, Loom
+                        var getVideoEmbedUrl = function(url, provider) {
+                            if (!url || typeof url !== 'string') return null;
+                            var u = url.trim();
+                            try {
+                                var prov = (provider || '').toLowerCase();
+                                if (prov.indexOf('youtube') !== -1 || u.indexOf('youtube.com') !== -1 || u.indexOf('youtu.be') !== -1) {
+                                    var re = new RegExp('(?:youtube\\.com/watch\\?v=|youtu\\.be/)([^&\\s?]+)');
+                                    var m = u.match(re);
+                                    if (m) return 'https://www.youtube.com/embed/' + m[1];
+                                }
+                                if (prov.indexOf('vimeo') !== -1 || u.indexOf('vimeo.com') !== -1) {
+                                    var reVimeo = new RegExp('vimeo\\.com/(?:video/)?(\\d+)');
+                                    m = u.match(reVimeo);
+                                    if (m) return 'https://player.vimeo.com/video/' + m[1];
+                                }
+                                if (prov.indexOf('loom') !== -1 || u.indexOf('loom.com') !== -1) {
+                                    var reLoom = new RegExp('loom\\.com/share/([^?\\s]+)');
+                                    m = u.match(reLoom);
+                                    if (m) return 'https://www.loom.com/embed/' + m[1];
+                                    if (u.indexOf('/embed/') !== -1) return u;
+                                }
+                            } catch (e) {}
+                            return null;
+                        };
+                        
+                        // Detect phone/email/personal contact in Request Changes feedback text
+                        var detectPersonalInfoInFeedback = function(text) {
+                            if (!text || typeof text !== 'string') return { blocked: false };
+                            var t = String(text).trim();
+                            if (!t.length) return { blocked: false };
+                            try {
+                                var emailRe = new RegExp('[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}');
+                                if (emailRe.test(t)) return { blocked: true, message: 'Please remove email addresses. Do not share personal contact info in feedback.' };
+                                var phoneRe = new RegExp('(?:\\+?\\d{1,3}[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}|\\d{10,}');
+                                if (phoneRe.test(t)) return { blocked: true, message: 'Please remove phone numbers. Do not share personal contact info in feedback.' };
+                                var lower = t.toLowerCase();
+                                var keywords = ['email me', 'call me', 'text me', 'whatsapp', 'wechat', 'skype', 'my number', 'my email', 'reach me at', 'contact me at', 'send to @', 'dm me', 'message me at'];
+                                for (var ki = 0; ki < keywords.length; ki++) {
+                                    if (lower.indexOf(keywords[ki]) !== -1) {
+                                        return { blocked: true, message: 'Please remove personal contact phrases (e.g. "email me", "call me"). Do not share contact info in feedback.' };
+                                    }
+                                }
+                            } catch (e) {}
+                            return { blocked: false };
+                        };
+                        
+                        // Format workflow date/time: "February 26th 2026 1:53:43 PM"
+                        var formatWorkflowDateTime = function(dateStr) {
+                            if (!dateStr) return '';
+                            var d = new Date(dateStr);
+                            if (isNaN(d.getTime())) return String(dateStr);
+                            var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                            var day = d.getDate();
+                            var ord = (day % 10 === 1 && day % 100 !== 11) ? 'st' : (day % 10 === 2 && day % 100 !== 12) ? 'nd' : (day % 10 === 3 && day % 100 !== 13) ? 'rd' : 'th';
+                            var month = months[d.getMonth()];
+                            var year = d.getFullYear();
+                            var h = d.getHours();
+                            var ampm = h >= 12 ? 'PM' : 'AM';
+                            h = h % 12 || 12;
+                            var min = String(d.getMinutes()).length === 1 ? '0' + d.getMinutes() : String(d.getMinutes());
+                            var sec = String(d.getSeconds()).length === 1 ? '0' + d.getSeconds() : String(d.getSeconds());
+                            return month + ' ' + day + ord + ' ' + year + ' ' + h + ':' + min + ':' + sec + ' ' + ampm;
+                        };
                         
                         // Helper function to validate inspiration items
                         var validateInspirationItem = function(insp) {
@@ -10440,12 +10607,13 @@
                                 return;
                             }
                             var cadPendingDesignerReview = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (Number(itemState.cad_current_version) || 0) > 0 && ['uploaded', 'revision_requested'].indexOf(String(itemState.cad_status || '')) !== -1);
+                            var cadSubmitted = (Number(itemState.cad_current_version) || 0) > 0;
                             var paymentApproved = !!(itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received');
                             var cadReleasedToSupplier = !!(itemState.cad_released_to_supplier_at && String(itemState.cad_released_to_supplier_at).trim());
                             var hasPrototypeVideoSubmitted = !!(itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0) || (itemState.prototype_status === 'submitted');
-                            if (itemState.has_unread_operator_messages || cadPendingDesignerReview) {
+                            if (cadPendingDesignerReview) {
                                 setActiveTab('timeline');
-                                setSelectedStepIndex(1); // Step 2: Technical Review (Review and Message / CAD)
+                                setSelectedStepIndex(1); // Step 2: CAD submitted, show message box
                                 setShowDesignerMessageForm(true);
                                 if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
                                 if (cadPendingDesignerReview) {
@@ -10454,6 +10622,17 @@
                                         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                                     }, 400);
                                 }
+                                return;
+                            }
+                            if (itemState.has_unread_operator_messages && !cadSubmitted) {
+                                setActiveTab('timeline');
+                                setSelectedStepIndex(0); // Step 1: Clarifications before CAD submitted
+                                setShowDesignerMessageForm(true);
+                                if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
+                                setTimeout(function() {
+                                    var el = document.getElementById('n88-designer-messages-container-admin');
+                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                }, 400);
                                 return;
                             }
                             if (cadReleasedToSupplier || hasPrototypeVideoSubmitted) {
@@ -10667,7 +10846,15 @@
                             }
                         }, [showDesignerMessageForm, designerMessages]);
                         
-                        // Commit 3.A.1: Fetch item timeline when Workflow tab is selected (operator queue)
+                        // Load designer/operator messages when Step 1 Clarifications is visible (timeline tab, has_rfq or has_prototype_payment, CAD not yet submitted)
+                        React.useEffect(function() {
+                            if (activeTab !== 'timeline' || !itemId) return;
+                            var hasRfqOrPayment = itemState.has_rfq || itemState.has_prototype_payment;
+                            var cadSubmitted = (Number(itemState.cad_current_version) || 0) > 0;
+                            if (hasRfqOrPayment && !cadSubmitted && typeof loadDesignerMessages === 'function') {
+                                loadDesignerMessages();
+                            }
+                        }, [activeTab, itemId, itemState.has_rfq, itemState.has_prototype_payment, itemState.cad_current_version, loadDesignerMessages]);
                         var fetchTimeline = React.useCallback(function() {
                             if (!itemId || isNaN(itemId) || itemId <= 0) return;
                             var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
@@ -10731,7 +10918,7 @@
                             if (!itemId || isNaN(itemId) || itemId <= 0) {
                                 console.error('Invalid item ID for fetchItemState:', itemId);
                                 setItemState(function(prev) {
-                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
+                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                                 });
                                 return;
                             }
@@ -10756,7 +10943,7 @@
                             if (!nonce) {
                                 console.error('Nonce not found for fetchItemState');
                                 setItemState(function(prev) {
-                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
+                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                                 });
                                 return;
                             }
@@ -10801,6 +10988,7 @@
                                         prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
                                         prototype_submission: data.data.prototype_submission || null,
                                         direction_keyword_ids: data.data.direction_keyword_ids || null,
+                                        direction_keyword_names: data.data.direction_keyword_names || null,
                                         workflow_milestones: data.data.workflow_milestones || null,
                                         loading: false,
                                     });
@@ -10820,14 +11008,14 @@
                                 } else {
                                     console.error('Failed to fetch item state:', data.message);
                                     setItemState(function(prev) {
-                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
+                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                                     });
                                 }
                             })
                             .catch(function(error) {
                                 console.error('Error fetching item state:', error);
                                     setItemState(function(prev) {
-                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, workflow_milestones: null };
+                                        return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                                 });
                             });
                         };
@@ -11018,8 +11206,18 @@
                                         setPaymentReceiptSelectedFile(null);
                                         setPaymentReceiptMessage('');
                                         setShowResubmitReceiptForm(false);
+                                        setShowPaymentInstructions(false);
                                         fetchPaymentReceipts();
                                         if (paymentReceiptInputRef && paymentReceiptInputRef.current) paymentReceiptInputRef.current.value = '';
+                                        if (typeof fetchItemState === 'function') fetchItemState();
+                                        // Redirect to project board so popup closes and user sees the board
+                                        var bid = boardId ? Number(boardId) : 0;
+                                        if (bid > 0) {
+                                            var params = new URLSearchParams();
+                                            params.set('page', 'n88-rfq-board-demo');
+                                            params.set('board_id', String(bid));
+                                            window.location.href = '<?php echo esc_js( admin_url( "admin.php" ) ); ?>?' + params.toString();
+                                        } else if (onClose) onClose();
                                     } else {
                                         alert(d.data && d.data.message ? d.data.message : 'Upload failed.');
                                     }
@@ -11049,7 +11247,7 @@
                             fetch(ajaxUrl + '?action=n88_get_board_projects&board_id=' + encodeURIComponent(String(bid)) + '&nonce=' + encodeURIComponent(String(nonce)), { method: 'GET', credentials: 'same-origin' })
                                 .then(function(r) { return r.json(); })
                                 .then(function(d) {
-                                    if (d && d.success && Array.isArray(d.data && d.data.projects)) setBoardProjects(d.data.projects);
+                                    if (d && d.success && d.data && Array.isArray(d.data.projects)) setBoardProjects(d.data.projects);
                                     else if (d && d.success && Array.isArray(d.projects)) setBoardProjects(d.projects);
                                     else setBoardProjects([]);
                                 })
@@ -12662,20 +12860,26 @@
                                                     }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
                                                 ) : null,
                                                 
-                                                // Commit 2.3.9.1C-a: Review and Message moved to Workflow Step 2 — Mission Spec shows only redirect (full box hidden)
+                                                // Commit 2.3.9.1C-a: Clarifications on Step 1 (before CAD); Review/Message on Step 2 (after CAD)
                                                 (itemState.has_rfq || itemState.has_prototype_payment) ? React.createElement('div', {
                                                     style: {
                                                         marginBottom: '24px',
                                                     }
                                                 },
                                                     React.createElement('button', {
-                                                        onClick: function() { setActiveTab('timeline'); setSelectedStepIndex(1); setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
+                                                        onClick: function() {
+                                                            var cadDone = (Number(itemState.cad_current_version) || 0) > 0;
+                                                            setActiveTab('timeline');
+                                                            setSelectedStepIndex(cadDone ? 1 : 0);
+                                                            setShowDesignerMessageForm(true);
+                                                            if (typeof loadDesignerMessages === 'function') loadDesignerMessages();
+                                                        },
                                                         style: {
                                                             width: '100%',
                                                             padding: '12px',
                                                             backgroundColor: '#111111',
                                                             border: '1px solid ' + darkBorder,
-                                                        borderRadius: '4px',
+                                                            borderRadius: '4px',
                                                             color: darkText,
                                                             fontSize: '14px',
                                                             fontFamily: 'monospace',
@@ -12684,7 +12888,7 @@
                                                         },
                                                         onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
                                                         onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
-                                                    }, 'Open Workflow \u2192 Step 2 (Review and Message)')) : null,
+                                                    }, 'Open Workflow \u2192 ' + ((Number(itemState.cad_current_version) || 0) > 0 ? 'Step 2 (Review and Message)' : 'Step 1 (Clarifications)'))) : null,
                                                 // Item Title
                                                 React.createElement('div', {
                                                     style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
@@ -13760,31 +13964,48 @@
                                                                         backgroundColor: '#000',
                                                                         border: '1px solid #333',
                                                                         borderRadius: '4px',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '12px',
+                                                                        flexWrap: 'wrap',
                                                                     }
                                                                 },
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        title: 'Play on screen',
+                                                                        onClick: function() { setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); },
+                                                                        onMouseEnter: function() { setHoverVideoPlayIdx(idx); },
+                                                                        onMouseLeave: function() { setHoverVideoPlayIdx(null); },
+                                                                        style: {
+                                                                            padding: '8px 12px',
+                                                                            background: 'rgba(255,0,101,0.2)',
+                                                                            color: '#FF0065',
+                                                                            border: '1px solid #FF0065',
+                                                                            borderRadius: '4px',
+                                                                            fontSize: '16px',
+                                                                            cursor: 'pointer',
+                                                                            transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                            transition: 'transform 0.2s ease',
+                                                                        }
+                                                                    }, '\u25B6'),
                                                                     React.createElement('a', {
                                                                         href: link.url,
                                                                         target: '_blank',
                                                                         rel: 'noopener noreferrer',
+                                                                        title: 'Open in new tab',
+                                                                        onMouseEnter: function() { setHoverVideoLinkIdx(idx); },
+                                                                        onMouseLeave: function() { setHoverVideoLinkIdx(null); },
                                                                         style: {
                                                                             color: '#66aaff',
+                                                                            fontSize: '18px',
                                                                             textDecoration: 'none',
-                                                                            fontSize: '12px',
-                                                                            display: 'flex',
+                                                                            transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                            transition: 'transform 0.2s ease',
+                                                                            display: 'inline-flex',
                                                                             alignItems: 'center',
-                                                                            gap: '8px',
+                                                                            gap: '4px',
                                                                         }
-                                                                    },
-                                                                        React.createElement('span', {
-                                                                            style: { fontWeight: '600', textTransform: 'capitalize' }
-                                                                        }, link.provider + ':'),
-                                                                        React.createElement('span', {
-                                                                            style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-                                                                        }, link.url),
-                                                                        React.createElement('span', {
-                                                                            style: { fontSize: '10px', color: '#888' }
-                                                                        }, 'Open →')
-                                                                    )
+                                                                    }, (link.provider || 'Video') + ' \u2192')
                                                                 );
                                                             }),
                                                             itemState.prototype_submission.created_at ? React.createElement('div', {
@@ -13793,7 +14014,7 @@
                                                                     color: '#888',
                                                                     marginTop: '8px',
                                                                 }
-                                                            }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null
+                                                            }, 'Submitted: ' + formatWorkflowDateTime(itemState.prototype_submission.created_at)) : null
                                                         ) : null,
                                                         // Action Buttons
                                                         itemState.prototype_status === 'submitted' ? React.createElement('div', {
@@ -13893,6 +14114,9 @@
                                                                             setPrototypeSectionExpanded(true);
                                                                             if (typeof updateLayout === 'function' && item && item.id) {
                                                                                 updateLayout(item.id, { prototype_status: 'approved', action_required: false });
+                                                                            }
+                                                                            if (data.data && data.data.message) {
+                                                                                alert(data.data.message);
                                                                             }
                                                                         } else {
                                                                             alert(data.data && data.data.message ? data.data.message : 'Failed to approve prototype');
@@ -14171,6 +14395,7 @@
                                                                         ),
                                                                         React.createElement('div', { style: { marginTop: '12px' } },
                                                                             React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Additional Revision Detail (Optional)'),
+                                                                            React.createElement('div', { style: { fontSize: '11px', color: '#666', marginBottom: '4px' } }, 'Do not include phone numbers, emails, or personal contact info.'),
                                                                             React.createElement('textarea', {
                                                                                 placeholder: 'Describe exactly what should be different in the revised video…',
                                                                                 maxLength: 200,
@@ -14229,6 +14454,18 @@
                                                                         alert('Maximum 18 phrases allowed.');
                                                                         return;
                                                                     }
+                                                                    var allRevisionText = '';
+                                                                    if (feedbackPacket && typeof feedbackPacket === 'object') {
+                                                                        Object.keys(feedbackPacket).forEach(function(k) {
+                                                                            var d = feedbackPacket[k];
+                                                                            if (d && typeof d.revision_detail === 'string') allRevisionText += ' ' + d.revision_detail;
+                                                                        });
+                                                                    }
+                                                                    var personalCheck = detectPersonalInfoInFeedback(allRevisionText);
+                                                                    if (personalCheck.blocked) {
+                                                                        alert(personalCheck.message);
+                                                                        return;
+                                                                    }
                                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                                                                     var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_request_prototype_changes) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
                                                                     if (!nonce) {
@@ -14247,11 +14484,17 @@
                                                                     .then(function(res) { return res.json(); })
                                                                     .then(function(data) {
                                                                         if (data.success) {
-                                                                            setShowRequestChangesModal(false);
-                                                                            setFeedbackPacket({});
-                                                                            setTotalPhrasesSelected(0);
-                                                                            fetchItemState();
-                                                                            setPrototypeSectionExpanded(true);
+                                                                            var urlParams = new URLSearchParams(window.location.search);
+                                                                            var boardId = urlParams.get('board_id');
+                                                                            var pid = item.project_id || item.projectId || (item.meta && item.meta.project_id);
+                                                                            var rid = item.room_id || item.roomId || (item.meta && item.meta.room_id);
+                                                                            var params = new URLSearchParams();
+                                                                            params.set('page', 'n88-rfq-board-demo');
+                                                                            if (boardId) params.set('board_id', String(boardId));
+                                                                            if (pid) params.set('project_id', String(pid));
+                                                                            if (rid) params.set('room_id', String(rid));
+                                                                            window.location.href = window.location.pathname + '?' + params.toString();
+                                                                            return;
                                                                         } else {
                                                                             alert(data.data && data.data.message ? data.data.message : 'Failed to request changes');
                                                                         }
@@ -14862,6 +15105,7 @@
                                                     })())),
                                                     timelineData.steps[selectedStepIndex] ? (function() {
                                                         var s = timelineData.steps[selectedStepIndex];
+                                                        var cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
                                                         var statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
                                                         var stepDescriptions = { 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' };
                                                         return React.createElement('div', {
@@ -14875,8 +15119,9 @@
                                                             React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, s.step_number + '. ' + s.label),
                                                             React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 } }, stepDescriptions[s.step_number] || ''),
                                                             (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested') ? React.createElement('div', {
+                                                                id: 'n88-step1-payment-required',
                                                                 style: { marginBottom: '24px', padding: '20px', backgroundColor: '#331100', border: '2px solid #ff8800', borderRadius: '4px' }
-                                                            }, React.createElement('div', { style: { fontSize: '16px', fontWeight: '600', color: '#ff8800', marginBottom: '12px' } }, 'Payment Required — Prototype & CAD Not Started'), React.createElement('div', { style: { fontSize: '13px', color: '#ffaa66', marginBottom: '16px', lineHeight: 1.5 } }, 'Your prototype request has been submitted. CAD drafting and prototype work will begin only after payment is received.'), React.createElement('div', { style: { marginBottom: '12px', padding: '12px', backgroundColor: '#1a0a00', borderRadius: '4px', border: '1px solid #ff8800' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Amount Due: $' + (itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00')), React.createElement('div', { style: { fontSize: '12px', color: '#ffaa66' } }, 'Payment Methods: Wire / ACH / Zelle')), React.createElement('button', { onClick: function() { setShowPaymentInstructions(true); }, style: { padding: '10px 20px', backgroundColor: '#ff8800', color: '#000', border: 'none', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: 'pointer' } }, '[ View Payment Instructions ]')) : null,
+                                                            }, React.createElement('div', { id: 'n88-step1-payment-required-heading', style: { fontSize: '16px', fontWeight: '600', color: '#ff8800', marginBottom: '12px' } }, 'Payment Required — Prototype & CAD Not Started'), React.createElement('div', { style: { fontSize: '13px', color: '#ffaa66', marginBottom: '16px', lineHeight: 1.5 } }, 'Your prototype request has been submitted. CAD drafting and prototype work will begin only after payment is received.'), React.createElement('div', { style: { marginBottom: '12px', padding: '12px', backgroundColor: '#1a0a00', borderRadius: '4px', border: '1px solid #ff8800' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Amount Due: $' + (itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00')), React.createElement('div', { style: { fontSize: '12px', color: '#ffaa66' } }, 'Payment Methods: Wire / ACH / Zelle')), React.createElement('button', { onClick: function() { setShowPaymentInstructions(true); }, style: { padding: '10px 20px', backgroundColor: '#ff8800', color: '#000', border: 'none', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: 'pointer' } }, '[ View Payment Instructions ]')) : null,
                                                             (s.step_number === 1 && itemState.has_bids && itemState.bids && itemState.bids.length > 0) ? (function() {
                                                                 return React.createElement('div', { style: { marginBottom: '24px' }, onClick: function(e) { e.stopPropagation(); } },
                                                                     React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600' } }, 'Quotes Received')),
@@ -14893,38 +15138,73 @@
                                                                         ),
                                                                         selectedBidId ? (function() { var sb = itemState.bids.find(function(b) { return b.bid_id === selectedBidId; }); var pc = sb && sb.prototype_cost ? sb.prototype_cost : null; var cf = 60; var tot = cf + (pc ? parseFloat(pc) : 0); return React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'Costs & Policy'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.8' } }, React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'CAD Drafting Fee:'), ' $60.00'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'CAD Revisions Included:'), ' Up to 3 rounds'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Additional CAD Revisions:'), ' $25 per round (4+)'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Prototype video:'), ' ', pc ? '$' + parseFloat(pc).toFixed(2) : 'Estimate not provided'), React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Total due: $' + tot.toFixed(2)))); })() : null,
                                                                         selectedBidId ? React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'WireFrameOS Payment Details'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.8', marginBottom: '12px' } }, React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'ACH / Wire:'), React.createElement('br'), 'Bank: [Bank Name]', React.createElement('br'), 'Account: [Account Number]', React.createElement('br'), 'Routing: [Routing Number]', React.createElement('br'), 'Name: WireFrameOS'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Zelle:'), React.createElement('br'), 'Email: payments@wireframeos.com'), React.createElement('div', { style: { marginTop: '12px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', color: greenAccent } }, React.createElement('strong', null, 'Reference:'), ' Item #' + itemId + ' + Bid #' + selectedBidId))) : null,
-                                                                        React.createElement('button', { onClick: function() { setShowPaymentInstructions(true); }, style: { marginBottom: '16px', padding: '10px 20px', backgroundColor: '#ff8800', color: '#000', border: 'none', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: 'pointer' } }, '[ View Payment Instructions ]'),
-                                                                        React.createElement('button', { onClick: function() { if (!selectedBidId) { setCadPrototypeError('Please select a bid.'); return; } if (selectedKeywords.length < 3 || selectedKeywords.length > 7) { setCadPrototypeError('Please select between 3 and 7 keywords.'); return; } setIsSubmittingCadPrototype(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); var fd = new FormData(); fd.append('action', 'n88_create_cad_prototype_request'); fd.append('item_id', itemId); fd.append('bid_id', selectedBidId); selectedKeywords.forEach(function(kid) { fd.append('selected_keywords[]', kid); }); fd.append('note', prototypeNote); var sn = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || ''; if (!sn) { setCadPrototypeError('Nonce not found. Please refresh.'); setIsSubmittingCadPrototype(false); return; } fd.append('nonce', sn); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) { if (data.success) { setCadPrototypeSuccess(true); setSelectedKeywords([]); setPrototypeNote(''); setItemState(function(p) { return Object.assign({}, p, { has_prototype_payment: true, prototype_payment_status: 'requested' }); }); fetchItemState(); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); } else { setCadPrototypeError((data.data && data.data.message) || 'Failed.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); } }).catch(function() { setCadPrototypeError('Error submitting.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }).finally(function() { setIsSubmittingCadPrototype(false); }); }, disabled: isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7, style: { width: '100%', padding: '12px', backgroundColor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#333' : greenAccent, border: 'none', borderRadius: '4px', color: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#666' : darkBg, fontSize: '14px', fontFamily: 'monospace', fontWeight: '600', cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer' } }, isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request')
+                                                                        React.createElement('button', { onClick: function() { if (!selectedBidId) { setCadPrototypeError('Please select a bid.'); return; } if (selectedKeywords.length < 3 || selectedKeywords.length > 7) { setCadPrototypeError('Please select between 3 and 7 keywords.'); return; } setIsSubmittingCadPrototype(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); var fd = new FormData(); fd.append('action', 'n88_create_cad_prototype_request'); fd.append('item_id', itemId); fd.append('bid_id', selectedBidId); selectedKeywords.forEach(function(kid) { fd.append('selected_keywords[]', kid); }); fd.append('note', prototypeNote); var sn = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || ''; if (!sn) { setCadPrototypeError('Nonce not found. Please refresh.'); setIsSubmittingCadPrototype(false); return; } fd.append('nonce', sn); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) { if (data.success) { setCadPrototypeSuccess(true); setSelectedKeywords([]); setPrototypeNote(''); setItemState(function(p) { return Object.assign({}, p, { has_prototype_payment: true, prototype_payment_status: 'requested' }); }); fetchItemState(); setTimeout(function() { var el = document.getElementById('n88-step1-payment-required-heading'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else { var fallback = document.getElementById('cad-prototype-form-step1'); if (fallback) fallback.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 350); } else { setCadPrototypeError((data.data && data.data.message) || 'Failed.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); } }).catch(function() { setCadPrototypeError('Error submitting.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }).finally(function() { setIsSubmittingCadPrototype(false); }); }, disabled: isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7, style: { width: '100%', padding: '12px', backgroundColor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#333' : greenAccent, border: 'none', borderRadius: '4px', color: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#666' : darkBg, fontSize: '14px', fontFamily: 'monospace', fontWeight: '600', cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer' } }, isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request')
                                                                     )) : null
                                                                 );
                                                             })() : null,
                                                             (s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } },
-                                                                itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '· CAD requested — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.cad_requested_at)) : null,
-                                                                itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '· Payment sent — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.payment_sent_at)) : null,
-                                                                itemState.workflow_milestones.step1.payment_approved_at ? React.createElement('div', { key: 'approved', style: { marginBottom: '2px' } }, '· Payment approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step1.payment_approved_at)) : null,
+                                                                itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '· CAD requested — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at))) : null,
+                                                                itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '· Payment sent — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at))) : null,
+                                                                itemState.workflow_milestones.step1.payment_approved_at ? React.createElement('div', { key: 'approved', style: { marginBottom: '2px' } }, '· Payment approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at))) : null,
                                                                 (!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment) ? React.createElement('div', { style: { fontStyle: 'italic', opacity: 0.8 } }, '· Design & specifications in progress') : null
                                                             ) : null,
-                                                            (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', {
-                                                                style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' }
-                                                            }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.')) : null,
+                                                            (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (!itemState.workflow_milestones || !itemState.workflow_milestones.step1 || !itemState.workflow_milestones.step1.payment_sent_at)) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: '1px solid #66aaff', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' } }, 'CAD Requested'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Designer has requested CAD with selected keywords.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
+                                                            (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones && itemState.workflow_milestones.step1 && itemState.workflow_milestones.step1.payment_sent_at) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: '1px solid #ff8800', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' } }, 'Payment Sent — Pending Approval'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Receipt uploaded. CAD drafting will begin once payment is confirmed.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
+                                                            (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
+                                                            (s.step_number === 1 && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
+                                                                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
+                                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Clarifications / Message Operator'),
+                                                                        React.createElement('button', { onClick: function() { setShowDesignerMessageForm(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')
+                                                                    ),
+                                                                    React.createElement('div', { id: 'n88-designer-messages-container-admin', style: { height: '400px', overflowY: 'auto', padding: '16px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder, display: 'flex', flexDirection: 'column' } },
+                                                                        isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'No messages yet. Start the conversation!') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
+                                                                            var isD = msg.sender_role === 'designer';
+                                                                            return React.createElement('div', { key: idx, style: { marginBottom: '12px', display: 'flex', justifyContent: isD ? 'flex-end' : 'flex-start', width: '100%' } },
+                                                                                React.createElement('div', { style: { maxWidth: '75%', padding: '10px 14px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: isD ? '12px 12px 4px 12px' : '12px 12px 12px 4px', fontSize: '12px', color: '#fff', wordWrap: 'break-word', whiteSpace: 'pre-wrap' } },
+                                                                                    React.createElement('div', { style: { fontSize: '10px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '4px' } }, isD ? 'You' : 'Operator'),
+                                                                                    React.createElement('div', { style: { fontSize: '12px', lineHeight: '1.4', marginBottom: '4px' } }, msg.message_text || ''),
+                                                                                    React.createElement('div', { style: { fontSize: '9px', color: '#666', textAlign: 'right' } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
+                                                                                )
+                                                                            );
+                                                                        }),
+                                                                        React.createElement('form', { onSubmit: sendDesignerMessage, style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
+                                                                            React.createElement('textarea', {
+                                                                                value: designerMessageText,
+                                                                                onChange: function(e) { setDesignerMessageText(e.target.value); },
+                                                                                required: true,
+                                                                                rows: 2,
+                                                                                style: { flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' },
+                                                                                placeholder: 'Type your message here...',
+                                                                                onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }
+                                                                            }),
+                                                                            React.createElement('button', {
+                                                                                type: 'submit',
+                                                                                disabled: isSendingDesignerMessage || !designerMessageText.trim(),
+                                                                                style: { padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }
+                                                                            }, isSendingDesignerMessage ? 'Sending...' : 'Send')
+                                                                        )
+                                                                    )
+                                                                )
+                                                            ) : null,
                                                             s.step_number !== 1 ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
                                                                 '· State: ',
                                                                 React.createElement('span', { style: { color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText } }, statusLabel)
                                                             ) : null,
-                                                            s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + s.started_at) : null,
-                                                            s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + s.completed_at) : null,
-                                                            s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Expected by: ' + s.expected_by) : null,
+                                                            s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + formatWorkflowDateTime(s.started_at)) : null,
+                                                            s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + formatWorkflowDateTime(s.completed_at)) : null,
+                                                            s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Expected by: ' + formatWorkflowDateTime(s.expected_by)) : null,
                                                             (s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px', marginBottom: '8px' } },
-                                                                (itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video submitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at))) : null,
-                                                                itemState.workflow_milestones.step3.changes_requested_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Changes requested — ', React.createElement('span', { style: { color: '#ffaa00' } }, itemState.workflow_milestones.step3.changes_requested_at)) : null,
-                                                                itemState.workflow_milestones.step3.video_resubmitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video resubmitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_resubmitted_at)) : null,
-                                                                itemState.workflow_milestones.step3.video_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step3.video_approved_at)) : null
+                                                                (itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video submitted — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)))) : null,
+                                                                itemState.workflow_milestones.step3.changes_requested_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Changes requested — ', React.createElement('span', { style: { color: '#ffaa00' } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at))) : null,
+                                                                itemState.workflow_milestones.step3.video_resubmitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video resubmitted — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at))) : null,
+                                                                itemState.workflow_milestones.step3.video_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at))) : null
                                                             ) : null,
                                                             (s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Prototype Video'),
                                                                 itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
-                                                                itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px' } }, React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px' } }, link.provider || 'Link')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + new Date(itemState.prototype_submission.created_at).toLocaleString()) : null) : null,
-                                                                itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) fetchItemState(); else alert(d.message || 'Failed'); }); }, style: { padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
+                                                                itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' } }, React.createElement('button', { type: 'button', title: 'Play on screen', onClick: function() { setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }, onMouseEnter: function() { setHoverVideoPlayIdx(idx); }, onMouseLeave: function() { setHoverVideoPlayIdx(null); }, style: { padding: '8px 12px', background: 'rgba(0,255,0,0.15)', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '16px', cursor: 'pointer', transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease' } }, '\u25B6'), React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', title: 'Open in new tab', onMouseEnter: function() { setHoverVideoLinkIdx(idx); }, onMouseLeave: function() { setHoverVideoLinkIdx(null); }, style: { color: greenAccent, fontSize: '18px', textDecoration: 'none', transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, (link.provider || 'Video') + ' \u2192')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + formatWorkflowDateTime(itemState.prototype_submission.created_at)) : null) : null,
+                                                                itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { fetchItemState(); if (d.data && d.data.message) alert(d.data.message); } else alert(d.message || (d.data && d.data.message) || 'Failed'); }); }, style: { padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
                                                                     if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
                                                                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                                                                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keyword_phrases) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
@@ -14945,16 +15225,38 @@
                                                                         }).catch(function(err) { console.error(err); alert('Error loading keyword data'); });
                                                                     } else { setShowRequestChangesModal(true); }
                                                                 }, style: { padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Request Changes')) : null,
-                                                                itemState.prototype_status === 'approved' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginTop: '8px' } }, '\u2713 Prototype approved (v' + (itemState.prototype_approved_version || itemState.prototype_current_version) + ')') : null
+                                                            itemState.prototype_status === 'approved' ? React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '8px' } },
+                                                                React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, '\u2713 Prototype approved (v' + (itemState.prototype_approved_version || itemState.prototype_current_version) + ')'),
+                                                                !itemState.has_awarded_bid && itemState.prototype_payment_bid_id ? React.createElement('button', {
+                                                                    type: 'button',
+                                                                    onClick: function() {
+                                                                        if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                                                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce);
+                                                                        if (!nonce) { alert('Security token missing.'); return; }
+                                                                        var fd = new FormData();
+                                                                        fd.append('action', 'n88_award_bid');
+                                                                        fd.append('item_id', String(getItemId()));
+                                                                        fd.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                                        fd.append('_ajax_nonce', nonce);
+                                                                        fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
+                                                                            if (data.success) { if (typeof onSave === 'function') onSave(getItemId(), {}); if (typeof fetchItemState === 'function') fetchItemState(); if (typeof onClose === 'function') onClose(); }
+                                                                            else alert(data.data && data.data.message ? data.data.message : 'Failed to award.');
+                                                                        }).catch(function(e) { console.error(e); alert('Error awarding. Please try again.'); });
+                                                                    },
+                                                                    style: { padding: '8px 12px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }
+                                                                }, 'Award Bid') : null,
+                                                                itemState.has_awarded_bid ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'Bid Awarded') : null
+                                                            ) : null
                                                             ) : null,
                                                             (s.step_number === 2 && itemState.workflow_milestones && itemState.workflow_milestones.step2) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px', marginBottom: '8px' } },
-                                                                itemState.workflow_milestones.step2.cad_received_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD file received — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_received_at)) : null,
-                                                                itemState.workflow_milestones.step2.revision_submitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision submitted — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.revision_submitted_at)) : null,
-                                                                itemState.workflow_milestones.step2.revision_sent_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision sent (operator) — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.revision_sent_at)) : null,
-                                                                itemState.workflow_milestones.step2.cad_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD approved — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_approved_at)) : null,
-                                                                itemState.workflow_milestones.step2.cad_released_to_supplier_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Final CAD file submitted to supplier — ', React.createElement('span', { style: { color: greenAccent } }, itemState.workflow_milestones.step2.cad_released_to_supplier_at)) : null
+                                                                itemState.workflow_milestones.step2.cad_received_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD file received — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_received_at))) : null,
+                                                                itemState.workflow_milestones.step2.revision_submitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision submitted — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_submitted_at))) : null,
+                                                                itemState.workflow_milestones.step2.revision_sent_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Revision sent (operator) — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_sent_at))) : null,
+                                                                itemState.workflow_milestones.step2.cad_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_approved_at))) : null,
+                                                                itemState.workflow_milestones.step2.cad_released_to_supplier_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Final CAD file submitted to supplier — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_released_to_supplier_at))) : null
                                                             ) : null,
-                                                            (s.step_number === 2 && (itemState.has_rfq || itemState.has_prototype_payment)) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                            (s.step_number === 2 && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                 !showDesignerMessageForm ? React.createElement('button', {
                                                                     type: 'button',
                                                                     onClick: function() { setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
@@ -14975,51 +15277,6 @@
                                                                         id: 'n88-designer-messages-container-admin',
                                                                         style: { height: '400px', overflowY: 'auto', padding: '16px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder, display: 'flex', flexDirection: 'column' }
                                                                     },
-                                                                        itemState.has_prototype_payment &&
-                                                                            itemState.prototype_payment_status === 'marked_received' &&
-                                                                            itemState.cad_current_version &&
-                                                                            Number(itemState.cad_current_version) > 0 &&
-                                                                            (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
-                                                                            style: { marginBottom: '12px', padding: '16px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }
-                                                                        },
-                                                                            React.createElement('div', { style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' } }, 'CAD Review'),
-                                                                            React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' } },
-                                                                                React.createElement('span', null, 'Current CAD: '),
-                                                                                React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
-                                                                                itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', { style: { marginLeft: '10px', color: greenAccent } }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
-                                                                            ),
-                                                                            React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' } },
-                                                                                React.createElement('span', null, 'Rounds Used: '),
-                                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
-                                                                                React.createElement('span', null, ' of '),
-                                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
-                                                                                ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', { style: { marginLeft: '10px', color: '#ffaa00' } }, 'Additional fee required (future commit)') : null
-                                                                            ),
-                                                                            itemState.cad_status !== 'approved' ? (
-                                                                                !showRevisionUpload ? React.createElement('div', { style: { display: 'flex', gap: '10px' } },
-                                                                                    React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(true); }, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '12px', cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Submit revised CAD'),
-                                                                                    React.createElement('button', { type: 'button', onClick: approveCad, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: 'rgba(255,0,101,0.15)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Approve CAD')
-                                                                                ) : React.createElement('div', { style: { padding: '12px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } },
-                                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Upload Files for Revision Request'),
-                                                                                    React.createElement('div', {
-                                                                                        onDrop: function(e) { e.preventDefault(); var files = Array.from(e.dataTransfer.files).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); },
-                                                                                        onDragOver: function(e) { e.preventDefault(); },
-                                                                                        onClick: function() { var input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.jpg,.jpeg,.png'; input.onchange = function(e) { var files = Array.from(e.target.files || []).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); }; input.click(); },
-                                                                                        style: { border: '2px dashed #666', padding: '20px', textAlign: 'center', marginBottom: '12px', cursor: 'pointer', color: '#999', fontSize: '11px' }
-                                                                                    }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
-                                                                                    revisionFiles.length > 0 ? React.createElement('div', { style: { marginBottom: '12px' } }, revisionFiles.map(function(file, idx) {
-                                                                                        return React.createElement('div', { key: idx, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px', marginBottom: '6px', fontSize: '11px', color: '#fff' } },
-                                                                                            React.createElement('span', null, file.name),
-                                                                                            React.createElement('button', { type: 'button', onClick: function() { setRevisionFiles(function(prev) { return prev.filter(function(_, i) { return i !== idx; }); }); }, style: { background: 'none', border: 'none', color: '#ff6666', cursor: 'pointer', fontSize: '14px', padding: '0 4px' } }, '×')
-                                                                                        );
-                                                                                    })) : null,
-                                                                                    React.createElement('div', { style: { display: 'flex', gap: '8px' } },
-                                                                                        React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(false); setRevisionFiles([]); }, style: { flex: 1, padding: '8px 12px', backgroundColor: '#333', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: 'pointer' } }, 'Cancel'),
-                                                                                        React.createElement('button', { type: 'button', onClick: function() { requestCadRevision(revisionFiles); }, disabled: isCadActionBusy || revisionFiles.length === 0, style: { flex: 1, padding: '8px 12px', backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer', opacity: revisionFiles.length === 0 ? 0.5 : 1 } }, isCadActionBusy ? 'Submitting...' : 'Submit revised CAD')
-                                                                                    )
-                                                                                )
-                                                                            ) : null
-                                                                        ) : null,
                                                                         isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px', margin: 'auto' } }, 'No messages yet. Start the conversation!') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
                                                                             var isD = msg.sender_role === 'designer';
                                                                             return React.createElement('div', { key: idx, style: { marginBottom: '12px', display: 'flex', justifyContent: isD ? 'flex-end' : 'flex-start', width: '100%' } },
@@ -15088,6 +15345,51 @@
                                                                                 )
                                                                             );
                                                                         }),
+                                                                        itemState.has_prototype_payment &&
+                                                                            itemState.prototype_payment_status === 'marked_received' &&
+                                                                            itemState.cad_current_version &&
+                                                                            Number(itemState.cad_current_version) > 0 &&
+                                                                            (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') ? React.createElement('div', {
+                                                                            style: { marginTop: '12px', marginBottom: '12px', padding: '16px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }
+                                                                        },
+                                                                            React.createElement('div', { style: { fontSize: '14px', fontWeight: '700', color: '#66aaff', marginBottom: '10px' } }, 'CAD Review'),
+                                                                            React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '10px', lineHeight: '1.5' } },
+                                                                                React.createElement('span', null, 'Current CAD: '),
+                                                                                React.createElement('span', { style: { color: '#fff', fontWeight: 700 } }, 'v' + itemState.cad_current_version),
+                                                                                itemState.cad_status === 'approved' && itemState.cad_approved_version ? React.createElement('span', { style: { marginLeft: '10px', color: greenAccent } }, '✓ Approved (v' + itemState.cad_approved_version + ')') : null
+                                                                            ),
+                                                                            React.createElement('div', { style: { fontSize: '12px', color: '#ccc', marginBottom: '12px' } },
+                                                                                React.createElement('span', null, 'Rounds Used: '),
+                                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_used || 0),
+                                                                                React.createElement('span', null, ' of '),
+                                                                                React.createElement('span', { style: { color: '#fff' } }, itemState.cad_revision_rounds_included || 0),
+                                                                                ((itemState.cad_revision_rounds_included || 0) > 0 && (itemState.cad_revision_rounds_used || 0) >= (itemState.cad_revision_rounds_included || 0)) ? React.createElement('span', { style: { marginLeft: '10px', color: '#ffaa00' } }, 'Additional fee required (future commit)') : null
+                                                                            ),
+                                                                            itemState.cad_status !== 'approved' ? (
+                                                                                !showRevisionUpload ? React.createElement('div', { style: { display: 'flex', gap: '10px' } },
+                                                                                    React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(true); }, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '12px', cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Submit revised CAD'),
+                                                                                    React.createElement('button', { type: 'button', onClick: approveCad, disabled: isCadActionBusy, style: { flex: 1, padding: '10px 12px', backgroundColor: 'rgba(255,0,101,0.15)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, cursor: isCadActionBusy ? 'not-allowed' : 'pointer', opacity: isCadActionBusy ? 0.6 : 1 } }, 'Approve CAD')
+                                                                                ) : React.createElement('div', { style: { padding: '12px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px' } },
+                                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Upload Files for Revision Request'),
+                                                                                    React.createElement('div', {
+                                                                                        onDrop: function(e) { e.preventDefault(); var files = Array.from(e.dataTransfer.files).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); },
+                                                                                        onDragOver: function(e) { e.preventDefault(); },
+                                                                                        onClick: function() { var input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.jpg,.jpeg,.png'; input.onchange = function(e) { var files = Array.from(e.target.files || []).filter(function(f) { return f.type === 'application/pdf' || f.type.indexOf('image/') === 0; }); setRevisionFiles(function(prev) { return prev.concat(files); }); }; input.click(); },
+                                                                                        style: { border: '2px dashed #666', padding: '20px', textAlign: 'center', marginBottom: '12px', cursor: 'pointer', color: '#999', fontSize: '11px' }
+                                                                                    }, 'Drag & Drop Files (PDF, JPG, PNG) or Click to Upload'),
+                                                                                    revisionFiles.length > 0 ? React.createElement('div', { style: { marginBottom: '12px' } }, revisionFiles.map(function(file, idx) {
+                                                                                        return React.createElement('div', { key: idx, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px', marginBottom: '6px', fontSize: '11px', color: '#fff' } },
+                                                                                            React.createElement('span', null, file.name),
+                                                                                            React.createElement('button', { type: 'button', onClick: function() { setRevisionFiles(function(prev) { return prev.filter(function(_, i) { return i !== idx; }); }); }, style: { background: 'none', border: 'none', color: '#ff6666', cursor: 'pointer', fontSize: '14px', padding: '0 4px' } }, '×')
+                                                                                        );
+                                                                                    })) : null,
+                                                                                    React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+                                                                                        React.createElement('button', { type: 'button', onClick: function() { setShowRevisionUpload(false); setRevisionFiles([]); }, style: { flex: 1, padding: '8px 12px', backgroundColor: '#333', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: 'pointer' } }, 'Cancel'),
+                                                                                        React.createElement('button', { type: 'button', onClick: function() { requestCadRevision(revisionFiles); }, disabled: isCadActionBusy || revisionFiles.length === 0, style: { flex: 1, padding: '8px 12px', backgroundColor: revisionFiles.length === 0 ? '#333' : '#111111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontFamily: 'monospace', fontSize: '11px', cursor: revisionFiles.length === 0 ? 'not-allowed' : 'pointer', opacity: revisionFiles.length === 0 ? 0.5 : 1 } }, isCadActionBusy ? 'Submitting...' : 'Submit revised CAD')
+                                                                                    )
+                                                                                )
+                                                                            ) : null
+                                                                        ) : null,
                                                                         React.createElement('form', { onSubmit: sendDesignerMessage, style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
                                                                             React.createElement('textarea', {
                                                                                 value: designerMessageText,
@@ -15200,7 +15502,24 @@
                                                                     )
                                                                 );
                                                             })(),
-                                                            // Commit 3.B.5.A1: Step 4–6 video submissions (operator can attach) + designer comments (designer sees read-only video + comments only; no Attach button)
+                                                            // Commit 28: Deposit — when Step 4 selected and item awarded; operator marks received before production can start
+                                                            (s.step_number === 4 && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
+                                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' } }, 'Deposit'),
+                                                                itemState.deposit_status === 'received' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, '\u2713 Received ' + (itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '') + '. Production (Step 4) can be started.') : React.createElement('div', null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, (itemState.deposit_amount != null ? ('$' + Number(itemState.deposit_amount).toFixed(2) + ' pending. ') : 'Deposit pending. ') + 'Production can start only after the operator marks deposit received.'),
+                                                                    isOperatorTimeline ? React.createElement('button', { type: 'button', onClick: function() {
+                                                                        if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                                                                        if (!nonce) { alert('Security token missing.'); return; }
+                                                                        var fd = new FormData();
+                                                                        fd.append('action', 'n88_mark_deposit_received');
+                                                                        fd.append('item_id', String(getItemId()));
+                                                                        fd.append('_ajax_nonce', nonce);
+                                                                        fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : ''), { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) { if (data.success) { if (typeof fetchItemState === 'function') fetchItemState(); if (typeof fetchTimeline === 'function') fetchTimeline(); } else alert((data.data && data.data.message) || 'Failed.'); }).catch(function(e) { console.error(e); alert('Error. Please try again.'); });
+                                                                    }, style: { padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' } }, 'Mark deposit received') : null
+                                                                )
+                                                            ) : null,
+                                                            // Commit 3.B.5.A1: Step 4–6 video submissions
                                                             (function() {
                                                                 if (s.step_number < 4 || s.step_number > 6) return null;
                                                                 var videos = (timelineData.step_456_videos || {})[s.step_number] || [];
@@ -15389,8 +15708,8 @@
                                         )
                                     )
                                 ),
-                                // Footer - Update button and Save button (State A, B, and C - dims/qty always editable); Lock Designer: hidden when awaiting payment
-                                (currentState === 'A' || currentState === 'B' || currentState === 'C') && !isLockedAwaitingPayment ? React.createElement('div', {
+                                // Footer - Update and Save for later: only when Request Quote tab is active (hidden on Item Specification and Production Timeline)
+                                activeTab === 'rfq' && !isLockedAwaitingPayment ? React.createElement('div', {
                                     style: {
                                         padding: '16px 20px',
                                         borderTop: '1px solid ' + darkBorder,
@@ -15507,6 +15826,75 @@
                                             zIndex: 10000002,
                                         }
                                     }, '×')
+                                )
+                            );
+                        }
+                        
+                        // Inline video player overlay (prototype video play on screen)
+                        if (inlineVideoPlayer && inlineVideoPlayer.url) {
+                            var embedSrc = getVideoEmbedUrl(inlineVideoPlayer.url, inlineVideoPlayer.provider);
+                            fragmentChildren.push(
+                                React.createElement('div', {
+                                    onClick: function(e) { if (e.target === e.currentTarget) setInlineVideoPlayer(null); },
+                                    style: {
+                                        position: 'fixed',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        backgroundColor: 'rgba(0, 0, 0, 0.92)',
+                                        zIndex: 10000003,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '24px',
+                                    }
+                                },
+                                    React.createElement('div', {
+                                        onClick: function(e) { e.stopPropagation(); },
+                                        style: {
+                                            position: 'relative',
+                                            width: '100%',
+                                            maxWidth: '900px',
+                                            maxHeight: '90%',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                        }
+                                    },
+                                        embedSrc ? React.createElement('iframe', {
+                                            src: embedSrc,
+                                            title: 'Prototype video',
+                                            style: { width: '100%', aspectRatio: '16/9', maxHeight: '80vh', border: 'none', borderRadius: '8px' },
+                                            allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
+                                            allowFullScreen: true,
+                                        }) : React.createElement('div', { style: { padding: '24px', color: '#ccc', textAlign: 'center' } },
+                                            React.createElement('p', { style: { marginBottom: '12px' } }, 'This video cannot be embedded. Open in a new tab:'),
+                                            React.createElement('a', { href: inlineVideoPlayer.url, target: '_blank', rel: 'noopener noreferrer', style: { color: '#FF0065', fontSize: '14px' } }, inlineVideoPlayer.provider || 'Open video')
+                                        ),
+                                        React.createElement('button', {
+                                            onClick: function(e) { e.stopPropagation(); setInlineVideoPlayer(null); },
+                                            style: {
+                                                position: 'absolute',
+                                                top: '-12px',
+                                                right: '-12px',
+                                                background: 'rgba(0, 0, 0, 0.8)',
+                                                border: '2px solid #fff',
+                                                borderRadius: '50%',
+                                                color: '#fff',
+                                                fontSize: '24px',
+                                                fontWeight: 'bold',
+                                                cursor: 'pointer',
+                                                padding: '0',
+                                                width: '40px',
+                                                height: '40px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                zIndex: 10000004,
+                                            }
+                                        }, '×')
+                                    )
                                 )
                             );
                         }
@@ -15889,6 +16277,7 @@
                                                         ),
                                                         React.createElement('div', { style: { marginTop: '12px' } },
                                                             React.createElement('div', { style: { fontSize: '12px', color: '#aaa', marginBottom: '6px' } }, 'Additional Revision Detail (Optional)'),
+                                                            React.createElement('div', { style: { fontSize: '11px', color: '#666', marginBottom: '4px' } }, 'Do not include phone numbers, emails, or personal contact info.'),
                                                             React.createElement('textarea', {
                                                                 placeholder: 'Describe exactly what should be different in the revised video…',
                                                                 maxLength: 200,
@@ -15911,6 +16300,15 @@
                                             React.createElement('button', {
                                                 onClick: function() {
                                                     if (totalPhrasesSelected > 18) { alert('Maximum 18 phrases allowed.'); return; }
+                                                    var allRevisionText = '';
+                                                    if (feedbackPacket && typeof feedbackPacket === 'object') {
+                                                        Object.keys(feedbackPacket).forEach(function(k) {
+                                                            var d = feedbackPacket[k];
+                                                            if (d && typeof d.revision_detail === 'string') allRevisionText += ' ' + d.revision_detail;
+                                                        });
+                                                    }
+                                                    var personalCheck = detectPersonalInfoInFeedback(allRevisionText);
+                                                    if (personalCheck.blocked) { alert(personalCheck.message); return; }
                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
                                                     var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_request_prototype_changes) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
                                                     if (!nonce) { alert('Nonce missing for request changes.'); return; }
@@ -15923,7 +16321,19 @@
                                                     formData.append('feedback_packet', JSON.stringify(feedbackPacket));
                                                     formData.append('_ajax_nonce', nonce);
                                                     fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(res) { return res.json(); }).then(function(data) {
-                                                        if (data.success) { setShowRequestChangesModal(false); setFeedbackPacket({}); setTotalPhrasesSelected(0); fetchItemState(); setPrototypeSectionExpanded(true); }
+                                                        if (data.success) {
+                                                            var urlParams = new URLSearchParams(window.location.search);
+                                                            var boardId = urlParams.get('board_id');
+                                                            var pid = item.project_id || item.projectId || (item.meta && item.meta.project_id);
+                                                            var rid = item.room_id || item.roomId || (item.meta && item.meta.room_id);
+                                                            var params = new URLSearchParams();
+                                                            params.set('page', 'n88-rfq-board-demo');
+                                                            if (boardId) params.set('board_id', String(boardId));
+                                                            if (pid) params.set('project_id', String(pid));
+                                                            if (rid) params.set('room_id', String(rid));
+                                                            window.location.href = window.location.pathname + '?' + params.toString();
+                                                            return;
+                                                        }
                                                         else { alert(data.data && data.data.message ? data.data.message : 'Failed to request changes'); }
                                                     }).catch(function(err) { console.error(err); alert('Error requesting changes'); });
                                                 },
@@ -16573,6 +16983,11 @@
             foreach ( $board_item_ids as $item_id ) {
                 $item_id = intval( $item_id );
                 $item_id_string = 'item-' . $item_id;
+                $item_meta_raw_ajax = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+                $item_meta_for_deposit = ! empty( $item_meta_raw_ajax ) ? json_decode( $item_meta_raw_ajax, true ) : array();
+                if ( ! is_array( $item_meta_for_deposit ) ) {
+                    $item_meta_for_deposit = array();
+                }
                 $has_prototype_payment = false;
                 $prototype_payment_status = null;
                 $cad_status = null;
@@ -16745,6 +17160,9 @@
                     'action_required' => $action_required,
                     'step456_status_text' => $step456_status_text,
                     'step456_status_color' => $step456_status_color,
+                    'deposit_status' => isset( $item_meta_for_deposit['deposit_status'] ) ? $item_meta_for_deposit['deposit_status'] : '',
+                    'deposit_amount' => isset( $item_meta_for_deposit['deposit_amount'] ) ? floatval( $item_meta_for_deposit['deposit_amount'] ) : null,
+                    'deposit_received_at' => isset( $item_meta_for_deposit['deposit_received_at'] ) ? $item_meta_for_deposit['deposit_received_at'] : null,
                 );
             }
             wp_send_json_success( array( 'items' => $items_status ) );

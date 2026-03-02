@@ -226,12 +226,12 @@ class N88_Items {
         $description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
         $item_type = isset( $_POST['item_type'] ) ? sanitize_text_field( wp_unslash( $_POST['item_type'] ) ) : 'furniture';
         $status = isset( $_POST['status'] ) ? sanitize_text_field( wp_unslash( $_POST['status'] ) ) : 'active'; // Default to active
-        $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'L';
+        $default_size = isset( $_POST['size'] ) ? sanitize_text_field( wp_unslash( $_POST['size'] ) ) : 'S';
         
         // Validate size
         $allowed_sizes = array( 'S', 'D', 'L', 'XL' );
         if ( ! in_array( $default_size, $allowed_sizes, true ) ) {
-            $default_size = 'L';
+            $default_size = 'S';
         }
 
         // Validate required fields
@@ -1534,114 +1534,7 @@ class N88_Items {
                 'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
             );
         }
-        
-        if ( isset( $payload['dims_cm'] ) ) {
-            $meta['dims_cm'] = $payload['dims_cm'];
-        }
-        
-        if ( isset( $payload['cbm'] ) ) {
-            $meta['cbm'] = floatval( $payload['cbm'] );
-        }
-        
-        if ( isset( $payload['sourcing_type'] ) ) {
-            $meta['sourcing_type'] = sanitize_text_field( $payload['sourcing_type'] );
-        }
-        
-        if ( isset( $payload['timeline_type'] ) ) {
-            $meta['timeline_type'] = sanitize_text_field( $payload['timeline_type'] );
-        }
-        
-        if ( isset( $payload['inspiration'] ) ) {
-            // Validate and sanitize inspiration array
-            $inspiration = $payload['inspiration'];
-            if ( is_array( $inspiration ) ) {
-                $valid_inspiration = array();
-                foreach ( $inspiration as $insp_item ) {
-                    // Only save items with valid structure - must have either a valid ID or a valid HTTP URL
-                    if ( ! is_array( $insp_item ) ) {
-                        continue;
-                    }
-                    
-                    // Check for valid ID (must be numeric and > 0)
-                    // Note: isset() returns false for null, so we need to check array_key_exists or use null coalescing
-                    $id_value = isset( $insp_item['id'] ) ? $insp_item['id'] : null;
-                    $has_valid_id = $id_value !== null && 
-                                    $id_value !== '' &&
-                                    is_numeric( $id_value ) && 
-                                    intval( $id_value ) > 0;
-                    
-                    // Check for valid URL (must be non-empty and start with http/https)
-                    $url = isset( $insp_item['url'] ) ? trim( $insp_item['url'] ) : '';
-                    $has_valid_url = ! empty( $url ) && 
-                                    $url !== '' &&
-                                    ( strpos( $url, 'http://' ) === 0 || strpos( $url, 'https://' ) === 0 );
-                    
-                    // Only save if it has either a valid ID or a valid URL
-                    if ( $has_valid_id || $has_valid_url ) {
-                        $valid_inspiration[] = array(
-                            'type' => isset( $insp_item['type'] ) ? sanitize_text_field( $insp_item['type'] ) : 'image',
-                            'id' => $has_valid_id ? intval( $id_value ) : null,
-                            'url' => $has_valid_url ? esc_url_raw( $url ) : '',
-                            'title' => isset( $insp_item['title'] ) ? sanitize_text_field( $insp_item['title'] ) : '',
-                        );
-                    } else {
-                        error_log( 'Item Facts Save - Skipping invalid inspiration item for item ' . $item_id . ': ' . wp_json_encode( $insp_item ) );
-                    }
-                }
-                $meta['inspiration'] = $valid_inspiration;
-                error_log( 'Item Facts Save - Saved ' . count( $valid_inspiration ) . ' inspiration images for item ' . $item_id . ': ' . wp_json_encode( $valid_inspiration ) );
-            } else {
-                error_log( 'Item Facts Save - Inspiration is not an array for item ' . $item_id );
-                $meta['inspiration'] = array();
-            }
-        }
-        
-        // Smart Alternatives (Commit: Designer Item Modal)
-        if ( isset( $payload['smart_alternatives'] ) ) {
-            $meta['smart_alternatives'] = (bool) $payload['smart_alternatives'];
-        }
-        
-        // Smart Alternatives Note (Notes for suppliers) - ALWAYS save if key exists
-        // Commit 2.3.5.1: Add anti-circumvention filter (reject emails, URLs, phone patterns, contact phrases)
-        if ( array_key_exists( 'smart_alternatives_note', $payload ) ) {
-            $note_value = $payload['smart_alternatives_note'];
-            
-            // Anti-circumvention validation
-            $note_lower = strtolower( $note_value );
-            
-            // Check for email addresses
-            if ( preg_match( '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/', $note_value ) ) {
-                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
-                return;
-            }
-            
-            // Check for URLs (http, https, www, .com, .net, etc.)
-            if ( preg_match( '/\b(https?:\/\/|www\.|[a-zA-Z0-9-]+\.[a-zA-Z]{2,})/', $note_value ) ) {
-                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
-                return;
-            }
-            
-            // Check for phone patterns (7+ digits with common separators)
-            if ( preg_match( '/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|\b\d{7,}\b/', $note_value ) ) {
-                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
-                return;
-            }
-            
-            // Check for contact phrases
-            $contact_phrases = array( 'call', 'text', 'whatsapp', 'contact me', 'reach out', 'get in touch', 'email me', 'phone me', 'call me', 'text me' );
-            foreach ( $contact_phrases as $phrase ) {
-                if ( strpos( $note_lower, $phrase ) !== false ) {
-                    wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
-                    return;
-                }
-            }
-            
-            // If validation passes, save the note
-            $meta['smart_alternatives_note'] = sanitize_textarea_field( $note_value );
-            error_log( 'Item Facts Save - Saving smart_alternatives_note for item ' . $item_id . ': ' . substr( $note_value, 0, 100 ) );
-        } else {
-            error_log( 'Item Facts Save - WARNING: smart_alternatives_note key NOT found in payload for item ' . $item_id );
-        }
+    }
         
         // Delivery info (Commit: Designer Item Modal)
         if ( isset( $payload['delivery_country'] ) ) {
