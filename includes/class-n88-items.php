@@ -766,108 +766,7 @@ class N88_Items {
             
             $dimension_errors = array();
             
-            if ( $raw_width !== null && ! $width_is_clear ) {
-                if ( $raw_width <= 0 ) {
-                    $dimension_errors[] = 'dimension_width must be greater than 0';
-                } elseif ( $raw_width > $dimension_max_cm ) {
-                    $dimension_errors[] = sprintf( 'dimension_width exceeds maximum of %d cm', $dimension_max_cm );
-                }
-            }
-            if ( $raw_depth !== null && ! $depth_is_clear ) {
-                if ( $raw_depth <= 0 ) {
-                    $dimension_errors[] = 'dimension_depth must be greater than 0';
-                } elseif ( $raw_depth > $dimension_max_cm ) {
-                    $dimension_errors[] = sprintf( 'dimension_depth exceeds maximum of %d cm', $dimension_max_cm );
-                }
-            }
-            if ( $raw_height !== null && ! $height_is_clear ) {
-                if ( $raw_height <= 0 ) {
-                    $dimension_errors[] = 'dimension_height must be greater than 0';
-                } elseif ( $raw_height > $dimension_max_cm ) {
-                    $dimension_errors[] = sprintf( 'dimension_height exceeds maximum of %d cm', $dimension_max_cm );
-                }
-            }
             
-            // Reject invalid dimensions with HTTP 400 (no CBM or events written)
-            if ( ! empty( $dimension_errors ) ) {
-                wp_send_json_error( array(
-                    'message' => 'Invalid dimensions: ' . implode( ', ', $dimension_errors ),
-                    'errors' => $dimension_errors,
-                ), 400 );
-            }
-            
-            // Get unit (Option B: Default to 'cm' if missing, and store it)
-            $new_dimension_units_original = isset( $_POST['dimension_units_original'] ) ? sanitize_text_field( wp_unslash( $_POST['dimension_units_original'] ) ) : null;
-            if ( empty( $new_dimension_units_original ) ) {
-                // Option B: Default to 'cm' when unit is missing
-                $new_dimension_units_original = 'cm';
-            }
-            
-            // Validate unit against whitelist (must be done before normalization)
-            if ( ! N88_Intelligence::is_valid_unit( $new_dimension_units_original ) ) {
-                wp_send_json_error( array(
-                    'message' => 'Invalid unit. Allowed: mm, cm, m, in',
-                ), 400 );
-            }
-            
-            // Handle dimension values: explicit clear vs. normalization
-            // Initialize normalized values (preserve existing if not being updated)
-            $new_dimension_width_cm = $old_dimension_width_cm;
-            $new_dimension_depth_cm = $old_dimension_depth_cm;
-            $new_dimension_height_cm = $old_dimension_height_cm;
-            $new_dimension_width_original = $old_dimension_width_original;
-            $new_dimension_depth_original = $old_dimension_depth_original;
-            $new_dimension_height_original = $old_dimension_height_original;
-            
-            // Process width: explicit clear or normalize
-            if ( isset( $_POST['dimension_width'] ) ) {
-                if ( $width_is_clear ) {
-                    // Explicit clear: set both original and normalized to NULL
-                    $new_dimension_width_original = null;
-                    $new_dimension_width_cm = null;
-                    if ( $old_dimension_width_cm !== null ) {
-                        $dimension_changed = true;
-                        $changed_fields[] = array(
-                            'field' => 'dimension_width_cm',
-                            'old_value' => $old_dimension_width_cm,
-                            'new_value' => null,
-                        );
-                        $changed_fields[] = array(
-                            'field' => 'dimension_width_original',
-                            'old_value' => $old_dimension_width_original,
-                            'new_value' => null,
-                        );
-                    }
-                } else {
-                    // Normalize provided value
-                    $new_dimension_width_original = $raw_width;
-                    $normalized = N88_Intelligence::normalize_to_cm( $raw_width, $new_dimension_units_original );
-                    if ( $normalized !== null ) {
-                        $new_dimension_width_cm = $normalized;
-                        // Validate normalized value doesn't exceed max (after conversion)
-                        if ( $new_dimension_width_cm > $dimension_max_cm ) {
-                            wp_send_json_error( array(
-                                'message' => sprintf( 'dimension_width exceeds maximum of %d cm after conversion', $dimension_max_cm ),
-                            ), 400 );
-                        }
-                        if ( $new_dimension_width_cm !== $old_dimension_width_cm ) {
-                            $dimension_changed = true;
-                            $changed_fields[] = array(
-                                'field' => 'dimension_width_cm',
-                                'old_value' => $old_dimension_width_cm,
-                                'new_value' => $new_dimension_width_cm,
-                            );
-                        }
-                        if ( $new_dimension_width_original !== $old_dimension_width_original ) {
-                            $changed_fields[] = array(
-                                'field' => 'dimension_width_original',
-                                'old_value' => $old_dimension_width_original,
-                                'new_value' => $new_dimension_width_original,
-                            );
-                        }
-                    }
-                }
-            }
             
             // Process depth: explicit clear or normalize
             if ( isset( $_POST['dimension_depth'] ) ) {
@@ -1885,10 +1784,128 @@ class N88_Items {
             $should_recalculate_delivery = true;
         }
         
-        
+        if ( $should_recalculate_delivery ) {
+            // Update delivery context with latest dimensions, quantity, and country/postal
+            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
+            $delivery_data = array();
+            $delivery_format = array();
+            
+            // Check if dimensions_json and quantity columns exist
+            $columns = $wpdb->get_col( "DESCRIBE {$delivery_context_table}" );
+            $has_dimensions_column = in_array( 'dimensions_json', $columns, true );
+            $has_quantity_column = in_array( 'quantity', $columns, true );
+            
+            // Update dimensions_json if dimensions were updated
+            if ( $has_dimensions_column && isset( $payload['dims'] ) && is_array( $payload['dims'] ) ) {
+                $dimensions_data = array(
+                    'width' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
+                    'depth' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
+                    'height' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
+                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
+                );
+                $delivery_data['dimensions_json'] = wp_json_encode( $dimensions_data );
+                $delivery_format[] = '%s';
+            }
+            
+            // Update quantity if it was updated
+            if ( $has_quantity_column && isset( $payload['quantity'] ) && $payload['quantity'] > 0 ) {
+                $delivery_data['quantity'] = (int) $payload['quantity'];
+                $delivery_format[] = '%d';
+            }
+            
+            // Update delivery country/postal if provided
+            if ( isset( $payload['delivery_country'] ) ) {
+                $delivery_data['delivery_country_code'] = strtoupper( sanitize_text_field( $payload['delivery_country'] ) );
+                $delivery_format[] = '%s';
+            }
+            
+            if ( isset( $payload['delivery_postal'] ) ) {
+                $delivery_data['delivery_postal_code'] = sanitize_text_field( $payload['delivery_postal'] );
+                $delivery_format[] = '%s';
+            }
+            
+            // Update delivery_context if we have data to update
+            if ( ! empty( $delivery_data ) ) {
+                $existing_delivery = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT item_id FROM {$delivery_context_table} WHERE item_id = %d",
+                    $item_id
+                ) );
+                
+                if ( $existing_delivery ) {
+                    $wpdb->update(
+                        $delivery_context_table,
+                        $delivery_data,
+                        array( 'item_id' => $item_id ),
+                        $delivery_format,
+                        array( '%d' )
+                    );
+                    error_log( sprintf( 
+                        'Item Update - Updated delivery_context for item %d with latest dimensions/quantity: %s',
+                        $item_id, wp_json_encode( $delivery_data )
+                    ) );
+                } else {
+                    // Insert with minimal required fields
+                    $delivery_data['item_id'] = $item_id;
+                    $delivery_data['shipping_estimate_mode'] = 'auto';
+                    if ( ! isset( $delivery_data['delivery_country_code'] ) ) {
+                        $delivery_data['delivery_country_code'] = 'US'; // Default
+                    }
+                    $delivery_format = array_merge( array( '%d' ), $delivery_format, array( '%s' ) );
+                    $wpdb->insert( $delivery_context_table, $delivery_data, $delivery_format );
+                }
+            }
+            
+            // Recalculate and store delivery cost with updated dimensions/quantity
+            if ( class_exists( 'N88_RFQ_Pricing' ) ) {
+                error_log( sprintf( 'Item Update - Triggering delivery cost recalculation for item %d', $item_id ) );
+                N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
+            }
+        }
         
         // Commit 2.3.5.1: Log event - use item_facts_updated_after_rfq if RFQ exists and dims/qty changed
-        
+        if ( $has_rfq && ! empty( $changed_fields ) ) {
+            // Log item_facts_updated_after_rfq event with before/after values
+            $event_payload = array(
+                'changed_fields' => $changed_fields,
+                'before' => array(),
+                'after' => array(),
+                'has_bids' => $has_bids ? true : false,
+            );
+            
+            foreach ( $changed_fields as $field ) {
+                if ( isset( $old_values[ $field ] ) ) {
+                    $event_payload['before'][ $field ] = $old_values[ $field ];
+                }
+                if ( isset( $new_values[ $field ] ) ) {
+                    $event_payload['after'][ $field ] = $new_values[ $field ];
+                }
+            }
+            
+            n88_log_event(
+                'item_facts_updated_after_rfq',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                    'payload_json' => $event_payload,
+                )
+            );
+            
+            error_log( 'Item Facts Save - Logged item_facts_updated_after_rfq event for item ' . $item_id . ' with changes: ' . wp_json_encode( $event_payload ) );
+        } else {
+            // Normal save event (no RFQ or no changes)
+            n88_log_event(
+                'item_facts_saved',
+                'item',
+                array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                    'payload_json' => $payload,
+                )
+            );
+        }
         
         // Return warning flag if bids exist and dims/qty changed
         $has_warning = false;
@@ -1917,7 +1934,22 @@ class N88_Items {
             return;
         }
         
-        
+        // Check if file was uploaded
+        if ( empty( $_FILES['inspiration_image'] ) || $_FILES['inspiration_image']['error'] !== UPLOAD_ERR_OK ) {
+            $error_msg = 'No file uploaded or upload error occurred.';
+            if ( ! empty( $_FILES['inspiration_image']['error'] ) ) {
+                $error_codes = array(
+                    UPLOAD_ERR_INI_SIZE => 'File exceeds upload_max_filesize',
+                    UPLOAD_ERR_FORM_SIZE => 'File exceeds MAX_FILE_SIZE',
+                    UPLOAD_ERR_PARTIAL => 'File was only partially uploaded',
+                    UPLOAD_ERR_NO_FILE => 'No file was uploaded',
+                    UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder',
+                    UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
+                    UPLOAD_ERR_EXTENSION => 'File upload stopped by extension',
+                );
+                $error_code = $_FILES['inspiration_image']['error'];
+                $error_msg = isset( $error_codes[ $error_code ] ) ? $error_codes[ $error_code ] : 'Upload error code: ' . $error_code;
+            }
             wp_send_json_error( array( 'message' => $error_msg ) );
             return;
         }
@@ -1939,7 +1971,12 @@ class N88_Items {
         
         // Check file size (max 10MB)
         $max_size = 10 * 1024 * 1024; // 10MB in bytes
-       
+        if ( $_FILES['inspiration_image']['size'] > $max_size ) {
+            wp_send_json_error( array( 
+                'message' => 'File size exceeds maximum allowed size of 10MB.' 
+            ) );
+            return;
+        }
         
         // Use wp_handle_upload first to process the file
         // Commit 2.3.5.3: Allow PDFs in addition to images
@@ -2010,6 +2047,15 @@ class N88_Items {
         // Generate attachment metadata (creates thumbnails, etc.)
         // Commit 2.3.5.3: Only generate thumbnails for images, not PDFs
         // Note: HEIC files may not generate thumbnails in WordPress by default, but file will be uploaded
+        if ( ! $is_pdf ) {
+            $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
+            wp_update_attachment_metadata( $attachment_id, $attach_data );
+        }
+        
+        // Get attachment data
+        $attachment_url = wp_get_attachment_url( $attachment_id );
+        $attachment_title = get_the_title( $attachment_id );
+        $attachment_filename = basename( get_attached_file( $attachment_id ) );
         
         // Validate that we have both ID and URL before returning
         if ( ! $attachment_id || $attachment_id <= 0 || empty( $attachment_url ) ) {
