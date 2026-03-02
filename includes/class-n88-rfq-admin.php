@@ -13224,61 +13224,6 @@
                                                 // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
                                                 null
                                             ),
-                                            // Quantity
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px' }
-                                            },
-                                            React.createElement('label', {
-                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                }, 'Quantity'),
-                                                React.createElement('input', {
-                                                    type: 'number',
-                                                    value: quantity,
-                                                    onChange: function(e) { setQuantity(e.target.value); },
-                                                    min: '1',
-                                                style: {
-                                                        width: '100%',
-                                                        padding: '8px',
-                                                        backgroundColor: darkBg,
-                                                        border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                        color: darkText,
-                                                        fontSize: '12px',
-                                                        fontFamily: 'monospace',
-                                                }
-                                                }),
-                                                // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
-                                                null
-                                            ),
-                                            // Delivery Country
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px' }
-                                            },
-                                                React.createElement('label', {
-                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                }, 'Delivery Country'),
-                                                React.createElement('select', {
-                                                    value: deliveryCountry,
-                                                    onChange: function(e) { setDeliveryCountry(e.target.value); },
-                                                style: {
-                                                        width: '100%',
-                                                        padding: '8px',
-                                                        backgroundColor: darkBg,
-                                                        border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
-                                                        color: darkText,
-                                                        fontSize: '12px',
-                                                        fontFamily: 'monospace',
-                                                    }
-                                                },
-                                                    React.createElement('option', { value: '' }, 'Select Country'),
-                                                    React.createElement('option', { value: 'US' }, 'US'),
-                                                    React.createElement('option', { value: 'CA' }, 'CA'),
-                                                    React.createElement('option', { value: 'CN' }, 'CN'),
-                                                    React.createElement('option', { value: 'VN' }, 'VN'),
-                                                    React.createElement('option', { value: 'EU' }, 'EU')
-                                                )
-                                        ),
                                             // ZIP/Postal Code
                                             React.createElement('div', {
                                                 style: { marginBottom: '12px' }
@@ -13358,17 +13303,6 @@
                                                     insp.url ? (
                                                         (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
                                                         React.createElement('div', {
-                                                            style: {
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                backgroundColor: '#222',
-                                                                borderRadius: '4px',
-                                                                flexDirection: 'column',
-                                                                gap: '4px',
-                                                            }
                                                         }, 
                                                             React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
                                                             React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')

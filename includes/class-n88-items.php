@@ -766,7 +766,108 @@ class N88_Items {
             
             $dimension_errors = array();
             
+            if ( $raw_width !== null && ! $width_is_clear ) {
+                if ( $raw_width <= 0 ) {
+                    $dimension_errors[] = 'dimension_width must be greater than 0';
+                } elseif ( $raw_width > $dimension_max_cm ) {
+                    $dimension_errors[] = sprintf( 'dimension_width exceeds maximum of %d cm', $dimension_max_cm );
+                }
+            }
+            if ( $raw_depth !== null && ! $depth_is_clear ) {
+                if ( $raw_depth <= 0 ) {
+                    $dimension_errors[] = 'dimension_depth must be greater than 0';
+                } elseif ( $raw_depth > $dimension_max_cm ) {
+                    $dimension_errors[] = sprintf( 'dimension_depth exceeds maximum of %d cm', $dimension_max_cm );
+                }
+            }
+            if ( $raw_height !== null && ! $height_is_clear ) {
+                if ( $raw_height <= 0 ) {
+                    $dimension_errors[] = 'dimension_height must be greater than 0';
+                } elseif ( $raw_height > $dimension_max_cm ) {
+                    $dimension_errors[] = sprintf( 'dimension_height exceeds maximum of %d cm', $dimension_max_cm );
+                }
+            }
             
+            // Reject invalid dimensions with HTTP 400 (no CBM or events written)
+            if ( ! empty( $dimension_errors ) ) {
+                wp_send_json_error( array(
+                    'message' => 'Invalid dimensions: ' . implode( ', ', $dimension_errors ),
+                    'errors' => $dimension_errors,
+                ), 400 );
+            }
+            
+            // Get unit (Option B: Default to 'cm' if missing, and store it)
+            $new_dimension_units_original = isset( $_POST['dimension_units_original'] ) ? sanitize_text_field( wp_unslash( $_POST['dimension_units_original'] ) ) : null;
+            if ( empty( $new_dimension_units_original ) ) {
+                // Option B: Default to 'cm' when unit is missing
+                $new_dimension_units_original = 'cm';
+            }
+            
+            // Validate unit against whitelist (must be done before normalization)
+            if ( ! N88_Intelligence::is_valid_unit( $new_dimension_units_original ) ) {
+                wp_send_json_error( array(
+                    'message' => 'Invalid unit. Allowed: mm, cm, m, in',
+                ), 400 );
+            }
+            
+            // Handle dimension values: explicit clear vs. normalization
+            // Initialize normalized values (preserve existing if not being updated)
+            $new_dimension_width_cm = $old_dimension_width_cm;
+            $new_dimension_depth_cm = $old_dimension_depth_cm;
+            $new_dimension_height_cm = $old_dimension_height_cm;
+            $new_dimension_width_original = $old_dimension_width_original;
+            $new_dimension_depth_original = $old_dimension_depth_original;
+            $new_dimension_height_original = $old_dimension_height_original;
+            
+            // Process width: explicit clear or normalize
+            if ( isset( $_POST['dimension_width'] ) ) {
+                if ( $width_is_clear ) {
+                    // Explicit clear: set both original and normalized to NULL
+                    $new_dimension_width_original = null;
+                    $new_dimension_width_cm = null;
+                    if ( $old_dimension_width_cm !== null ) {
+                        $dimension_changed = true;
+                        $changed_fields[] = array(
+                            'field' => 'dimension_width_cm',
+                            'old_value' => $old_dimension_width_cm,
+                            'new_value' => null,
+                        );
+                        $changed_fields[] = array(
+                            'field' => 'dimension_width_original',
+                            'old_value' => $old_dimension_width_original,
+                            'new_value' => null,
+                        );
+                    }
+                } else {
+                    // Normalize provided value
+                    $new_dimension_width_original = $raw_width;
+                    $normalized = N88_Intelligence::normalize_to_cm( $raw_width, $new_dimension_units_original );
+                    if ( $normalized !== null ) {
+                        $new_dimension_width_cm = $normalized;
+                        // Validate normalized value doesn't exceed max (after conversion)
+                        if ( $new_dimension_width_cm > $dimension_max_cm ) {
+                            wp_send_json_error( array(
+                                'message' => sprintf( 'dimension_width exceeds maximum of %d cm after conversion', $dimension_max_cm ),
+                            ), 400 );
+                        }
+                        if ( $new_dimension_width_cm !== $old_dimension_width_cm ) {
+                            $dimension_changed = true;
+                            $changed_fields[] = array(
+                                'field' => 'dimension_width_cm',
+                                'old_value' => $old_dimension_width_cm,
+                                'new_value' => $new_dimension_width_cm,
+                            );
+                        }
+                        if ( $new_dimension_width_original !== $old_dimension_width_original ) {
+                            $changed_fields[] = array(
+                                'field' => 'dimension_width_original',
+                                'old_value' => $old_dimension_width_original,
+                                'new_value' => $new_dimension_width_original,
+                            );
+                        }
+                    }
+                }
+            }
             
             // Process depth: explicit clear or normalize
             if ( isset( $_POST['dimension_depth'] ) ) {
