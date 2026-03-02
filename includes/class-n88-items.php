@@ -1848,52 +1848,47 @@ class N88_Items {
             array( '%d' )
         );
         
+        if ( $result === false ) {
+            error_log( 'Item Facts Save - DATABASE UPDATE FAILED for item ' . $item_id . '. Error: ' . $wpdb->last_error );
+            error_log( 'Item Facts Save - Update data: ' . wp_json_encode( $update_data ) );
+            error_log( 'Item Facts Save - Update format: ' . wp_json_encode( $update_format ) );
+            wp_send_json_error( array( 'message' => 'Failed to update item. Database error: ' . $wpdb->last_error ) );
+            return;
+        }
+        
+        // Verify the save worked by reading back from database
+        $verify_meta_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $verify_meta = ! empty( $verify_meta_json ) ? json_decode( $verify_meta_json, true ) : array();
+        
+        error_log( 'Item Facts Save - Database update result: ' . ( $result > 0 ? 'SUCCESS (' . $result . ' rows updated)' : 'NO ROWS UPDATED' ) );
+        error_log( 'Item Facts Save - Verified meta_json after save: ' . wp_json_encode( $verify_meta ) );
+        error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
+        error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
+        
+        // Verify project_id and room_id were saved correctly
+        if ( $has_project_param || $has_room_param ) {
+            $items_columns_check = $wpdb->get_col( "DESCRIBE " . preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table ) );
+            $has_pr_cols = in_array( 'project_id', $items_columns_check, true ) && in_array( 'room_id', $items_columns_check, true );
+            if ( $has_pr_cols ) {
+                $saved_values = $wpdb->get_row( $wpdb->prepare( "SELECT project_id, room_id FROM {$items_table} WHERE id = %d", $item_id ), ARRAY_A );
+                error_log( 'N88 Save Item Facts: Verified saved values for item_id=' . $item_id . ' - project_id=' . ( $saved_values['project_id'] ?? 'NULL' ) . ', room_id=' . ( $saved_values['room_id'] ?? 'NULL' ) );
+            }
+        }
+        
+        // Commit 2.3.10: Recalculate delivery cost if dimensions, quantity, or delivery country changed
+        $should_recalculate_delivery = false;
+        if ( in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true ) || 
+             ( isset( $payload['delivery_country'] ) || isset( $payload['delivery_postal'] ) ) ) {
+            $should_recalculate_delivery = true;
+        }
+        
         
         
         // Commit 2.3.5.1: Log event - use item_facts_updated_after_rfq if RFQ exists and dims/qty changed
-        if ( $has_rfq && ! empty( $changed_fields ) ) {
-            // Log item_facts_updated_after_rfq event with before/after values
-            $event_payload = array(
-                'changed_fields' => $changed_fields,
-                'before' => array(),
-                'after' => array(),
-                'has_bids' => $has_bids ? true : false,
-            );
-            
-            foreach ( $changed_fields as $field ) {
-                if ( isset( $old_values[ $field ] ) ) {
-                    $event_payload['before'][ $field ] = $old_values[ $field ];
-                }
-                if ( isset( $new_values[ $field ] ) ) {
-                    $event_payload['after'][ $field ] = $new_values[ $field ];
-                }
-            }
-            
-            n88_log_event(
-                'item_facts_updated_after_rfq',
-                'item',
-                array(
-                    'object_id' => $item_id,
-                    'item_id' => $item_id,
-                    'board_id' => $board_id > 0 ? $board_id : null,
-                    'payload_json' => $event_payload,
-                )
-            );
-            
-            error_log( 'Item Facts Save - Logged item_facts_updated_after_rfq event for item ' . $item_id . ' with changes: ' . wp_json_encode( $event_payload ) );
-        } else {
-            // Normal save event (no RFQ or no changes)
-            n88_log_event(
-                'item_facts_saved',
-                'item',
-                array(
-                    'object_id' => $item_id,
-                    'item_id' => $item_id,
-                    'board_id' => $board_id > 0 ? $board_id : null,
-                    'payload_json' => $payload,
-                )
-            );
-        }
+        
         
         // Return warning flag if bids exist and dims/qty changed
         $has_warning = false;
@@ -1922,22 +1917,7 @@ class N88_Items {
             return;
         }
         
-        // Check if file was uploaded
-        if ( empty( $_FILES['inspiration_image'] ) || $_FILES['inspiration_image']['error'] !== UPLOAD_ERR_OK ) {
-            $error_msg = 'No file uploaded or upload error occurred.';
-            if ( ! empty( $_FILES['inspiration_image']['error'] ) ) {
-                $error_codes = array(
-                    UPLOAD_ERR_INI_SIZE => 'File exceeds upload_max_filesize',
-                    UPLOAD_ERR_FORM_SIZE => 'File exceeds MAX_FILE_SIZE',
-                    UPLOAD_ERR_PARTIAL => 'File was only partially uploaded',
-                    UPLOAD_ERR_NO_FILE => 'No file was uploaded',
-                    UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder',
-                    UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
-                    UPLOAD_ERR_EXTENSION => 'File upload stopped by extension',
-                );
-                $error_code = $_FILES['inspiration_image']['error'];
-                $error_msg = isset( $error_codes[ $error_code ] ) ? $error_codes[ $error_code ] : 'Upload error code: ' . $error_code;
-            }
+        
             wp_send_json_error( array( 'message' => $error_msg ) );
             return;
         }
@@ -1959,12 +1939,7 @@ class N88_Items {
         
         // Check file size (max 10MB)
         $max_size = 10 * 1024 * 1024; // 10MB in bytes
-        if ( $_FILES['inspiration_image']['size'] > $max_size ) {
-            wp_send_json_error( array( 
-                'message' => 'File size exceeds maximum allowed size of 10MB.' 
-            ) );
-            return;
-        }
+       
         
         // Use wp_handle_upload first to process the file
         // Commit 2.3.5.3: Allow PDFs in addition to images
@@ -2035,15 +2010,6 @@ class N88_Items {
         // Generate attachment metadata (creates thumbnails, etc.)
         // Commit 2.3.5.3: Only generate thumbnails for images, not PDFs
         // Note: HEIC files may not generate thumbnails in WordPress by default, but file will be uploaded
-        if ( ! $is_pdf ) {
-            $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
-            wp_update_attachment_metadata( $attachment_id, $attach_data );
-        }
-        
-        // Get attachment data
-        $attachment_url = wp_get_attachment_url( $attachment_id );
-        $attachment_title = get_the_title( $attachment_id );
-        $attachment_filename = basename( get_attached_file( $attachment_id ) );
         
         // Validate that we have both ID and URL before returning
         if ( ! $attachment_id || $attachment_id <= 0 || empty( $attachment_url ) ) {
