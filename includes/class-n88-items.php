@@ -1651,7 +1651,89 @@ class N88_Items {
         if ( isset( $payload['delivery_postal'] ) ) {
             $meta['delivery_postal'] = sanitize_text_field( $payload['delivery_postal'] );
         }
-    
+        
+        // Quantity (Commit: State B save fix) - ALWAYS save if key exists and value is valid
+        if ( array_key_exists( 'quantity', $payload ) ) {
+            $qty_value = $payload['quantity'];
+            error_log( 'Item Facts Save - Processing quantity for item ' . $item_id . '. Raw value: ' . var_export( $qty_value, true ) . ' (type: ' . gettype( $qty_value ) . ')' );
+            
+            // Save if key exists AND value is numeric AND >= 0
+            // Fix: Use is_numeric() instead of is_nan() for integers
+            if ( $qty_value !== null && $qty_value !== '' ) {
+                // Check if value is numeric (handles both string and numeric)
+                if ( is_numeric( $qty_value ) ) {
+                    $qty_int = (int) $qty_value; // Cast to int
+                    // Allow 0 and positive values
+                    if ( $qty_int >= 0 ) {
+                        $meta['quantity'] = $qty_int;
+                        error_log( 'Item Facts Save - SUCCESS: Saving quantity ' . $qty_int . ' for item ' . $item_id );
+                    } else {
+                        error_log( 'Item Facts Save - ERROR: Quantity must be >= 0 for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
+                    }
+                } else {
+                    error_log( 'Item Facts Save - ERROR: Quantity is not numeric for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
+                }
+            } else {
+                error_log( 'Item Facts Save - WARNING: Quantity is null or empty for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
+            }
+        } else {
+            error_log( 'Item Facts Save - WARNING: quantity key NOT found in payload for item ' . $item_id );
+        }
+        
+        // Commit 2.3.5.1: Detect changes after RFQ (for event logging) - must be done before updating meta_json
+        if ( $has_rfq ) {
+            // Check if dims changed
+            if ( isset( $payload['dims'] ) ) {
+                $new_dims = array(
+                    'w' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
+                    'd' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
+                    'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
+                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
+                );
+                $old_dims = isset( $old_values['dims'] ) ? $old_values['dims'] : null;
+                $old_unit = isset( $old_dims['unit'] ) ? $old_dims['unit'] : null;
+                $new_unit = $new_dims['unit'];
+                
+                if ( wp_json_encode( $old_dims ) !== wp_json_encode( $new_dims ) ) {
+                    $changed_fields[] = 'dims';
+                    $new_values['dims'] = $new_dims;
+                    
+                    // Also track dimension_unit separately if unit changed
+                    if ( $old_unit !== $new_unit ) {
+                        if ( ! in_array( 'dimension_unit', $changed_fields, true ) ) {
+                            $changed_fields[] = 'dimension_unit';
+                        }
+                        $new_values['dimension_unit'] = $new_unit;
+                        if ( ! isset( $old_values['dimension_unit'] ) ) {
+                            $old_values['dimension_unit'] = $old_unit;
+                        }
+                    }
+                }
+            }
+            
+            // Check if quantity changed
+            if ( array_key_exists( 'quantity', $payload ) ) {
+                $qty_value = $payload['quantity'];
+                if ( $qty_value !== null && $qty_value !== '' && is_numeric( $qty_value ) ) {
+                    $new_qty = (int) $qty_value;
+                    $old_qty = isset( $old_values['quantity'] ) ? $old_values['quantity'] : null;
+                    if ( $old_qty !== $new_qty ) {
+                        $changed_fields[] = 'quantity';
+                        $new_values['quantity'] = $new_qty;
+                    }
+                }
+            }
+            
+            // Check if CBM changed (recalculated)
+            if ( isset( $payload['cbm'] ) ) {
+                $new_cbm = floatval( $payload['cbm'] );
+                $old_cbm = isset( $old_values['cbm'] ) ? $old_values['cbm'] : null;
+                if ( abs( ( $old_cbm ? $old_cbm : 0 ) - $new_cbm ) > 0.0001 ) {
+                    $changed_fields[] = 'cbm';
+                    $new_values['cbm'] = $new_cbm;
+                }
+            }
+        }
         
         // D2) Revision Increment Logic: If RFQ exists and dims/quantity changed, increment revision
         $revision_incremented = false;
@@ -1660,7 +1742,91 @@ class N88_Items {
             // Check if dims or quantity changed (these trigger revision increment)
             $specs_changed = in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true );
             
-           
+            if ( $specs_changed ) {
+                // Get current revision from meta (default to 1 if not set)
+                $current_revision = isset( $meta['rfq_revision_current'] ) ? intval( $meta['rfq_revision_current'] ) : 1;
+                
+                // Increment revision
+                $new_revision = $current_revision + 1;
+                $meta['rfq_revision_current'] = $new_revision;
+                $revision_incremented = true;
+                
+                // Set revision_changed flag to true
+                $meta['revision_changed'] = true;
+                
+                error_log( 'Item Facts Save - Revision incremented for item ' . $item_id . ' from ' . $current_revision . ' to ' . $new_revision );
+                
+                // Mark existing bids as stale (bids with older revision or no revision)
+                $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+                $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+                $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
+                
+                if ( $has_revision_column ) {
+                    // Update bids where rfq_revision_at_submit < new_revision OR is NULL
+                    $stale_bids_updated = $wpdb->query( $wpdb->prepare(
+                        "UPDATE {$item_bids_table} 
+                        SET rfq_revision_at_submit = NULL 
+                        WHERE item_id = %d 
+                        AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)",
+                        $item_id,
+                        $new_revision
+                    ) );
+                    
+                    if ( $stale_bids_updated !== false ) {
+                        error_log( 'Item Facts Save - Marked ' . $stale_bids_updated . ' stale bid(s) for item ' . $item_id );
+                    }
+                }
+                
+                // Get supplier IDs from RFQ routes for this item
+                $supplier_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT supplier_id FROM {$rfq_routes_table} 
+                    WHERE item_id = %d 
+                    AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+                    $item_id
+                ) );
+                
+                // Send notifications to suppliers about spec changes
+                if ( ! empty( $supplier_ids ) ) {
+                    // Get item title for notification
+                    $item_title = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT title FROM {$items_table} WHERE id = %d",
+                        $item_id
+                    ) );
+                    $item_title = $item_title ? $item_title : 'Item #' . $item_id;
+                    
+                    // Get board_id from board_items table if available (for notification project_id)
+                    $board_items_table = $wpdb->prefix . 'n88_board_items';
+                    $board_id_for_notification = $board_id > 0 ? $board_id : $wpdb->get_var( $wpdb->prepare(
+                        "SELECT board_id FROM {$board_items_table} 
+                        WHERE item_id = %d AND removed_at IS NULL 
+                        LIMIT 1",
+                        $item_id
+                    ) );
+                    $board_id_for_notification = $board_id_for_notification ? intval( $board_id_for_notification ) : 0;
+                    
+                    // Send notification to each supplier
+                    foreach ( $supplier_ids as $supplier_id ) {
+                        // Create in-app notification
+                        if ( class_exists( 'N88_RFQ_Notifications' ) ) {
+                            $notification_message = sprintf( 
+                                'Specifications changed for item: %s. Please review the updated requirements.',
+                                $item_title
+                            );
+                            
+                            // Use board_id as project_id for notification system
+                            N88_RFQ_Notifications::create_notification(
+                                $board_id_for_notification, // project_id (using board_id)
+                                $supplier_id,
+                                'specs_changed',
+                                $notification_message,
+                                $item_id
+                            );
+                            
+                            error_log( 'Item Facts Save - Sent specs_changed notification to supplier ' . $supplier_id . ' for item ' . $item_id . ' (board_id: ' . $board_id_for_notification . ')' );
+                        }
+                    }
+                }
+            }
         }
         
         // Update meta_json
@@ -1683,112 +1849,6 @@ class N88_Items {
         );
         
         
-        // Verify the save worked by reading back from database
-        $verify_meta_json = $wpdb->get_var( $wpdb->prepare(
-            "SELECT meta_json FROM {$items_table} WHERE id = %d",
-            $item_id
-        ) );
-        $verify_meta = ! empty( $verify_meta_json ) ? json_decode( $verify_meta_json, true ) : array();
-        
-        error_log( 'Item Facts Save - Database update result: ' . ( $result > 0 ? 'SUCCESS (' . $result . ' rows updated)' : 'NO ROWS UPDATED' ) );
-        error_log( 'Item Facts Save - Verified meta_json after save: ' . wp_json_encode( $verify_meta ) );
-        error_log( 'Item Facts Save - Verified quantity after save: ' . ( isset( $verify_meta['quantity'] ) ? var_export( $verify_meta['quantity'], true ) : 'NOT FOUND' ) );
-        error_log( 'Item Facts Save - Verified smart_alternatives_note after save: ' . ( isset( $verify_meta['smart_alternatives_note'] ) ? substr( $verify_meta['smart_alternatives_note'], 0, 100 ) : 'NOT FOUND' ) );
-        
-        // Verify project_id and room_id were saved correctly
-        if ( $has_project_param || $has_room_param ) {
-            $items_columns_check = $wpdb->get_col( "DESCRIBE " . preg_replace( '/[^a-zA-Z0-9_]/', '', $items_table ) );
-            $has_pr_cols = in_array( 'project_id', $items_columns_check, true ) && in_array( 'room_id', $items_columns_check, true );
-            if ( $has_pr_cols ) {
-                $saved_values = $wpdb->get_row( $wpdb->prepare( "SELECT project_id, room_id FROM {$items_table} WHERE id = %d", $item_id ), ARRAY_A );
-                error_log( 'N88 Save Item Facts: Verified saved values for item_id=' . $item_id . ' - project_id=' . ( $saved_values['project_id'] ?? 'NULL' ) . ', room_id=' . ( $saved_values['room_id'] ?? 'NULL' ) );
-            }
-        }
-        
-        // Commit 2.3.10: Recalculate delivery cost if dimensions, quantity, or delivery country changed
-        $should_recalculate_delivery = false;
-        if ( in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true ) || 
-             ( isset( $payload['delivery_country'] ) || isset( $payload['delivery_postal'] ) ) ) {
-            $should_recalculate_delivery = true;
-        }
-        
-        if ( $should_recalculate_delivery ) {
-            // Update delivery context with latest dimensions, quantity, and country/postal
-            $delivery_context_table = $wpdb->prefix . 'n88_item_delivery_context';
-            $delivery_data = array();
-            $delivery_format = array();
-            
-            // Check if dimensions_json and quantity columns exist
-            $columns = $wpdb->get_col( "DESCRIBE {$delivery_context_table}" );
-            $has_dimensions_column = in_array( 'dimensions_json', $columns, true );
-            $has_quantity_column = in_array( 'quantity', $columns, true );
-            
-            // Update dimensions_json if dimensions were updated
-            if ( $has_dimensions_column && isset( $payload['dims'] ) && is_array( $payload['dims'] ) ) {
-                $dimensions_data = array(
-                    'width' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
-                    'depth' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
-                    'height' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
-                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
-                );
-                $delivery_data['dimensions_json'] = wp_json_encode( $dimensions_data );
-                $delivery_format[] = '%s';
-            }
-            
-            // Update quantity if it was updated
-            if ( $has_quantity_column && isset( $payload['quantity'] ) && $payload['quantity'] > 0 ) {
-                $delivery_data['quantity'] = (int) $payload['quantity'];
-                $delivery_format[] = '%d';
-            }
-            
-            // Update delivery country/postal if provided
-            if ( isset( $payload['delivery_country'] ) ) {
-                $delivery_data['delivery_country_code'] = strtoupper( sanitize_text_field( $payload['delivery_country'] ) );
-                $delivery_format[] = '%s';
-            }
-            
-            if ( isset( $payload['delivery_postal'] ) ) {
-                $delivery_data['delivery_postal_code'] = sanitize_text_field( $payload['delivery_postal'] );
-                $delivery_format[] = '%s';
-            }
-            
-            // Update delivery_context if we have data to update
-            if ( ! empty( $delivery_data ) ) {
-                $existing_delivery = $wpdb->get_var( $wpdb->prepare(
-                    "SELECT item_id FROM {$delivery_context_table} WHERE item_id = %d",
-                    $item_id
-                ) );
-                
-                if ( $existing_delivery ) {
-                    $wpdb->update(
-                        $delivery_context_table,
-                        $delivery_data,
-                        array( 'item_id' => $item_id ),
-                        $delivery_format,
-                        array( '%d' )
-                    );
-                    error_log( sprintf( 
-                        'Item Update - Updated delivery_context for item %d with latest dimensions/quantity: %s',
-                        $item_id, wp_json_encode( $delivery_data )
-                    ) );
-                } else {
-                    // Insert with minimal required fields
-                    $delivery_data['item_id'] = $item_id;
-                    $delivery_data['shipping_estimate_mode'] = 'auto';
-                    if ( ! isset( $delivery_data['delivery_country_code'] ) ) {
-                        $delivery_data['delivery_country_code'] = 'US'; // Default
-                    }
-                    $delivery_format = array_merge( array( '%d' ), $delivery_format, array( '%s' ) );
-                    $wpdb->insert( $delivery_context_table, $delivery_data, $delivery_format );
-                }
-            }
-            
-            // Recalculate and store delivery cost with updated dimensions/quantity
-            if ( class_exists( 'N88_RFQ_Pricing' ) ) {
-                error_log( sprintf( 'Item Update - Triggering delivery cost recalculation for item %d', $item_id ) );
-                N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
-            }
-        }
         
         // Commit 2.3.5.1: Log event - use item_facts_updated_after_rfq if RFQ exists and dims/qty changed
         if ( $has_rfq && ! empty( $changed_fields ) ) {
