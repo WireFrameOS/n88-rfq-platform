@@ -5798,10 +5798,10 @@ class N88_RFQ_Auth {
                 
                 console.log('Photo validation - Inputs found:', photoIdInputs.length, 'Photos counted:', bidPhotosCount, 'Form:', !!form, 'Preview container:', !!previewContainer);
                 
-                if (bidPhotosCount < 1) {
+                if (bidPhotosCount < 2) {
                     isValid = false;
                     if (photosError) {
-                        photosError.textContent = 'At least 1 photo is required.';
+                        photosError.textContent = 'At least 2 photos are required.';
                         photosError.style.display = 'block';
                     }
                     console.log('✗ Photo validation FAILED - Need at least 1 photo');
@@ -6549,10 +6549,10 @@ class N88_RFQ_Auth {
                 });
                 
                 var photosError = document.getElementById('n88-bid-photos-error-embedded-' + itemId);
-                if (bidPhotosCount < 1) {
+                if (bidPhotosCount < 2) {
                     isValid = false;
                     if (photosError) {
-                        photosError.textContent = 'At least 1 photo is required.';
+                        photosError.textContent = 'At least 2 photos are required.';
                         photosError.style.display = 'block';
                     }
                 } else if (bidPhotosCount > 5) {
@@ -7988,11 +7988,11 @@ class N88_RFQ_Auth {
                 .then(function(data) {
                     if (data.success) {
                         alert(data.data.message || 'Bid withdrawn successfully.');
-                        // Commit 2.3.5.5: Refresh the item detail modal immediately to show updated state
+                        // Close the modal and reload the page so the supplier sees the updated state on the board
                         closeBidModal();
                         setTimeout(function() {
-                            openBidModal(itemId);
-                        }, 100);
+                            window.location.reload();
+                        }, 150);
                     } else {
                         alert(data.data.message || 'Failed to withdraw bid. Please try again.');
                     }
@@ -10717,6 +10717,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $total_price_raw_for_bid = $unit_price_raw_for_bid * $item_quantity_for_bid;
                     }
                     
+                    // Ensure video_links is always an array
+                    $video_links_for_json = ( isset( $video_links ) && is_array( $video_links ) ) ? $video_links : array();
+                    
+                    // Ensure video_links is always an array for draft path
+                    $video_links_for_json = ( isset( $video_links ) && is_array( $video_links ) ) ? $video_links : array();
+                    
                     $bid_data = array(
                         'unit_price' => $unit_price_raw_for_bid,
                         'total_price' => $total_price_raw_for_bid !== null ? number_format( $total_price_raw_for_bid, 2, '.', '' ) : null, // Supplier sees total raw price
@@ -10727,7 +10733,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         'prototype_cost' => $existing_bid['prototype_cost'] ? floatval( $existing_bid['prototype_cost'] ) : null,
                         'video_links' => array_map( function( $link ) {
                             return esc_url_raw( $link['url'] );
-                        }, $video_links ),
+                        }, $video_links_for_json ),
                         'bid_photos' => $photo_urls,
                         'created_at' => $bid_created_at,
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
@@ -10841,7 +10847,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         'prototype_cost' => $existing_bid['prototype_cost'] ? floatval( $existing_bid['prototype_cost'] ) : null,
                         'video_links' => array_map( function( $link ) {
                             return esc_url_raw( $link['url'] );
-                        }, $video_links ),
+                        }, $video_links_for_json ),
                         'bid_photos' => $photo_urls,
                         'bid_photo_ids' => $bid_photo_ids, // H) Photo IDs for restoration
                         'bid_photo_urls' => $bid_photo_urls_array, // H) Photo URLs with IDs for restoration
@@ -11979,7 +11985,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'cad_yes' => isset( $bid['cad_yes'] ) && intval( $bid['cad_yes'] ) === 1 ? true : false,
                     'video_links' => array_map( function( $link ) {
                         return esc_url_raw( $link['url'] );
-                    }, $media_links ),
+                    }, is_array( $media_links ) ? $media_links : array() ),
                     'video_links_by_provider' => $video_links_by_provider,
                     'photo_urls' => $photo_urls,
                     'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
@@ -12563,8 +12569,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         
         $bid_photos_count = count( $bid_photo_ids );
         
-        if ( $bid_photos_count < 1 ) {
-            $errors['bid_photos'] = 'At least 1 photo is required.';
+        if ( $bid_photos_count < 2 ) {
+            $errors['bid_photos'] = 'At least 2 photos are required.';
         } elseif ( $bid_photos_count > 5 ) {
             $errors['bid_photos'] = 'Maximum 5 photos allowed.';
         } else {
@@ -12777,8 +12783,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         
         $bid_photos_count = count( $bid_photo_ids );
         
-        if ( $bid_photos_count < 1 ) {
-            $errors['bid_photos'] = 'At least 1 photo is required.';
+        if ( $bid_photos_count < 2 ) {
+            $errors['bid_photos'] = 'At least 2 photos are required.';
         } elseif ( $bid_photos_count > 5 ) {
             $errors['bid_photos'] = 'Maximum 5 photos allowed.';
         } else {
@@ -14633,6 +14639,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
             
             // Build draft data array
+            // Ensure video_links is always an array before mapping
+            $video_links_for_json = ( isset( $video_links ) && is_array( $video_links ) ) ? $video_links : array();
+            
             $draft = array(
                 'unit_price' => $draft_bid['unit_price'] ? floatval( $draft_bid['unit_price'] ) : null,
                 'production_lead_time_text' => $draft_bid['production_lead_time_text'] ? sanitize_text_field( $draft_bid['production_lead_time_text'] ) : null,
@@ -14641,7 +14650,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'prototype_cost' => $draft_bid['prototype_cost'] ? floatval( $draft_bid['prototype_cost'] ) : null,
                 'video_links' => array_map( function( $link ) {
                     return esc_url_raw( $link['url'] );
-                }, $video_links ),
+                }, $video_links_for_json ),
                 'bid_photos' => $photo_urls,
                 'bid_photo_ids' => $bid_photo_ids,
                 'bid_photo_urls' => $bid_photo_urls_array,

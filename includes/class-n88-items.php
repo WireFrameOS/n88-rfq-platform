@@ -1534,7 +1534,114 @@ class N88_Items {
                 'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
             );
         }
-    }
+        
+        if ( isset( $payload['dims_cm'] ) ) {
+            $meta['dims_cm'] = $payload['dims_cm'];
+        }
+        
+        if ( isset( $payload['cbm'] ) ) {
+            $meta['cbm'] = floatval( $payload['cbm'] );
+        }
+        
+        if ( isset( $payload['sourcing_type'] ) ) {
+            $meta['sourcing_type'] = sanitize_text_field( $payload['sourcing_type'] );
+        }
+        
+        if ( isset( $payload['timeline_type'] ) ) {
+            $meta['timeline_type'] = sanitize_text_field( $payload['timeline_type'] );
+        }
+        
+        if ( isset( $payload['inspiration'] ) ) {
+            // Validate and sanitize inspiration array
+            $inspiration = $payload['inspiration'];
+            if ( is_array( $inspiration ) ) {
+                $valid_inspiration = array();
+                foreach ( $inspiration as $insp_item ) {
+                    // Only save items with valid structure - must have either a valid ID or a valid HTTP URL
+                    if ( ! is_array( $insp_item ) ) {
+                        continue;
+                    }
+                    
+                    // Check for valid ID (must be numeric and > 0)
+                    // Note: isset() returns false for null, so we need to check array_key_exists or use null coalescing
+                    $id_value = isset( $insp_item['id'] ) ? $insp_item['id'] : null;
+                    $has_valid_id = $id_value !== null && 
+                                    $id_value !== '' &&
+                                    is_numeric( $id_value ) && 
+                                    intval( $id_value ) > 0;
+                    
+                    // Check for valid URL (must be non-empty and start with http/https)
+                    $url = isset( $insp_item['url'] ) ? trim( $insp_item['url'] ) : '';
+                    $has_valid_url = ! empty( $url ) && 
+                                    $url !== '' &&
+                                    ( strpos( $url, 'http://' ) === 0 || strpos( $url, 'https://' ) === 0 );
+                    
+                    // Only save if it has either a valid ID or a valid URL
+                    if ( $has_valid_id || $has_valid_url ) {
+                        $valid_inspiration[] = array(
+                            'type' => isset( $insp_item['type'] ) ? sanitize_text_field( $insp_item['type'] ) : 'image',
+                            'id' => $has_valid_id ? intval( $id_value ) : null,
+                            'url' => $has_valid_url ? esc_url_raw( $url ) : '',
+                            'title' => isset( $insp_item['title'] ) ? sanitize_text_field( $insp_item['title'] ) : '',
+                        );
+                    } else {
+                        error_log( 'Item Facts Save - Skipping invalid inspiration item for item ' . $item_id . ': ' . wp_json_encode( $insp_item ) );
+                    }
+                }
+                $meta['inspiration'] = $valid_inspiration;
+                error_log( 'Item Facts Save - Saved ' . count( $valid_inspiration ) . ' inspiration images for item ' . $item_id . ': ' . wp_json_encode( $valid_inspiration ) );
+            } else {
+                error_log( 'Item Facts Save - Inspiration is not an array for item ' . $item_id );
+                $meta['inspiration'] = array();
+            }
+        }
+        
+        // Smart Alternatives (Commit: Designer Item Modal)
+        if ( isset( $payload['smart_alternatives'] ) ) {
+            $meta['smart_alternatives'] = (bool) $payload['smart_alternatives'];
+        }
+        
+        // Smart Alternatives Note (Notes for suppliers) - ALWAYS save if key exists
+        // Commit 2.3.5.1: Add anti-circumvention filter (reject emails, URLs, phone patterns, contact phrases)
+        if ( array_key_exists( 'smart_alternatives_note', $payload ) ) {
+            $note_value = $payload['smart_alternatives_note'];
+            
+            // Anti-circumvention validation
+            $note_lower = strtolower( $note_value );
+            
+            // Check for email addresses
+            if ( preg_match( '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for URLs (http, https, www, .com, .net, etc.)
+            if ( preg_match( '/\b(https?:\/\/|www\.|[a-zA-Z0-9-]+\.[a-zA-Z]{2,})/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for phone patterns (7+ digits with common separators)
+            if ( preg_match( '/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|\b\d{7,}\b/', $note_value ) ) {
+                wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                return;
+            }
+            
+            // Check for contact phrases
+            $contact_phrases = array( 'call', 'text', 'whatsapp', 'contact me', 'reach out', 'get in touch', 'email me', 'phone me', 'call me', 'text me' );
+            foreach ( $contact_phrases as $phrase ) {
+                if ( strpos( $note_lower, $phrase ) !== false ) {
+                    wp_send_json_error( array( 'message' => 'Notes cannot include contact details or links.' ) );
+                    return;
+                }
+            }
+            
+            // If validation passes, save the note
+            $meta['smart_alternatives_note'] = sanitize_textarea_field( $note_value );
+            error_log( 'Item Facts Save - Saving smart_alternatives_note for item ' . $item_id . ': ' . substr( $note_value, 0, 100 ) );
+        } else {
+            error_log( 'Item Facts Save - WARNING: smart_alternatives_note key NOT found in payload for item ' . $item_id );
+        }
         
         // Delivery info (Commit: Designer Item Modal)
         if ( isset( $payload['delivery_country'] ) ) {
@@ -1544,89 +1651,7 @@ class N88_Items {
         if ( isset( $payload['delivery_postal'] ) ) {
             $meta['delivery_postal'] = sanitize_text_field( $payload['delivery_postal'] );
         }
-        
-        // Quantity (Commit: State B save fix) - ALWAYS save if key exists and value is valid
-        if ( array_key_exists( 'quantity', $payload ) ) {
-            $qty_value = $payload['quantity'];
-            error_log( 'Item Facts Save - Processing quantity for item ' . $item_id . '. Raw value: ' . var_export( $qty_value, true ) . ' (type: ' . gettype( $qty_value ) . ')' );
-            
-            // Save if key exists AND value is numeric AND >= 0
-            // Fix: Use is_numeric() instead of is_nan() for integers
-            if ( $qty_value !== null && $qty_value !== '' ) {
-                // Check if value is numeric (handles both string and numeric)
-                if ( is_numeric( $qty_value ) ) {
-                    $qty_int = (int) $qty_value; // Cast to int
-                    // Allow 0 and positive values
-                    if ( $qty_int >= 0 ) {
-                        $meta['quantity'] = $qty_int;
-                        error_log( 'Item Facts Save - SUCCESS: Saving quantity ' . $qty_int . ' for item ' . $item_id );
-                    } else {
-                        error_log( 'Item Facts Save - ERROR: Quantity must be >= 0 for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
-                    }
-                } else {
-                    error_log( 'Item Facts Save - ERROR: Quantity is not numeric for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
-                }
-            } else {
-                error_log( 'Item Facts Save - WARNING: Quantity is null or empty for item ' . $item_id . '. Value: ' . var_export( $qty_value, true ) );
-            }
-        } else {
-            error_log( 'Item Facts Save - WARNING: quantity key NOT found in payload for item ' . $item_id );
-        }
-        
-        // Commit 2.3.5.1: Detect changes after RFQ (for event logging) - must be done before updating meta_json
-        if ( $has_rfq ) {
-            // Check if dims changed
-            if ( isset( $payload['dims'] ) ) {
-                $new_dims = array(
-                    'w' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
-                    'd' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
-                    'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
-                    'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
-                );
-                $old_dims = isset( $old_values['dims'] ) ? $old_values['dims'] : null;
-                $old_unit = isset( $old_dims['unit'] ) ? $old_dims['unit'] : null;
-                $new_unit = $new_dims['unit'];
-                
-                if ( wp_json_encode( $old_dims ) !== wp_json_encode( $new_dims ) ) {
-                    $changed_fields[] = 'dims';
-                    $new_values['dims'] = $new_dims;
-                    
-                    // Also track dimension_unit separately if unit changed
-                    if ( $old_unit !== $new_unit ) {
-                        if ( ! in_array( 'dimension_unit', $changed_fields, true ) ) {
-                            $changed_fields[] = 'dimension_unit';
-                        }
-                        $new_values['dimension_unit'] = $new_unit;
-                        if ( ! isset( $old_values['dimension_unit'] ) ) {
-                            $old_values['dimension_unit'] = $old_unit;
-                        }
-                    }
-                }
-            }
-            
-            // Check if quantity changed
-            if ( array_key_exists( 'quantity', $payload ) ) {
-                $qty_value = $payload['quantity'];
-                if ( $qty_value !== null && $qty_value !== '' && is_numeric( $qty_value ) ) {
-                    $new_qty = (int) $qty_value;
-                    $old_qty = isset( $old_values['quantity'] ) ? $old_values['quantity'] : null;
-                    if ( $old_qty !== $new_qty ) {
-                        $changed_fields[] = 'quantity';
-                        $new_values['quantity'] = $new_qty;
-                    }
-                }
-            }
-            
-            // Check if CBM changed (recalculated)
-            if ( isset( $payload['cbm'] ) ) {
-                $new_cbm = floatval( $payload['cbm'] );
-                $old_cbm = isset( $old_values['cbm'] ) ? $old_values['cbm'] : null;
-                if ( abs( ( $old_cbm ? $old_cbm : 0 ) - $new_cbm ) > 0.0001 ) {
-                    $changed_fields[] = 'cbm';
-                    $new_values['cbm'] = $new_cbm;
-                }
-            }
-        }
+    
         
         // D2) Revision Increment Logic: If RFQ exists and dims/quantity changed, increment revision
         $revision_incremented = false;
@@ -1635,91 +1660,7 @@ class N88_Items {
             // Check if dims or quantity changed (these trigger revision increment)
             $specs_changed = in_array( 'dims', $changed_fields, true ) || in_array( 'quantity', $changed_fields, true );
             
-            if ( $specs_changed ) {
-                // Get current revision from meta (default to 1 if not set)
-                $current_revision = isset( $meta['rfq_revision_current'] ) ? intval( $meta['rfq_revision_current'] ) : 1;
-                
-                // Increment revision
-                $new_revision = $current_revision + 1;
-                $meta['rfq_revision_current'] = $new_revision;
-                $revision_incremented = true;
-                
-                // Set revision_changed flag to true
-                $meta['revision_changed'] = true;
-                
-                error_log( 'Item Facts Save - Revision incremented for item ' . $item_id . ' from ' . $current_revision . ' to ' . $new_revision );
-                
-                // Mark existing bids as stale (bids with older revision or no revision)
-                $item_bids_table = $wpdb->prefix . 'n88_item_bids';
-                $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
-                $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
-                
-                if ( $has_revision_column ) {
-                    // Update bids where rfq_revision_at_submit < new_revision OR is NULL
-                    $stale_bids_updated = $wpdb->query( $wpdb->prepare(
-                        "UPDATE {$item_bids_table} 
-                        SET rfq_revision_at_submit = NULL 
-                        WHERE item_id = %d 
-                        AND (rfq_revision_at_submit IS NULL OR rfq_revision_at_submit < %d)",
-                        $item_id,
-                        $new_revision
-                    ) );
-                    
-                    if ( $stale_bids_updated !== false ) {
-                        error_log( 'Item Facts Save - Marked ' . $stale_bids_updated . ' stale bid(s) for item ' . $item_id );
-                    }
-                }
-                
-                // Get supplier IDs from RFQ routes for this item
-                $supplier_ids = $wpdb->get_col( $wpdb->prepare(
-                    "SELECT DISTINCT supplier_id FROM {$rfq_routes_table} 
-                    WHERE item_id = %d 
-                    AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
-                    $item_id
-                ) );
-                
-                // Send notifications to suppliers about spec changes
-                if ( ! empty( $supplier_ids ) ) {
-                    // Get item title for notification
-                    $item_title = $wpdb->get_var( $wpdb->prepare(
-                        "SELECT title FROM {$items_table} WHERE id = %d",
-                        $item_id
-                    ) );
-                    $item_title = $item_title ? $item_title : 'Item #' . $item_id;
-                    
-                    // Get board_id from board_items table if available (for notification project_id)
-                    $board_items_table = $wpdb->prefix . 'n88_board_items';
-                    $board_id_for_notification = $board_id > 0 ? $board_id : $wpdb->get_var( $wpdb->prepare(
-                        "SELECT board_id FROM {$board_items_table} 
-                        WHERE item_id = %d AND removed_at IS NULL 
-                        LIMIT 1",
-                        $item_id
-                    ) );
-                    $board_id_for_notification = $board_id_for_notification ? intval( $board_id_for_notification ) : 0;
-                    
-                    // Send notification to each supplier
-                    foreach ( $supplier_ids as $supplier_id ) {
-                        // Create in-app notification
-                        if ( class_exists( 'N88_RFQ_Notifications' ) ) {
-                            $notification_message = sprintf( 
-                                'Specifications changed for item: %s. Please review the updated requirements.',
-                                $item_title
-                            );
-                            
-                            // Use board_id as project_id for notification system
-                            N88_RFQ_Notifications::create_notification(
-                                $board_id_for_notification, // project_id (using board_id)
-                                $supplier_id,
-                                'specs_changed',
-                                $notification_message,
-                                $item_id
-                            );
-                            
-                            error_log( 'Item Facts Save - Sent specs_changed notification to supplier ' . $supplier_id . ' for item ' . $item_id . ' (board_id: ' . $board_id_for_notification . ')' );
-                        }
-                    }
-                }
-            }
+           
         }
         
         // Update meta_json
@@ -1741,13 +1682,6 @@ class N88_Items {
             array( '%d' )
         );
         
-        if ( $result === false ) {
-            error_log( 'Item Facts Save - DATABASE UPDATE FAILED for item ' . $item_id . '. Error: ' . $wpdb->last_error );
-            error_log( 'Item Facts Save - Update data: ' . wp_json_encode( $update_data ) );
-            error_log( 'Item Facts Save - Update format: ' . wp_json_encode( $update_format ) );
-            wp_send_json_error( array( 'message' => 'Failed to update item. Database error: ' . $wpdb->last_error ) );
-            return;
-        }
         
         // Verify the save worked by reading back from database
         $verify_meta_json = $wpdb->get_var( $wpdb->prepare(

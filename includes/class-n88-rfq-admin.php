@@ -9058,6 +9058,31 @@
                                             style: { fontSize: '11px', color: greenAccent }
                                         }, '$' + parseFloat(bid.delivery_cost_usd).toFixed(2))
                                     ) : null,
+                                    // Placeholder rows for physical prototype and adjusted totals (formulas to be added later)
+                                    React.createElement('div', null,
+                                        React.createElement('div', {
+                                            style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                        }, 'Physical Prototype Cost (add 50%)'),
+                                        React.createElement('div', {
+                                            style: { fontSize: '11px', color: greenAccent }
+                                        }, '\u2014')
+                                    ),
+                                    React.createElement('div', null,
+                                        React.createElement('div', {
+                                            style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                        }, 'Physical Prototype Delivery'),
+                                        React.createElement('div', {
+                                            style: { fontSize: '11px', color: greenAccent }
+                                        }, '\u2014')
+                                    ),
+                                    React.createElement('div', null,
+                                        React.createElement('div', {
+                                            style: { fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }
+                                        }, 'Total Cost (Order minus prototype 50%)'),
+                                        React.createElement('div', {
+                                            style: { fontSize: '11px', color: greenAccent }
+                                        }, '\u2014')
+                                    ),
                                     // Commit 2.4.1: Award Bid Button
                                     bid.can_award && !bid.is_awarded && !bid.is_declined ? React.createElement('div', {
                                         style: { marginTop: '12px', marginBottom: '8px' }
@@ -14549,7 +14574,7 @@
                                                             smartAlternativesEnabled: smartAlternativesEnabled,
                                                             itemId: itemId // Commit 2.4.1: Pass itemId for award bid action
                                                         }),
-                                                        // Commit 2.3.9.1B: Request CAD + Prototype Video — hide when designer submitted
+                                                        // Commit 2.3.9.1B: Request Prototpe Video — hide when designer submitted
                                                         !itemState.has_prototype_payment ? ( !showCadPrototypeForm ? React.createElement('div', {
                                                             style: { marginTop: '20px', textAlign: 'center' }
                                                         },
@@ -14574,7 +14599,7 @@
                                                                     cursor: 'pointer',
                                                                     fontWeight: '600',
                                                                 }
-                                                            }, 'Request CAD + Prototype Video')
+                                                            }, 'Request Prototpe Video')
                                                         ) : React.createElement('div', {
                                                             id: 'cad-prototype-form-container',
                                                             style: {
@@ -14596,7 +14621,7 @@
                                                             },
                                                                 React.createElement('div', {
                                                                     style: { fontSize: '14px', fontWeight: '600', color: darkText }
-                                                                }, 'Request CAD + Prototype Video'),
+                                                                }, 'Request Prototpe Video'),
                                                                 React.createElement('button', {
                                                                     onClick: function() {
                                                                         setShowCadPrototypeForm(false);
@@ -15126,8 +15151,8 @@
                                                                 return React.createElement('div', { style: { marginBottom: '24px' }, onClick: function(e) { e.stopPropagation(); } },
                                                                     React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600' } }, 'Quotes Received')),
                                                                     React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId }),
-                                                                    !itemState.has_prototype_payment ? (!showCadPrototypeForm ? React.createElement('div', { style: { marginTop: '20px', textAlign: 'center' } }, React.createElement('button', { onClick: function() { if (itemState.bids && itemState.bids.length === 1) setSelectedBidId(itemState.bids[0].bid_id); setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { padding: '12px 24px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' } }, 'Request CAD + Prototype Video')) : React.createElement('div', { id: 'cad-prototype-form-step1', style: { marginTop: '20px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
-                                                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Request CAD + Prototype Video'), React.createElement('button', { onClick: function() { setShowCadPrototypeForm(false); setSelectedBidId(null); setSelectedKeywords([]); setPrototypeNote(''); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')),
+                                                                    !itemState.has_prototype_payment ? (!showCadPrototypeForm ? React.createElement('div', { style: { marginTop: '20px', textAlign: 'center' } }, React.createElement('button', { onClick: function() { if (itemState.bids && itemState.bids.length === 1) setSelectedBidId(itemState.bids[0].bid_id); setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { padding: '12px 24px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' } }, 'Request Prototpe Video')) : React.createElement('div', { id: 'cad-prototype-form-step1', style: { marginTop: '20px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
+                                                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Request Prototpe Video'), React.createElement('button', { onClick: function() { setShowCadPrototypeForm(false); setSelectedBidId(null); setSelectedKeywords([]); setPrototypeNote(''); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')),
                                                                         cadPrototypeSuccess ? React.createElement('div', { style: { marginBottom: '16px', padding: '12px', backgroundColor: '#1a3a1a', border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '12px', color: greenAccent, lineHeight: 1.5 } }, 'Request submitted. Please send payment. CAD drafting will begin once payment is confirmed.') : null,
                                                                         cadPrototypeError ? React.createElement('div', { style: { marginBottom: '16px', padding: '12px', backgroundColor: '#3a1a1a', border: '1px solid #ff4444', borderRadius: '4px', fontSize: '12px', color: '#ff4444' } }, cadPrototypeError) : null,
                                                                         React.createElement('div', { style: { marginBottom: '24px' } },

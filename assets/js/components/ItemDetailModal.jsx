@@ -583,6 +583,22 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         </div>
                     )}
                     
+                    {/* Placeholders for future prototype cost calculations */}
+                    <div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Physical Prototype Cost (add 50%)</div>
+                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
+                    </div>
+                    
+                    <div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Physical Prototype Delivery</div>
+                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
+                    </div>
+                    
+                    <div>
+                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Total Cost (Order minus prototype 50%)</div>
+                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
+                    </div>
+                    
                     {hasSmartAltContent && (
                         <div>
                             <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Smart Alternatives</div>
@@ -6721,7 +6737,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 smartAlternativesEnabled={smartAlternativesEnabled}
                                             />
                                             
-                                            {/* Request CAD + Prototype Video Button/Form (Commit 2.3.9.1B) - hide when CAD request already submitted */}
+                                            {/* Request Prototpe Video Button/Form (Commit 2.3.9.1B) - hide when CAD request already submitted */}
                                             {!itemState.has_prototype_payment && ( !showCadPrototypeForm ? (
                                                 <div style={{ marginTop: '20px', textAlign: 'center' }}>
                                                     <button
@@ -6746,7 +6762,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             fontWeight: '600',
                                                         }}
                                                     >
-                                                        Request CAD + Prototype Video
+                                                        Request Prototpe Video
                                                     </button>
                                                 </div>
                                             ) : (
@@ -6765,7 +6781,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         marginBottom: '16px',
                                                     }}>
                                                         <div style={{ fontSize: '14px', fontWeight: '600', color: darkText }}>
-                                                            Request CAD + Prototype Video
+                                                            Request Prototpe Video
                                                         </div>
                                                         <button
                                                             onClick={() => {
