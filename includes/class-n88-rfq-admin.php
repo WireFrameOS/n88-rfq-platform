@@ -3945,12 +3945,10 @@
                                 }
                             }
                             
-                            // Check award_set from item meta or status
+                            // Check award_set from item meta only (production starts after deposit confirmed)
                             $award_set = false;
                             if ( isset( $item_meta['award_set'] ) ) {
                                 $award_set = (bool) $item_meta['award_set'];
-                            } else if ( isset( $board_item->status ) && $board_item->status === 'awarded' ) {
-                                $award_set = true;
                             }
                             
                             // Commit 2.4.1: Check if any bid is awarded for this item
@@ -4364,12 +4362,10 @@
                                 }
                             }
                             
-                            // Check award_set from item meta or status
+                            // Check award_set from item meta only (production starts after deposit confirmed)
                             $award_set = false;
                             if ( isset( $item_meta['award_set'] ) ) {
                                 $award_set = (bool) $item_meta['award_set'];
-                            } else if ( isset( $board_item->status ) && $board_item->status === 'awarded' ) {
-                                $award_set = true;
                             }
                             
                             // Commit 2.4.1: Check if any bid is awarded for this item
@@ -8049,6 +8045,9 @@
                             if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
                             if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
 
+                            // Production flag (used for "In Production" once deposit / award_set is true)
+                            var inProduction = truthy(item.award_set);
+
                             // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video — show View Prototype video
                             if (hasUnreadOperatorMessages) {
                                 return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
@@ -8059,11 +8058,16 @@
                             // Priority 2: Prototype workflow — when prototype payment exists, show current stage (so status progresses after Proposals Received)
                             if (hasPrototypePayment) {
                                 if (ps === 'approved') {
-                                    // If bid has been awarded, card should show "Awarded" instead of "Prototype Approved"
-                                    if (hasAwardedBid) {
-                                        return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                                    // After deposit / production start
+                                    if (inProduction) {
+                                        return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                                     }
-                                    return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+                                    // After award but before deposit
+                                    if (hasAwardedBid) {
+                                        return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
+                                    }
+                                    // Prototype approved, no award yet
+                                    return { text: 'Prototype Approved \u2014 Awaiting Award', color: '#00ff00', dot: '#00ff00' };
                                 }
                                 if (ps === 'changes_requested') {
                                     return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
@@ -8094,7 +8098,10 @@
                             }
                             // Priority 3: Bid Awarded
                             if (hasAwardedBid) {
-                                return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                                if (inProduction) {
+                                    return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+                                }
+                                return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
                             }
                             // Priority 4: Proposals Received
                             var validBidCountEarly = 0;
@@ -8119,8 +8126,8 @@
                                 return { text: 'Proposals Received' + (validBidCountEarly > 0 ? ' (' + validBidCountEarly + ')' : ''), color: '#2196f3', dot: '#2196f3' };
                             }
                             // Priority 5+: rest of fallbacks (In Production, Action Required flag, etc.)
-                            // Priority 7: Check if item has award_set (In Production)
-                            if (item.award_set === true || item.award_set === 'true' || item.award_set === 1 || item.award_set === '1') {
+                            // Priority 7: Check if item has award_set (In Production) as fallback
+                            if (inProduction) {
                                 return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                             }
                             // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Proposals received
@@ -8794,6 +8801,7 @@
                         var onImageClick = matrixProps.onImageClick;
                         var smartAlternativesEnabled = matrixProps.smartAlternativesEnabled || false;
                         var itemId = matrixProps.itemId || null; // Commit 2.4.1: Item ID for award bid action
+                        var prototypeHelperText = 'For your convenience and to save time and money we offer you the option to have a prototype video of the piece you are asking about. If you still need to see a physical product you can choose to do so after the video of the prototype.';
                         
                         // Order bids by created_at ASC (already ordered from backend, but ensure stability)
                         var orderedBids = bids.slice().sort(function(a, b) {
@@ -9003,7 +9011,7 @@
                             var bid = orderedBids[0];
                             var media = renderMedia(bid, true);
                         
-                        return React.createElement('div', {
+                                return React.createElement('div', {
                             style: {
                                     border: '1px solid ' + darkBorder,
                                     borderRadius: '4px',
@@ -9012,8 +9020,11 @@
                                 }
                             },
                                 React.createElement('div', {
-                                    style: { fontSize: '13px', fontWeight: '600', marginBottom: '10px', color: darkText }
+                                    style: { fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: darkText }
                                 }, 'Supplier A'),
+                                React.createElement('div', {
+                                    style: { fontSize: '10px', color: '#FF0065', marginBottom: '10px', lineHeight: 1.4 }
+                                }, prototypeHelperText),
                                 React.createElement('div', {
                                     style: { display: 'flex', flexDirection: 'column', gap: '8px' }
                                 },
@@ -9342,6 +9353,15 @@
                                 backgroundColor: '#111111',
                             }
                         },
+                            // Helper text about prototype video
+                            React.createElement('div', {
+                                style: {
+                                    padding: '8px 10px 0',
+                                    fontSize: '10px',
+                                    color: '#FF0065',
+                                    lineHeight: 1.4,
+                                }
+                            }, prototypeHelperText),
                             // Table Header
                             React.createElement('div', {
                                 style: {
@@ -9401,6 +9421,7 @@
                                                 padding: '6px 10px',
                                                 borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
                                                 fontSize: '10px',
+                                                textAlign: 'center',
                                             }
                                         }, media || React.createElement('span', { style: { color: darkText } }, '—'));
                                     })
@@ -9557,7 +9578,7 @@
                                         );
                                     })
                                 ),
-                                // Commit 2.4.1: Award Bid Row
+                                // Physical Prototype Cost Row (placeholder)
                                 React.createElement('div', {
                                     style: {
                                         display: 'grid',
@@ -9575,145 +9596,85 @@
                                             display: 'flex',
                                             alignItems: 'center',
                                         }
-                                    }, 'Award Bid'),
+                                    }, 'Physical Prototype Cost (add 50%)'),
                                     displayBids.map(function(bid, idx) {
-                                        if (bid.is_awarded) {
-                                            return React.createElement('div', {
-                                                key: 'award-' + bid.bid_id,
-                                                style: {
-                                                    padding: '6px 10px',
-                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                                    fontSize: '10px',
-                                                    textAlign: 'center',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        padding: '4px 8px',
-                                                        backgroundColor: 'rgba(255,0,101,0.15)',
-                                                        border: '1px solid #FF0065',
-                                                        borderRadius: '4px',
-                                                        color: '#FF0065',
-                                                        fontSize: '9px',
-                                                        fontWeight: '600',
-                                                        display: 'inline-block',
-                                                    }
-                                                }, '✓ Awarded')
-                                            );
-                                        } else if (bid.is_declined) {
-                                            return React.createElement('div', {
-                                                key: 'award-' + bid.bid_id,
-                                                style: {
-                                                    padding: '6px 10px',
-                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                                    fontSize: '10px',
-                                                    textAlign: 'center',
-                                                }
-                                            },
-                                                React.createElement('div', {
-                                                    style: {
-                                                        padding: '4px 8px',
-                                                        backgroundColor: '#330000',
-                                                        border: '1px solid #ff6666',
-                                                        borderRadius: '4px',
-                                                        color: '#ff6666',
-                                                        fontSize: '9px',
-                                                        display: 'inline-block',
-                                                    }
-                                                }, 'Declined')
-                                            );
-                                        } else if (bid.can_award) {
-                                            return React.createElement('div', {
-                                                key: 'award-' + bid.bid_id,
-                                                style: {
-                                                    padding: '6px 10px',
-                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                                    fontSize: '10px',
-                                                    textAlign: 'center',
-                                                }
-                                            },
-                                                React.createElement('button', {
-                                                    onClick: function() {
-                                                        if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
-                                                            return;
-                                                        }
-                                                        
-                                                        var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php');
-                                                        var nonce = '';
-                                                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
-                                                            nonce = window.n88BoardNonce.nonce_award_bid;
-                                                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                                                            nonce = window.n88BoardData.nonce;
-                                                        } else if (window.n88 && window.n88.nonce) {
-                                                            nonce = window.n88.nonce;
-                                                        }
-                                                        
-                                                        if (!nonce) {
-                                                            alert('Security token missing. Please refresh the page and try again.');
-                                                            return;
-                                                        }
-                                                        
-                                                        var formData = new FormData();
-                                                        formData.append('action', 'n88_award_bid');
-                                                        formData.append('item_id', itemId);
-                                                        formData.append('bid_id', bid.bid_id);
-                                                        formData.append('_ajax_nonce', nonce);
-                                                        
-                                                        fetch(ajaxUrl, {
-                                                            method: 'POST',
-                                                            body: formData
-                                                        })
-                                                        .then(function(response) {
-                                                            return response.json();
-                                                        })
-                                                        .then(function(data) {
-                                                            if (data.success) {
-                                                                alert('Bid awarded successfully!');
-                                                                // Refresh the page
-                                                                window.location.reload();
-                                                            } else {
-                                                                alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid'));
-                                                            }
-                                                        })
-                                                        .catch(function(error) {
-                                                            console.error('Error awarding bid:', error);
-                                                            alert('Error awarding bid. Please try again.');
-                                                        });
-                                                    },
-                                                    style: {
-                                                        padding: '6px 12px',
-                                                        backgroundColor: '#FF0065',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '4px',
-                                                        fontSize: '9px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        fontFamily: 'monospace',
-                                                    },
-                                                    onMouseOver: function(e) {
-                                                        e.target.style.backgroundColor = '#cc0052';
-                                                    },
-                                                    onMouseOut: function(e) {
-                                                        e.target.style.backgroundColor = '#FF0065';
-                                                    }
-                                                }, 'Award')
-                                            );
-                                        } else {
-                                            return React.createElement('div', {
-                                                key: 'award-' + bid.bid_id,
-                                                style: {
-                                                    padding: '6px 10px',
-                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                                    fontSize: '10px',
-                                                    textAlign: 'center',
-                                                }
-                                            },
-                                                React.createElement('span', {
-                                                    style: { color: darkText, fontSize: '9px' }
-                                                }, bid.has_prototype_request && bid.prototype_status !== 'approved' ? 'Prototype Pending' : '—')
-                                            );
+                                        return React.createElement('div', {
+                                            key: 'proto-cost-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('span', { style: { color: darkText } }, '—')
+                                        );
+                                    })
+                                ),
+                                // Physical Prototype Delivery Row (placeholder)
+                                React.createElement('div', {
+                                    style: {
+                                        display: 'grid',
+                                        gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                        borderBottom: '1px solid ' + darkBorder,
+                                    }
+                                },
+                                    React.createElement('div', {
+                                        style: {
+                                            padding: '6px 10px',
+                                            borderRight: '1px solid ' + darkBorder,
+                                            fontSize: '10px',
+                                            color: darkText,
+                                            backgroundColor: '#0a0a0a',
+                                            display: 'flex',
+                                            alignItems: 'center',
                                         }
+                                    }, 'Physical Prototype Delivery'),
+                                    displayBids.map(function(bid, idx) {
+                                        return React.createElement('div', {
+                                            key: 'proto-delivery-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('span', { style: { color: darkText } }, '—')
+                                        );
+                                    })
+                                ),
+                                // Total Cost Row (placeholder)
+                                React.createElement('div', {
+                                    style: {
+                                        display: 'grid',
+                                        gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                        borderBottom: '1px solid ' + darkBorder,
+                                    }
+                                },
+                                    React.createElement('div', {
+                                        style: {
+                                            padding: '6px 10px',
+                                            borderRight: '1px solid ' + darkBorder,
+                                            fontSize: '10px',
+                                            color: darkText,
+                                            backgroundColor: '#0a0a0a',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                        }
+                                    }, 'Total Cost (Order minus prototype 50%)'),
+                                    displayBids.map(function(bid, idx) {
+                                        return React.createElement('div', {
+                                            key: 'total-' + bid.bid_id,
+                                            style: {
+                                                padding: '6px 10px',
+                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                fontSize: '10px',
+                                                textAlign: 'center',
+                                            }
+                                        },
+                                            React.createElement('span', { style: { color: darkText } }, '—')
+                                        );
                                     })
                                 ),
                                 // Smart Alternatives Rows - Only show if enabled
@@ -9922,11 +9883,12 @@
                                         })
                                     )
                                 ) : null,
-                                // Landed Shipping Costs Row
+                                // Commit 2.4.1: Award Bid Row (moved to bottom)
                                 React.createElement('div', {
                                     style: {
                                         display: 'grid',
                                         gridTemplateColumns: labelWidth + ' repeat(' + maxBids + ', 1fr)',
+                                        borderBottom: '1px solid ' + darkBorder,
                                     }
                                 },
                                     React.createElement('div', {
@@ -9939,19 +9901,145 @@
                                             display: 'flex',
                                             alignItems: 'center',
                                         }
-                                    }, 'Landed Shipping Costs'),
+                                    }, 'Award Bid'),
                                     displayBids.map(function(bid, idx) {
-                                        return React.createElement('div', {
-                                            key: 'landed-' + bid.bid_id,
-                                            style: {
-                                                padding: '6px 10px',
-                                                borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
-                                                fontSize: '10px',
-                                                textAlign: 'center',
-                                            }
-                                        },
-                                            React.createElement('span', { style: { color: darkText } }, '—')
-                                        );
+                                        if (bid.is_awarded) {
+                                            return React.createElement('div', {
+                                                key: 'award-' + bid.bid_id,
+                                                style: {
+                                                    padding: '6px 10px',
+                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                    fontSize: '10px',
+                                                    textAlign: 'center',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        padding: '4px 8px',
+                                                        backgroundColor: 'rgba(255,0,101,0.15)',
+                                                        border: '1px solid #FF0065',
+                                                        borderRadius: '4px',
+                                                        color: '#FF0065',
+                                                        fontSize: '9px',
+                                                        fontWeight: '600',
+                                                        display: 'inline-block',
+                                                    }
+                                                }, '✓ Awarded')
+                                            );
+                                        } else if (bid.is_declined) {
+                                            return React.createElement('div', {
+                                                key: 'award-' + bid.bid_id,
+                                                style: {
+                                                    padding: '6px 10px',
+                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                    fontSize: '10px',
+                                                    textAlign: 'center',
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        padding: '4px 8px',
+                                                        backgroundColor: '#330000',
+                                                        border: '1px solid #ff6666',
+                                                        borderRadius: '4px',
+                                                        color: '#ff6666',
+                                                        fontSize: '9px',
+                                                        display: 'inline-block',
+                                                    }
+                                                }, 'Declined')
+                                            );
+                                        } else if (bid.can_award) {
+                                            return React.createElement('div', {
+                                                key: 'award-' + bid.bid_id,
+                                                style: {
+                                                    padding: '6px 10px',
+                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                    fontSize: '10px',
+                                                    textAlign: 'center',
+                                                }
+                                            },
+                                                React.createElement('button', {
+                                                    onClick: function() {
+                                                        if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                                            return;
+                                                        }
+                                                        
+                                                        var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php');
+                                                        var nonce = '';
+                                                        if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                                            nonce = window.n88BoardNonce.nonce_award_bid;
+                                                        } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                            nonce = window.n88BoardData.nonce;
+                                                        } else if (window.n88 && window.n88.nonce) {
+                                                            nonce = window.n88.nonce;
+                                                        }
+                                                        
+                                                        if (!nonce) {
+                                                            alert('Security token missing. Please refresh the page and try again.');
+                                                            return;
+                                                        }
+                                                        
+                                                        var formData = new FormData();
+                                                        formData.append('action', 'n88_award_bid');
+                                                        formData.append('item_id', itemId);
+                                                        formData.append('bid_id', bid.bid_id);
+                                                        formData.append('_ajax_nonce', nonce);
+                                                        
+                                                        fetch(ajaxUrl, {
+                                                            method: 'POST',
+                                                            body: formData
+                                                        })
+                                                        .then(function(response) {
+                                                            return response.json();
+                                                        })
+                                                        .then(function(data) {
+                                                            if (data.success) {
+                                                                alert('Bid awarded successfully!');
+                                                                // Refresh the page
+                                                                window.location.reload();
+                                                            } else {
+                                                                alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid'));
+                                                            }
+                                                        })
+                                                        .catch(function(error) {
+                                                            console.error('Error awarding bid:', error);
+                                                            alert('Error awarding bid. Please try again.');
+                                                        });
+                                                    },
+                                                    style: {
+                                                        padding: '6px 12px',
+                                                        backgroundColor: '#FF0065',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        fontSize: '9px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                        fontFamily: 'monospace',
+                                                    },
+                                                    onMouseOver: function(e) {
+                                                        e.target.style.backgroundColor = '#cc0052';
+                                                    },
+                                                    onMouseOut: function(e) {
+                                                        e.target.style.backgroundColor = '#FF0065';
+                                                    }
+                                                }, 'Award')
+                                            );
+                                        } else {
+                                            return React.createElement('div', {
+                                                key: 'award-' + bid.bid_id,
+                                                style: {
+                                                    padding: '6px 10px',
+                                                    borderRight: idx < maxBids - 1 ? ('1px solid ' + darkBorder) : 'none',
+                                                    fontSize: '10px',
+                                                    textAlign: 'center',
+                                                }
+                                            },
+                                                React.createElement('span', {
+                                                    style: { color: darkText, fontSize: '9px' }
+                                                }, bid.has_prototype_request && bid.prototype_status !== 'approved' ? 'Prototype Pending' : '—')
+                                            );
+                                        }
                                     })
                                 )
                             )
@@ -13224,6 +13312,61 @@
                                                 // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
                                                 null
                                             ),
+                                            // Quantity
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px' }
+                                            },
+                                            React.createElement('label', {
+                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                }, 'Quantity'),
+                                                React.createElement('input', {
+                                                    type: 'number',
+                                                    value: quantity,
+                                                    onChange: function(e) { setQuantity(e.target.value); },
+                                                    min: '1',
+                                                style: {
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                }
+                                                }),
+                                                // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
+                                                null
+                                            ),
+                                            // Delivery Country
+                                            React.createElement('div', {
+                                                style: { marginBottom: '12px' }
+                                            },
+                                                React.createElement('label', {
+                                                    style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
+                                                }, 'Delivery Country'),
+                                                React.createElement('select', {
+                                                    value: deliveryCountry,
+                                                    onChange: function(e) { setDeliveryCountry(e.target.value); },
+                                                style: {
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: '1px solid ' + darkBorder,
+                                                    borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                    }
+                                                },
+                                                    React.createElement('option', { value: '' }, 'Select Country'),
+                                                    React.createElement('option', { value: 'US' }, 'US'),
+                                                    React.createElement('option', { value: 'CA' }, 'CA'),
+                                                    React.createElement('option', { value: 'CN' }, 'CN'),
+                                                    React.createElement('option', { value: 'VN' }, 'VN'),
+                                                    React.createElement('option', { value: 'EU' }, 'EU')
+                                                )
+                                        ),
                                             // ZIP/Postal Code
                                             React.createElement('div', {
                                                 style: { marginBottom: '12px' }
@@ -13303,6 +13446,17 @@
                                                     insp.url ? (
                                                         (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
                                                         React.createElement('div', {
+                                                            style: {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                backgroundColor: '#222',
+                                                                borderRadius: '4px',
+                                                                flexDirection: 'column',
+                                                                gap: '4px',
+                                                            }
                                                         }, 
                                                             React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
                                                             React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
@@ -14508,7 +14662,7 @@
                                                             smartAlternativesEnabled: smartAlternativesEnabled,
                                                             itemId: itemId // Commit 2.4.1: Pass itemId for award bid action
                                                         }),
-                                                        // Commit 2.3.9.1B: Request Prototpe Video — hide when designer submitted
+                                                        // Commit 2.3.9.1B: Request Prototype Video — hide when designer submitted
                                                         !itemState.has_prototype_payment ? ( !showCadPrototypeForm ? React.createElement('div', {
                                                             style: { marginTop: '20px', textAlign: 'center' }
                                                         },
@@ -14533,7 +14687,7 @@
                                                                     cursor: 'pointer',
                                                                     fontWeight: '600',
                                                                 }
-                                                            }, 'Request Prototpe Video')
+                                                            }, 'Request Prototype Video')
                                                         ) : React.createElement('div', {
                                                             id: 'cad-prototype-form-container',
                                                             style: {
@@ -14555,7 +14709,7 @@
                                                             },
                                                                 React.createElement('div', {
                                                                     style: { fontSize: '14px', fontWeight: '600', color: darkText }
-                                                                }, 'Request Prototpe Video'),
+                                                                }, 'Request Prototype Video'),
                                                                 React.createElement('button', {
                                                                     onClick: function() {
                                                                         setShowCadPrototypeForm(false);
@@ -14610,8 +14764,11 @@
                                                                 style: { marginBottom: '24px' }
                                                             },
                                                                 React.createElement('div', {
-                                                                    style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }
+                                                                    style: { fontSize: '13px', fontWeight: '600', marginBottom: '4px', color: darkText }
                                                                 }, 'Video Direction'),
+                                                                React.createElement('div', {
+                                                                    style: { fontSize: '11px', color: '#ff4444', marginBottom: '8px' }
+                                                                }, 'Select up to 7 keywords that are most important for the supplier to focus on when filming the prototype video.'),
                                                                 // Bid Selection (if multiple bids)
                                                                 itemState.bids && itemState.bids.length > 1 ? React.createElement('div', {
                                                                     style: { marginBottom: '16px' }
@@ -14714,8 +14871,11 @@
                                                                     style: { marginBottom: '16px' }
                                                                 },
                                                                     React.createElement('label', {
-                                                                        style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }
+                                                                        style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: darkText }
                                                                     }, 'Additional Note (Optional, max 240 characters)'),
+                                                                    React.createElement('div', {
+                                                                        style: { fontSize: '11px', color: '#ff4444', marginBottom: '8px' }
+                                                                    }, 'Add additional notes for clear description of what you are looking for'),
                                                                     React.createElement('textarea', {
                                                                         value: prototypeNote,
                                                                         onChange: function(e) {
@@ -15085,17 +15245,38 @@
                                                                 return React.createElement('div', { style: { marginBottom: '24px' }, onClick: function(e) { e.stopPropagation(); } },
                                                                     React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600' } }, 'Quotes Received')),
                                                                     React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId }),
-                                                                    !itemState.has_prototype_payment ? (!showCadPrototypeForm ? React.createElement('div', { style: { marginTop: '20px', textAlign: 'center' } }, React.createElement('button', { onClick: function() { if (itemState.bids && itemState.bids.length === 1) setSelectedBidId(itemState.bids[0].bid_id); setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { padding: '12px 24px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' } }, 'Request Prototpe Video')) : React.createElement('div', { id: 'cad-prototype-form-step1', style: { marginTop: '20px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
-                                                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Request Prototpe Video'), React.createElement('button', { onClick: function() { setShowCadPrototypeForm(false); setSelectedBidId(null); setSelectedKeywords([]); setPrototypeNote(''); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')),
+                                                                    !itemState.has_prototype_payment ? (!showCadPrototypeForm ? React.createElement('div', { style: { marginTop: '20px', textAlign: 'center' } }, React.createElement('button', { onClick: function() { if (itemState.bids && itemState.bids.length === 1) setSelectedBidId(itemState.bids[0].bid_id); setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { padding: '12px 24px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' } }, 'Request Prototype Video')) : React.createElement('div', { id: 'cad-prototype-form-step1', style: { marginTop: '20px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
+                                                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Request Prototype Video'), React.createElement('button', { onClick: function() { setShowCadPrototypeForm(false); setSelectedBidId(null); setSelectedKeywords([]); setPrototypeNote(''); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')),
                                                                         cadPrototypeSuccess ? React.createElement('div', { style: { marginBottom: '16px', padding: '12px', backgroundColor: '#1a3a1a', border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '12px', color: greenAccent, lineHeight: 1.5 } }, 'Request submitted. Please send payment. CAD drafting will begin once payment is confirmed.') : null,
                                                                         cadPrototypeError ? React.createElement('div', { style: { marginBottom: '16px', padding: '12px', backgroundColor: '#3a1a1a', border: '1px solid #ff4444', borderRadius: '4px', fontSize: '12px', color: '#ff4444' } }, cadPrototypeError) : null,
                                                                         React.createElement('div', { style: { marginBottom: '24px' } },
-                                                                            React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'Video Direction'),
+                                                                            React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '4px', color: darkText } }, 'Video Direction'),
+                                                                            React.createElement('div', { style: { fontSize: '11px', color: '#ff4444', marginBottom: '8px' } }, 'Select up to 7 keywords that are most important for the supplier to focus on when filming the prototype video.'),
                                                                             itemState.bids && itemState.bids.length > 1 ? React.createElement('div', { style: { marginBottom: '16px' } }, React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText } }, 'Select Bid ', React.createElement('span', { style: { color: '#ff4444' } }, '*')), React.createElement('select', { value: selectedBidId || '', onChange: function(e) { setSelectedBidId(parseInt(e.target.value)); setSelectedKeywords([]); setAvailableKeywords([]); }, style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' } }, React.createElement('option', { value: '' }, '-- Select a bid --'), itemState.bids.map(function(bid) { return React.createElement('option', { key: bid.bid_id, value: bid.bid_id }, 'Bid #' + bid.bid_id + ' - ' + (bid.supplier_name || 'Supplier ' + bid.supplier_id)); }))) : null,
                                                                             React.createElement('div', { style: { marginBottom: '16px' } }, React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText } }, 'Select Keywords (3-7 required) ', React.createElement('span', { style: { color: '#ff4444' } }, '*')), React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '8px' } }, 'Select between 3 and 7 keywords.'), React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '60px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: darkBg } }, availableKeywords.length === 0 ? React.createElement('div', { style: { fontSize: '11px', color: '#999', fontStyle: 'italic' } }, selectedBidId ? 'Loading keywords...' : 'Please select a bid first') : availableKeywords.map(function(keyword) { var isSel = selectedKeywords.indexOf(keyword.keyword_id) !== -1; return React.createElement('button', { key: keyword.keyword_id, type: 'button', onClick: function() { if (isSel) setSelectedKeywords(selectedKeywords.filter(function(id) { return id !== keyword.keyword_id; })); else if (selectedKeywords.length < 7) setSelectedKeywords(selectedKeywords.concat([keyword.keyword_id])); }, disabled: !isSel && selectedKeywords.length >= 7, style: { padding: '6px 12px', backgroundColor: isSel ? greenAccent : darkBg, border: '1px solid ' + (isSel ? greenAccent : darkBorder), borderRadius: '20px', color: isSel ? darkBg : darkText, fontSize: '11px', fontFamily: 'monospace', cursor: (!isSel && selectedKeywords.length >= 7) ? 'not-allowed' : 'pointer', opacity: (!isSel && selectedKeywords.length >= 7) ? 0.5 : 1 } }, keyword.keyword); })), React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: (selectedKeywords.length >= 3 && selectedKeywords.length <= 7) ? greenAccent : '#ff8800' } }, selectedKeywords.length + ' of 3-7 keywords selected')),
-                                                                            React.createElement('div', { style: { marginBottom: '16px' } }, React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText } }, 'Additional Note (Optional, max 240 characters)'), React.createElement('textarea', { value: prototypeNote, onChange: function(e) { if (e.target.value.length <= 240) setPrototypeNote(e.target.value); }, placeholder: 'Add instructions for the prototype video...', style: { width: '100%', minHeight: '80px', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', resize: 'vertical' } }), React.createElement('div', { style: { marginTop: '4px', fontSize: '11px', color: '#999', textAlign: 'right' } }, prototypeNote.length + '/240'))
+                                                                            React.createElement('div', { style: { marginBottom: '16px' } },
+                                                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px', color: darkText } }, 'Additional Note (Optional, max 240 characters)'),
+                                                                                React.createElement('div', { style: { fontSize: '11px', color: '#ff4444', marginBottom: '8px' } }, 'Add additional notes for clear description of what you are looking for'),
+                                                                                React.createElement('textarea', { value: prototypeNote, onChange: function(e) { if (e.target.value.length <= 240) setPrototypeNote(e.target.value); }, placeholder: 'Add instructions for the prototype video...', style: { width: '100%', minHeight: '80px', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', resize: 'vertical' } }),
+                                                                                React.createElement('div', { style: { marginTop: '4px', fontSize: '11px', color: '#999', textAlign: 'right' } }, prototypeNote.length + '/240')
+                                                                            )
                                                                         ),
-                                                                        selectedBidId ? (function() { var sb = itemState.bids.find(function(b) { return b.bid_id === selectedBidId; }); var pc = sb && sb.prototype_cost ? sb.prototype_cost : null; var cf = 60; var tot = cf + (pc ? parseFloat(pc) : 0); return React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'Costs & Policy'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.8' } }, React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'CAD Drafting Fee:'), ' $60.00'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'CAD Revisions Included:'), ' Up to 3 rounds'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Additional CAD Revisions:'), ' $25 per round (4+)'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Prototype video:'), ' ', pc ? '$' + parseFloat(pc).toFixed(2) : 'Estimate not provided'), React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Total due: $' + tot.toFixed(2)))); })() : null,
+                                                                        selectedBidId ? (function() { 
+                                                                            var sb = itemState.bids.find(function(b) { return b.bid_id === selectedBidId; }); 
+                                                                            var pc = sb && sb.prototype_cost ? sb.prototype_cost : null; 
+                                                                            var cf = 60; 
+                                                                            var tot = cf + (pc ? parseFloat(pc) : 0); 
+                                                                            var pcDisplay = pc ? '$' + parseFloat(pc).toFixed(2) : 'Estimate not provided';
+                                                                            return React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px' } }, 
+                                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'Breakdown of Costs'),
+                                                                                React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.8', textAlign: 'left' } },
+                                                                                    React.createElement('div', { style: { marginBottom: '8px' } }, 'Prototype video costs: ', pcDisplay),
+                                                                                    React.createElement('div', { style: { marginBottom: '8px' } }, 'CAD Drawing fee: $60 (includes 3 revisions)'),
+                                                                                    React.createElement('div', { style: { marginBottom: '8px' } }, 'Add CAD revisions ($25 per round)'),
+                                                                                    React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Total Due : $' + tot.toFixed(2))
+                                                                                )
+                                                                            ); 
+                                                                        })() : null,
                                                                         selectedBidId ? React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#1a1a1a', border: '1px solid ' + darkBorder, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText } }, 'WireFrameOS Payment Details'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.8', marginBottom: '12px' } }, React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'ACH / Wire:'), React.createElement('br'), 'Bank: [Bank Name]', React.createElement('br'), 'Account: [Account Number]', React.createElement('br'), 'Routing: [Routing Number]', React.createElement('br'), 'Name: WireFrameOS'), React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('strong', null, 'Zelle:'), React.createElement('br'), 'Email: payments@wireframeos.com'), React.createElement('div', { style: { marginTop: '12px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', color: greenAccent } }, React.createElement('strong', null, 'Reference:'), ' Item #' + itemId + ' + Bid #' + selectedBidId))) : null,
                                                                         React.createElement('button', { onClick: function() { if (!selectedBidId) { setCadPrototypeError('Please select a bid.'); return; } if (selectedKeywords.length < 3 || selectedKeywords.length > 7) { setCadPrototypeError('Please select between 3 and 7 keywords.'); return; } setIsSubmittingCadPrototype(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); var fd = new FormData(); fd.append('action', 'n88_create_cad_prototype_request'); fd.append('item_id', itemId); fd.append('bid_id', selectedBidId); selectedKeywords.forEach(function(kid) { fd.append('selected_keywords[]', kid); }); fd.append('note', prototypeNote); var sn = (window.n88BoardNonce && window.n88BoardNonce.nonce) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || ''; if (!sn) { setCadPrototypeError('Nonce not found. Please refresh.'); setIsSubmittingCadPrototype(false); return; } fd.append('nonce', sn); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) { if (data.success) { setCadPrototypeSuccess(true); setSelectedKeywords([]); setPrototypeNote(''); setItemState(function(p) { return Object.assign({}, p, { has_prototype_payment: true, prototype_payment_status: 'requested' }); }); fetchItemState(); setTimeout(function() { var el = document.getElementById('n88-step1-payment-required-heading'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else { var fallback = document.getElementById('cad-prototype-form-step1'); if (fallback) fallback.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 350); } else { setCadPrototypeError((data.data && data.data.message) || 'Failed.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); } }).catch(function() { setCadPrototypeError('Error submitting.'); setTimeout(function() { var el = document.getElementById('cad-prototype-form-step1'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100); }).finally(function() { setIsSubmittingCadPrototype(false); }); }, disabled: isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7, style: { width: '100%', padding: '12px', backgroundColor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#333' : greenAccent, border: 'none', borderRadius: '4px', color: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? '#666' : darkBg, fontSize: '14px', fontFamily: 'monospace', fontWeight: '600', cursor: (isSubmittingCadPrototype || !selectedBidId || selectedKeywords.length < 3 || selectedKeywords.length > 7) ? 'not-allowed' : 'pointer' } }, isSubmittingCadPrototype ? 'Submitting...' : 'Submit Request')
                                                                     )) : null
@@ -15461,11 +15642,28 @@
                                                                     )
                                                                 );
                                                             })(),
-                                                            // Commit 28: Deposit — when Step 4 selected and item awarded; operator marks received before production can start
+                                                            // Commit 28 + 3.C.1: Deposit — when Step 4 selected and item awarded; designer marks sent, operator marks received before production can start
                                                             (s.step_number === 4 && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
                                                                 React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' } }, 'Deposit'),
                                                                 itemState.deposit_status === 'received' ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, '\u2713 Received ' + (itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '') + '. Production (Step 4) can be started.') : React.createElement('div', null,
-                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, (itemState.deposit_amount != null ? ('$' + Number(itemState.deposit_amount).toFixed(2) + ' pending. ') : 'Deposit pending. ') + 'Production can start only after the operator marks deposit received.'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, (itemState.deposit_amount != null ? ('$' + Number(itemState.deposit_amount).toFixed(2) + ' pending. ') : 'Deposit pending. ') + (itemState.deposit_status === 'sent_by_designer' ? 'Status: Awaiting Deposit Confirmation. Operator will review proof and mark received.' : 'Production can start only after the operator marks deposit received.')),
+                                                                    // Designer action (non-operator timeline): mark deposit sent
+                                                                    (!isOperatorTimeline && itemState.deposit_status !== 'sent_by_designer') ? React.createElement('button', {
+                                                                        type: 'button',
+                                                                        onClick: function() {
+                                                                            if (!window.confirm('Confirm you have sent the production deposit payment offline?')) return;
+                                                                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '' );
+                                                                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                                            var fd = new FormData();
+                                                                            fd.append('action', 'n88_mark_deposit_sent');
+                                                                            fd.append('item_id', String(getItemId()));
+                                                                            fd.append('_ajax_nonce', nonce);
+                                                                            fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(r){ return r.json(); }).then(function(data){ if (data.success) { if (typeof fetchItemState === 'function') fetchItemState(); if (typeof fetchTimeline === 'function') fetchTimeline(); } else { alert((data.data && data.data.message) || data.message || 'Failed.'); } }).catch(function(e){ console.error(e); alert('Error. Please try again.'); });
+                                                                        },
+                                                                        style: { padding: '8px 12px', fontSize: '11px', background: '#111111', color: darkText, border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }
+                                                                    }, 'I SENT DEPOSIT PAYMENT') : null,
+                                                                    // Operator action: mark deposit received
                                                                     isOperatorTimeline ? React.createElement('button', { type: 'button', onClick: function() {
                                                                         if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
                                                                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';

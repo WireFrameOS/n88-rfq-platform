@@ -114,6 +114,9 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (!hasAwardedBid && item.meta && item.meta.item_status === 'Awarded') hasAwardedBid = true;
         if (!hasAwardedBid && item.meta && item.meta.awarded_bid_snapshot) hasAwardedBid = true;
 
+        // Production flag (used for "In Production" once deposit / award_set is true)
+        const inProduction = truthy(item.award_set);
+
         // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video — show View Prototype video
         if (hasUnreadOperatorMessages) {
             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
@@ -126,11 +129,16 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (hasPrototypePayment) {
             // 2a: Prototype Approved (designer approved video)
             if (ps === 'approved') {
-                // If bid has been awarded, card should show "Awarded" instead of "Prototype Approved"
-                if (hasAwardedBid) {
-                    return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+                // After deposit / production start
+                if (inProduction) {
+                    return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
                 }
-                return { text: 'Prototype Approved', color: '#00ff00', dot: '#00ff00' };
+                // After award but before deposit
+                if (hasAwardedBid) {
+                    return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
+                }
+                // Prototype approved, no award yet
+                return { text: 'Prototype Approved \u2014 Awaiting Award', color: '#00ff00', dot: '#00ff00' };
             }
             // 2b: Video Changes Requested (designer requested changes; waiting for supplier to resubmit)
             if (ps === 'changes_requested') {
@@ -167,7 +175,10 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
 
         // Priority 3: Bid Awarded — when designer has awarded a bid (and no prototype stage above)
         if (hasAwardedBid) {
-            return { text: 'Awarded', color: '#00ff00', dot: '#00ff00' };
+            if (inProduction) {
+                return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+            }
+            return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
         }
 
         // Priority 4: Proposals Received — when supplier has submitted proposal(s)
@@ -181,8 +192,8 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (item.step456_status_text) {
             return { text: item.step456_status_text, color: item.step456_status_color || '#4caf50', dot: item.step456_status_color || '#4caf50' };
         }
-        // Priority 6: In Production
-        if (truthy(item.award_set)) {
+        // Priority 6: In Production (fallback if award_set true but earlier branches didn't catch it)
+        if (inProduction) {
             return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
         }
         // Safeguard: when backend sets action_required, show Action Required

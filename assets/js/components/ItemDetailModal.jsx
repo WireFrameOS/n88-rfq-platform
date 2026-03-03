@@ -235,6 +235,7 @@ const formatWorkflowDateTime = (dateStr) => {
  * Multiple bids: Comparison table with 3 columns (Supplier A, B, C)
  */
 const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick, smartAlternativesEnabled = false }) => {
+    const prototypeHelperText = 'For your convenience and to save time and money we offer you the option to have a prototype video of the piece you are asking about. If you still need to see a physical product you can choose to do so after the video of the prototype.';
     // Order bids by created_at ASC, bid_id ASC (deterministic tie-breaker)
     const orderedBids = [...bids].sort((a, b) => {
         const dateA = new Date(a.created_at || 0).getTime();
@@ -535,8 +536,11 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                 backgroundColor: '#111111',
                 padding: '12px',
             }}>
-                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '10px', color: darkText }}>
+                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: darkText }}>
                     Supplier A
+                </div>
+                <div style={{ fontSize: '10px', color: '#FF0065', marginBottom: '10px', lineHeight: 1.4 }}>
+                    {prototypeHelperText}
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -677,6 +681,16 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
             overflow: 'hidden',
             backgroundColor: '#111111',
         }}>
+            {/* Helper text about prototype video */}
+            <div style={{
+                padding: '8px 10px 0',
+                fontSize: '10px',
+                color: '#FF0065',
+                lineHeight: 1.4,
+            }}>
+                {prototypeHelperText}
+            </div>
+
             {/* Table Header */}
             <div style={{
                 display: 'grid',
@@ -732,6 +746,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                 padding: '6px 10px',
                                 borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
                                 fontSize: '10px',
+                                textAlign: 'center',
                             }}
                         >
                             {renderMedia(bid, true) || <span style={{ color: darkText }}>—</span>}
@@ -903,138 +918,100 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     })}
                 </div>
 
-                {/* Commit 2.4.1: Award Bid Row */}
+                {/* Physical Prototype Cost Row (placeholder) */}
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
-                <div style={{
-                    padding: '6px 10px',
-                    borderRight: `1px solid ${darkBorder}`,
-                    fontSize: '10px',
-                    color: darkText,
-                    backgroundColor: '#0a0a0a',
-                    display: 'flex',
-                    alignItems: 'center',
-                }}>
-                    Award Bid
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Physical Prototype Cost (add 50%)
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div
+                            key={`proto-cost-${bid.bid_id}`}
+                            style={{
+                                padding: '6px 10px',
+                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '10px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <span style={{ color: darkText }}>—</span>
+                        </div>
+                    ))}
                 </div>
-                    {displayBids.map((bid, idx) => {
-                        return (
-                            <div
-                                key={`award-${bid.bid_id}`}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
-                                    fontSize: '10px',
-                                    textAlign: 'center',
-                                }}
-                            >
-                                {bid.is_awarded ? (
-                                    <div style={{
-                                        padding: '4px 8px',
-                                        backgroundColor: 'rgba(255,0,101,0.15)',
-                                        border: '1px solid #FF0065',
-                                        borderRadius: '4px',
-                                        color: '#FF0065',
-                                        fontSize: '9px',
-                                        fontWeight: '600',
-                                    }}>
-                                        ✓ Awarded
-                                    </div>
-                                ) : bid.is_declined ? (
-                                    <div style={{
-                                        padding: '4px 8px',
-                                        backgroundColor: '#330000',
-                                        border: '1px solid #ff6666',
-                                        borderRadius: '4px',
-                                        color: '#ff6666',
-                                        fontSize: '9px',
-                                    }}>
-                                        Declined
-                                    </div>
-                                ) : bid.can_award ? (
-                                    <button
-                                        onClick={async () => {
-                                            if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
-                                                return;
-                                            }
-                                            
-                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                            let nonce = '';
-                                            if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
-                                                nonce = window.n88BoardNonce.nonce_award_bid;
-                                            } else if (window.n88BoardData && window.n88BoardData.nonce) {
-                                                nonce = window.n88BoardData.nonce;
-                                            } else if (window.n88 && window.n88.nonce) {
-                                                nonce = window.n88.nonce;
-                                            }
-                                            
-                                            if (!nonce) {
-                                                alert('Security token missing. Please refresh the page and try again.');
-                                                return;
-                                            }
-                                            
-                                            try {
-                                                const formData = new FormData();
-                                                formData.append('action', 'n88_award_bid');
-                                                formData.append('item_id', item.id);
-                                                formData.append('bid_id', bid.bid_id);
-                                                formData.append('_ajax_nonce', nonce);
-                                                
-                                                const response = await fetch(ajaxUrl, {
-                                                    method: 'POST',
-                                                    body: formData
-                                                });
-                                                
-                                                const data = await response.json();
-                                                
-                                                if (data.success) {
-                                                    alert('Bid awarded successfully!');
-                                                    // Refresh the modal
-                                                    if (onSave) {
-                                                        await onSave(item.id, {});
-                                                    }
-                                                    onClose();
-                                                } else {
-                                                    alert('Error: ' + (data.data?.message || 'Failed to award bid'));
-                                                }
-                                            } catch (error) {
-                                                console.error('Error awarding bid:', error);
-                                                alert('Error awarding bid. Please try again.');
-                                            }
-                                        }}
-                                        style={{
-                                            padding: '6px 12px',
-                                            backgroundColor: '#FF0065',
-                                            color: '#000',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            fontSize: '9px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer',
-                                            fontFamily: 'monospace',
-                                        }}
-                                        onMouseOver={(e) => {
-                                            e.target.style.backgroundColor = '#00cc00';
-                                        }}
-                                        onMouseOut={(e) => {
-                                            e.target.style.backgroundColor = '#FF0065';
-                                        }}
-                                    >
-                                        Award
-                                    </button>
-                                ) : (
-                                    <span style={{ color: darkText, fontSize: '9px' }}>
-                                        {bid.has_prototype_request && bid.prototype_status !== 'approved' 
-                                            ? 'Prototype Pending' 
-                                            : '—'}
-                                    </span>
-                                )}
-                            </div>
-                        );
-                    })}
+
+                {/* Physical Prototype Delivery Row (placeholder) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Physical Prototype Delivery
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div
+                            key={`proto-delivery-${bid.bid_id}`}
+                            style={{
+                                padding: '6px 10px',
+                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '10px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <span style={{ color: darkText }}>—</span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Total Cost Row (placeholder) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}>
+                        Total Cost (Order minus prototype 50%)
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div
+                            key={`total-${bid.bid_id}`}
+                            style={{
+                                padding: '6px 10px',
+                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '10px',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <span style={{ color: darkText }}>—</span>
+                        </div>
+                    ))}
                 </div>
 
                 {/* Smart Alternatives Rows - Only show if enabled */}
@@ -1264,10 +1241,11 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     </>
                 )}
 
-                {/* Landed Shipping Costs Row */}
+                {/* Commit 2.4.1: Award Bid Row (moved to bottom) */}
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
                         padding: '6px 10px',
@@ -1278,21 +1256,123 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         display: 'flex',
                         alignItems: 'center',
                     }}>
-                        Landed Shipping Costs
+                        Award Bid
                     </div>
-                    {displayBids.map((bid, idx) => (
-                        <div
-                            key={`landed-${bid.bid_id}`}
-                            style={{
-                                padding: '6px 10px',
-                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
-                                fontSize: '10px',
-                                textAlign: 'center',
-                            }}
-                        >
-                            <span style={{ color: darkText }}>—</span>
-                        </div>
-                    ))}
+                    {displayBids.map((bid, idx) => {
+                        return (
+                            <div
+                                key={`award-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {bid.is_awarded ? (
+                                    <div style={{
+                                        padding: '4px 8px',
+                                        backgroundColor: 'rgba(255,0,101,0.15)',
+                                        border: '1px solid #FF0065',
+                                        borderRadius: '4px',
+                                        color: '#FF0065',
+                                        fontSize: '9px',
+                                        fontWeight: '600',
+                                    }}>
+                                        ✓ Awarded
+                                    </div>
+                                ) : bid.is_declined ? (
+                                    <div style={{
+                                        padding: '4px 8px',
+                                        backgroundColor: '#330000',
+                                        border: '1px solid #ff6666',
+                                        borderRadius: '4px',
+                                        color: '#ff6666',
+                                        fontSize: '9px',
+                                    }}>
+                                        Declined
+                                    </div>
+                                ) : bid.can_award ? (
+                                    <button
+                                        onClick={async () => {
+                                            if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) {
+                                                return;
+                                            }
+                                            
+                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                            let nonce = '';
+                                            if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) {
+                                                nonce = window.n88BoardNonce.nonce_award_bid;
+                                            } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                nonce = window.n88BoardData.nonce;
+                                            } else if (window.n88 && window.n88.nonce) {
+                                                nonce = window.n88.nonce;
+                                            }
+                                            
+                                            if (!nonce) {
+                                                alert('Security token missing. Please refresh the page and try again.');
+                                                return;
+                                            }
+                                            
+                                            try {
+                                                const formData = new FormData();
+                                                formData.append('action', 'n88_award_bid');
+                                                formData.append('item_id', item.id);
+                                                formData.append('bid_id', bid.bid_id);
+                                                formData.append('_ajax_nonce', nonce);
+                                                
+                                                const response = await fetch(ajaxUrl, {
+                                                    method: 'POST',
+                                                    body: formData
+                                                });
+                                                
+                                                const data = await response.json();
+                                                
+                                                if (data.success) {
+                                                    alert('Bid awarded successfully!');
+                                                    // Refresh the modal
+                                                    if (onSave) {
+                                                        await onSave(item.id, {});
+                                                    }
+                                                    onClose();
+                                                } else {
+                                                    alert('Error: ' + (data.data?.message || 'Failed to award bid'));
+                                                }
+                                            } catch (error) {
+                                                console.error('Error awarding bid:', error);
+                                                alert('Error awarding bid. Please try again.');
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '6px 12px',
+                                            backgroundColor: '#FF0065',
+                                            color: '#000',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '9px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            fontFamily: 'monospace',
+                                        }}
+                                        onMouseOver={(e) => {
+                                            e.target.style.backgroundColor = '#00cc00';
+                                        }}
+                                        onMouseOut={(e) => {
+                                            e.target.style.backgroundColor = '#FF0065';
+                                        }}
+                                    >
+                                        Award
+                                    </button>
+                                ) : (
+                                    <span style={{ color: darkText, fontSize: '9px' }}>
+                                        {bid.has_prototype_request && bid.prototype_status !== 'approved' 
+                                            ? 'Prototype Pending' 
+                                            : '—'}
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -5141,8 +5221,44 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         ) : (
                                                                             <>
                                                                                 <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
-                                                                                    {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'} Production can start only after the operator marks deposit received.
+                                                                                    {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
+                                                                                    {itemState.deposit_status === 'sent_by_designer'
+                                                                                        ? 'Status: Awaiting Deposit Confirmation. Operator will review your proof and mark received.'
+                                                                                        : 'Production can start only after the operator marks deposit received.'}
                                                                                 </div>
+                                                                                {/* Designer action: mark deposit sent (offline payment) */}
+                                                                                {(!window.n88BoardData || !window.n88BoardData.isOperator) && itemState.deposit_status !== 'sent_by_designer' && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={async () => {
+                                                                                            if (!window.confirm('Confirm you have sent the production deposit payment offline?')) return;
+                                                                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                                                            const fd = new FormData();
+                                                                                            fd.append('action', 'n88_mark_deposit_sent');
+                                                                                            fd.append('item_id', String(getItemId()));
+                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                            try {
+                                                                                                const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                                const data = await res.json();
+                                                                                                if (data.success) {
+                                                                                                    fetchItemState();
+                                                                                                    fetchTimeline();
+                                                                                                } else {
+                                                                                                    alert(data.data?.message || data.message || 'Failed.');
+                                                                                                }
+                                                                                            } catch (e) {
+                                                                                                console.error(e);
+                                                                                                alert('Error. Please try again.');
+                                                                                            }
+                                                                                        }}
+                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: '#111111', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }}
+                                                                                    >
+                                                                                        I SENT DEPOSIT PAYMENT
+                                                                                    </button>
+                                                                                )}
+                                                                                {/* Operator action: mark deposit received */}
                                                                                 {window.n88BoardData && window.n88BoardData.isOperator && (
                                                                                     <button
                                                                                         type="button"
@@ -6737,7 +6853,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 smartAlternativesEnabled={smartAlternativesEnabled}
                                             />
                                             
-                                            {/* Request Prototpe Video Button/Form (Commit 2.3.9.1B) - hide when CAD request already submitted */}
+                                            {/* Request Prototype Video Button/Form (Commit 2.3.9.1B) - hide when CAD request already submitted */}
                                             {!itemState.has_prototype_payment && ( !showCadPrototypeForm ? (
                                                 <div style={{ marginTop: '20px', textAlign: 'center' }}>
                                                     <button
@@ -6762,7 +6878,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                             fontWeight: '600',
                                                         }}
                                                     >
-                                                        Request Prototpe Video
+                                                        Request Prototype Video
                                                     </button>
                                                 </div>
                                             ) : (
@@ -6781,7 +6897,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                         marginBottom: '16px',
                                                     }}>
                                                         <div style={{ fontSize: '14px', fontWeight: '600', color: darkText }}>
-                                                            Request Prototpe Video
+                                                            Request Prototype Video
                                                         </div>
                                                         <button
                                                             onClick={() => {
@@ -6843,10 +6959,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
                                                     {/* Section A: Video Direction */}
                                                     <div style={{ marginBottom: '24px' }}>
-                                                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: darkText }}>
+                                                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', color: darkText }}>
                                                             Video Direction
                                                         </div>
-                                                        
+                                                        <div style={{ fontSize: '11px', color: '#ff4444', marginBottom: '8px' }}>
+                                                            Select up to 7 keywords that are most important for the supplier to focus on when filming the prototype video.
+                                                        </div>
                                                         {/* Bid Selection (if multiple bids) */}
                                                         {itemState.bids && itemState.bids.length > 1 && (
                                                             <div style={{ marginBottom: '16px' }}>
@@ -6949,9 +7067,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
 
                                                         {/* Note Field */}
                                                         <div style={{ marginBottom: '16px' }}>
-                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '8px', color: darkText }}>
+                                                            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px', color: darkText }}>
                                                                 Additional Note (Optional, max 240 characters)
                                                             </label>
+                                                            <div style={{ fontSize: '11px', color: '#ff4444', marginBottom: '8px' }}>
+                                                                Add additional notes for clear description of what you are looking for
+                                                            </div>
                                                             <textarea
                                                                 value={prototypeNote}
                                                                 onChange={(e) => {
