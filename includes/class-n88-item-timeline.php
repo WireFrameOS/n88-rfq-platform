@@ -330,6 +330,18 @@ class N88_Item_Timeline {
             return array( 'success' => false, 'message' => 'Step is not pending.' );
         }
 
+        // Commit 28: Production (Step 4) starts only after operator marks deposit received
+        if ( $step_number === 4 ) {
+            $items_table = $wpdb->prefix . 'n88_items';
+            $item_meta_raw = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+            $item_meta = ! empty( $item_meta_raw ) ? json_decode( $item_meta_raw, true ) : array();
+            $deposit_status = is_array( $item_meta ) && isset( $item_meta['deposit_status'] ) ? $item_meta['deposit_status'] : '';
+            $has_awarded = is_array( $item_meta ) && ! empty( $item_meta['awarded_bid_snapshot'] );
+            if ( ! $has_awarded || $deposit_status !== 'received' ) {
+                return array( 'success' => false, 'message' => 'Deposit must be marked received by the operator before starting production (Step 4).' );
+            }
+        }
+
         $now = current_time( 'mysql' );
         $updated = $wpdb->update(
             $steps_table,

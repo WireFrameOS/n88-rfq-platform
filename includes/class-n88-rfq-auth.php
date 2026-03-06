@@ -73,6 +73,10 @@ class N88_RFQ_Auth {
         
         // Commit 28: Operator marks deposit received (production Step 4 can then start)
         add_action( 'wp_ajax_n88_mark_deposit_received', array( $this, 'ajax_mark_deposit_received' ) );
+        // Commit 3.C.1: Designer marks deposit sent (offline payment)
+        add_action( 'wp_ajax_n88_mark_deposit_sent', array( $this, 'ajax_mark_deposit_sent' ) );
+        // Commit 3.C.1: Supplier submits Official Quote PDF (append-only, versioned)
+        add_action( 'wp_ajax_n88_submit_official_quote_pdf', array( $this, 'ajax_submit_official_quote_pdf' ) );
         
         // Commit 2.6.1: Invite team member (designer action)
         add_action( 'wp_ajax_n88_invite_team_member', array( $this, 'ajax_invite_team_member' ) );
@@ -107,6 +111,9 @@ class N88_RFQ_Auth {
         // Payment receipt: designer upload (JPG/PDF); operator views before mark received
         add_action( 'wp_ajax_n88_upload_payment_receipt', array( $this, 'ajax_upload_payment_receipt' ) );
         add_action( 'wp_ajax_n88_get_payment_receipts', array( $this, 'ajax_get_payment_receipts' ) );
+        // Deposit proof: designer upload (image/PDF); operator views before mark deposit received
+        add_action( 'wp_ajax_n88_upload_deposit_proof', array( $this, 'ajax_upload_deposit_proof' ) );
+        add_action( 'wp_ajax_n88_get_deposit_proofs', array( $this, 'ajax_get_deposit_proofs' ) );
 
         // Commit 2.3.9.2A: CAD workflow v1
         add_action( 'wp_ajax_n88_upload_cad_files', array( $this, 'ajax_upload_cad_files' ) );
@@ -2033,7 +2040,20 @@ class N88_RFQ_Auth {
             }
             $show_action_required = $has_unread_operator_messages;
             if ( $action_badge === 'awarded' ) {
-                $show_action_required = false;
+                // Commit 3.C.1: Show Action Required when supplier must submit Official Quote PDF
+                $meta_award = array();
+                if ( ! empty( $item_data['meta_json'] ) ) {
+                    $decoded = json_decode( $item_data['meta_json'], true );
+                    if ( is_array( $decoded ) ) {
+                        $meta_award = $decoded;
+                    }
+                }
+                $oq_status = isset( $meta_award['official_quote_status'] ) ? $meta_award['official_quote_status'] : '';
+                if ( $oq_status !== 'submitted' ) {
+                    $show_action_required = true; // Awarded — Quote PDF Required = action required
+                } else {
+                    $show_action_required = false;
+                }
             }
             if ( $prototype_status === 'approved' ) {
                 $show_action_required = false;
@@ -2059,8 +2079,32 @@ class N88_RFQ_Auth {
             $has_prototype_payment = $prototype_payment_status !== null && $prototype_payment_status !== '';
 
             if ( $action_badge === 'awarded' ) {
-                $status_label = __( 'Awarded', 'n88-rfq-platform' );
-                $status_color = '#00ff00';
+                // Commit 3.C.1: Commercial gate states for supplier queue
+                $meta_for_status = array();
+                if ( ! empty( $item_data['meta_json'] ) ) {
+                    $decoded_meta = json_decode( $item_data['meta_json'], true );
+                    if ( is_array( $decoded_meta ) ) {
+                        $meta_for_status = $decoded_meta;
+                    }
+                }
+                $deposit_status        = isset( $meta_for_status['deposit_status'] ) ? $meta_for_status['deposit_status'] : '';
+                $award_set             = isset( $meta_for_status['award_set'] ) ? (bool) $meta_for_status['award_set'] : false;
+                $official_quote_status = isset( $meta_for_status['official_quote_status'] ) ? $meta_for_status['official_quote_status'] : '';
+
+                if ( $award_set || $deposit_status === 'received' ) {
+                    // Deposit confirmed – production started
+                    $status_label = __( 'In Production', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $official_quote_status === 'submitted' ) {
+                    // Official quote PDF submitted — supplier sees "Quote File Submitted", not "Awaiting Deposit"
+                    $status_label = __( 'Awarded - Quote File Submitted', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } else {
+                    // Awarded, but supplier still must submit Official Quote PDF — Action Required, distinct color
+                    $status_label = __( 'Awarded — Quote PDF Required', 'n88-rfq-platform' );
+                    $status_color = '#ff8800';
+                    $is_action_required = true;
+                }
             } elseif ( $action_badge === 'expired' ) {
                 $status_label = __( 'Expired', 'n88-rfq-platform' );
                 $status_color = '#999';
@@ -3073,15 +3117,37 @@ class N88_RFQ_Auth {
                 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    credentials: 'same-origin'
                 })
                 .then(function(response) {
-                    return response.json();
+                    return response.text().then(function(text) {
+                        try {
+                            var data = JSON.parse(text);
+                            if (!response.ok) {
+                                return { success: false, data: { message: (data.data && data.data.message) ? data.data.message : ('Request failed: ' + response.status) } };
+                            }
+                            return data;
+                        } catch (e) {
+                            if (!response.ok) {
+                                return { success: false, data: { message: 'Request failed (' + response.status + '). Please try again.' } };
+                            }
+                            throw e;
+                        }
+                    });
                 })
                 .then(function(data) {
                     if (!data.success) {
                         modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
                             '<p style="margin-bottom: 20px;">' + (data.data && data.data.message ? data.data.message : 'Error loading item details') + '</p>' +
+                            '<button onclick="closeBidModal()" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Close</button>' +
+                            '</div>';
+                        return;
+                    }
+                    
+                    if (!data.data) {
+                        modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
+                            '<p style="margin-bottom: 20px;">Error loading item details. Invalid response.</p>' +
                             '<button onclick="closeBidModal()" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Close</button>' +
                             '</div>';
                         return;
@@ -3310,6 +3376,7 @@ class N88_RFQ_Auth {
                         var protoFallback = { full: '', step1Box: '', step2Box: '', step3Box: '' };
                         var bidAndPrototype = (function() {
                             var bid = item.bid_data || {};
+                            var officialQuoteBlockHTML = '';
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
                             var prototypeApprovedNotAwarded = paymentNotif && paymentNotif.prototype_status === 'approved' && !isBidAwarded;
                             var protoResult = paymentNotif ? (function() {
@@ -3565,15 +3632,37 @@ class N88_RFQ_Auth {
                                     '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">🎉 Congratulations! Your Bid Has Been Awarded</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Item:</strong> ' + (item.title || 'Item #' + itemId) + '</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #FF0065; font-weight: 600;">Awarded</span></div>' +
-                                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065; font-size: 13px;">Your bid has been awarded. Please proceed according to the next workflow steps.</div>' +
+                                    '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065; font-size: 13px;">Your bid has been awarded. Please submit the Official Quote PDF and then proceed according to the next workflow steps.</div>' +
                                     '</div>') : (prototypeApprovedNotAwarded ? '<div style="background-color: rgba(0, 51, 0, 0.3); border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
                                     '<div style="font-weight: 600; margin-bottom: 8px;">✓ Prototype Approved</div>' +
                                     '<div style="font-size: 13px;">Your prototype video has been approved by the designer. The project has not been awarded yet; you will be notified if the designer awards the project.</div>' +
                                     '</div>' : '');
+                            var officialStatus = item.official_quote_status || '';
+                            officialQuoteBlockHTML = '';
+                            if (isBidAwarded) {
+                                if (officialStatus === 'submitted') {
+                                    officialQuoteBlockHTML = '<div style="margin-bottom: 16px; padding: 12px; background-color: rgba(0,0,0,0.4); border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
+                                        '<div style="font-weight: 600; color: #4caf50; margin-bottom: 4px;">Official Quote PDF submitted</div>' +
+                                        '<div style="font-size: 11px; color: #aaa;">Awaiting designer deposit to begin production.</div>' +
+                                        '</div>';
+                                } else {
+                                    var awardedBidId = item.awarded_bid_id || (bid.bid_id || null);
+                                    var quoteNonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_official_quote_pdf' ) ); ?>';
+                                    officialQuoteBlockHTML = '<div style="margin-bottom: 16px; padding: 14px; background-color: #1a1a1a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
+                                        '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded — Quote PDF Required</div>' +
+                                        '<div style="font-size: 11px; color: #ccc; margin-bottom: 8px;">Your bid has been awarded. Please upload the Official Quote PDF to finalize award documentation.</div>' +
+                                        (awardedBidId ? ('<form onsubmit="return submitOfficialQuotePDF(this,' + (item.item_id || itemId) + ',' + awardedBidId + ');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">' +
+                                            '<input type="file" name="official_quote_pdf" accept="application/pdf" required style="font-size:11px; color:#fff;"/>' +
+                                            '<input type="hidden" name="_ajax_nonce" value="' + quoteNonce + '" />' +
+                                            '<button type="submit" style="align-self:flex-start; padding:8px 12px; background-color:#FF0065; color:#000; border:none; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Submit Official Quote PDF ]</button>' +
+                                            '</form>') : '<div style="margin-top:8px; font-size:11px; color:#ff6666;">Unable to determine awarded bid ID for this item.</div>') +
+                                        '</div>';
+                                }
+                            }
                             
                             return '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 2px; border: 1px solid #FF0065; margin-bottom: 24px; font-family: monospace;">' +
                                 '<div style="font-size: 16px; font-weight: 600; color: #FF0065; margin-bottom: 16px; border-bottom: 1px solid #FF0065; padding-bottom: 8px;">Your Submitted Bid' + bidHeaderLabel + '</div>' +
-                                // Commit 2.4.1: Awarded Status Message (or Prototype approved when not yet awarded)
+                                // Commit 2.4.1: Awarded Status Message (or Prototype approved when not yet awarded). Official Quote block moved to Workflow Step 4.
                                 statusBlockHTML +
                                 (bid.has_prototype_request && bid.prototype_request_status === 'requested' ? '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' : '') +
                                 '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
@@ -3594,7 +3683,7 @@ class N88_RFQ_Auth {
                             '</div></div>';
                             })() : '';
                             var prototypeBlockHTML = (protoResult && protoResult.full) ? protoResult.full : '';
-                            return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML, workflowStep1: (protoResult && protoResult.step1Box) ? protoResult.step1Box : '', workflowStep2: (protoResult && protoResult.step2Box) ? protoResult.step2Box : '', workflowStep3: (protoResult && protoResult.step3Box) ? protoResult.step3Box : '' };
+                            return { bidBox: bidBoxHTML, prototypeBlock: prototypeBlockHTML, workflowStep1: (protoResult && protoResult.step1Box) ? protoResult.step1Box : '', workflowStep2: (protoResult && protoResult.step2Box) ? protoResult.step2Box : '', workflowStep3: (protoResult && protoResult.step3Box) ? protoResult.step3Box : '', workflowStep4OfficialQuote: officialQuoteBlockHTML };
                         })();
                     var bidTabHTML = bidAndPrototype.bidBox +
                         '<div style="padding: 20px; border-top: 1px solid #555; background-color: #000; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">' +
@@ -3665,14 +3754,43 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">2. Technical Review & Documentation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">3. Pre-Production Approval</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
-                    var w4WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">4. Production / Fabrication</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                    // Step 4: Official Quote PDF — sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
+                    var step4OfficialQuoteHTML = '';
+                    var isAwardedForStep4 = item.bid_status === 'awarded' || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
+                    if (isAwardedForStep4) {
+                        var oqStatus = item.official_quote_status || '';
+                        if (oqStatus === 'submitted') {
+                            step4OfficialQuoteHTML = '<div style="margin-bottom: 16px; padding: 12px; background-color: rgba(0,0,0,0.4); border: 1px solid #4caf50; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
+                                '<div style="font-weight: 600; color: #4caf50; margin-bottom: 4px;">Quote file submitted</div>' +
+                                '<div style="font-size: 11px; color: #aaa;">You have submitted the Official Quote PDF. Awaiting designer deposit to begin production.</div>' +
+                                '</div>';
+                        } else {
+                            var aBidId = item.awarded_bid_id || (item.bid_data && item.bid_data.bid_id) || null;
+                            var quoteNonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_official_quote_pdf' ) ); ?>';
+                            step4OfficialQuoteHTML = '<div style="margin-bottom: 16px; padding: 14px; background-color: #1a1a1a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
+                                '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded — Quote PDF Required</div>' +
+                                '<div style="font-size: 11px; color: #ccc; margin-bottom: 8px;">Your bid has been awarded. Please upload the Official Quote PDF to finalize award documentation.</div>' +
+                                (aBidId ? ('<form onsubmit="return submitOfficialQuotePDF(this,' + (item.item_id || itemId) + ',' + aBidId + ');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">' +
+                                    '<input type="file" name="official_quote_pdf" accept="application/pdf" required style="font-size:11px; color:#fff;"/>' +
+                                    '<input type="hidden" name="_ajax_nonce" value="' + quoteNonce + '" />' +
+                                    '<button type="submit" style="align-self:flex-start; padding:8px 12px; background-color:#FF0065; color:#000; border:none; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:monospace;">[ Submit Official Quote PDF ]</button>' +
+                                    '</form>') : '<div style="margin-top:8px; font-size:11px; color:#ff6666;">Unable to determine awarded bid ID for this item.</div>') +
+                                '</div>';
+                        }
+                    } else if (bidAndPrototype.workflowStep4OfficialQuote && bidAndPrototype.workflowStep4OfficialQuote.length) {
+                        step4OfficialQuoteHTML = bidAndPrototype.workflowStep4OfficialQuote;
+                    }
+                    var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div>';
+                    // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF) — PDF upload ka payment se taaluq nahi
+                    var showWorkflowSteps = paymentNotif || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
+                    var w4WithClass = (showWorkflowSteps ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">4. Production / Fabrication</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div>' + w4Content + '</div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">5. Quality Review & Packing</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc5 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">6. Ready for Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
                     var stepRow = '';
-                    if (paymentNotif) {
+                    if (showWorkflowSteps) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
                         for (var si = 0; si < 6; si++) {
                             var isActive = activeStepIdx === si;
@@ -3688,9 +3806,9 @@ class N88_RFQ_Auth {
                         }
                         stepRow += '</div>';
                     }
-                    // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4–6 show video evidence, not "Coming soon")
+                    // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4–6 show video evidence, not "Coming soon"). Show workflow when paymentNotif OR Official Quote block (Step 4) required.
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
-                        (paymentNotif ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
+                        (showWorkflowSteps ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
                     var defaultTab = (preferredTab === 'bid') ? 'bid' : ((item.supplier_workflow_active_step !== null && item.supplier_workflow_active_step !== undefined) ? 'workflow' : 'overview');
                     var modalHTML = '<div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">' +
@@ -3990,8 +4108,9 @@ class N88_RFQ_Auth {
                     window.currentItemData = item;
                 })
                 .catch(function(error) {
+                    var msg = (error && error.message) ? error.message : 'Error loading item details. Please try again.';
                     modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' +
-                        '<p style="margin-bottom: 20px;">Error loading item details. Please try again.</p>' +
+                        '<p style="margin-bottom: 20px;">' + (typeof msg === 'string' ? msg : 'Error loading item details. Please try again.') + '</p>' +
                         '<button onclick="closeBidModal()" style="padding: 8px 16px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Close</button>' +
                         '</div>';
                 });
@@ -4072,13 +4191,15 @@ class N88_RFQ_Auth {
                 var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                 if (!nonce) return;
                 // Preserve Steps 1-3: only show loading in Steps 4-6, never wipe the container
+                // IMPORTANT: Do NOT overwrite Step 4 if it already has the Official Quote PDF form (supplier awarded — must submit PDF)
                 var step4El = document.getElementById('n88-supplier-workflow-step-3');
                 var step5El = document.getElementById('n88-supplier-workflow-step-4');
                 var step6El = document.getElementById('n88-supplier-workflow-step-5');
                 var hasOriginalStructure = !!(step4El && step5El && step6El);
+                var step4HasOfficialQuote = step4El && (step4El.innerHTML.indexOf('official_quote_pdf') !== -1 || step4El.innerHTML.indexOf('Submit Official Quote PDF') !== -1 || step4El.innerHTML.indexOf('Quote file submitted') !== -1);
                 if (hasOriginalStructure) {
                     var loadingHtml = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
-                    step4El.innerHTML = loadingHtml;
+                    if (!step4HasOfficialQuote) step4El.innerHTML = loadingHtml;
                     step5El.innerHTML = loadingHtml;
                     step6El.innerHTML = loadingHtml;
                 } else {
@@ -4208,10 +4329,12 @@ class N88_RFQ_Auth {
                         var step6El = document.getElementById('n88-supplier-workflow-step-5');
                         if (step4El && step5El && step6El) {
                             // Original supplier structure exists — only update Steps 4, 5, 6 content. Do NOT replace Steps 1-3.
+                            // Do NOT replace Step 4 if it has the Official Quote PDF form (awarded supplier must submit PDF).
                             for (var idx = 3; idx <= 5; idx++) {
-                                var s = steps[idx];
                                 var el = document.getElementById('n88-supplier-workflow-step-' + idx);
-                                if (!el || !s) continue;
+                                if (!el || !steps[idx]) continue;
+                                if (idx === 3 && (el.innerHTML.indexOf('official_quote_pdf') !== -1 || el.innerHTML.indexOf('Submit Official Quote PDF') !== -1 || el.innerHTML.indexOf('Quote file submitted') !== -1)) continue;
+                                var s = steps[idx];
                                 var sl = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
                                 var supplierStepDescriptions456 = { 4: 'Manufacture the approved item and upload production progress documentation.', 5: 'Upload quality control and packing documentation prior to shipment.', 6: 'Upload shipping documents, tracking information, and delivery confirmation.' };
                                 var stepN = idx + 1;
@@ -4871,7 +4994,8 @@ class N88_RFQ_Auth {
                 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    credentials: 'same-origin'
                 })
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
@@ -7968,6 +8092,64 @@ class N88_RFQ_Auth {
             // Expose to global scope
             window.openBidModal = openBidModal;
             window.closeBidModal = closeBidModal;
+            window.submitOfficialQuotePDF = function(form, itemId, bidId) {
+                try {
+                    if (!bidId) {
+                        alert('Unable to determine awarded bid for this item.');
+                        return false;
+                    }
+                    var fileInput = form.querySelector('input[type="file"][name="official_quote_pdf"]');
+                    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+                        alert('Please choose a PDF file to upload.');
+                        return false;
+                    }
+                    var submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Submitting…';
+                    }
+                    var fd = new FormData(form);
+                    fd.append('action', 'n88_submit_official_quote_pdf');
+                    fd.append('item_id', String(itemId));
+                    fd.append('bid_id', String(bidId));
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: fd
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = '[ Submit Official Quote PDF ]';
+                        }
+                        if (data.success) {
+                            alert(data.data && data.data.message ? data.data.message : 'Official Quote PDF submitted successfully.');
+                            if (typeof openBidModal === 'function') {
+                                var modal = document.getElementById('n88-supplier-bid-modal');
+                                if (modal) {
+                                    modal.style.display = 'none';
+                                    setTimeout(function() { openBidModal(itemId, 'workflow'); }, 300);
+                                } else {
+                                    window.location.reload();
+                                }
+                            } else {
+                                window.location.reload();
+                            }
+                        } else {
+                            alert((data.data && data.data.message) || data.message || 'Failed to submit Official Quote PDF.');
+                        }
+                    }).catch(function(err) {
+                        console.error('Error submitting official quote PDF:', err);
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = '[ Submit Official Quote PDF ]';
+                        }
+                        alert('Error submitting Official Quote PDF. Please try again.');
+                    });
+                } catch (e) {
+                    console.error('Error in submitOfficialQuotePDF:', e);
+                    alert('Error submitting Official Quote PDF. Please try again.');
+                }
+                return false;
+            };
             // Withdraw bid function (Commit 2.3.5)
             function withdrawBid(itemId) {
                 if (!confirm('Are you sure you want to withdraw your bid? You will be able to resubmit a new bid after withdrawal.')) {
@@ -10735,6 +10917,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             return esc_url_raw( $link['url'] );
                         }, $video_links_for_json ),
                         'bid_photos' => $photo_urls,
+                        'bid_id' => $bid_id,
                         'created_at' => $bid_created_at,
                         'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                         'has_prototype_request' => $has_prototype_request, // Commit 2.3.9.1B: Flag for CAD prototype request
@@ -11414,15 +11597,34 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $supplier_workflow_active_step = 2; // Step 3
             }
         }
+        // Commit 3.C.1: When awarded, always open modal on Step 4 (Workflow) so supplier sees Official Quote block or "Quote file submitted"
+        if ( $bid_status === 'awarded' ) {
+            $supplier_workflow_active_step = 3; // Step 4: Official Quote PDF (show form or "Quote file submitted")
+        }
 
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
         // Commit 2.4.1: Include 'awarded' status so supplier can see their awarded bid
+        // Commit 3.C.1: Expose official quote + awarded bid id for supplier UI
         // Ensure bid_status is only 'draft' when there's actually a valid draft, otherwise null (shows "Start Bid")
         // But keep 'submitted' and 'awarded' status so supplier can see their bid details
         if ( ! isset( $bid_status ) || ( $bid_status !== 'draft' && $bid_status !== 'submitted' && $bid_status !== 'awarded' ) ) {
             $bid_status = null; // Default to null - will show "Start Bid" button
         }
+
+        // Fallback: if item has awarded_bid_snapshot (item was awarded), get awarded_bid_id and ensure winning supplier sees bid_status = 'awarded' and Step 04 (Official Quote PDF)
+        $awarded_bid_id_from_meta = null;
+        if ( isset( $meta['awarded_bid_snapshot'] ) && is_array( $meta['awarded_bid_snapshot'] ) && ! empty( $meta['awarded_bid_snapshot']['bid_id'] ) ) {
+            $awarded_bid_id_from_meta = intval( $meta['awarded_bid_snapshot']['bid_id'] );
+            if ( isset( $bid_id ) && intval( $bid_id ) === $awarded_bid_id_from_meta ) {
+                $bid_status = 'awarded';
+            }
+        }
+        // Ensure workflow opens on Step 4 when supplier is the awarded bidder via snapshot fallback as well
+        if ( $bid_status === 'awarded' ) {
+            $supplier_workflow_active_step = 3;
+        }
+        $response_awarded_bid_id = $awarded_bid_id_from_meta ? $awarded_bid_id_from_meta : ( ( isset( $bid_status ) && $bid_status === 'awarded' && isset( $bid_id ) ) ? intval( $bid_id ) : null );
         
         $response = array(
             'item_id' => intval( $item['id'] ),
@@ -11458,6 +11660,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operator–Supplier Messages when any message exists
             'workflow_milestones' => $workflow_milestones, // Supplier Workflow tab: dates per step (step1/2/3)
             'supplier_workflow_active_step' => $supplier_workflow_active_step, // 0|1|2 when to open modal on Workflow tab
+            // Commit 3.C.1: Official Quote PDF + awarded bid for commercial gate UI
+            'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
+            'official_quote_version' => isset( $meta['official_quote_version'] ) ? intval( $meta['official_quote_version'] ) : null,
+            'awarded_bid_id' => $response_awarded_bid_id,
         );
 
         wp_send_json_success( $response );
@@ -12441,6 +12647,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'deposit_amount' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_amount'] ) ? floatval( $meta['deposit_amount'] ) : null ) : null,
             'deposit_calculated_at' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_calculated_at'] ) ? $meta['deposit_calculated_at'] : null ) : null,
             'deposit_received_at' => isset( $meta ) && is_array( $meta ) ? ( isset( $meta['deposit_received_at'] ) ? $meta['deposit_received_at'] : null ) : null,
+            'deposit_receipt_url' => ( isset( $meta['deposit_receipt_file_id'] ) && $meta['deposit_receipt_file_id'] ) ? wp_get_attachment_url( (int) $meta['deposit_receipt_file_id'] ) : '',
+            'deposit_sent_note'   => isset( $meta['deposit_sent_note'] ) ? $meta['deposit_sent_note'] : '',
+            'deposit_sent_at'     => isset( $meta['deposit_sent_at'] ) ? $meta['deposit_sent_at'] : null,
+            // Action Required: so card updates when operator opens modal (e.g. review payment proof)
+            'action_required' => $has_unread_operator_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
         ) );
     }
 
@@ -13703,7 +13914,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
             
             $meta['awarded_bid_snapshot'] = $snapshot_data;
-            $meta['item_status'] = 'Awarded'; // Update item status
+            $meta['item_status']          = 'Awarded'; // Update item status
             
             // Commit 28: Deposit calculation on award (offline deposit submission; Step 4 starts only after operator marks deposit received)
             $quantity = 1;
@@ -13716,16 +13927,21 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
             $unit_price = $bid['unit_price'] ? floatval( $bid['unit_price'] ) : 0;
             $deposit_percentage = 30; // configurable: 30% deposit
-            $deposit_amount = $unit_price > 0 ? round( $unit_price * $quantity * ( $deposit_percentage / 100 ), 2 ) : 0;
+            $deposit_amount        = $unit_price > 0 ? round( $unit_price * $quantity * ( $deposit_percentage / 100 ), 2 ) : 0;
             $deposit_calculated_at = current_time( 'mysql' );
-            $meta['deposit_status'] = 'pending';
-            $meta['deposit_amount'] = $deposit_amount;
-            $meta['deposit_calculated_at'] = $deposit_calculated_at;
+            $meta['deposit_status']         = 'pending';
+            $meta['deposit_amount']         = $deposit_amount;
+            $meta['deposit_calculated_at']  = $deposit_calculated_at;
             $meta['deposit_calculation'] = array(
                 'unit_price' => $unit_price,
                 'quantity'   => $quantity,
                 'percentage' => $deposit_percentage,
             );
+
+            // Commit 3.C.1: mark official quote as required (requested, version 0 until first PDF submitted)
+            $meta['official_quote_status']      = 'requested';
+            $meta['official_quote_version']     = 0;
+            $meta['official_quote_pdf_file_id'] = isset( $meta['official_quote_pdf_file_id'] ) ? $meta['official_quote_pdf_file_id'] : null;
             
             $wpdb->update(
                 $items_table,
@@ -13758,18 +13974,40 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             // Commit 28: Log deposit_calculated (immutable event for award + deposit lifecycle)
             if ( function_exists( 'n88_log_event' ) ) {
+                $deposit_payload = array(
+                    'item_id'               => $item_id,
+                    'bid_id'                => $bid_id,
+                    'deposit_amount'        => $deposit_amount,
+                    'deposit_calculated_at' => $deposit_calculated_at,
+                    'unit_price'            => $unit_price,
+                    'quantity'              => $quantity,
+                    'percentage'            => $deposit_percentage,
+                    'timestamp'             => current_time( 'mysql' ),
+                );
+                // Legacy event name
                 n88_log_event( 'deposit_calculated', 'item', array(
                     'item_id'      => $item_id,
                     'object_id'    => $bid_id,
+                    'payload_json' => $deposit_payload,
+                ) );
+                // Commit 3.C.1: production_deposit_requested alias
+                n88_log_event( 'production_deposit_requested', 'item', array(
+                    'item_id'      => $item_id,
+                    'object_id'    => $bid_id,
+                    'payload_json' => $deposit_payload,
+                ) );
+
+                // Commit 3.C.1: official_quote_pdf_requested (supplier must submit Official Quote PDF)
+                n88_log_event( 'official_quote_pdf_requested', 'item', array(
+                    'item_id'      => $item_id,
+                    'object_id'    => $bid_id,
                     'payload_json' => array(
-                        'item_id'               => $item_id,
-                        'bid_id'                => $bid_id,
-                        'deposit_amount'        => $deposit_amount,
-                        'deposit_calculated_at' => $deposit_calculated_at,
-                        'unit_price'            => $unit_price,
-                        'quantity'              => $quantity,
-                        'percentage'            => $deposit_percentage,
-                        'timestamp'             => current_time( 'mysql' ),
+                        'item_id'     => $item_id,
+                        'bid_id'      => $bid_id,
+                        'supplier_id' => intval( $bid['supplier_id'] ),
+                        'designer_id' => $current_user->ID,
+                        'version'     => 0,
+                        'timestamp'   => current_time( 'mysql' ),
                     ),
                 ) );
             }
@@ -13844,13 +14082,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $meta = array();
         }
         $deposit_status = isset( $meta['deposit_status'] ) ? $meta['deposit_status'] : '';
-        if ( $deposit_status !== 'pending' ) {
+        if ( $deposit_status !== 'pending' && $deposit_status !== 'sent_by_designer' ) {
             wp_send_json_error( array( 'message' => 'No pending deposit for this item, or deposit already marked received.' ) );
         }
         $now = current_time( 'mysql' );
-        $meta['deposit_status'] = 'received';
+        $meta['deposit_status']      = 'received';
         $meta['deposit_received_at'] = $now;
         $meta['deposit_received_by'] = $current_user->ID;
+        // Commit 3.C.1: Deposit confirmed starts production flag
+        $meta['award_set']           = true;
+        $meta['item_status']         = 'In Production';
         $wpdb->update(
             $items_table,
             array( 'meta_json' => wp_json_encode( $meta ) ),
@@ -13859,7 +14100,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             array( '%d' )
         );
         if ( function_exists( 'n88_log_event' ) ) {
+            // Legacy event name
             n88_log_event( 'deposit_received', 'item', array(
+                'item_id'   => $item_id,
+                'payload_json' => array(
+                    'item_id'             => $item_id,
+                    'deposit_received_at' => $now,
+                    'deposit_received_by' => $current_user->ID,
+                    'deposit_amount'      => isset( $meta['deposit_amount'] ) ? $meta['deposit_amount'] : null,
+                    'timestamp'           => current_time( 'mysql' ),
+                ),
+            ) );
+            // Commit 3.C.1: explicit production_deposit_marked_received event
+            n88_log_event( 'production_deposit_marked_received', 'item', array(
                 'item_id'   => $item_id,
                 'payload_json' => array(
                     'item_id'             => $item_id,
@@ -13873,6 +14126,295 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         wp_send_json_success( array(
             'message' => 'Deposit marked received. Production (Step 4) can now be started.',
             'item_id' => $item_id,
+        ) );
+    }
+
+    /**
+     * Commit 3.C.1: Designer marks production deposit as sent (offline payment).
+     * - Updates item meta with deposit_sent_* fields and status 'sent_by_designer'
+     * - Logs production_deposit_sent_by_designer event
+     */
+    public function ajax_mark_deposit_sent() {
+        check_ajax_referer( 'n88_mark_deposit_sent', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+
+        if ( ! $is_designer ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ), 403 );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        if ( ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+        }
+
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+
+        // Verify ownership (designer must own the item)
+        $owner_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        if ( ! $owner_id || intval( $owner_id ) !== intval( $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. You can only mark deposits for your own items.' ), 403 );
+        }
+
+        $item_meta = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+        $meta      = ! empty( $item_meta ) ? json_decode( $item_meta, true ) : array();
+        if ( ! is_array( $meta ) ) {
+            $meta = array();
+        }
+
+        $deposit_status = isset( $meta['deposit_status'] ) ? $meta['deposit_status'] : '';
+        if ( $deposit_status === 'received' ) {
+            wp_send_json_error( array( 'message' => 'Deposit already marked received by operator.' ) );
+        }
+
+        $now  = current_time( 'mysql' );
+        $note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+
+        $meta['deposit_status']         = 'sent_by_designer';
+        $meta['deposit_sent_at']        = $now;
+        $meta['deposit_sent_by']        = $current_user->ID;
+        $meta['deposit_sent_note']      = $note;
+
+        // Optional receipt upload (image/PDF)
+        if ( ! empty( $_FILES['deposit_receipt']['name'] ) ) {
+            $file   = $_FILES['deposit_receipt'];
+            $upload = wp_handle_upload( $file, array(
+                'test_form' => false,
+                'mimes'     => array(
+                    'pdf'  => 'application/pdf',
+                    'jpg'  => 'image/jpeg',
+                    'jpeg' => 'image/jpeg',
+                    'png'  => 'image/png',
+                ),
+            ) );
+
+            if ( empty( $upload['error'] ) ) {
+                $attachment_id = wp_insert_attachment(
+                    array(
+                        'post_mime_type' => $upload['type'],
+                        'post_title'     => 'Deposit Receipt - Item ' . $item_id,
+                        'post_content'   => '',
+                        'post_status'    => 'inherit',
+                    ),
+                    $upload['file']
+                );
+                if ( ! is_wp_error( $attachment_id ) ) {
+                    $meta['deposit_receipt_file_id'] = $attachment_id;
+                }
+            }
+        }
+
+        $wpdb->update(
+            $items_table,
+            array( 'meta_json' => wp_json_encode( $meta ) ),
+            array( 'id' => $item_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'production_deposit_sent_by_designer', 'item', array(
+                'item_id'      => $item_id,
+                'payload_json' => array(
+                    'item_id'        => $item_id,
+                    'designer_id'    => $current_user->ID,
+                    'amount'         => isset( $meta['deposit_amount'] ) ? $meta['deposit_amount'] : null,
+                    'note'           => $note,
+                    'receipt_file_id'=> isset( $meta['deposit_receipt_file_id'] ) ? $meta['deposit_receipt_file_id'] : null,
+                    'sent_at'        => $now,
+                    'timestamp'      => current_time( 'mysql' ),
+                ),
+            ) );
+        }
+
+        wp_send_json_success( array(
+            'message'        => 'Deposit marked as sent. Awaiting operator confirmation.',
+            'item_id'        => $item_id,
+            'deposit_status' => 'sent_by_designer',
+        ) );
+    }
+
+    /**
+     * Commit 3.C.1: Supplier submits Official Quote PDF for an awarded bid.
+     * - Creates append-only record in n88_official_quotes (versioned)
+     * - Updates item meta with latest official quote info (status, version, pdf_file_id)
+     * - Logs official_quote_pdf_submitted event
+     */
+    public function ajax_submit_official_quote_pdf() {
+        check_ajax_referer( 'n88_submit_official_quote_pdf', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+
+        if ( ! $is_supplier && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Supplier account required.' ), 403 );
+        }
+
+        $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $bid_id  = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+
+        if ( ! $item_id || ! $bid_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid item or bid.' ) );
+        }
+
+        if ( empty( $_FILES['official_quote_pdf']['name'] ) ) {
+            wp_send_json_error( array( 'message' => 'Please upload an official quote PDF file.' ) );
+        }
+
+        global $wpdb;
+        $item_bids_table       = $wpdb->prefix . 'n88_item_bids';
+        $official_quotes_table = $wpdb->prefix . 'n88_official_quotes';
+        $items_table           = $wpdb->prefix . 'n88_items';
+
+        // Verify bid belongs to this supplier (unless operator)
+        if ( ! $is_system_operator ) {
+            $bid_supplier_id = $wpdb->get_var( $wpdb->prepare(
+                "SELECT supplier_id FROM {$item_bids_table} WHERE bid_id = %d AND item_id = %d",
+                $bid_id,
+                $item_id
+            ) );
+
+            if ( ! $bid_supplier_id || intval( $bid_supplier_id ) !== intval( $current_user->ID ) ) {
+                wp_send_json_error( array( 'message' => 'Access denied. This bid does not belong to your account.' ), 403 );
+            }
+        }
+
+        // Handle file upload (PDF only)
+        $file   = $_FILES['official_quote_pdf'];
+        $upload = wp_handle_upload( $file, array(
+            'test_form' => false,
+            'mimes'     => array(
+                'pdf' => 'application/pdf',
+            ),
+        ) );
+
+        if ( isset( $upload['error'] ) ) {
+            wp_send_json_error( array( 'message' => $upload['error'] ) );
+        }
+
+        // Create attachment for uploaded PDF
+        $attachment_id = wp_insert_attachment(
+            array(
+                'post_mime_type' => $upload['type'],
+                'post_title'     => 'Official Quote PDF - Item ' . $item_id . ' / Bid ' . $bid_id,
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            ),
+            $upload['file']
+        );
+
+        if ( is_wp_error( $attachment_id ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to create attachment for official quote PDF.' ) );
+        }
+
+        // Determine next version (append-only)
+        $max_version = $wpdb->get_var( $wpdb->prepare(
+            "SELECT MAX(version) FROM {$official_quotes_table} WHERE item_id = %d AND bid_id = %d",
+            $item_id,
+            $bid_id
+        ) );
+        $next_version = $max_version ? ( intval( $max_version ) + 1 ) : 1;
+
+        $now = current_time( 'mysql' );
+
+        // Determine designer/owner for this item (if available)
+        $designer_id = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+
+        // Insert official quote record
+        $inserted = $wpdb->insert(
+            $official_quotes_table,
+            array(
+                'item_id'      => $item_id,
+                'bid_id'       => $bid_id,
+                'supplier_id'  => $is_system_operator ? 0 : $current_user->ID,
+                'designer_id'  => $designer_id > 0 ? $designer_id : 0,
+                'version'      => $next_version,
+                'pdf_file_id'  => $attachment_id,
+                'status'       => 'submitted',
+                'requested_at' => $now,
+                'submitted_at' => $now,
+                'created_at'   => $now,
+            ),
+            array(
+                '%d', // item_id
+                '%d', // bid_id
+                '%d', // supplier_id
+                '%d', // designer_id
+                '%d', // version
+                '%d', // pdf_file_id
+                '%s', // status
+                '%s', // requested_at
+                '%s', // submitted_at
+                '%s', // created_at
+            )
+        );
+
+        if ( false === $inserted ) {
+            wp_send_json_error( array( 'message' => 'Failed to save official quote record.' ) );
+        }
+
+        // Update item meta with latest official quote status / version
+        $item_meta_raw = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ) );
+        $meta = ! empty( $item_meta_raw ) ? json_decode( $item_meta_raw, true ) : array();
+        if ( ! is_array( $meta ) ) {
+            $meta = array();
+        }
+
+        $meta['official_quote_status']     = 'submitted';
+        $meta['official_quote_version']    = $next_version;
+        $meta['official_quote_pdf_file_id'] = $attachment_id;
+
+        $wpdb->update(
+            $items_table,
+            array( 'meta_json' => wp_json_encode( $meta ) ),
+            array( 'id' => $item_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        // Log append-only event
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'official_quote_pdf_submitted', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id,
+                'payload_json' => array(
+                    'item_id'      => $item_id,
+                    'bid_id'       => $bid_id,
+                    'supplier_id'  => $is_system_operator ? 0 : $current_user->ID,
+                    'pdf_file_id'  => $attachment_id,
+                    'version'      => $next_version,
+                    'submitted_at' => $now,
+                    'timestamp'    => current_time( 'mysql' ),
+                ),
+            ) );
+        }
+
+        wp_send_json_success( array(
+            'message'      => 'Official Quote PDF submitted successfully.',
+            'item_id'      => $item_id,
+            'bid_id'       => $bid_id,
+            'version'      => $next_version,
+            'pdf_file_id'  => $attachment_id,
         ) );
     }
 

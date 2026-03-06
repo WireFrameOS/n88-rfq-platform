@@ -32,7 +32,7 @@ const CARD_SIZES = {
  * @param {Function} props.onLayoutChanged - Callback when layout changes
  * @param {number} props.boardId - Board ID for saving item facts
  */
-const BoardItem = ({ item, onLayoutChanged, boardId }) => {
+const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
     const bringToFront = useBoardStore((state) => state.bringToFront);
     const updateLayout = useBoardStore((state) => state.updateLayout);
     const setItems = useBoardStore((state) => state.setItems);
@@ -135,6 +135,13 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 }
                 // After award but before deposit
                 if (hasAwardedBid) {
+                    if (item.official_quote_status === 'submitted') {
+                        return { text: 'Awarded - Quote File Submitted', color: '#00ff00', dot: '#00ff00' };
+                    }
+                    if (item.deposit_status === 'sent_by_designer') {
+                        const isOperator = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                        return { text: isOperator ? 'Review payment proof' : 'Project awarded — Awaiting approval deposit', color: '#ff8800', dot: '#ff8800' };
+                    }
                     return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
                 }
                 // Prototype approved, no award yet
@@ -177,6 +184,14 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
         if (hasAwardedBid) {
             if (inProduction) {
                 return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+            }
+            // After supplier submitted official quote PDF — show "Quote File Submitted", not "Awaiting Deposit"
+            if (item.official_quote_status === 'submitted') {
+                return { text: 'Awarded - Quote File Submitted', color: '#00ff00', dot: '#00ff00' };
+            }
+            if (item.deposit_status === 'sent_by_designer') {
+                const isOperator = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                return { text: isOperator ? 'Review payment proof' : 'Project awarded — Awaiting approval deposit', color: '#ff8800', dot: '#ff8800' };
             }
             return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
         }
@@ -243,6 +258,10 @@ const BoardItem = ({ item, onLayoutChanged, boardId }) => {
                 sizeKey: size,
                 displayMode: item.displayMode,
             });
+        }
+        // Save immediately so size persists on reload (don't rely on 500ms debounce)
+        if (onSizeChange && typeof onSizeChange === 'function') {
+            onSizeChange();
         }
 
         // Close the three-dots menu after any size change

@@ -69,6 +69,24 @@ const calculateTotalCBM = (itemCbm, quantity) => {
 };
 
 /**
+ * USA door-to-door delivery cost from CBM (mirrors N88_RFQ_Pricing::calculate_usa_delivery_cost)
+ * LCL (<=14.99 CBM): max(cbm, 1.5) * 390 + 350
+ * FCL 20' (15–24 CBM): $4,850
+ * FCL 40' HQ (>24 CBM): $5,750
+ */
+const calculateUsaDeliveryCostFromCbm = (totalCbm) => {
+    if (totalCbm == null || totalCbm === '' || isNaN(parseFloat(totalCbm))) return null;
+    const cbm = parseFloat(totalCbm);
+    if (cbm <= 0) return null;
+    if (cbm <= 14.99) {
+        const billable = Math.max(cbm, 1.5);
+        return Math.round((billable * 390 + 350) * 100) / 100;
+    }
+    if (cbm >= 15 && cbm <= 24) return 4850;
+    return 5750;
+};
+
+/**
  * Infer sourcing_type from category and description
  */
 const inferSourcingType = (category, description) => {
@@ -234,8 +252,28 @@ const formatWorkflowDateTime = (dateStr) => {
  * Single bid: Compact box with all details (no CAD)
  * Multiple bids: Comparison table with 3 columns (Supplier A, B, C)
  */
-const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick, smartAlternativesEnabled = false }) => {
+const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, onImageClick, smartAlternativesEnabled = false, itemQuantity: propItemQuantity = null, itemCbm = null, itemDimsCm = null }) => {
     const prototypeHelperText = 'For your convenience and to save time and money we offer you the option to have a prototype video of the piece you are asking about. If you still need to see a physical product you can choose to do so after the video of the prototype.';
+    // Compute CBM from dimensions when not available (per-unit CBM for prototype delivery)
+    const effectiveItemCbm = React.useMemo(() => {
+        if (itemCbm != null && itemCbm !== '' && !isNaN(parseFloat(itemCbm))) return parseFloat(itemCbm);
+        const dims = itemDimsCm || (bids && bids[0] && bids[0].item_dims_cm) || null;
+        if (!dims) return null;
+        const w = dims.w_cm ?? dims.w;
+        const d = dims.d_cm ?? dims.d;
+        const h = dims.h_cm ?? dims.h;
+        if (w != null && d != null && h != null && !isNaN(w) && !isNaN(d) && !isNaN(h)) return calculateCBM(w, d, h);
+        return null;
+    }, [itemCbm, itemDimsCm, bids]);
+    // Per-unit CBM for Prototype Delivery (1 unit). When we have only itemCbm and qty > 1, backend may send total CBM so we divide.
+    const perUnitCbmForPrototype = React.useMemo(() => {
+        if (effectiveItemCbm == null || isNaN(effectiveItemCbm)) return null;
+        const qty = Math.max(1, Number(propItemQuantity) || 1);
+        const dims = itemDimsCm || (bids && bids[0] && bids[0].item_dims_cm) || null;
+        const fromDims = dims && (dims.w_cm ?? dims.w) != null && (dims.d_cm ?? dims.d) != null && (dims.h_cm ?? dims.h) != null;
+        if (fromDims) return effectiveItemCbm;
+        return effectiveItemCbm / qty;
+    }, [effectiveItemCbm, propItemQuantity, itemDimsCm, bids]);
     // Order bids by created_at ASC, bid_id ASC (deterministic tie-breaker)
     const orderedBids = [...bids].sort((a, b) => {
         const dateA = new Date(a.created_at || 0).getTime();
@@ -327,21 +365,31 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
         );
     };
 
-    // Helper to format prototype
-    const formatPrototype = (bid) => {
-        const parts = [];
-        if (bid.prototype_commitment) {
-            parts.push('YES');
-        } else {
-            parts.push('NO');
-        }
-        if (bid.prototype_timeline) {
-            parts.push(bid.prototype_timeline);
-        }
-        if (bid.prototype_cost !== null) {
-            parts.push(`$${bid.prototype_cost}`);
-        }
-        return parts.length > 0 ? parts.join(' · ') : '—';
+    // Helper to render only video links for "Media links" row
+    const renderMediaLinks = (bid, compact = false) => {
+        const videoLinksByProvider = bid.video_links_by_provider || { youtube: [], vimeo: [], loom: [] };
+        const allVideos = [
+            ...(videoLinksByProvider.youtube || []).map(u => ({ provider: 'YouTube', url: u })),
+            ...(videoLinksByProvider.vimeo || []).map(u => ({ provider: 'Vimeo', url: u })),
+            ...(videoLinksByProvider.loom || []).map(u => ({ provider: 'Loom', url: u })),
+        ].slice(0, 3);
+        if (allVideos.length === 0) return null;
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? '2px' : '4px' }}>
+                {allVideos.map((video, idx) => (
+                    <a
+                        key={`video-${idx}`}
+                        href={video.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: compact ? '10px' : '11px', color: greenAccent, textDecoration: 'none' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        [{video.provider} ►]
+                    </a>
+                ))}
+            </div>
+        );
     };
 
     // Helper to format Smart Alternatives
@@ -438,7 +486,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
     // Single bid: Show compact detail box
     if (orderedBids.length === 1) {
         const bid = orderedBids[0];
-        const media = renderMedia(bid, true);
+        const mediaLinks = renderMediaLinks(bid, true);
         const [isSmartAltExpanded, setIsSmartAltExpanded] = React.useState(false);
         const sa = bid.smart_alternatives_suggestion;
         const hasNote = bid.bid_smart_alternatives_note && bid.bid_smart_alternatives_note.trim();
@@ -529,82 +577,175 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
         const previewLength = 100;
         const showPreview = previewText && previewText.length > previewLength && !isSmartAltExpanded;
         
+        const labelWidth = '260px';
+        const sectionHeaderStyle = {
+            padding: '10px 12px',
+            borderBottom: `1px solid ${darkBorder}`,
+            fontSize: '14px',
+            fontWeight: '600',
+            color: darkText,
+            backgroundColor: '#0a0a0a',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+        };
+        const rowLabelStyle = {
+            padding: '8px 12px',
+            borderBottom: `1px solid ${darkBorder}`,
+            fontSize: '14px',
+            color: darkText,
+            backgroundColor: '#111111',
+            opacity: 0.95,
+            borderRight: `1px solid ${darkBorder}`,
+            width: labelWidth,
+            whiteSpace: 'nowrap',
+        };
+        const rowValueStyle = {
+            padding: '8px 12px',
+            borderBottom: `1px solid ${darkBorder}`,
+            fontSize: '16px',
+            color: greenAccent,
+        };
+        const hasDelivery = bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)));
+        const prototypeDeliveryAmount = (perUnitCbmForPrototype != null && !isNaN(perUnitCbmForPrototype)) ? calculateUsaDeliveryCostFromCbm(perUnitCbmForPrototype) : null;
+        const hasPrototypeCredit = bid.prototype_cost != null && bid.prototype_cost !== '' && (parseFloat(bid.prototype_cost) > 0);
+        const prototypeCreditAmount = hasPrototypeCredit ? parseFloat(bid.prototype_cost) * 0.5 : 0;
+        const physicalPrototypeCost = (bid.prototype_cost != null && bid.prototype_cost !== '' && !isNaN(parseFloat(bid.prototype_cost))) ? parseFloat(bid.prototype_cost) * 1.5 : null;
+        const qty = bid.item_quantity || propItemQuantity || 1;
+        const unitPrice = bid.unit_price != null ? (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)) : null;
+        const totalProductionCost = unitPrice != null ? (bid.total_price != null ? parseFloat(bid.total_price) : unitPrice * qty) : null;
+        const deliveryCost = hasDelivery ? parseFloat(bid.delivery_cost_usd) : 0;
+        const totalDeliveredCost = totalProductionCost != null ? totalProductionCost + deliveryCost : null;
+        const finalOrderTotal = totalDeliveredCost != null && hasPrototypeCredit ? totalDeliveredCost - prototypeCreditAmount : totalDeliveredCost;
+        
         return (
             <div style={{
                 border: `1px solid ${darkBorder}`,
                 borderRadius: '4px',
                 backgroundColor: '#111111',
-                padding: '12px',
+                overflow: 'hidden',
             }}>
-                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: darkText }}>
-                    Supplier A
+                <div style={{ padding: '12px', borderBottom: `1px solid ${darkBorder}` }}>
+                    <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', color: darkText }}>Supplier A</div>
+                    <div style={{ fontSize: '10px', color: '#FF0065', lineHeight: 1.4 }}>{prototypeHelperText}</div>
                 </div>
-                <div style={{ fontSize: '10px', color: '#FF0065', marginBottom: '10px', lineHeight: 1.4 }}>
-                    {prototypeHelperText}
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {media && (
-                        <div>
-                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '4px', opacity: 0.7 }}>Media</div>
-                            {media}
-                        </div>
-                    )}
-                    
-                    <div>
-                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Prototype/Timeline/Price</div>
-                        <div style={{ fontSize: '11px', color: greenAccent }}>{formatPrototype(bid)}</div>
-                    </div>
-                    
-                    {bid.production_lead_time && (
-                        <div>
-                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Production Lead Time</div>
-                            <div style={{ fontSize: '11px', color: greenAccent }}>{bid.production_lead_time}</div>
-                        </div>
-                    )}
-                    
-                    {bid.unit_price !== null && (
-                        <div>
-                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Unit Price</div>
-                            <div style={{ fontSize: '11px', color: greenAccent }}>${bid.unit_price}</div>
-                            {bid.total_price && bid.item_quantity && bid.item_quantity > 1 && (
-                                <div style={{ fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.7 }}>
-                                    Total: ${parseFloat(bid.total_price).toFixed(2)} ({bid.unit_price} × {bid.item_quantity})
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    
-                    {(bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) && (
-                        <div>
-                            <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Door-to-Door Delivery</div>
-                            <div style={{ fontSize: '11px', color: greenAccent }}>${parseFloat(bid.delivery_cost_usd).toFixed(2)}</div>
-                            {bid.delivery_shipping_mode && (
-                                <div style={{ fontSize: '9px', color: darkText, marginTop: '2px', opacity: 0.6 }}>
-                                    Mode: {bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ Container' : bid.delivery_shipping_mode}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    
-                    {/* Placeholders for future prototype cost calculations */}
-                    <div>
-                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Physical Prototype Cost (add 50%)</div>
-                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
-                    </div>
-                    
-                    <div>
-                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Physical Prototype Delivery</div>
-                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
-                    </div>
-                    
-                    <div>
-                        <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Total Cost (Order minus prototype 50%)</div>
-                        <div style={{ fontSize: '11px', color: greenAccent }}>—</div>
-                    </div>
-                    
-                    {hasSmartAltContent && (
-                        <div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                    <colgroup><col style={{ width: labelWidth }} /><col style={{ width: 'auto' }} /></colgroup>
+                    <tbody>
+                        {/* CAPABILITY */}
+                        <tr>
+                            <td colSpan={2} style={{ ...sectionHeaderStyle }}>Capability</td>
+                        </tr>
+                        {mediaLinks && (
+                            <tr>
+                                <td style={rowLabelStyle}>Reference Video</td>
+                                <td style={rowValueStyle}>{mediaLinks}</td>
+                            </tr>
+                        )}
+                        {(bid.photo_urls && bid.photo_urls.length > 0) && (
+                            <tr>
+                                <td style={rowLabelStyle}>Similar Project Photos</td>
+                                <td style={rowValueStyle}>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                        {bid.photo_urls.slice(0, 6).map((url, i) => (
+                                            <img key={i} src={url} alt="" onClick={(e) => { e.stopPropagation(); window.open(url, '_blank'); }}
+                                                style={{ width: '40px', height: '40px', objectFit: 'cover', cursor: 'pointer', border: `1px solid ${darkBorder}`, borderRadius: '2px' }} />
+                                        ))}
+                                    </div>
+                                </td>
+                            </tr>
+                        )}
+                        {/* EVALUATION OPTIONS */}
+                        <tr>
+                            <td colSpan={2} style={{ ...sectionHeaderStyle }}>Evaluation Options</td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Evaluation Video Cost</td>
+                            <td style={rowValueStyle}>
+                                {bid.prototype_cost != null && bid.prototype_cost !== '' ? `$${parseFloat(bid.prototype_cost).toFixed(2)}` : '—'}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Evaluation Video Timeline</td>
+                            <td style={rowValueStyle}>{bid.prototype_timeline || '—'}</td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Physical Prototype Cost</td>
+                            <td style={rowValueStyle}>
+                                {physicalPrototypeCost != null ? `$${physicalPrototypeCost.toFixed(2)}` : '—'}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Prototype Delivery</td>
+                            <td style={rowValueStyle}>
+                                {prototypeDeliveryAmount != null ? `$${prototypeDeliveryAmount.toFixed(2)}` : '—'}
+                            </td>
+                        </tr>
+                        {/* PRODUCTION */}
+                        <tr>
+                            <td colSpan={2} style={{ ...sectionHeaderStyle }}>Production</td>
+                        </tr>
+                        {bid.production_lead_time && (
+                            <tr>
+                                <td style={rowLabelStyle}>Production Lead Time</td>
+                                <td style={rowValueStyle}>{bid.production_lead_time}</td>
+                            </tr>
+                        )}
+                        {bid.unit_price !== null && (
+                            <tr>
+                                <td style={rowLabelStyle}>Unit Price</td>
+                                <td style={rowValueStyle}>
+                                    ${(typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)).toFixed(2)}
+                                    {bid.total_price && bid.item_quantity > 1 && (
+                                        <span style={{ fontSize: '14px', color: darkText, marginLeft: '8px', opacity: 0.8 }}>
+                                            (Total: ${parseFloat(bid.total_price).toFixed(2)})
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        )}
+                        {/* LOGISTICS */}
+                        <tr>
+                            <td colSpan={2} style={{ ...sectionHeaderStyle }}>Logistics</td>
+                        </tr>
+                        {hasDelivery && (
+                            <tr>
+                                <td style={rowLabelStyle}>Door-to-Door Delivery</td>
+                                <td style={rowValueStyle}>
+                                    {qty > 1
+                                        ? `$${(parseFloat(bid.delivery_cost_usd) / qty).toFixed(2)} per unit (${qty} × $${(parseFloat(bid.delivery_cost_usd) / qty).toFixed(2)} = $${parseFloat(bid.delivery_cost_usd).toFixed(2)})`
+                                        : `$${parseFloat(bid.delivery_cost_usd).toFixed(2)}`}
+                                    {bid.delivery_shipping_mode && (
+                                        <span style={{ fontSize: '14px', color: darkText, marginLeft: '8px', opacity: 0.7 }}>
+                                            {bid.delivery_shipping_mode === 'LCL' ? 'LCL' : bid.delivery_shipping_mode === 'FCL_20' ? '20\' Container' : bid.delivery_shipping_mode === 'FCL_40HQ' ? '40\' HQ' : bid.delivery_shipping_mode}
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        )}
+                        {/* ORDER TOTAL */}
+                        <tr>
+                            <td colSpan={2} style={{ ...sectionHeaderStyle }}>Order Total</td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Total Production Cost</td>
+                            <td style={rowValueStyle}>{totalProductionCost != null ? `$${totalProductionCost.toFixed(2)}` : '—'}</td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Total Delivered Cost</td>
+                            <td style={rowValueStyle}>{totalDeliveredCost != null ? `$${totalDeliveredCost.toFixed(2)}` : '—'}</td>
+                        </tr>
+                        <tr>
+                            <td style={rowLabelStyle}>Prototype Credit Applied</td>
+                            <td style={rowValueStyle}>{hasPrototypeCredit ? `$${prototypeCreditAmount.toFixed(2)}` : '—'}</td>
+                        </tr>
+                        <tr>
+                            <td style={{ ...rowLabelStyle, fontWeight: '600' }}>Final Order Total</td>
+                            <td style={{ ...rowValueStyle, fontWeight: '600' }}>{finalOrderTotal != null ? `$${finalOrderTotal.toFixed(2)}` : '—'}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                {hasSmartAltContent && (
+                        <div style={{ padding: '12px', borderTop: `1px solid ${darkBorder}` }}>
                             <div style={{ fontSize: '10px', color: darkText, marginBottom: '2px', opacity: 0.7 }}>Smart Alternatives</div>
                             {isSmartAltExpanded ? (
                                 <div>
@@ -672,7 +813,8 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
     // Multiple bids: Show comparison table with 3 columns
     const maxBids = Math.min(orderedBids.length, 3);
     const displayBids = orderedBids.slice(0, maxBids);
-    const labelWidth = '140px';
+    const labelWidth = '260px';
+    const valueCols = `repeat(${maxBids}, minmax(100px, 140px))`;
 
     return (
         <div style={{
@@ -694,7 +836,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
             {/* Table Header */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                gridTemplateColumns: `${labelWidth} ${valueCols}`,
                 borderBottom: `1px solid ${darkBorder}`,
                 backgroundColor: '#0a0a0a',
             }}>
@@ -722,10 +864,33 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
 
             {/* Table Body */}
             <div>
-                {/* Media Row */}
+                {/* CAPABILITY section header */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Capability
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div key={`cap-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', backgroundColor: '#0a0a0a' }} />
+                    ))}
+                </div>
+                {/* Reference Video Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -736,8 +901,9 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
-                        Media
+                        Reference Video
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
@@ -746,18 +912,20 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                                 padding: '6px 10px',
                                 borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
                                 fontSize: '10px',
-                                textAlign: 'center',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
                             }}
                         >
-                            {renderMedia(bid, true) || <span style={{ color: darkText }}>—</span>}
+                            {renderMediaLinks(bid, true) || <span style={{ color: darkText }}>—</span>}
                         </div>
                     ))}
                 </div>
 
-                {/* Prototype Row */}
+                {/* Similar Project Photos Row */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -768,27 +936,111 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
-                        Prototype/Timeline/Price
+                        Similar Project Photos
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const photos = bid.photo_urls || [];
+                        return (
+                            <div
+                                key={`photos-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                {photos.length > 0 ? (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                        {photos.slice(0, 3).map((url, i) => (
+                                            <img
+                                                key={i}
+                                                src={url}
+                                                alt=""
+                                                onClick={(e) => { e.stopPropagation(); window.open(url, '_blank'); }}
+                                                style={{ width: '28px', height: '28px', objectFit: 'cover', cursor: 'pointer', border: `1px solid ${darkBorder}`, borderRadius: '2px' }}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <span style={{ color: darkText }}>—</span>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* EVALUATION OPTIONS section header */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Evaluation Options
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div key={`eval-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', backgroundColor: '#0a0a0a' }} />
+                    ))}
+                </div>
+                {/* Evaluation Video Cost Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Evaluation Video Cost
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
-                            key={`prototype-${bid.bid_id}`}
+                            key={`prototype-cost-${bid.bid_id}`}
                             style={{
                                 padding: '6px 10px',
                                 borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
                                 fontSize: '10px',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                textAlign: 'center',
                             }}
                         >
-                            <span style={{ color: greenAccent }}>{formatPrototype(bid)}</span>
+                            {bid.prototype_cost != null && bid.prototype_cost !== '' ? (
+                                <span style={{ color: greenAccent }}>${(typeof bid.prototype_cost === 'number' ? bid.prototype_cost : parseFloat(bid.prototype_cost)).toFixed(2)}</span>
+                            ) : (
+                                <span style={{ color: darkText }}>—</span>
+                            )}
                         </div>
                     ))}
                 </div>
 
-                {/* Production Lead Time Row */}
+                {/* Evaluation Video Timeline Row */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -799,8 +1051,146 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
-                       Production Timeline
+                        Evaluation Video Timeline
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div
+                            key={`prototype-timeline-${bid.bid_id}`}
+                            style={{
+                                padding: '6px 10px',
+                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                fontSize: '10px',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                textAlign: 'center',
+                            }}
+                        >
+                            {bid.prototype_timeline ? (
+                                <span style={{ color: greenAccent }}>{bid.prototype_timeline}</span>
+                            ) : (
+                                <span style={{ color: darkText }}>—</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Physical Prototype Cost Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Physical Prototype Cost
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const physCost = (bid.prototype_cost != null && bid.prototype_cost !== '' && !isNaN(parseFloat(bid.prototype_cost))) ? parseFloat(bid.prototype_cost) * 1.5 : null;
+                        return (
+                            <div
+                                key={`proto-cost-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {physCost != null ? <span style={{ color: greenAccent }}>${physCost.toFixed(2)}</span> : <span style={{ color: darkText }}>—</span>}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Prototype Delivery Row (via CBM - 1 unit when itemCbm available, else full order delivery) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Prototype Delivery
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const protoDelivery = (perUnitCbmForPrototype != null && !isNaN(perUnitCbmForPrototype)) ? calculateUsaDeliveryCostFromCbm(perUnitCbmForPrototype) : null;
+                        return (
+                            <div
+                                key={`proto-delivery-${bid.bid_id}`}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
+                                    fontSize: '10px',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                <span style={{ color: protoDelivery != null ? greenAccent : darkText }}>
+                                    {protoDelivery != null ? `$${protoDelivery.toFixed(2)}` : '—'}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* PRODUCTION section header */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Production
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div key={`prod-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', backgroundColor: '#0a0a0a' }} />
+                    ))}
+                </div>
+                {/* Production Lead Time Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Production Lead Time
                     </div>
                     {displayBids.map((bid, idx) => (
                         <div
@@ -824,7 +1214,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                 {/* Unit Price Row */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -835,6 +1225,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
                         Unit Price
                     </div>
@@ -850,7 +1241,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         >
                             {bid.unit_price !== null ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <span style={{ color: greenAccent }}>${bid.unit_price}</span>
+                                    <span style={{ color: greenAccent }}>${(typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)).toFixed(2)}</span>
                                     {bid.total_price && bid.item_quantity && bid.item_quantity > 1 && (
                                         <span style={{ color: darkText, fontSize: '9px', opacity: 0.7 }}>
                                             Total: ${parseFloat(bid.total_price).toFixed(2)}
@@ -864,10 +1255,33 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     ))}
                 </div>
 
-                {/* Door-to-Door Delivery Row (Commit 2.3.10) */}
+                {/* LOGISTICS section header */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Logistics
+                    </div>
+                    {displayBids.map((bid, idx) => (
+                        <div key={`log-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', backgroundColor: '#0a0a0a' }} />
+                    ))}
+                </div>
+                {/* Door-to-Door Delivery Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -878,11 +1292,20 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
                         Door-to-Door Delivery
                     </div>
                     {displayBids.map((bid, idx) => {
                         const hasDelivery = bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)));
+                        const totalDeliv = hasDelivery ? parseFloat(bid.delivery_cost_usd) : null;
+                        const qtyD = bid.item_quantity || 1;
+                        const perUnitD = totalDeliv != null && qtyD > 0 ? totalDeliv / qtyD : totalDeliv;
+                        const doorText = totalDeliv != null
+                            ? (qtyD > 1
+                                ? `$${perUnitD.toFixed(2)} per unit (${qtyD} × $${perUnitD.toFixed(2)} = $${totalDeliv.toFixed(2)})`
+                                : `$${totalDeliv.toFixed(2)}`)
+                            : '—';
                         let modeLabel = '';
                         if (bid.delivery_shipping_mode) {
                             if (bid.delivery_shipping_mode === 'LCL') {
@@ -905,7 +1328,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                             >
                                 {hasDelivery ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                        <span style={{ color: greenAccent }}>${parseFloat(bid.delivery_cost_usd).toFixed(2)}</span>
+                                        <span style={{ color: greenAccent }}>{doorText}</span>
                                         {modeLabel && (
                                             <span style={{ color: darkText, fontSize: '9px', opacity: 0.6 }}>{modeLabel}</span>
                                         )}
@@ -918,42 +1341,33 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                     })}
                 </div>
 
-                {/* Physical Prototype Cost Row (placeholder) */}
+                {/* ORDER TOTAL section header */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
                         padding: '6px 10px',
                         borderRight: `1px solid ${darkBorder}`,
                         fontSize: '10px',
+                        fontWeight: '600',
                         color: darkText,
                         backgroundColor: '#0a0a0a',
-                        display: 'flex',
-                        alignItems: 'center',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        whiteSpace: 'nowrap',
                     }}>
-                        Physical Prototype Cost (add 50%)
+                        Order Total
                     </div>
                     {displayBids.map((bid, idx) => (
-                        <div
-                            key={`proto-cost-${bid.bid_id}`}
-                            style={{
-                                padding: '6px 10px',
-                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
-                                fontSize: '10px',
-                                textAlign: 'center',
-                            }}
-                        >
-                            <span style={{ color: darkText }}>—</span>
-                        </div>
+                        <div key={`order-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', backgroundColor: '#0a0a0a' }} />
                     ))}
                 </div>
-
-                {/* Physical Prototype Delivery Row (placeholder) */}
+                {/* Total Production Cost Row */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -964,28 +1378,25 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
-                        Physical Prototype Delivery
+                        Total Production Cost
                     </div>
-                    {displayBids.map((bid, idx) => (
-                        <div
-                            key={`proto-delivery-${bid.bid_id}`}
-                            style={{
-                                padding: '6px 10px',
-                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
-                                fontSize: '10px',
-                                textAlign: 'center',
-                            }}
-                        >
-                            <span style={{ color: darkText }}>—</span>
-                        </div>
-                    ))}
+                    {displayBids.map((bid, idx) => {
+                        const qty = bid.item_quantity || propItemQuantity || 1;
+                        const unitPrice = bid.unit_price != null ? (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)) : null;
+                        const totalProductionCost = unitPrice != null ? (bid.total_price != null ? parseFloat(bid.total_price) : unitPrice * qty) : null;
+                        return (
+                            <div key={`total-prod-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', fontSize: '10px', textAlign: 'center' }}>
+                                {totalProductionCost != null ? <span style={{ color: greenAccent }}>${totalProductionCost.toFixed(2)}</span> : <span style={{ color: darkText }}>System calculated</span>}
+                            </div>
+                        );
+                    })}
                 </div>
-
-                {/* Total Cost Row (placeholder) */}
+                {/* Total Delivered Cost Row */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -996,22 +1407,85 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
-                        Total Cost (Order minus prototype 50%)
+                        Total Delivered Cost
                     </div>
-                    {displayBids.map((bid, idx) => (
-                        <div
-                            key={`total-${bid.bid_id}`}
-                            style={{
-                                padding: '6px 10px',
-                                borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none',
-                                fontSize: '10px',
-                                textAlign: 'center',
-                            }}
-                        >
-                            <span style={{ color: darkText }}>—</span>
-                        </div>
-                    ))}
+                    {displayBids.map((bid, idx) => {
+                        const qty = bid.item_quantity || propItemQuantity || 1;
+                        const unitPrice = bid.unit_price != null ? (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)) : null;
+                        const totalProductionCost = unitPrice != null ? (bid.total_price != null ? parseFloat(bid.total_price) : unitPrice * qty) : null;
+                        const deliveryCost = (bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) ? parseFloat(bid.delivery_cost_usd) : 0;
+                        const totalDeliveredCost = totalProductionCost != null ? totalProductionCost + deliveryCost : null;
+                        return (
+                            <div key={`total-deliv-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', fontSize: '10px', textAlign: 'center' }}>
+                                {totalDeliveredCost != null ? <span style={{ color: greenAccent }}>${totalDeliveredCost.toFixed(2)}</span> : <span style={{ color: darkText }}>System calculated</span>}
+                            </div>
+                        );
+                    })}
+                </div>
+                {/* Prototype Credit Applied Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Prototype Credit Applied
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const hasPrototypeCredit = bid.prototype_cost != null && bid.prototype_cost !== '' && (parseFloat(bid.prototype_cost) > 0);
+                        const creditAmount = hasPrototypeCredit ? parseFloat(bid.prototype_cost) * 0.5 : 0;
+                        return (
+                            <div key={`credit-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', fontSize: '10px', textAlign: 'center' }}>
+                                {hasPrototypeCredit ? <span style={{ color: greenAccent }}>${creditAmount.toFixed(2)}</span> : <span style={{ color: darkText }}>—</span>}
+                            </div>
+                        );
+                    })}
+                </div>
+                {/* Final Order Total Row */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
+                    borderBottom: `1px solid ${darkBorder}`,
+                }}>
+                    <div style={{
+                        padding: '6px 10px',
+                        borderRight: `1px solid ${darkBorder}`,
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        color: darkText,
+                        backgroundColor: '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        whiteSpace: 'nowrap',
+                    }}>
+                        Final Order Total
+                    </div>
+                    {displayBids.map((bid, idx) => {
+                        const qty = bid.item_quantity || propItemQuantity || 1;
+                        const unitPrice = bid.unit_price != null ? (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)) : null;
+                        const totalProductionCost = unitPrice != null ? (bid.total_price != null ? parseFloat(bid.total_price) : unitPrice * qty) : null;
+                        const deliveryCost = (bid.delivery_cost_usd != null && bid.delivery_cost_usd !== '' && (typeof bid.delivery_cost_usd === 'number' || !isNaN(parseFloat(bid.delivery_cost_usd)))) ? parseFloat(bid.delivery_cost_usd) : 0;
+                        const totalDeliveredCost = totalProductionCost != null ? totalProductionCost + deliveryCost : null;
+                        const hasPrototypeCredit = bid.prototype_cost != null && bid.prototype_cost !== '' && (parseFloat(bid.prototype_cost) > 0);
+                        const prototypeCreditAmount = hasPrototypeCredit ? parseFloat(bid.prototype_cost) * 0.5 : 0;
+                        const finalOrderTotal = totalDeliveredCost != null && hasPrototypeCredit ? totalDeliveredCost - prototypeCreditAmount : totalDeliveredCost;
+                        return (
+                            <div key={`final-${bid.bid_id}`} style={{ padding: '6px 10px', borderRight: idx < maxBids - 1 ? `1px solid ${darkBorder}` : 'none', fontSize: '10px', textAlign: 'center', fontWeight: '600' }}>
+                                {finalOrderTotal != null ? <span style={{ color: greenAccent }}>${finalOrderTotal.toFixed(2)}</span> : <span style={{ color: darkText }}>System calculated</span>}
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* Smart Alternatives Rows - Only show if enabled */}
@@ -1020,7 +1494,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         {/* Smart Alt Summary Row */}
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                            gridTemplateColumns: `${labelWidth} ${valueCols}`,
                             borderBottom: `1px solid ${darkBorder}`,
                         }}>
                             <div style={{
@@ -1062,7 +1536,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         {/* Smart Alt Notes Row (Expandable) */}
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                            gridTemplateColumns: `${labelWidth} ${valueCols}`,
                             borderBottom: `1px solid ${darkBorder}`,
                         }}>
                             <div style={{
@@ -1244,7 +1718,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                 {/* Commit 2.4.1: Award Bid Row (moved to bottom) */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: `${labelWidth} repeat(${maxBids}, 1fr)`,
+                    gridTemplateColumns: `${labelWidth} ${valueCols}`,
                     borderBottom: `1px solid ${darkBorder}`,
                 }}>
                     <div style={{
@@ -1255,6 +1729,7 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                         backgroundColor: '#0a0a0a',
                         display: 'flex',
                         alignItems: 'center',
+                        whiteSpace: 'nowrap',
                     }}>
                         Award Bid
                     </div>
@@ -1754,6 +2229,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [itemState, setItemState] = React.useState({
         has_rfq: false,
         has_bids: false,
+        has_awarded_bid: false, // Commit 2.4.1 / 3.C.1: track awarded state in modal
         bids: [],
         loading: true,
         has_unread_operator_messages: false,
@@ -1790,6 +2266,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [paymentReceiptMessage, setPaymentReceiptMessage] = React.useState('');
     const [showResubmitReceiptForm, setShowResubmitReceiptForm] = React.useState(false);
     const paymentReceiptInputRef = React.useRef(null);
+
+    // Deposit proof modal (designer: send payment proof; same style as Payment Instructions)
+    const [showDepositProofModal, setShowDepositProofModal] = React.useState(false);
+    const [depositProofFile, setDepositProofFile] = React.useState(null);
+    const [depositProofMessage, setDepositProofMessage] = React.useState('');
+    const [depositProofUploading, setDepositProofUploading] = React.useState(false);
+    const depositProofInputRef = React.useRef(null);
 
     // Project / Room assignment (Board Projects)
     const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
@@ -2064,6 +2547,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 setItemState({
                     has_rfq: data.data.has_rfq || false,
                     has_bids: data.data.has_bids || false,
+                    has_awarded_bid: !!data.data.has_awarded_bid,
                     bids: data.data.bids || [],
                     rfq_revision_current: data.data.rfq_revision_current || null,
                     revision_changed: data.data.revision_changed || false,
@@ -2096,6 +2580,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     deposit_amount: data.data.deposit_amount != null ? data.data.deposit_amount : null,
                     deposit_calculated_at: data.data.deposit_calculated_at || null,
                     deposit_received_at: data.data.deposit_received_at || null,
+                    deposit_receipt_url: data.data.deposit_receipt_url || '',
+                    deposit_sent_note: data.data.deposit_sent_note || '',
+                    deposit_sent_at: data.data.deposit_sent_at || null,
                     loading: false,
                 });
                 // Update board card so status progresses (CAD Requested, Awaiting payment, Payment received, Review CAD, Pending Prototype Video, etc.)
@@ -2694,6 +3181,50 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             setPaymentReceiptUploading(false);
         }
     }, [paymentReceiptSelectedFile, paymentReceiptMessage, itemState.prototype_payment_id, fetchPaymentReceipts, onClose, item.id, updateLayout]);
+
+    const handleDepositProofFileSelect = React.useCallback((e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const ok = /\.(jpe?g|png|pdf)$/i.test(file.name) || ['image/jpeg','image/jpg','image/png','application/pdf'].includes(file.type);
+        if (!ok) { alert('Only images (JPG, PNG) and PDF are allowed.'); if (e.target) e.target.value = ''; return; }
+        setDepositProofFile(file);
+        if (e.target) e.target.value = '';
+    }, []);
+
+    const submitDepositProof = React.useCallback(async () => {
+        const file = depositProofFile;
+        if (!file) { alert('Please select a file (screenshot or PDF).'); return; }
+        const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+        const nonce = window.n88BoardNonce?.nonce_mark_deposit_sent || window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || '';
+        if (!nonce) { alert('Security token missing. Please refresh the page.'); return; }
+        setDepositProofUploading(true);
+        try {
+            const fd = new FormData();
+            fd.append('action', 'n88_mark_deposit_sent');
+            fd.append('item_id', String(getItemId()));
+            fd.append('deposit_receipt', file);
+            if (depositProofMessage && depositProofMessage.trim()) fd.append('note', depositProofMessage.trim());
+            fd.append('_ajax_nonce', nonce);
+            const r = await fetch(ajaxUrl, { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.success) {
+                setShowDepositProofModal(false);
+                setDepositProofFile(null);
+                setDepositProofMessage('');
+                if (depositProofInputRef.current) depositProofInputRef.current.value = '';
+                if (typeof fetchItemState === 'function') fetchItemState();
+                if (typeof fetchTimeline === 'function') fetchTimeline();
+                if (typeof updateLayout === 'function') updateLayout(item.id, { deposit_status: 'sent_by_designer' });
+            } else {
+                alert(d.data?.message || d.message || 'Failed to submit.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Error. Please try again.');
+        } finally {
+            setDepositProofUploading(false);
+        }
+    }, [depositProofFile, depositProofMessage, getItemId, item.id, updateLayout]);
     
     // Auto-scroll to bottom when messages load or new message is sent (Workflow Step 2 container)
     React.useEffect(() => {
@@ -3006,6 +3537,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             }));
         }
     }, [width, depth, height, unit, category, description]);
+    
+    // Fallback dims in cm from item.dims when dims_cm/cbm not set (so Prototype Delivery can use per-unit CBM)
+    const fallbackDimsCm = React.useMemo(() => {
+        if (computedValues?.dimsCm) return computedValues.dimsCm;
+        if (item?.dims_cm && (item.dims_cm.w_cm != null || item.dims_cm.w != null)) return item.dims_cm;
+        const d = item?.dims;
+        if (d && d.w != null && d.d != null && d.h != null) {
+            const u = d.unit || unit || 'in';
+            return {
+                w_cm: normalizeToCm(Number(d.w), u),
+                d_cm: normalizeToCm(Number(d.d), u),
+                h_cm: normalizeToCm(Number(d.h), u),
+            };
+        }
+        return null;
+    }, [computedValues?.dimsCm, item?.dims_cm, item?.dims, unit]);
     
     // Determine current state
     const currentState = React.useMemo(() => {
@@ -4591,6 +5138,62 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             {timelineError && (
                                                 <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
                                             )}
+                                            {/* Operator: standalone Step 4 Deposit block — always visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps */}
+                                            {!timelineLoading && itemState && itemState.has_awarded_bid && window.n88BoardData && window.n88BoardData.isOperator && (
+                                                <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                    <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Step 4 — Sent Deposit to start production</div>
+                                                    {itemState.deposit_status === 'received' ? (
+                                                        <div style={{ fontSize: '11px', color: greenAccent }}>
+                                                            ✓ Deposit received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
+                                                                {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
+                                                                {itemState.deposit_status === 'sent_by_designer' ? 'Designer has submitted payment proof — review and approve below.' : 'Waiting for designer to submit deposit payment proof.'}
+                                                            </div>
+                                                            {itemState.deposit_status === 'sent_by_designer' && (
+                                                                <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
+                                                                    {itemState.deposit_receipt_url && (
+                                                                        <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
+                                                                            View payment receipt
+                                                                        </a>
+                                                                    )}
+                                                                    {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
+                                                                        <div style={{ marginBottom: '10px' }}>
+                                                                            <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
+                                                                            <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
+                                                                            {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                                                                        </div>
+                                                                    )}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={async () => {
+                                                                            if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                                            const fd = new FormData();
+                                                                            fd.append('action', 'n88_mark_deposit_received');
+                                                                            fd.append('item_id', String(getItemId()));
+                                                                            fd.append('_ajax_nonce', nonce);
+                                                                            try {
+                                                                                const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                const data = await res.json();
+                                                                                if (data.success) { fetchItemState(); fetchTimeline(); }
+                                                                                else alert(data.data?.message || 'Failed.');
+                                                                            } catch (e) { console.error(e); alert('Error. Please try again.'); }
+                                                                        }}
+                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
+                                                                    >
+                                                                        Approve (mark deposit received)
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
                                             {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
                                                 <>
                                                     {/* Horizontal 6-step row with connector lines between steps — sticky */}
@@ -5212,8 +5815,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                 })()}
                                                                 {/* Commit 28: Deposit — show when Step 4 selected and item awarded; operator marks received before production can start */}
                                                                 {s.step_number === 4 && itemState.has_awarded_bid && (
-                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: `1px solid ${darkBorder}`, borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Deposit</div>
+                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Sent Deposit to start production</div>
                                                                         {itemState.deposit_status === 'received' ? (
                                                                             <div style={{ fontSize: '11px', color: greenAccent }}>
                                                                                 ✓ Received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
@@ -5226,61 +5829,54 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                                         ? 'Status: Awaiting Deposit Confirmation. Operator will review your proof and mark received.'
                                                                                         : 'Production can start only after the operator marks deposit received.'}
                                                                                 </div>
-                                                                                {/* Designer action: mark deposit sent (offline payment) */}
+                                                                                {/* Designer: open modal to send payment proof (screenshot/file) */}
                                                                                 {(!window.n88BoardData || !window.n88BoardData.isOperator) && itemState.deposit_status !== 'sent_by_designer' && (
                                                                                     <button
                                                                                         type="button"
-                                                                                        onClick={async () => {
-                                                                                            if (!window.confirm('Confirm you have sent the production deposit payment offline?')) return;
-                                                                                            const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
-                                                                                            if (!nonce) { alert('Security token missing.'); return; }
-                                                                                            const fd = new FormData();
-                                                                                            fd.append('action', 'n88_mark_deposit_sent');
-                                                                                            fd.append('item_id', String(getItemId()));
-                                                                                            fd.append('_ajax_nonce', nonce);
-                                                                                            try {
-                                                                                                const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
-                                                                                                const data = await res.json();
-                                                                                                if (data.success) {
-                                                                                                    fetchItemState();
-                                                                                                    fetchTimeline();
-                                                                                                } else {
-                                                                                                    alert(data.data?.message || data.message || 'Failed.');
-                                                                                                }
-                                                                                            } catch (e) {
-                                                                                                console.error(e);
-                                                                                                alert('Error. Please try again.');
-                                                                                            }
-                                                                                        }}
-                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: '#111111', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }}
+                                                                                        onClick={() => setShowDepositProofModal(true)}
+                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: '#FF0065', color: '#000', border: '1px solid #FF0065', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }}
                                                                                     >
-                                                                                        I SENT DEPOSIT PAYMENT
+                                                                                        [ Send Deposit Payment Proof ]
                                                                                     </button>
                                                                                 )}
-                                                                                {/* Operator action: mark deposit received */}
+                                                                                {/* Operator: view payment receipt, designer comments, approve */}
                                                                                 {window.n88BoardData && window.n88BoardData.isOperator && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={async () => {
-                                                                                            if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
-                                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
-                                                                                            if (!nonce) { alert('Security token missing.'); return; }
-                                                                                            const fd = new FormData();
-                                                                                            fd.append('action', 'n88_mark_deposit_received');
-                                                                                            fd.append('item_id', String(getItemId()));
-                                                                                            fd.append('_ajax_nonce', nonce);
-                                                                                            try {
-                                                                                                const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
-                                                                                                const data = await res.json();
-                                                                                                if (data.success) { fetchItemState(); fetchTimeline(); }
-                                                                                                else alert(data.data?.message || 'Failed.');
-                                                                                            } catch (e) { console.error(e); alert('Error. Please try again.'); }
-                                                                                        }}
-                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
-                                                                                    >
-                                                                                        Mark deposit received
-                                                                                    </button>
+                                                                                    <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
+                                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
+                                                                                        {itemState.deposit_receipt_url && (
+                                                                                            <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
+                                                                                                View payment receipt
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
+                                                                                            <div style={{ marginBottom: '10px' }}>
+                                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
+                                                                                                <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
+                                                                                                {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={async () => {
+                                                                                                if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                                                const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                                                if (!nonce) { alert('Security token missing.'); return; }
+                                                                                                const fd = new FormData();
+                                                                                                fd.append('action', 'n88_mark_deposit_received');
+                                                                                                fd.append('item_id', String(getItemId()));
+                                                                                                fd.append('_ajax_nonce', nonce);
+                                                                                                try {
+                                                                                                    const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                                    const data = await res.json();
+                                                                                                    if (data.success) { fetchItemState(); fetchTimeline(); }
+                                                                                                    else alert(data.data?.message || 'Failed.');
+                                                                                                } catch (e) { console.error(e); alert('Error. Please try again.'); }
+                                                                                            }}
+                                                                                            style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
+                                                                                        >
+                                                                                            Approve (mark deposit received)
+                                                                                        </button>
+                                                                                    </div>
                                                                                 )}
                                                                             </>
                                                                         )}
@@ -5686,7 +6282,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: darkText }}>
                                                                         Current Proposals (Revision {currentRevision || 'N/A'})
                                                                     </div>
-                                                                    <BidComparisonMatrix 
+                                                                    <BidComparisonMatrix
                                                                         bids={currentBids}
                                                                         darkBorder={darkBorder}
                                                                         greenAccent={greenAccent}
@@ -5694,6 +6290,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         darkBg={darkBg}
                                                                         onImageClick={setLightboxImage}
                                                                         smartAlternativesEnabled={smartAlternativesEnabled}
+                                                                        itemQuantity={item?.quantity ?? item?.meta?.quantity}
+                                                                        itemCbm={computedValues?.cbm ?? item?.cbm}
+                                                                        itemDimsCm={fallbackDimsCm}
                                                                     />
                                                                 </div>
                                                             ) : (
@@ -5728,7 +6327,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#999' }}>
                                                                         Outdated Proposals (previous specs)
                                                                     </div>
-                                                                    <BidComparisonMatrix 
+                                                                    <BidComparisonMatrix
                                                                         bids={outdatedBids}
                                                                         darkBorder={darkBorder}
                                                                         greenAccent={greenAccent}
@@ -5736,6 +6335,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         darkBg={darkBg}
                                                                         onImageClick={setLightboxImage}
                                                                         smartAlternativesEnabled={smartAlternativesEnabled}
+                                                                        itemQuantity={item?.quantity ?? item?.meta?.quantity}
+                                                                        itemCbm={computedValues?.cbm ?? item?.cbm}
+                                                                        itemDimsCm={fallbackDimsCm}
                                                                     />
                                                                 </div>
                                                             )}
@@ -6843,7 +7445,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             </div>
                                             
                                             {/* Bids Matrix */}
-                                            <BidComparisonMatrix 
+                                            <BidComparisonMatrix
                                                 bids={itemState.bids}
                                                 darkBorder={darkBorder}
                                                 greenAccent={greenAccent}
@@ -6851,6 +7453,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 darkBg={darkBg}
                                                 onImageClick={setLightboxImage}
                                                 smartAlternativesEnabled={smartAlternativesEnabled}
+                                                itemQuantity={item?.quantity ?? item?.meta?.quantity}
+                                                itemCbm={computedValues?.cbm ?? item?.cbm}
+                                                itemDimsCm={fallbackDimsCm}
                                             />
                                             
                                             {/* Request Prototype Video Button/Form (Commit 2.3.9.1B) - hide when CAD request already submitted */}
@@ -7980,6 +8585,98 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 </>
                                             );
                                         })()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* Deposit Proof Modal — designer sends payment proof (screenshot/PDF); same style as Payment Instructions */}
+                    {showDepositProofModal && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                zIndex: 1000002,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '20px',
+                            }}
+                            onClick={() => !depositProofUploading && setShowDepositProofModal(false)}
+                        >
+                            <div
+                                style={{
+                                    maxWidth: '560px',
+                                    width: '100%',
+                                    backgroundColor: darkBg,
+                                    border: `2px solid ${greenAccent}`,
+                                    borderRadius: '8px',
+                                    padding: '24px',
+                                    fontFamily: 'monospace',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: `1px solid ${darkBorder}`, paddingBottom: '12px' }}>
+                                    <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: greenAccent }}>Sent Deposit to start production</h2>
+                                    <button type="button" onClick={() => !depositProofUploading && setShowDepositProofModal(false)} style={{ background: 'none', border: 'none', color: darkText, fontSize: '24px', cursor: depositProofUploading ? 'not-allowed' : 'pointer', padding: 0, width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                                </div>
+                                <div style={{ fontSize: '13px', color: darkText, lineHeight: '1.6', marginBottom: '16px' }}>
+                                    {itemState.deposit_amount != null && (
+                                        <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#111111', borderRadius: '4px', border: `1px solid ${darkBorder}` }}>
+                                            <span style={{ fontSize: '14px', fontWeight: '600', color: greenAccent }}>Amount due: </span>
+                                            <span style={{ color: '#fff' }}>${Number(itemState.deposit_amount).toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    <p style={{ marginBottom: '12px' }}>Upload proof of payment (screenshot or PDF). The operator will review and mark deposit received so production can start.</p>
+                                    <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#1a0a14', borderRadius: '4px', border: `1px solid ${greenAccent}` }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Upload payment proof</div>
+                                        <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>Image (JPG, PNG) or PDF. Operator will review before confirming.</p>
+                                        <div style={{ marginBottom: '10px' }}>
+                                            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Message (optional):</label>
+                                            <textarea
+                                                value={depositProofMessage}
+                                                onChange={(e) => setDepositProofMessage(e.target.value)}
+                                                placeholder="e.g. Paid via Zelle, ref #123"
+                                                rows={2}
+                                                maxLength={500}
+                                                style={{ width: '100%', padding: '8px 10px', fontSize: '12px', color: '#fff', backgroundColor: '#1a0d14', border: '1px solid #33001a', borderRadius: '4px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
+                                            />
+                                        </div>
+                                        <input
+                                            ref={depositProofInputRef}
+                                            type="file"
+                                            accept="image/*,.pdf,.png,.jpg,.jpeg"
+                                            onChange={handleDepositProofFileSelect}
+                                            disabled={depositProofUploading}
+                                            style={{ display: 'block', marginBottom: '10px', fontSize: '12px', color: '#fff' }}
+                                        />
+                                        {depositProofFile && (
+                                            <div style={{ fontSize: '12px', color: greenAccent, marginBottom: '8px', padding: '6px 10px', backgroundColor: '#1a0d14', borderRadius: '4px', border: '1px solid #33001a' }}>
+                                                Selected: {depositProofFile.name}
+                                            </div>
+                                        )}
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <button
+                                                type="button"
+                                                onClick={submitDepositProof}
+                                                disabled={!depositProofFile || depositProofUploading}
+                                                style={{ padding: '8px 16px', backgroundColor: depositProofFile && !depositProofUploading ? greenAccent : '#333', color: depositProofFile && !depositProofUploading ? '#000' : '#666', border: 'none', borderRadius: '4px', cursor: depositProofFile && !depositProofUploading ? 'pointer' : 'not-allowed', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}
+                                            >
+                                                {depositProofUploading ? 'Submitting…' : 'Submit'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setShowDepositProofModal(false); setDepositProofFile(null); setDepositProofMessage(''); if (depositProofInputRef.current) depositProofInputRef.current.value = ''; }}
+                                                disabled={depositProofUploading}
+                                                style={{ padding: '8px 16px', backgroundColor: 'transparent', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', cursor: depositProofUploading ? 'not-allowed' : 'pointer', fontSize: '12px', fontFamily: 'monospace' }}
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

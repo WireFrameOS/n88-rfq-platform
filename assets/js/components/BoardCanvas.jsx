@@ -42,7 +42,7 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
     );
 
     // Initialize debounced save hook
-    const { triggerSave, unsynced, clearUnsynced } = useDebouncedSave(boardId || 0, getItems);
+    const { triggerSave, saveNow, unsynced, clearUnsynced } = useDebouncedSave(boardId || 0, getItems);
 
     // Refresh board item status (CAD requested, payment, etc.) so designer card updates without full reload
     const refreshBoardItemsStatus = React.useCallback(() => {
@@ -140,6 +140,7 @@ const BoardCanvas = ({ boardId, onLayoutChanged, userId, concierge }) => {
                             key={item.id}
                             item={item}
                             onLayoutChanged={handleLayoutChanged}
+                            onSizeChange={saveNow}
                             boardId={boardId}
                         />
                     ))

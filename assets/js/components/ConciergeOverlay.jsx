@@ -50,7 +50,7 @@ const ConciergeOverlay = ({ concierge }) => {
                         width: '36px',
                         height: '36px',
                         borderRadius: '50%',
-                        backgroundColor: conciergeData.avatarUrl ? 'transparent' : '#e91e8c',
+                        backgroundColor: conciergeData.avatarUrl ? 'transparent' : 'rgb(255, 0, 101)',
                         backgroundImage: conciergeData.avatarUrl ? `url(${conciergeData.avatarUrl})` : 'none',
                         backgroundSize: 'cover',
                         backgroundPosition: 'center',

@@ -209,6 +209,20 @@
         }, [performSave, boardId]);
 
         /**
+         * Save immediately (no debounce). Use when user changes card size so it persists on reload.
+         */
+        const saveNow = React.useCallback(function() {
+            if (!boardId || boardId === 0) return;
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+            }
+            clientRevisionRef.current += 1;
+            performSave(clientRevisionRef.current);
+            setUnsynced(false);
+        }, [boardId, performSave]);
+
+        /**
          * Clear unsynced state (manual clear)
          */
         const clearUnsynced = React.useCallback(function() {
@@ -226,6 +240,7 @@
 
         return {
             triggerSave: triggerSave,
+            saveNow: saveNow,
             unsynced: unsynced,
             clearUnsynced: clearUnsynced,
         };

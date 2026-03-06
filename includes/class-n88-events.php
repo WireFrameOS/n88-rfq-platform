@@ -78,6 +78,11 @@ class N88_Events {
         'timeline_step_video_submitted',
         'timeline_step_video_added_by_operator',
         'timeline_step_comment_added',
+        // Commit 28: Award + deposit lifecycle (immutable)
+        'bid_awarded',
+        'bid_declined',
+        'deposit_calculated',
+        'deposit_received',
     );
 
     /**
@@ -99,6 +104,7 @@ class N88_Events {
         'designer_profile',
         'prototype_payment',
         'item_message',
+        'bid',
     );
 
     /**

@@ -1205,6 +1205,8 @@ class N88_RFQ_Installer {
         // Payment receipts (designer upload JPG/PDF; operator views before mark received)
         self::create_payment_receipts_table( $charset_collate );
         self::add_payment_receipt_message_column();
+        // Deposit proofs (designer upload payment proof; operator views before mark deposit received)
+        self::create_deposit_proofs_table( $charset_collate );
         
         // Commit 2.3.9.2B-S: Create prototype video submission tables
         self::create_phase_2_3_9_2b_tables( $charset_collate );
@@ -2395,6 +2397,7 @@ class N88_RFQ_Installer {
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
         $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
         $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files'; // Commit 2.3.5.1: Bid photos table
+        $official_quotes_table = $wpdb->prefix . 'n88_official_quotes'; // Commit 3.C.1: Official quote PDFs
         $items_table = $wpdb->prefix . 'n88_items';
         $users_table = $wpdb->prefix . 'users';
 
@@ -2444,10 +2447,32 @@ class N88_RFQ_Installer {
             KEY idx_sort_order (sort_order)
         ) {$charset_collate};";
 
+        // 4. n88_official_quotes - Supplier official quote PDFs (append-only, versioned)
+        $sql_official_quotes = "CREATE TABLE {$official_quotes_table} (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id INT UNSIGNED NOT NULL,
+            bid_id INT UNSIGNED NOT NULL,
+            supplier_id INT UNSIGNED NOT NULL,
+            designer_id INT UNSIGNED NOT NULL,
+            version INT UNSIGNED NOT NULL,
+            pdf_file_id BIGINT UNSIGNED NULL,
+            status ENUM('requested','submitted') NOT NULL DEFAULT 'submitted',
+            requested_at DATETIME NOT NULL,
+            submitted_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_item_bid_version (item_id, bid_id, version),
+            KEY idx_item_id (item_id),
+            KEY idx_bid_id (bid_id),
+            KEY idx_supplier_id (supplier_id),
+            KEY idx_status (status)
+        ) {$charset_collate};";
+
         // Create tables using dbDelta
         dbDelta( $sql_item_bids );
         dbDelta( $sql_bid_media_links );
         dbDelta( $sql_bid_media_files );
+        dbDelta( $sql_official_quotes );
 
         // Add foreign keys separately (dbDelta doesn't handle FKs well)
         $item_bids_table_safe = esc_sql( $item_bids_table );
@@ -2977,6 +3002,32 @@ class N88_RFQ_Installer {
         if ( ! is_array( $columns ) || ! in_array( 'message', $columns, true ) ) {
             $wpdb->query( "ALTER TABLE {$receipts_table} ADD COLUMN message TEXT NULL AFTER file_name" );
         }
+    }
+
+    /**
+     * Create n88_deposit_proofs table.
+     * Designer uploads deposit payment proof (image/PDF); operator views before marking deposit received.
+     */
+    private static function create_deposit_proofs_table( $charset_collate ) {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $proofs_table = $wpdb->prefix . 'n88_deposit_proofs';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$proofs_table}'" ) === $proofs_table ) {
+            return;
+        }
+        $sql = "CREATE TABLE {$proofs_table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            item_id BIGINT UNSIGNED NOT NULL,
+            attachment_id BIGINT UNSIGNED NOT NULL,
+            file_name VARCHAR(255) NOT NULL,
+            message TEXT NULL,
+            uploaded_by BIGINT UNSIGNED NOT NULL,
+            uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_item_id (item_id),
+            KEY idx_uploaded_at (uploaded_at)
+        ) {$charset_collate};";
+        dbDelta( $sql );
     }
 
     /**
