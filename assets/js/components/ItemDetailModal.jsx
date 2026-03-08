@@ -805,7 +805,6 @@ const BidComparisonMatrix = ({ bids, darkBorder, greenAccent, darkText, darkBg, 
                             )}
                         </div>
                     )}
-                </div>
             </div>
         );
     }
@@ -2346,8 +2345,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     const [isSaving, setIsSaving] = React.useState(false);
     const [isUploadingInspiration, setIsUploadingInspiration] = React.useState(false);
     
+    // COMMIT 3.C.3: RFQ evidence – overall notes, fabric supplied, fabric notes
+    const [rfqOverallNotes, setRfqOverallNotes] = React.useState(
+        item.rfq_overall_notes ?? item.meta?.rfq_overall_notes ?? ''
+    );
+    const [fabricSupplied, setFabricSupplied] = React.useState(
+        item.rfq_fabric_supplied_flag ?? item.meta?.rfq_fabric_supplied_flag ?? 'yes'
+    );
+    const [fabricNotes, setFabricNotes] = React.useState(
+        item.rfq_fabric_notes ?? item.meta?.rfq_fabric_notes ?? ''
+    );
+    
     // RFQ form always expanded (no expand/collapse button)
     const [showRfqForm, setShowRfqForm] = React.useState(true);
+    
+    // COMMIT 3.C.3: Add Link URL input for RFQ Inspiration (link-only, no upload)
+    const [inspirationLinkInput, setInspirationLinkInput] = React.useState('');
     
     // Invite Makers state
     const [invitedSuppliers, setInvitedSuppliers] = React.useState([]);
@@ -3240,7 +3253,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     
     // Update inspiration when item changes
     React.useEffect(() => {
-        const validInspiration = (item.inspiration || []).filter(validateInspirationItem);
+        const validInspiration = (item.inspiration || []).filter(validateInspirationItem).map(insp => ({
+            ...insp,
+            caption: (insp && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '',
+        }));
         setInspiration(validInspiration);
     }, [item.id, item.inspiration]);
     
@@ -3287,6 +3303,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
             if (parsedMeta.delivery_postal !== undefined) {
                 setDeliveryPostal(parsedMeta.delivery_postal || '');
             }
+            // COMMIT 3.C.3: RFQ overall notes, fabric supplied, fabric notes
+            if (parsedMeta.rfq_overall_notes !== undefined) setRfqOverallNotes(parsedMeta.rfq_overall_notes || '');
+            if (parsedMeta.rfq_fabric_supplied_flag === 'yes' || parsedMeta.rfq_fabric_supplied_flag === 'no') setFabricSupplied(parsedMeta.rfq_fabric_supplied_flag);
+            if (parsedMeta.rfq_fabric_notes !== undefined) setFabricNotes(parsedMeta.rfq_fabric_notes || '');
         }
     }, [item.id, item.quantity, item.meta_json, item.meta, item.smart_alternatives_note]);
     
@@ -3607,6 +3627,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                     id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
                     url: hasValidUrl ? url : '',
                     title: insp.title || insp.filename || 'Reference image',
+                    caption: (insp.caption && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '',
                 };
             });
             
@@ -3650,6 +3671,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                 smart_alternatives_note: notesValue,
                 delivery_country: deliveryCountry,
                 delivery_postal: deliveryPostal,
+                rfq_overall_notes: rfqOverallNotes.slice(0, 100),
+                rfq_fabric_supplied_flag: fabricSupplied,
+                rfq_fabric_notes: fabricSupplied === 'yes' ? fabricNotes : '',
             };
             
             // Log payload for debugging
@@ -3916,6 +3940,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         }
     };
     
+    // COMMIT 3.C.3: Add link URL to inspiration (RFQ tab – no upload)
+    const addInspirationLink = () => {
+        const url = inspirationLinkInput.trim();
+        if (!url) return;
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            alert('Please enter a valid URL (e.g. https://…)');
+            return;
+        }
+        setInspiration([...inspiration, { type: 'link', url, title: 'Reference link', caption: '' }]);
+        setInspirationLinkInput('');
+    };
+    
+    // COMMIT 3.C.3: Update per-image caption (max 100 chars)
+    const setInspirationCaption = (idx, value) => {
+        setInspiration(prev => prev.map((insp, i) => i === idx ? { ...insp, caption: (value || '').slice(0, 100) } : insp));
+    };
+    
     // Format dimensions for display
     const formatDimensions = () => {
         if (!width || !depth || !height) return null;
@@ -4124,6 +4165,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                             id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
                             url: hasValidUrl ? url : '',
                             title: insp.title || insp.filename || 'Reference image',
+                            caption: (insp.caption && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '',
                         };
                     });
                     
@@ -4160,6 +4202,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                         smart_alternatives_note: notesValue,
                         delivery_country: deliveryCountry,
                         delivery_postal: deliveryPostal,
+                        rfq_overall_notes: rfqOverallNotes.slice(0, 100),
+                        rfq_fabric_supplied_flag: fabricSupplied,
+                        rfq_fabric_notes: fabricSupplied === 'yes' ? fabricNotes : '',
                     };
                     
                     // Log payload for debugging
@@ -6487,7 +6532,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             {/* ZIP/Postal Code */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    ZIP/Postal Code
+                                                    Final Delivery ZIP Code
                                                 </label>
                                                 <input
                                                     type="text"
@@ -6516,7 +6561,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     )}
                                 </div>
                                             
-                                            {/* Inspiration / References / Sketch Drawings (inside RFQ form) */}
+                                            {/* Inspiration / References / Sketch Drawings (inside RFQ form) – COMMIT 3.C.3 */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
                                                     Inspiration / References / Sketch Drawings
@@ -6532,111 +6577,220 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 }}>
                                                     {inspiration.map((insp, idx) => (
                                                         <div
-                                                            key={idx}
+                                                            key={insp.id || insp.url || idx}
                                                             style={{
                                                                 width: '80px',
-                                                                height: '80px',
-                                                                border: `1px solid ${darkBorder}`,
-                                                                borderRadius: '4px',
-                                                                backgroundColor: '#111111',
-                                                                position: 'relative',
-                                                                overflow: 'hidden',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                            onClick={() => {
-                                                                if (insp.url) {
-                                                                    // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
-                                                                    if (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) {
-                                                                        window.open(insp.url, '_blank');
-                                                                    } else {
-                                                                        setLightboxImage(insp.url);
-                                                                    }
-                                                                }
+                                                                flexShrink: 0,
                                                             }}
                                                         >
-                                                            {insp.url ? (
-                                                                (insp.type === 'pdf' || insp.url.toLowerCase().endsWith('.pdf')) ? (
-                                                                    <div style={{
-                                                                        width: '100%',
-                                                                        height: '100%',
+                                                            <div
+                                                                style={{
+                                                                    width: '80px',
+                                                                    height: '80px',
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    backgroundColor: '#111111',
+                                                                    position: 'relative',
+                                                                    overflow: 'hidden',
+                                                                    cursor: 'pointer',
+                                                                }}
+                                                                onClick={() => {
+                                                                    if (insp.url) {
+                                                                        if (insp.type === 'pdf' || insp.type === 'link' || (insp.url || '').toLowerCase().endsWith('.pdf')) {
+                                                                            window.open(insp.url, '_blank');
+                                                                        } else {
+                                                                            setLightboxImage(insp.url);
+                                                                        }
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {insp.url ? (
+                                                                    (insp.type === 'pdf' || (insp.url || '').toLowerCase().endsWith('.pdf')) ? (
+                                                                        <div style={{
+                                                                            width: '100%',
+                                                                            height: '100%',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            backgroundColor: '#222',
+                                                                            borderRadius: '4px',
+                                                                            flexDirection: 'column',
+                                                                            gap: '4px',
+                                                                        }}>
+                                                                            <div style={{ fontSize: '24px' }}>📄</div>
+                                                                            <div style={{ fontSize: '8px', color: '#999' }}>PDF</div>
+                                                                        </div>
+                                                                    ) : insp.type === 'link' ? (
+                                                                        <div style={{
+                                                                            width: '100%',
+                                                                            height: '100%',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            backgroundColor: '#222',
+                                                                            borderRadius: '4px',
+                                                                            flexDirection: 'column',
+                                                                            gap: '4px',
+                                                                        }}>
+                                                                            <div style={{ fontSize: '24px' }}>🔗</div>
+                                                                            <div style={{ fontSize: '8px', color: '#999' }}>Link</div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <img 
+                                                                            src={insp.url} 
+                                                                            alt={insp.title || 'Reference'} 
+                                                                            style={{
+                                                                                width: '100%',
+                                                                                height: '100%',
+                                                                                objectFit: 'cover',
+                                                                                borderRadius: '4px',
+                                                                            }}
+                                                                        />
+                                                                    )
+                                                                ) : (
+                                                                    <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setInspiration(inspiration.filter((_, i) => i !== idx));
+                                                                    }}
+                                                                    style={{
+                                                                        position: 'absolute',
+                                                                        top: '4px',
+                                                                        right: '4px',
+                                                                        background: '#ff0000',
+                                                                        color: '#fff',
+                                                                        border: 'none',
+                                                                        borderRadius: '50%',
+                                                                        width: '20px',
+                                                                        height: '20px',
+                                                                        cursor: 'pointer',
+                                                                        fontSize: '12px',
                                                                         display: 'flex',
                                                                         alignItems: 'center',
                                                                         justifyContent: 'center',
-                                                                        backgroundColor: '#222',
-                                                                        borderRadius: '4px',
-                                                                        flexDirection: 'column',
-                                                                        gap: '4px',
-                                                                    }}>
-                                                                        <div style={{ fontSize: '24px' }}>📄</div>
-                                                                        <div style={{ fontSize: '8px', color: '#999' }}>PDF</div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <img 
-                                                                        src={insp.url} 
-                                                                        alt={insp.title || 'Reference'} 
-                                                                        style={{
-                                                                            width: '100%',
-                                                                            height: '100%',
-                                                                            objectFit: 'cover',
-                                                                            borderRadius: '4px',
-                                                                        }} 
-                                                                    />
-                                                                )
-                                                            ) : (
-                                                                <div style={{ fontSize: '10px', color: '#666' }}>[ img ]</div>
-                                                            )}
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setInspiration(inspiration.filter((_, i) => i !== idx));
-                                                                }}
+                                                                        padding: 0,
+                                                                    }}
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                            <input
+                                                                type="text"
+                                                                value={(insp.caption || '').slice(0, 100)}
+                                                                onChange={(e) => setInspirationCaption(idx, e.target.value)}
+                                                                placeholder="Caption (max 100)"
+                                                                maxLength={100}
                                                                 style={{
-                                                                    position: 'absolute',
-                                                                    top: '4px',
-                                                                    right: '4px',
-                                                                    background: '#ff0000',
-                                                                    color: '#fff',
-                                                                    border: 'none',
-                                                                    borderRadius: '50%',
-                                                                    width: '20px',
-                                                                    height: '20px',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: '12px',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    padding: 0,
+                                                                    width: '100%',
+                                                                    marginTop: '4px',
+                                                                    padding: '4px 6px',
+                                                                    fontSize: '10px',
+                                                                    backgroundColor: darkBg,
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    color: darkText,
+                                                                    fontFamily: 'monospace',
+                                                                    boxSizing: 'border-box',
                                                                 }}
-                                                            >
-                                                                ×
-                                                            </button>
+                                                            />
                                                         </div>
                                                     ))}
-                                                    <button
-                                                        onClick={() => {
-                                                            const input = document.getElementById('inspiration-file-input-rfq');
-                                                            if (input) input.click();
-                                                        }}
-                                                        disabled={isUploadingInspiration}
-                                                        style={{
-                                                            width: '80px',
-                                                            height: '80px',
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            backgroundColor: '#111111',
-                                                            color: darkText,
-                                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                        }}
-                                                    >
-                                                        {isUploadingInspiration ? '...' : '[+ Add]'}
-                                                    </button>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const input = document.getElementById('inspiration-file-input-rfq-images');
+                                                                    if (input) input.click();
+                                                                }}
+                                                                disabled={isUploadingInspiration}
+                                                                style={{
+                                                                    padding: '6px 10px',
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    backgroundColor: '#111111',
+                                                                    color: darkText,
+                                                                    cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                                    fontSize: '11px',
+                                                                    fontFamily: 'monospace',
+                                                                }}
+                                                            >
+                                                                {isUploadingInspiration ? '...' : 'Add Photos'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const input = document.getElementById('inspiration-file-input-rfq-pdf');
+                                                                    if (input) input.click();
+                                                                }}
+                                                                disabled={isUploadingInspiration}
+                                                                style={{
+                                                                    padding: '6px 10px',
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    backgroundColor: '#111111',
+                                                                    color: darkText,
+                                                                    cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
+                                                                    fontSize: '11px',
+                                                                    fontFamily: 'monospace',
+                                                                }}
+                                                            >
+                                                                {isUploadingInspiration ? '...' : 'Add PDF'}
+                                                            </button>
+                                                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={inspirationLinkInput}
+                                                                    onChange={(e) => setInspirationLinkInput(e.target.value)}
+                                                                    onKeyPress={(e) => { if (e.key === 'Enter') { e.preventDefault(); addInspirationLink(); } }}
+                                                                    placeholder="Paste URL"
+                                                                    style={{
+                                                                        width: '140px',
+                                                                        padding: '6px 8px',
+                                                                        fontSize: '11px',
+                                                                        backgroundColor: darkBg,
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        color: darkText,
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={addInspirationLink}
+                                                                    style={{
+                                                                        padding: '6px 10px',
+                                                                        border: `1px solid ${darkBorder}`,
+                                                                        borderRadius: '4px',
+                                                                        backgroundColor: '#111111',
+                                                                        color: darkText,
+                                                                        cursor: 'pointer',
+                                                                        fontSize: '11px',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                >
+                                                                    Add Link
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                                 <input
                                                     type="file"
-                                                    id="inspiration-file-input-rfq"
-                                                    accept="image/*,.pdf,application/pdf,.heic,.heif"
+                                                    id="inspiration-file-input-rfq-images"
+                                                    accept="image/*,.heic,.heif"
+                                                    multiple
+                                                    onChange={handleInspirationFileChange}
+                                                    style={{ display: 'none' }}
+                                                    disabled={isUploadingInspiration}
+                                                />
+                                                <input
+                                                    type="file"
+                                                    id="inspiration-file-input-rfq-pdf"
+                                                    accept=".pdf,application/pdf"
                                                     multiple
                                                     onChange={handleInspirationFileChange}
                                                     style={{ display: 'none' }}
@@ -6644,13 +6798,102 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 />
                                             </div>
                                             
-                                            {/* Invite Makers */}
+                                            {/* Global RFQ Notes (Overall Notes) – COMMIT 3.C.3 */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                                                    Overall Notes
+                                                </label>
+                                                <div style={{ fontSize: '11px', color: '#999', marginBottom: '6px' }}>
+                                                    Overall notes for these references (dimensions, finish, proportions, performance requirements).
+                                                </div>
+                                                <textarea
+                                                    value={rfqOverallNotes}
+                                                    onChange={(e) => setRfqOverallNotes(e.target.value.slice(0, 100))}
+                                                    maxLength={100}
+                                                    placeholder="Overall notes for these references…"
+                                                    rows={2}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px',
+                                                        backgroundColor: darkBg,
+                                                        border: `1px solid ${darkBorder}`,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        resize: 'vertical',
+                                                        boxSizing: 'border-box',
+                                                    }}
+                                                />
+                                                <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+                                                    {rfqOverallNotes.length}/100
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Fabric Supplied? – COMMIT 3.C.3 */}
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                                                    Where applicable, will you supply fabric?
+                                                </label>
+                                                <div style={{ fontSize: '11px', color: '#999', marginBottom: '8px' }}>
+                                                    Use Yes if you will supply fabric (COM). Use No if the supplier should quote using in-house fabric/material where applicable.
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '8px' }}>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                        <input
+                                                            type="radio"
+                                                            name="fabric-supplied-rfq"
+                                                            checked={fabricSupplied === 'yes'}
+                                                            onChange={() => setFabricSupplied('yes')}
+                                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                        />
+                                                        <span style={{ fontSize: '12px' }}>Yes</span>
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                        <input
+                                                            type="radio"
+                                                            name="fabric-supplied-rfq"
+                                                            checked={fabricSupplied === 'no'}
+                                                            onChange={() => setFabricSupplied('no')}
+                                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                        />
+                                                        <span style={{ fontSize: '12px' }}>No</span>
+                                                    </label>
+                                                </div>
+                                                {fabricSupplied === 'yes' && (
+                                                    <div style={{ marginTop: '8px' }}>
+                                                        <label style={{ display: 'block', fontSize: '11px', marginBottom: '4px', color: '#999' }}>
+                                                            Fabric Notes (optional)
+                                                        </label>
+                                                        <textarea
+                                                            value={fabricNotes}
+                                                            onChange={(e) => setFabricNotes(e.target.value)}
+                                                            placeholder="Fabric type, yardage assumptions, testing requirements, shipping timing."
+                                                            rows={2}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '8px',
+                                                                backgroundColor: darkBg,
+                                                                border: `1px solid ${darkBorder}`,
+                                                                borderRadius: '4px',
+                                                                color: darkText,
+                                                                fontSize: '12px',
+                                                                fontFamily: 'monospace',
+                                                                resize: 'vertical',
+                                                                boxSizing: 'border-box',
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Invite Suppliers */}
                                             <div style={{ marginBottom: '12px' }}>
                                                 <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
-                                                    Invite Makers
+                                                    Invite Suppliers
                                                 </div>
                                                 <div style={{ fontSize: '11px', color: '#999', marginBottom: '8px' }}>
-                                                    Enter existing maker username(s) or email address(es). Press Enter or click Add. (1-5 invites)
+                                                    Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1-5 invites)
                                                 </div>
                                                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                                                     <input

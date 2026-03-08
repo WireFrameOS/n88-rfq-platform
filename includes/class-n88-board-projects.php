@@ -383,6 +383,10 @@ class N88_Board_Projects {
                     array( '%d' )
                 );
             }
+            // Remove these item IDs from board layout snapshot so they don't reappear on reload
+            if ( class_exists( 'N88_Board_Layout' ) && method_exists( 'N88_Board_Layout', 'remove_items_from_board_layout' ) ) {
+                N88_Board_Layout::remove_items_from_board_layout( $board_id, $item_ids );
+            }
         }
 
         // Soft delete room
@@ -467,6 +471,7 @@ class N88_Board_Projects {
         );
 
         if ( is_array( $rooms ) ) {
+            $all_removed_item_ids = array();
             foreach ( $rooms as $r ) {
                 $room_id = (int) $r['id'];
                 $item_ids = $wpdb->get_col(
@@ -479,6 +484,7 @@ class N88_Board_Projects {
                 if ( is_array( $item_ids ) && count( $item_ids ) > 0 ) {
                     foreach ( $item_ids as $item_id ) {
                         $item_id = (int) $item_id;
+                        $all_removed_item_ids[] = $item_id;
                         $wpdb->query(
                             $wpdb->prepare(
                                 "UPDATE {$board_items_table} SET removed_at = %s
@@ -506,6 +512,10 @@ class N88_Board_Projects {
                     array( '%s', '%s' ),
                     array( '%d' )
                 );
+            }
+            // Remove all removed item IDs from board layout snapshot so they don't reappear on reload
+            if ( ! empty( $all_removed_item_ids ) && class_exists( 'N88_Board_Layout' ) && method_exists( 'N88_Board_Layout', 'remove_items_from_board_layout' ) ) {
+                N88_Board_Layout::remove_items_from_board_layout( $board_id, array_unique( $all_removed_item_ids ) );
             }
         }
 

@@ -3324,7 +3324,9 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
                         '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Routing:</strong> <span style="color: #FF0065;">' + item.route_label + '</span></div>' : '') +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
+                        (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (item.rfq_fabric_supplied_flag === 'yes' ? 'YES' : 'NO') + '</span></div>' : '') +
+                        (item.rfq_fabric_supplied_flag === 'yes' && item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                         '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
                         '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || '—') + '</div>' +
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
@@ -11642,6 +11644,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'delivery_country' => $delivery_context ? sanitize_text_field( $delivery_context['delivery_country_code'] ) : null,
             'delivery_postal_code' => $delivery_context && ! empty( $delivery_context['delivery_postal_code'] ) ? sanitize_text_field( $delivery_context['delivery_postal_code'] ) : null,
             'shipping_mode_label' => $shipping_mode_label,
+            // COMMIT 3.C.3: Fabric supplied and fabric notes (supplier read-only)
+            'rfq_fabric_supplied_flag' => isset( $meta['rfq_fabric_supplied_flag'] ) ? sanitize_text_field( $meta['rfq_fabric_supplied_flag'] ) : null,
+            'rfq_fabric_notes' => isset( $meta['rfq_fabric_notes'] ) ? sanitize_textarea_field( $meta['rfq_fabric_notes'] ) : null,
             'route_label' => $route_label,
             'reference_images' => $reference_images, // Keep for backward compatibility
             'inspiration_images' => $inspiration_images, // Standardized key

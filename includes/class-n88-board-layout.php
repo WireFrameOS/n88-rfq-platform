@@ -478,5 +478,53 @@ class N88_Board_Layout {
             'saved_at' => $now,
         ) );
     }
+
+    /**
+     * Remove given item IDs from a board's latest_layout_json snapshot.
+     * Used when items are removed from board (delete project, room, or single item).
+     *
+     * @param int   $board_id Board ID.
+     * @param int[] $item_ids Item IDs to remove (e.g. [ 87, 92 ]).
+     * @return bool True if layout was updated, false otherwise.
+     */
+    public static function remove_items_from_board_layout( $board_id, $item_ids ) {
+        if ( ! $board_id || empty( $item_ids ) ) {
+            return false;
+        }
+        global $wpdb;
+        $boards_table = $wpdb->prefix . 'n88_boards';
+        $board = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, latest_layout_json FROM {$boards_table} WHERE id = %d",
+            $board_id
+        ) );
+        if ( ! $board || empty( $board->latest_layout_json ) ) {
+            return false;
+        }
+        $layout = json_decode( $board->latest_layout_json, true );
+        if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $layout ) || empty( $layout['items'] ) ) {
+            return false;
+        }
+        $ids_to_remove = array_map( 'strval', array_map( 'absint', $item_ids ) );
+        $item_id_strings = array();
+        foreach ( $ids_to_remove as $id ) {
+            $item_id_strings[] = 'item-' . $id;
+        }
+        $layout['items'] = array_values( array_filter( $layout['items'], function( $item ) use ( $item_id_strings ) {
+            $id = isset( $item['id'] ) ? $item['id'] : '';
+            return ! in_array( $id, $item_id_strings, true );
+        } ) );
+        $new_json = wp_json_encode( $layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+        if ( $new_json === false ) {
+            return false;
+        }
+        $updated = $wpdb->update(
+            $boards_table,
+            array( 'latest_layout_json' => $new_json, 'updated_at' => current_time( 'mysql' ) ),
+            array( 'id' => $board_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+        return $updated !== false;
+    }
 }
 

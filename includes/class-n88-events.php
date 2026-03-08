@@ -83,6 +83,9 @@ class N88_Events {
         'bid_declined',
         'deposit_calculated',
         'deposit_received',
+        // Commit 3.C.3: RFQ field and file caption events
+        'rfq_field_updated',
+        'file_caption_updated',
     );
 
     /**

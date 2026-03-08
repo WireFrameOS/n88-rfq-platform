@@ -11148,6 +11148,20 @@
                         var rfqError = _rfqErrorState[0];
                         var setRfqError = _rfqErrorState[1];
                         
+                        // COMMIT 3.C.3: RFQ evidence – overall notes, fabric supplied, fabric notes, add-link input
+                        var _rfqOverallNotesState = React.useState(item.rfq_overall_notes || (item.meta && item.meta.rfq_overall_notes) || '');
+                        var rfqOverallNotes = _rfqOverallNotesState[0];
+                        var setRfqOverallNotes = _rfqOverallNotesState[1];
+                        var _fabricSuppliedState = React.useState(item.rfq_fabric_supplied_flag || (item.meta && item.meta.rfq_fabric_supplied_flag) || 'yes');
+                        var fabricSupplied = _fabricSuppliedState[0];
+                        var setFabricSupplied = _fabricSuppliedState[1];
+                        var _fabricNotesState = React.useState(item.rfq_fabric_notes || (item.meta && item.meta.rfq_fabric_notes) || '');
+                        var fabricNotes = _fabricNotesState[0];
+                        var setFabricNotes = _fabricNotesState[1];
+                        var _inspirationLinkInputState = React.useState('');
+                        var inspirationLinkInput = _inspirationLinkInputState[0];
+                        var setInspirationLinkInput = _inspirationLinkInputState[1];
+                        
                         // BIDS section expansion state - expanded by default on Proposals Received tab
                         var _bidsExpandedState = React.useState(true);
                         var bidsExpanded = _bidsExpandedState[0];
@@ -12222,9 +12236,19 @@
                         
                         // Update inspiration when item changes (if modal is reopened with different item)
                         React.useEffect(function() {
-                            var validInspiration = (item.inspiration || []).filter(validateInspirationItem);
+                            var validInspiration = (item.inspiration || []).filter(validateInspirationItem).map(function(insp) {
+                                return Object.assign({}, insp, { caption: (insp && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '' });
+                            });
                             setInspiration(validInspiration);
-                        }, [item.id]);
+                        }, [item.id, item.inspiration]);
+                        
+                        // COMMIT 3.C.3: Sync RFQ overall notes, fabric supplied, fabric notes from item.meta
+                        React.useEffect(function() {
+                            var meta = item.meta || {};
+                            if (meta.rfq_overall_notes !== undefined) setRfqOverallNotes(meta.rfq_overall_notes || '');
+                            if (meta.rfq_fabric_supplied_flag === 'yes' || meta.rfq_fabric_supplied_flag === 'no') setFabricSupplied(meta.rfq_fabric_supplied_flag);
+                            if (meta.rfq_fabric_notes !== undefined) setFabricNotes(meta.rfq_fabric_notes || '');
+                        }, [item.id, item.meta]);
                         
                         // Computed values (read-only) - initialize from saved item data
                         var _computedState = React.useState({
@@ -12516,6 +12540,7 @@
                                                 id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
                                                 url: hasValidUrl ? url : '',
                                                 title: insp.title || insp.filename || 'Reference image',
+                                                caption: (insp.caption && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '',
                                             };
                                         });
                                         
@@ -12552,6 +12577,9 @@
                                             smart_alternatives_note: notesValue,
                                             delivery_country: deliveryCountry,
                                             delivery_postal: deliveryPostal,
+                                            rfq_overall_notes: (rfqOverallNotes || '').slice(0, 100),
+                                            rfq_fabric_supplied_flag: fabricSupplied,
+                                            rfq_fabric_notes: fabricSupplied === 'yes' ? (fabricNotes || '') : '',
                                         };
                                         
                                         // Log payload for debugging
@@ -12687,6 +12715,7 @@
                                         id: (insp.id && Number.isInteger(Number(insp.id)) && Number(insp.id) > 0) ? Number(insp.id) : null,
                                         url: hasValidUrl ? url : '',
                                         title: insp.title || insp.filename || 'Reference image',
+                                        caption: (insp.caption && typeof insp.caption === 'string') ? insp.caption.slice(0, 100) : '',
                                     };
                                 });
                                 
@@ -12732,6 +12761,9 @@
                                     smart_alternatives_note: notesValue,
                                     delivery_country: deliveryCountry,
                                     delivery_postal: deliveryPostal,
+                                    rfq_overall_notes: (rfqOverallNotes || '').slice(0, 100),
+                                    rfq_fabric_supplied_flag: fabricSupplied,
+                                    rfq_fabric_notes: fabricSupplied === 'yes' ? (fabricNotes || '') : '',
                                 };
                                 
                                 // Log payload for debugging
@@ -13186,6 +13218,26 @@
                                 alert('Error uploading images: ' + error.message);
                                 setIsUploadingInspiration(false);
                                 e.target.value = '';
+                            });
+                        };
+                        
+                        // COMMIT 3.C.3: Add link URL to inspiration (no upload)
+                        var addInspirationLink = function() {
+                            var url = (inspirationLinkInput || '').trim();
+                            if (!url) return;
+                            if (url.indexOf('http://') !== 0 && url.indexOf('https://') !== 0) {
+                                alert('Please enter a valid URL (e.g. https://…)');
+                                return;
+                            }
+                            setInspiration(function(prev) { return prev.concat([{ type: 'link', url: url, title: 'Reference link', caption: '' }]); });
+                            setInspirationLinkInput('');
+                        };
+                        // COMMIT 3.C.3: Update per-image caption (max 100 chars)
+                        var setInspirationCaption = function(idx, value) {
+                            setInspiration(function(prev) {
+                                return prev.map(function(insp, i) {
+                                    return i === idx ? Object.assign({}, insp, { caption: (value || '').slice(0, 100) }) : insp;
+                                });
                             });
                         };
                         
@@ -14096,13 +14148,13 @@
                                                     React.createElement('option', { value: 'EU' }, 'EU')
                                                 )
                                         ),
-                                            // ZIP/Postal Code
+                                            // Final Delivery ZIP Code
                                             React.createElement('div', {
                                                 style: { marginBottom: '12px' }
                                             },
                                             React.createElement('label', {
                                                     style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                }, 'ZIP/Postal Code'),
+                                                }, 'Final Delivery ZIP Code'),
                                                 React.createElement('input', {
                                                     type: 'text',
                                                     value: deliveryPostal,
@@ -14127,149 +14179,71 @@
                                                     }
                                                 }, shippingMessage) : null
                                             ),
-                                            // Smart Alternatives removed from request a quote form; default is no (false)
-                                            // Inspiration / References / Sketch Drawings
-                                            React.createElement('div', {
-                                                style: { marginBottom: '12px' }
-                                            },
-                                                React.createElement('div', {
-                                                    style: { marginBottom: '4px', fontSize: '12px', fontWeight: '600' }
-                                                }, 'Inspiration / References / Sketch Drawings'),
-                                                React.createElement('div', {
-                                                    style: { marginBottom: '8px', fontSize: '11px', color: '#999' }
-                                                }, 'Visible to suppliers while bidding.'),
-                                                React.createElement('div', {
-                                                    style: {
-                                                display: 'flex',
-                                                        gap: '8px',
-                                                        marginBottom: '8px',
-                                                flexWrap: 'wrap',
-                                            }
-                                        },
-                                            inspiration.map(function(insp, idx) {
-                                                        return React.createElement('div', {
-                                                            key: idx,
-                                                            style: {
-                                                                width: '80px',
-                                                        height: '80px',
-                                                                border: '1px solid ' + darkBorder,
-                                                                borderRadius: '4px',
-                                                                backgroundColor: '#111111',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                cursor: 'pointer',
-                                                        position: 'relative',
-                                                            },
-                                                            onClick: function() {
-                                                                if (insp.url) {
-                                                                    // Commit 2.3.5.4: PDFs open in new tab, images use lightbox
-                                                                    if (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) {
-                                                                        window.open(insp.url, '_blank');
-                                                                    } else {
-                                                                        setLightboxImage(insp.url);
+                                            // COMMIT 3.C.3: Inspiration / References with Add Photos, Add PDF, Add Link + per-image captions
+                                            React.createElement('div', { style: { marginBottom: '12px' } },
+                                                React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', fontWeight: '600' } }, 'Inspiration / References / Sketch Drawings'),
+                                                React.createElement('div', { style: { marginBottom: '8px', fontSize: '11px', color: '#999' } }, 'These images are helpful when you\'re ready to request a quote. They will be used as reference materials by suppliers to price accurately.'),
+                                                React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' } },
+                                                    inspiration.map(function(insp, idx) {
+                                                        var isLink = insp.type === 'link';
+                                                        var isPdf = insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'));
+                                                        return React.createElement('div', { key: insp.id || insp.url || idx, style: { width: '80px', flexShrink: 0 } },
+                                                            React.createElement('div', {
+                                                                style: { width: '80px', height: '80px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', position: 'relative', overflow: 'hidden', cursor: 'pointer' },
+                                                                onClick: function() {
+                                                                    if (insp.url) {
+                                                                        if (isPdf || isLink) window.open(insp.url, '_blank');
+                                                                        else setLightboxImage(insp.url);
                                                                     }
                                                                 }
-                                                }
-                                                },
-                                                    insp.url ? (
-                                                        (insp.type === 'pdf' || (typeof insp.url === 'string' && insp.url.toLowerCase().endsWith('.pdf'))) ? 
-                                                        React.createElement('div', {
-                                                            style: {
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                backgroundColor: '#222',
-                                                                borderRadius: '4px',
-                                                                flexDirection: 'column',
-                                                                gap: '4px',
-                                                            }
-                                                        }, 
-                                                            React.createElement('div', { style: { fontSize: '24px' } }, '📄'),
-                                                            React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')
-                                                        ) :
-                                                        React.createElement('img', {
-                                                            src: insp.url,
-                                                            alt: insp.title || 'Reference',
-                                                            style: {
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'cover',
-                                                                borderRadius: '4px',
-                                                            }
-                                                        })
-                                                    ) : React.createElement('div', {
-                                                        style: { fontSize: '10px', color: '#666' }
-                                                    }, '[ img ]'),
-                                                    React.createElement('button', {
-                                                                onClick: function(e) {
-                                                                    e.stopPropagation();
-                                                                    setInspiration(inspiration.filter(function(_, i) { return i !== idx; }));
-                                                        },
-                                                        style: {
-                                                            position: 'absolute',
-                                                                    top: '4px',
-                                                                    right: '4px',
-                                                                    background: '#ff0000',
-                                                            color: '#fff',
-                                                            border: 'none',
-                                                            borderRadius: '50%',
-                                                                    width: '20px',
-                                                                    height: '20px',
-                                                            cursor: 'pointer',
-                                                                    fontSize: '12px',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                                    padding: 0,
-                                                        }
-                                                    }, '×')
-                                                );
+                                                            },
+                                                                insp.url ? (isPdf ? React.createElement('div', { style: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#222', borderRadius: '4px', flexDirection: 'column', gap: '4px' } }, React.createElement('div', { style: { fontSize: '24px' } }, '📄'), React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'PDF')) : isLink ? React.createElement('div', { style: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#222', borderRadius: '4px', flexDirection: 'column', gap: '4px' } }, React.createElement('div', { style: { fontSize: '24px' } }, '🔗'), React.createElement('div', { style: { fontSize: '8px', color: '#999' } }, 'Link')) : React.createElement('img', { src: insp.url, alt: insp.title || 'Reference', style: { width: '100%', height: '100%', objectFit: 'cover', borderRadius: '4px' } })) : React.createElement('div', { style: { fontSize: '10px', color: '#666' } }, '[ img ]'),
+                                                                React.createElement('button', { type: 'button', onClick: function(e) { e.stopPropagation(); setInspiration(inspiration.filter(function(_, i) { return i !== idx; })); }, style: { position: 'absolute', top: '4px', right: '4px', background: '#ff0000', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 } }, '×')
+                                                            ),
+                                                            React.createElement('input', { type: 'text', value: (insp.caption || '').slice(0, 100), onChange: function(e) { setInspirationCaption(idx, e.target.value); }, placeholder: 'Caption (max 100)', maxLength: 100, style: { width: '100%', marginTop: '4px', padding: '4px 6px', fontSize: '10px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontFamily: 'monospace', boxSizing: 'border-box' } })
+                                                        );
                                                     }),
-                                                    React.createElement('button', {
-                                                        onClick: function() {
-                                                            var input = document.getElementById('inspiration-file-input');
-                                                            if (input) input.click();
-                                                        },
-                                                        disabled: isUploadingInspiration,
-                                            style: {
-                                                            width: '80px',
-                                                            height: '80px',
-                                                            border: '1px solid ' + darkBorder,
-                                                borderRadius: '4px',
-                                                            backgroundColor: '#111111',
-                                                            color: darkText,
-                                                            cursor: isUploadingInspiration ? 'not-allowed' : 'pointer',
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                    }
-                                                    }, isUploadingInspiration ? '...' : '[+ Add]')
-                                        ),
-                                        React.createElement('input', {
-                                            type: 'file',
-                                                    id: 'inspiration-file-input',
-                                            accept: 'image/*,.pdf,application/pdf,.heic,.heif',
-                                            multiple: true,
-                                            onChange: handleInspirationFileChange,
-                                                    style: { display: 'none' },
-                                                    disabled: isUploadingInspiration
-                                                }),
-                                                React.createElement('div', {
-                                                    style: { fontSize: '10px', color: '#666', marginTop: '4px' }
-                                                }, '(visible to suppliers • no downloads)')
+                                                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' } },
+                                                        React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' } },
+                                                            React.createElement('button', { type: 'button', onClick: function() { var input = document.getElementById('inspiration-file-input-admin-images'); if (input) input.click(); }, disabled: isUploadingInspiration, style: { padding: '6px 10px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', color: darkText, cursor: isUploadingInspiration ? 'not-allowed' : 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, isUploadingInspiration ? '...' : 'Add Photos'),
+                                                            React.createElement('button', { type: 'button', onClick: function() { var input = document.getElementById('inspiration-file-input-admin-pdf'); if (input) input.click(); }, disabled: isUploadingInspiration, style: { padding: '6px 10px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', color: darkText, cursor: isUploadingInspiration ? 'not-allowed' : 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, isUploadingInspiration ? '...' : 'Add PDF'),
+                                                            React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
+                                                                React.createElement('input', { type: 'text', value: inspirationLinkInput, onChange: function(e) { setInspirationLinkInput(e.target.value); }, onKeyPress: function(e) { if (e.key === 'Enter') { e.preventDefault(); addInspirationLink(); } }, placeholder: 'Paste URL', style: { width: '140px', padding: '6px 8px', fontSize: '11px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontFamily: 'monospace' } }),
+                                                                React.createElement('button', { type: 'button', onClick: addInspirationLink, style: { padding: '6px 10px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', color: darkText, cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, 'Add Link')
+                                                            )
+                                                        )
+                                                    )
+                                                ),
+                                                React.createElement('input', { type: 'file', id: 'inspiration-file-input-admin-images', accept: 'image/*,.heic,.heif', multiple: true, onChange: handleInspirationFileChange, style: { display: 'none' }, disabled: isUploadingInspiration }),
+                                                React.createElement('input', { type: 'file', id: 'inspiration-file-input-admin-pdf', accept: '.pdf,application/pdf', multiple: true, onChange: handleInspirationFileChange, style: { display: 'none' }, disabled: isUploadingInspiration })
                                             ),
-                                            // Invite Makers
+                                            // COMMIT 3.C.3: Overall Notes (Global RFQ Notes)
+                                            React.createElement('div', { style: { marginBottom: '12px' } },
+                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' } }, 'Overall Notes'),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Overall notes for these references (dimensions, finish, proportions, performance requirements).'),
+                                                React.createElement('textarea', { value: rfqOverallNotes, onChange: function(e) { setRfqOverallNotes(e.target.value.slice(0, 100)); }, maxLength: 100, placeholder: 'Overall notes for these references…', rows: 2, style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' } }),
+                                                React.createElement('div', { style: { fontSize: '10px', color: '#666', marginTop: '4px' } }, rfqOverallNotes.length + '/100')
+                                            ),
+                                            // COMMIT 3.C.3: Fabric Supplied?
+                                            React.createElement('div', { style: { marginBottom: '12px' } },
+                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' } }, 'Where applicable, will you supply fabric?'),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '8px' } }, 'Use Yes if you will supply fabric (COM). Use No if the supplier should quote using in-house fabric/material where applicable.'),
+                                                React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '8px' } },
+                                                    React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } }, React.createElement('input', { type: 'radio', name: 'fabric-supplied-admin', checked: fabricSupplied === 'yes', onChange: function() { setFabricSupplied('yes'); }, style: { width: '16px', height: '16px', cursor: 'pointer' } }), React.createElement('span', { style: { fontSize: '12px' } }, 'Yes')),
+                                                    React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' } }, React.createElement('input', { type: 'radio', name: 'fabric-supplied-admin', checked: fabricSupplied === 'no', onChange: function() { setFabricSupplied('no'); }, style: { width: '16px', height: '16px', cursor: 'pointer' } }), React.createElement('span', { style: { fontSize: '12px' } }, 'No'))
+                                                ),
+                                                fabricSupplied === 'yes' ? React.createElement('div', { style: { marginTop: '8px' } }, React.createElement('label', { style: { display: 'block', fontSize: '11px', marginBottom: '4px', color: '#999' } }, 'Fabric Notes (optional)'), React.createElement('textarea', { value: fabricNotes, onChange: function(e) { setFabricNotes(e.target.value); }, placeholder: 'Fabric type, yardage assumptions, testing requirements, shipping timing.', rows: 2, style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' } })) : null
+                                            ),
+                                            // Invite Suppliers (COMMIT 3.C.3 label)
                                             React.createElement('div', {
                                                 style: { marginBottom: '12px' }
                                             },
                                                 React.createElement('div', {
                                                     style: { fontSize: '12px', fontWeight: '600', marginBottom: '8px' }
-                                                }, 'Invite Makers'),
+                                                }, 'Invite Suppliers'),
                                                 React.createElement('div', {
                                                     style: { fontSize: '11px', color: '#999', marginBottom: '8px' }
-                                                }, 'Enter existing maker username(s) or email address(es). Press Enter or click Add. (1-5 invites)'),
+                                                }, 'Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1-5 invites)'),
                                                 React.createElement('div', {
                                                     style: { display: 'flex', gap: '8px', marginBottom: '8px' }
                                                 },

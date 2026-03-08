@@ -1511,7 +1511,11 @@ class N88_Items {
         $changed_fields = array();
         $old_values = array();
         $new_values = array();
-        
+        $old_rfq_overall_notes = isset( $meta['rfq_overall_notes'] ) ? $meta['rfq_overall_notes'] : '';
+        $old_rfq_fabric_flag = isset( $meta['rfq_fabric_supplied_flag'] ) ? $meta['rfq_fabric_supplied_flag'] : '';
+        $old_rfq_fabric_notes = isset( $meta['rfq_fabric_notes'] ) ? $meta['rfq_fabric_notes'] : '';
+        $old_inspiration = isset( $meta['inspiration'] ) && is_array( $meta['inspiration'] ) ? $meta['inspiration'] : array();
+
         if ( $has_rfq ) {
             // Store old values for dims and quantity
             if ( isset( $meta['dims'] ) ) {
@@ -1583,6 +1587,7 @@ class N88_Items {
                             'id' => $has_valid_id ? intval( $id_value ) : null,
                             'url' => $has_valid_url ? esc_url_raw( $url ) : '',
                             'title' => isset( $insp_item['title'] ) ? sanitize_text_field( $insp_item['title'] ) : '',
+                            'caption' => isset( $insp_item['caption'] ) && is_string( $insp_item['caption'] ) ? substr( sanitize_text_field( $insp_item['caption'] ), 0, 100 ) : '',
                         );
                     } else {
                         error_log( 'Item Facts Save - Skipping invalid inspiration item for item ' . $item_id . ': ' . wp_json_encode( $insp_item ) );
@@ -1650,6 +1655,105 @@ class N88_Items {
         
         if ( isset( $payload['delivery_postal'] ) ) {
             $meta['delivery_postal'] = sanitize_text_field( $payload['delivery_postal'] );
+        }
+        
+        // COMMIT 3.C.3: RFQ evidence – overall notes, fabric supplied, fabric notes
+        if ( array_key_exists( 'rfq_overall_notes', $payload ) ) {
+            $meta['rfq_overall_notes'] = substr( sanitize_textarea_field( (string) $payload['rfq_overall_notes'] ), 0, 100 );
+        }
+        if ( array_key_exists( 'rfq_fabric_supplied_flag', $payload ) ) {
+            $v = sanitize_text_field( $payload['rfq_fabric_supplied_flag'] );
+            $meta['rfq_fabric_supplied_flag'] = ( $v === 'yes' || $v === 'Yes' ) ? 'yes' : 'no';
+        }
+        if ( array_key_exists( 'rfq_fabric_notes', $payload ) ) {
+            $meta['rfq_fabric_notes'] = sanitize_textarea_field( $payload['rfq_fabric_notes'] );
+        }
+        
+        // COMMIT 3.C.3: Log rfq_field_updated and file_caption_updated events when values changed
+        $current_user_id = get_current_user_id();
+        if ( $current_user_id > 0 && function_exists( 'n88_log_event' ) ) {
+            $rfq_id = isset( $payload['rfq_id'] ) ? absint( $payload['rfq_id'] ) : null;
+            if ( $rfq_id <= 0 && $has_rfq ) {
+                global $wpdb;
+                $items_table = $wpdb->prefix . 'n88_items';
+                $rfq_id = $wpdb->get_var( $wpdb->prepare( "SELECT rfq_id FROM {$items_table} WHERE id = %d", $item_id ) );
+            }
+            $board_id = isset( $payload['board_id'] ) ? absint( $payload['board_id'] ) : 0;
+            $actor_role = 'designer';
+            $event_ts = current_time( 'mysql' );
+            if ( array_key_exists( 'rfq_overall_notes', $payload ) && $old_rfq_overall_notes !== $meta['rfq_overall_notes'] ) {
+                n88_log_event( 'rfq_field_updated', 'item', array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'rfq_id' => $rfq_id,
+                    'actor_role' => $actor_role,
+                    'actor_id' => $current_user_id,
+                    'field_key' => 'rfq_overall_notes',
+                    'old_value' => $old_rfq_overall_notes,
+                    'new_value' => isset( $meta['rfq_overall_notes'] ) ? $meta['rfq_overall_notes'] : '',
+                    'timestamp' => $event_ts,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                ) );
+            }
+            if ( array_key_exists( 'rfq_fabric_supplied_flag', $payload ) && $old_rfq_fabric_flag !== $meta['rfq_fabric_supplied_flag'] ) {
+                n88_log_event( 'rfq_field_updated', 'item', array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'rfq_id' => $rfq_id,
+                    'actor_role' => $actor_role,
+                    'actor_id' => $current_user_id,
+                    'field_key' => 'rfq_fabric_supplied_flag',
+                    'old_value' => $old_rfq_fabric_flag,
+                    'new_value' => isset( $meta['rfq_fabric_supplied_flag'] ) ? $meta['rfq_fabric_supplied_flag'] : '',
+                    'timestamp' => $event_ts,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                ) );
+            }
+            if ( array_key_exists( 'rfq_fabric_notes', $payload ) && $old_rfq_fabric_notes !== $meta['rfq_fabric_notes'] ) {
+                n88_log_event( 'rfq_field_updated', 'item', array(
+                    'object_id' => $item_id,
+                    'item_id' => $item_id,
+                    'rfq_id' => $rfq_id,
+                    'actor_role' => $actor_role,
+                    'actor_id' => $current_user_id,
+                    'field_key' => 'rfq_fabric_notes',
+                    'old_value' => $old_rfq_fabric_notes,
+                    'new_value' => isset( $meta['rfq_fabric_notes'] ) ? $meta['rfq_fabric_notes'] : '',
+                    'timestamp' => $event_ts,
+                    'board_id' => $board_id > 0 ? $board_id : null,
+                ) );
+            }
+            if ( is_array( $old_inspiration ) && isset( $meta['inspiration'] ) && is_array( $meta['inspiration'] ) ) {
+                foreach ( $meta['inspiration'] as $new_insp ) {
+                    $new_id = isset( $new_insp['id'] ) && (int) $new_insp['id'] > 0 ? (int) $new_insp['id'] : null;
+                    $new_url = isset( $new_insp['url'] ) ? trim( (string) $new_insp['url'] ) : '';
+                    $new_caption = isset( $new_insp['caption'] ) && is_string( $new_insp['caption'] ) ? $new_insp['caption'] : '';
+                    $old_caption = '';
+                    foreach ( $old_inspiration as $old_insp ) {
+                        $match = false;
+                        if ( $new_id && isset( $old_insp['id'] ) && (int) $old_insp['id'] === $new_id ) {
+                            $match = true;
+                        } elseif ( $new_url && isset( $old_insp['url'] ) && trim( (string) $old_insp['url'] ) === $new_url ) {
+                            $match = true;
+                        }
+                        if ( $match ) {
+                            $old_caption = isset( $old_insp['caption'] ) && is_string( $old_insp['caption'] ) ? $old_insp['caption'] : '';
+                            break;
+                        }
+                    }
+                    if ( $old_caption !== $new_caption && ( $new_id || $new_url ) ) {
+                        n88_log_event( 'file_caption_updated', 'item', array(
+                            'object_id' => $item_id,
+                            'item_id' => $item_id,
+                            'file_id' => $new_id,
+                            'old_caption' => $old_caption,
+                            'new_caption' => $new_caption,
+                            'actor_id' => $current_user_id,
+                            'timestamp' => $event_ts,
+                        ) );
+                    }
+                }
+            }
         }
         
         // Quantity (Commit: State B save fix) - ALWAYS save if key exists and value is valid

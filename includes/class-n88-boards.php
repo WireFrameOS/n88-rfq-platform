@@ -322,6 +322,23 @@ class N88_Boards {
             $wpdb->query_cache = array();
         }
 
+        // Remove this item from board layout snapshot(s) so it doesn't reappear on reload
+        if ( class_exists( 'N88_Board_Layout' ) && method_exists( 'N88_Board_Layout', 'remove_items_from_board_layout' ) ) {
+            if ( $is_item_owner ) {
+                $board_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT board_id FROM {$board_items_table} WHERE item_id = %d",
+                    $item_id
+                ) );
+                if ( is_array( $board_ids ) ) {
+                    foreach ( $board_ids as $bid ) {
+                        N88_Board_Layout::remove_items_from_board_layout( (int) $bid, array( $item_id ) );
+                    }
+                }
+            } else {
+                N88_Board_Layout::remove_items_from_board_layout( $board_id, array( $item_id ) );
+            }
+        }
+
         // Remove item from supplier queue (delete all routes for this item)
         // This ensures when designer deletes item from board, it's also removed from supplier queues
         $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
