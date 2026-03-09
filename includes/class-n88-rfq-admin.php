@@ -5190,16 +5190,170 @@
                 #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview.visible { display: flex; }
                 #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview .n88-preview-item {
                     position: relative;
-                    width: 80px;
-                    height: 80px;
+                    width: calc((100% - 16px) / 3); /* 3 items per row with 8px gaps */
+                    min-width: 90px;
+                    min-height: 110px;
                     flex-shrink: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 4px;
+                }
+                #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview .n88-preview-item .n88-preview-primary {
+                    position: absolute;
+                    top: 4px;
+                    left: 4px;
+                    z-index: 2;
+                    font-size: 9px;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    border: 1px solid rgba(255,255,255,0.4);
+                    background: rgba(0,0,0,0.6);
+                    color: #fff;
+                    cursor: pointer;
+                }
+                #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview .n88-preview-item.n88-primary-selected .n88-preview-primary {
+                    background: #00ff00;
+                    color: #000;
+                    border-color: #00ff00;
+                }
+                #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview .n88-preview-item .n88-preview-caption {
+                    width: 100%;
+                    box-sizing: border-box;
+                    padding: 4px 5px;
+                    font-size: 10px;
+                    border-radius: 3px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    background: #111111;
+                    color: #e0e0e0;
+                }
+
+                #n88-add-item-modal .n88-invite-row {
+                    display: flex;
+                    align-items: stretch;
+                    gap: 6px;
+                    margin-bottom: 8px;
+                }
+                #n88-add-item-modal .n88-invite-input {
+                    flex: 1;
+                    padding: 8px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    background: #111111;
+                    color: #e0e0e0;
+                    font-size: 12px;
+                    box-sizing: border-box;
+                }
+                #n88-add-item-modal .n88-invite-add-btn {
+                    padding: 8px 18px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    background: #111111;
+                    color: #e0e0e0;
+                    font-size: 12px;
+                    cursor: pointer;
+                    white-space: nowrap;
+                }
+                #n88-add-item-modal .n88-invite-chips {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    min-height: 24px;
+                    margin-bottom: 4px;
+                }
+                #n88-add-item-modal .n88-invite-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px 10px;
+                    border-radius: 16px;
+                    background: #111111;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    color: #00ff00;
+                    font-size: 11px;
+                }
+                #n88-add-item-modal .n88-invite-chip-remove {
+                    border: none;
+                    background: none;
+                    color: #e0e0e0;
+                    cursor: pointer;
+                    font-size: 14px;
+                    padding: 0;
+                    line-height: 1;
+                }
+
+                /* Post-save RFQ decision overlay (Commit 3.C.4) */
+                #n88-add-item-modal .n88-postsave-overlay {
+                    position: static;
+                    inset: auto;
+                    background: none;
+                    display: flex;
+                    align-items: flex-start;
+                    justify-content: center;
+                    padding: 0 20px 16px;
+                    box-sizing: border-box;
+                    z-index: auto;
+                }
+                #n88-add-item-modal .n88-postsave-card {
+                    width: 100%;
+                    max-width: none;
+                    border: none;
+                    border-radius: 0;
+                    padding: 8px 0 0 0;
+                    background: transparent;
+                    color: #e0e0e0;
+                    font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+                }
+                #n88-add-item-modal .n88-postsave-title {
+                    font-size: 0;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    border-bottom: 1px solid rgba(255,255,255,0.25);
+                    padding-bottom: 8px;
+                    margin-bottom: 10px;
+                }
+                #n88-add-item-modal .n88-postsave-body {
+                    font-size: 13px;
+                    line-height: 1.5;
+                    margin-bottom: 10px;
+                }
+                #n88-add-item-modal .n88-postsave-added {
+                    font-size: 13px;
+                    margin-top: 8px;
+                    margin-bottom: 8px;
+                }
+                #n88-add-item-modal .n88-postsave-added ul {
+                    margin: 4px 0 0 16px;
+                    padding: 0;
+                    list-style: disc;
+                }
+                #n88-add-item-modal .n88-postsave-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-top: 10px;
+                    font-size: 12px;
+                }
+                #n88-add-item-modal .n88-postsave-footer button {
+                    padding: 6px 16px;
+                    border-radius: 3px;
+                    border: 1px solid #ff0065;
+                    background: transparent;
+                    color: #ff0065;
+                    cursor: pointer;
+                    font-size: 12px;
+                    font-family: inherit;
+                }
+                #n88-add-item-modal .n88-postsave-footer button:hover {
+                    background: #ff0065;
+                    color: #000000;
                 }
                 #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview img {
-                    max-width: 80px;
-                    max-height: 80px;
-                    width: 80px;
-                    height: 80px;
+                    width: 100%;
+                    height: 200px;
+                    max-height: 200px;
                     object-fit: cover;
+                    border-radius: 4px;
                 }
                 #n88-add-item-modal .n88-image-preview-wrap.n88-multi-preview .n88-preview-remove {
                     position: absolute;
@@ -6275,8 +6429,8 @@
                             </div>
 
                             <div class="n88-field">
-                                <div><strong>Invite Suppliers</strong></div>
-                                <p class="n88-hint">Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1–5 invites)</p>
+                                <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#ffffff;">Invite Suppliers</div>
+                                <p class="n88-hint">Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1-5 invites)</p>
                                 <div class="n88-invite-row">
                                     <input
                                         type="text"
@@ -6518,16 +6672,18 @@
                                     wrap.appendChild(place);
                                 }
 
-                                // Primary photo selector
-                                var primaryBtn = document.createElement('button');
-                                primaryBtn.type = 'button';
-                                primaryBtn.className = 'n88-preview-primary';
-                                primaryBtn.textContent = 'Primary';
-                                primaryBtn.onclick = function() {
-                                    n88ModalPrimaryIndex = idx;
-                                    updatePrimaryBadgesDefault();
-                                };
-                                wrap.appendChild(primaryBtn);
+                                // Primary photo selector (only when multiple images)
+                                if (n88ModalSelectedFiles.length > 1) {
+                                    var primaryBtn = document.createElement('button');
+                                    primaryBtn.type = 'button';
+                                    primaryBtn.className = 'n88-preview-primary';
+                                    primaryBtn.textContent = 'Primary';
+                                    primaryBtn.onclick = function() {
+                                        n88ModalPrimaryIndex = idx;
+                                        updatePrimaryBadgesDefault();
+                                    };
+                                    wrap.appendChild(primaryBtn);
+                                }
 
                                 // Remove button
                                 var btn = document.createElement('button');
@@ -6551,12 +6707,12 @@
                                 };
                                 wrap.appendChild(btn);
 
-                                // Caption input (per-image comment, max 100 chars)
+                                // Caption input (per-image notes, max 100 chars)
                                 var captionInput = document.createElement('input');
                                 captionInput.type = 'text';
                                 captionInput.className = 'n88-preview-caption';
                                 captionInput.maxLength = 100;
-                                captionInput.placeholder = 'Caption (max 100)';
+                                captionInput.placeholder = 'Notes (max 100)';
                                 captionInput.value = (n88ModalCaptions[idx] || '').slice(0, 100);
                                 captionInput.oninput = function(e) {
                                     n88ModalCaptions[idx] = (e.target.value || '').slice(0, 100);
@@ -6740,23 +6896,25 @@
                                     place.textContent = '[img]';
                                     wrapEl.appendChild(place);
                                 }
-                                // Primary selector for this block
-                                var primaryBtn = document.createElement('button');
-                                primaryBtn.type = 'button';
-                                primaryBtn.className = 'n88-preview-primary';
-                                primaryBtn.textContent = 'Primary';
-                                primaryBtn.onclick = function() {
-                                    block.n88PrimaryIndex = idx;
-                                    var items = wrap.querySelectorAll('.n88-preview-item');
-                                    items.forEach(function(el, index) {
-                                        if (index === block.n88PrimaryIndex) {
-                                            el.classList.add('n88-primary-selected');
-                                        } else {
-                                            el.classList.remove('n88-primary-selected');
-                                        }
-                                    });
-                                };
-                                wrapEl.appendChild(primaryBtn);
+                                // Primary selector for this block (only when multiple images)
+                                if (files.length > 1) {
+                                    var primaryBtn = document.createElement('button');
+                                    primaryBtn.type = 'button';
+                                    primaryBtn.className = 'n88-preview-primary';
+                                    primaryBtn.textContent = 'Primary';
+                                    primaryBtn.onclick = function() {
+                                        block.n88PrimaryIndex = idx;
+                                        var items = wrap.querySelectorAll('.n88-preview-item');
+                                        items.forEach(function(el, index) {
+                                            if (index === block.n88PrimaryIndex) {
+                                                el.classList.add('n88-primary-selected');
+                                            } else {
+                                                el.classList.remove('n88-primary-selected');
+                                            }
+                                        });
+                                    };
+                                    wrapEl.appendChild(primaryBtn);
+                                }
 
                                 // Remove button
                                 var btn = document.createElement('button');
@@ -6780,12 +6938,12 @@
                                 };
                                 wrapEl.appendChild(btn);
 
-                                // Caption input per image
+                                // Caption input per image (Notes)
                                 var captionInput = document.createElement('input');
                                 captionInput.type = 'text';
                                 captionInput.className = 'n88-preview-caption';
                                 captionInput.maxLength = 100;
-                                captionInput.placeholder = 'Caption (max 100)';
+                                captionInput.placeholder = 'Notes (max 100)';
                                 captionInput.value = (block.n88Captions[idx] || '').slice(0, 100);
                                 captionInput.oninput = function(e) {
                                     if (!Array.isArray(block.n88Captions)) {
@@ -7157,9 +7315,14 @@
                         submitBtn.addEventListener('click', function() {
                             var blocks = blocksContainer ? blocksContainer.querySelectorAll('.n88-add-item-block') : [];
                             var payloads = [];
+                            var payloadTitles = [];
                             for (var i = 0; i < blocks.length; i++) {
                                 var b = buildItemFormDataForBlock(blocks[i]);
-                                if (b) payloads.push(b);
+                                if (b) {
+                                    payloads.push(b);
+                                    var tEl = blocks[i].querySelector('[name="title"]');
+                                    payloadTitles.push(tEl && tEl.value ? tEl.value.trim() : 'Untitled Item');
+                                }
                             }
                             if (payloads.length === 0) {
                                 resultEl.textContent = 'At least one item with a title is required.';
@@ -7183,21 +7346,228 @@
                             resultEl.className = 'n88-result';
                             var ajaxUrl = payloads[0].ajaxUrl;
                             var idx = 0;
+                            var createdItemIds = [];
                             function submitNext() {
                                 if (idx >= payloads.length) {
                                     submitBtn.disabled = false;
                                     submitBtn.innerHTML = defaultText;
-                                    resultEl.textContent = payloads.length + ' item(s) created successfully.';
-                                    resultEl.className = 'n88-result success';
+                                    if (resultEl) {
+                                        resultEl.textContent = payloads.length + ' item(s) created successfully.';
+                                        resultEl.className = 'n88-result success';
+                                    }
                                     <?php if ( $is_designer && $is_real_board ) : ?>
-                                    if (boardId) {
-                                        var params = new URLSearchParams(window.location.search);
-                                        params.set('page', 'n88-rfq-board-demo');
-                                        params.set('board_id', String(boardId));
-                                        params.set('item_added', '1');
-                                        if (projectId) { params.set('project_id', projectId); params.delete('room_id'); }
-                                        else if (roomId) params.set('room_id', roomId);
-                                        window.location.href = '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>?' + params.toString();
+                                    // Show post-save RFQ decision overlay (Commit 3.C.4)
+                                    try {
+                                        var isSingle = createdItemIds.length === 1;
+                                        var overlay = document.createElement('div');
+                                        overlay.id = 'n88-add-item-postsave';
+                                        overlay.className = 'n88-postsave-overlay';
+                                        var card = document.createElement('div');
+                                        card.className = 'n88-postsave-card';
+                                        
+                                        // Heading is already shown in modal header; keep internal title element minimal
+                                        var title = document.createElement('div');
+                                        title.className = 'n88-postsave-title';
+                                        card.appendChild(title);
+                                        
+                                        var body = document.createElement('div');
+                                        body.className = 'n88-postsave-body';
+                                        body.textContent = 'You can request quotes now or return later after refining your specifications.';
+                                        card.appendChild(body);
+                                        
+                                        var added = document.createElement('div');
+                                        added.className = 'n88-postsave-added';
+                                        var strong = document.createElement('span');
+                                        strong.style.fontWeight = '600';
+                                        strong.textContent = 'Added: ';
+                                        added.appendChild(strong);
+                                        var countText = isSingle ? '1 item' : (createdItemIds.length + ' items');
+                                        added.appendChild(document.createTextNode(countText));
+                                        
+                                        var list = document.createElement('ul');
+                                        for (var li = 0; li < payloadTitles.length && li < 3; li++) {
+                                            var liEl = document.createElement('li');
+                                            liEl.textContent = payloadTitles[li] || 'Untitled Item';
+                                            list.appendChild(liEl);
+                                        }
+                                        added.appendChild(list);
+                                        card.appendChild(added);
+                                        
+                                        var footer = document.createElement('div');
+                                        footer.className = 'n88-postsave-footer';
+                                        
+                                        var goBtn = document.createElement('button');
+                                        goBtn.textContent = '[ Go to Board ]';
+                                        
+                                        var rfqBtn = document.createElement('button');
+                                        rfqBtn.textContent = isSingle ? '[ Request Quote Now ]' : '[ Request Quotes Now ]';
+                                        
+                                        footer.appendChild(goBtn);
+                                        footer.appendChild(rfqBtn);
+                                        card.appendChild(footer);
+                                        overlay.appendChild(card);
+                                        
+                                        // Hide form body and footer buttons while overlay is visible
+                                        if (form) form.style.display = 'none';
+                                        if (submitBtn) submitBtn.style.display = 'none';
+                                        if (addAnotherBtn) addAnotherBtn.style.display = 'none';
+                                        if (resultEl) resultEl.style.display = 'none';
+                                        var headerTitle = document.getElementById('n88-add-item-title');
+                                        if (headerTitle) {
+                                            headerTitle.textContent = isSingle ? 'ITEM ADDED SUCCESSFULLY' : 'ITEMS ADDED SUCCESSFULLY';
+                                        }
+                                        var modalBox = document.getElementById('n88-add-item-modal');
+                                        if (modalBox) {
+                                            modalBox.style.position = 'relative';
+                                            modalBox.appendChild(overlay);
+                                        }
+                                        
+                                        function buildBoardUrl() {
+                                            if (!boardId) return null;
+                                            var params = new URLSearchParams(window.location.search);
+                                            params.set('page', 'n88-rfq-board-demo');
+                                            params.set('board_id', String(boardId));
+                                            params.set('item_added', '1');
+                                            if (projectId) { params.set('project_id', projectId); params.delete('room_id'); }
+                                            else if (roomId) params.set('room_id', roomId);
+                                            return '<?php echo esc_js( admin_url( 'admin.php' ) ); ?>?' + params.toString();
+                                        }
+                                        
+                                        goBtn.onclick = function() {
+                                            var url = buildBoardUrl();
+                                            if (url) window.location.href = url;
+                                        };
+                                        rfqBtn.onclick = function() {
+                                            try {
+                                                if (!createdItemIds || createdItemIds.length === 0) {
+                                                    alert('No items were created for RFQ.');
+                                                    return;
+                                                }
+                                                
+                                                // Build items payload for RFQ from created items + Add Item blocks
+                                                var blocksList = blocksContainer ? blocksContainer.querySelectorAll('.n88-add-item-block') : [];
+                                                var itemsForRfq = [];
+                                                for (var ii = 0; ii < createdItemIds.length && ii < blocksList.length; ii++) {
+                                                    var block = blocksList[ii];
+                                                    var qtyEl = block.querySelector('[name=\"quantity\"]');
+                                                    var wEl = block.querySelector('[name=\"width\"]');
+                                                    var dEl = block.querySelector('[name=\"depth\"]');
+                                                    var hEl = block.querySelector('[name=\"height\"]');
+                                                    var unitEl = block.querySelector('[name=\"dimension_unit\"]');
+                                                    var countrySel = block.querySelector('select[name=\"delivery_country\"]');
+                                                    var postalInp = block.querySelector('input[name=\"delivery_postal\"]');
+                                                    
+                                                    var qtyVal = qtyEl ? parseInt(qtyEl.value, 10) || 0 : 0;
+                                                    var wVal = wEl && wEl.value ? parseFloat(wEl.value) : 0;
+                                                    var dVal = dEl && dEl.value ? parseFloat(dEl.value) : 0;
+                                                    var hVal = hEl && hEl.value ? parseFloat(hEl.value) : 0;
+                                                    var unitVal = unitEl && unitEl.value ? unitEl.value : 'in';
+                                                    var countryVal = countrySel && countrySel.value ? countrySel.value.toUpperCase().trim() : '';
+                                                    var postalVal = postalInp && postalInp.value ? postalInp.value.trim() : '';
+                                                    
+                                                    itemsForRfq.push({
+                                                        item_id: createdItemIds[ii],
+                                                        quantity: qtyVal,
+                                                        width: wVal,
+                                                        depth: dVal,
+                                                        height: hVal,
+                                                        dimension_unit: unitVal,
+                                                        delivery_country: countryVal,
+                                                        delivery_postal: postalVal
+                                                    });
+                                                }
+                                                
+                                                // Use Invite Suppliers + Allow system invites from first block
+                                                var firstBlock = blocksContainer ? blocksContainer.querySelector('.n88-add-item-block') : null;
+                                                var invited = [];
+                                                var allowSystem = false;
+                                                if (firstBlock) {
+                                                    var chipsWrap = firstBlock.querySelector('.n88-invite-chips');
+                                                    if (chipsWrap) {
+                                                        var chips = chipsWrap.querySelectorAll('span[data-supplier]');
+                                                        chips.forEach(function(chip) {
+                                                            var v = (chip.getAttribute('data-supplier') || '').trim();
+                                                            if (v) invited.push(v);
+                                                        });
+                                                    }
+                                                    var allowBox = firstBlock.querySelector('.n88-allow-system-invites');
+                                                    if (allowBox && allowBox.checked) allowSystem = true;
+                                                }
+                                                
+                                                // Basic validation – mirror RFQ form
+                                                if (invited.length === 0 && !allowSystem) {
+                                                    alert('Invite at least one maker or allow the system to invite makers.');
+                                                    return;
+                                                }
+                                                for (var k = 0; k < itemsForRfq.length; k++) {
+                                                    if (!itemsForRfq[k].quantity || !itemsForRfq[k].delivery_country) {
+                                                        alert('Please fill in all required fields (Quantity, Delivery Country) before requesting quotes.');
+                                                        return;
+                                                    }
+                                                }
+                                                
+                                                // Prepare AJAX request to n88_submit_rfq
+                                                var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || 
+                                                              (window.n88 && window.n88.ajaxUrl) || 
+                                                              (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
+                                                var nonce = '';
+                                                if (window.n88BoardNonce && window.n88BoardNonce.nonce_submit_rfq) {
+                                                    nonce = window.n88BoardNonce.nonce_submit_rfq;
+                                                } else if (window.n88BoardData && window.n88BoardData.nonce) {
+                                                    nonce = window.n88BoardData.nonce;
+                                                } else if (window.n88 && window.n88.nonce) {
+                                                    nonce = window.n88.nonce;
+                                                } else if (window.n88BoardNonce && window.n88BoardNonce.nonce) {
+                                                    nonce = window.n88BoardNonce.nonce;
+                                                } else {
+                                                    nonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_rfq' ) ); ?>';
+                                                }
+                                                
+                                                if (!nonce) {
+                                                    alert('Security token missing. Please refresh the page and try again.');
+                                                    return;
+                                                }
+                                                
+                                                rfqBtn.disabled = true;
+                                                var originalText = rfqBtn.textContent;
+                                                rfqBtn.textContent = isSingle ? '[ Sending Request... ]' : '[ Sending Requests... ]';
+                                                
+                                                var fd = new FormData();
+                                                fd.append('action', 'n88_submit_rfq');
+                                                fd.append('items', JSON.stringify(itemsForRfq));
+                                                fd.append('invited_suppliers', JSON.stringify(invited));
+                                                fd.append('allow_system_invites', allowSystem ? '1' : '0');
+                                                fd.append('_ajax_nonce', nonce);
+                                                
+                                                fetch(ajaxUrl, {
+                                                    method: 'POST',
+                                                    body: fd
+                                                }).then(function(response) {
+                                                    return response.json();
+                                                }).then(function(data) {
+                                                    if (data.success) {
+                                                        alert((data.data && data.data.message) || 'RFQ submitted successfully!');
+                                                        // Close Add Item modal and refresh board statuses
+                                                        closeAddItemModal();
+                                                        try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
+                                                    } else {
+                                                        var msg = (data && data.data && data.data.message) ? data.data.message : 'An error occurred while submitting RFQ.';
+                                                        alert(msg);
+                                                        rfqBtn.disabled = false;
+                                                        rfqBtn.textContent = originalText;
+                                                    }
+                                                }).catch(function(err) {
+                                                    console.error('Error submitting RFQ from Add Item:', err);
+                                                    alert('Request failed. Please try again.');
+                                                    rfqBtn.disabled = false;
+                                                    rfqBtn.textContent = originalText;
+                                                });
+                                            } catch (err) {
+                                                console.error('Error handling Request Quote Now:', err);
+                                            }
+                                        };
+                                    } catch (e) {
+                                        console.error('Post-save RFQ overlay error:', e);
                                     }
                                     <?php else : ?>
                                     form.reset();
@@ -7218,6 +7588,9 @@
                                             resultEl.textContent = 'Error: ' + (res.data && res.data.message ? res.data.message : 'Unknown error');
                                             resultEl.className = 'n88-result error';
                                             return;
+                                        }
+                                        if (res.data && res.data.item_id) {
+                                            createdItemIds.push(res.data.item_id);
                                         }
                                         idx++;
                                         submitNext();
@@ -11396,6 +11769,7 @@
                         var onClose = props.onClose;
                         var onSave = props.onSave;
                         var boardId = props.boardId;
+                        var initialTabProp = props.initialTab || 'details';
                         
                         // Get updateLayout from store (if available)
                         var updateLayout = null;
@@ -11835,7 +12209,7 @@
                         var setIsUploadingInspiration = _isUploadingInspirationState[1];
                         
                         // Active tab state
-                        var _activeTabState = React.useState('details');
+                        var _activeTabState = React.useState(initialTabProp);
                         var activeTab = _activeTabState[0];
                         var setActiveTab = _activeTabState[1];
                         // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
@@ -11869,6 +12243,14 @@
                         var _evidenceCommentSubmittingState = React.useState(false);
                         var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
                         var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
+
+                        // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
+                        React.useEffect(function() {
+                            if (!initialTabProp) return;
+                            if (activeTab !== initialTabProp) {
+                                setActiveTab(initialTabProp);
+                            }
+                        }, [initialTabProp]);
                         // Commit 3.A.2S: Designer read-only supplier step evidence (View Step Evidence)
                         var _supplierStepEvidenceViewState = React.useState(null);
                         var supplierStepEvidenceView = _supplierStepEvidenceViewState[0];
@@ -17799,16 +18181,50 @@
                         var _modalState = React.useState(false);
                         var isModalOpen = _modalState[0];
                         var setIsModalOpen = _modalState[1];
+                        var _initialTabState = React.useState('details');
+                        var initialTab = _initialTabState[0];
+                        var setInitialTab = _initialTabState[1];
                         
                         // Create a modified BoardItem that can trigger modal
                         var boardItemProps = Object.assign({}, props);
                         // Store modal handlers in a way BoardItem can access
                         boardItemProps._modalHandlers = {
                             open: function() { 
+                                setInitialTab('details');
                                 setIsModalOpen(true);
                             },
                             close: function() { setIsModalOpen(false); }
                         };
+
+                        // Auto-open RFQ tab for newly created items (Commit 3.C.4) via global event
+                        React.useEffect(function() {
+                            function handleOpenRfqEvent(e) {
+                                try {
+                                    if (!e || !e.detail || !Array.isArray(e.detail.itemIds) || e.detail.itemIds.length === 0) return;
+                                    var rawIds = e.detail.itemIds;
+                                    var rawId = item.id || item.item_id || '';
+                                    var numericId = null;
+                                    if (typeof rawId === 'string' && rawId.indexOf('item-') === 0) {
+                                        numericId = parseInt(rawId.replace('item-', ''), 10);
+                                    } else if (typeof rawId === 'string') {
+                                        numericId = parseInt(rawId, 10);
+                                    } else if (typeof rawId === 'number') {
+                                        numericId = rawId;
+                                    }
+                                    if (!numericId) return;
+                                    var match = rawIds.some(function(v) { return String(v) === String(numericId); });
+                                    if (!match) return;
+                                    setInitialTab('rfq');
+                                    setIsModalOpen(true);
+                                } catch (err) {
+                                    console.error('Auto-open RFQ event handler error:', err);
+                                }
+                            }
+                            window.addEventListener('n88-open-rfq-for-items', handleOpenRfqEvent);
+                            return function() {
+                                window.removeEventListener('n88-open-rfq-for-items', handleOpenRfqEvent);
+                            };
+                        }, [item && item.id]);
                         
                         // onSave handler for ItemDetailModal
                         var handleSave = function(itemId, payload) {
@@ -17900,7 +18316,8 @@
                                     setIsModalOpen(false);
                                 },
                                 onSave: handleSave,
-                                boardId: boardId
+                                boardId: boardId,
+                                initialTab: initialTab
                             })
                         );
                     };
