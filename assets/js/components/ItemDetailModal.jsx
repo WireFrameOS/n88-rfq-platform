@@ -2362,10 +2362,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
     // COMMIT 3.C.3: Add Link URL input for RFQ Inspiration (link-only, no upload)
     const [inspirationLinkInput, setInspirationLinkInput] = React.useState('');
     
-    // Invite Makers state
-    const [invitedSuppliers, setInvitedSuppliers] = React.useState([]);
+    // Invite Makers state - allow Add Item draft invites to pre-fill RFQ form
+    const [invitedSuppliers, setInvitedSuppliers] = React.useState(
+        Array.isArray(item.meta?.rfq_draft_invited_suppliers)
+            ? item.meta.rfq_draft_invited_suppliers
+            : []
+    );
     const [inviteSupplierInput, setInviteSupplierInput] = React.useState('');
-    const [allowSystemInvites, setAllowSystemInvites] = React.useState(false);
+    const [allowSystemInvites, setAllowSystemInvites] = React.useState(
+        item.meta?.rfq_draft_allow_system_invites === true ||
+        item.meta?.rfq_draft_allow_system_invites === '1'
+    );
     const [isSubmittingRfq, setIsSubmittingRfq] = React.useState(false);
     const [rfqError, setRfqError] = React.useState('');
     

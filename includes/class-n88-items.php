@@ -297,14 +297,81 @@ class N88_Items {
             // Store image URL in meta if we couldn't find attachment ID
             $meta_json['image_url'] = $image_url;
         }
-        // Store all uploaded reference/inspiration image IDs for Item Detail modal
+
+        // COMMIT 3.C.3: Delivery + RFQ evidence fields seeded at item creation time
+        // These mirror the fields managed later via ajax_save_item_facts so that
+        // the Request Quote tab can pre-fill from the item record.
+        if ( isset( $_POST['delivery_country'] ) ) {
+            $meta_json['delivery_country'] = sanitize_text_field( wp_unslash( $_POST['delivery_country'] ) );
+        }
+        if ( isset( $_POST['delivery_postal'] ) ) {
+            $meta_json['delivery_postal'] = sanitize_text_field( wp_unslash( $_POST['delivery_postal'] ) );
+        }
+        if ( isset( $_POST['rfq_overall_notes'] ) ) {
+            $meta_json['rfq_overall_notes'] = substr(
+                sanitize_textarea_field( (string) wp_unslash( $_POST['rfq_overall_notes'] ) ),
+                0,
+                100
+            );
+        }
+        if ( isset( $_POST['rfq_fabric_supplied_flag'] ) ) {
+            $v = sanitize_text_field( wp_unslash( $_POST['rfq_fabric_supplied_flag'] ) );
+            $meta_json['rfq_fabric_supplied_flag'] = ( $v === 'yes' || $v === 'Yes' ) ? 'yes' : 'no';
+        }
+        if ( isset( $_POST['rfq_fabric_notes'] ) ) {
+            $meta_json['rfq_fabric_notes'] = sanitize_textarea_field( wp_unslash( $_POST['rfq_fabric_notes'] ) );
+        }
+
+        // Optional: draft invite data so Invite Suppliers can be pre-filled when opening RFQ later.
+        if ( isset( $_POST['rfq_draft_invited_suppliers'] ) ) {
+            $draft_invites_raw = wp_unslash( $_POST['rfq_draft_invited_suppliers'] );
+            $draft_invites     = json_decode( $draft_invites_raw, true );
+            if ( is_array( $draft_invites ) ) {
+                $clean_invites = array();
+                foreach ( $draft_invites as $invite ) {
+                    $invite = trim( (string) $invite );
+                    if ( $invite === '' ) {
+                        continue;
+                    }
+                    $clean_invites[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $clean_invites ) >= 5 ) {
+                        break;
+                    }
+                }
+                if ( ! empty( $clean_invites ) ) {
+                    $meta_json['rfq_draft_invited_suppliers'] = $clean_invites;
+                }
+            }
+        }
+        if ( isset( $_POST['rfq_draft_allow_system_invites'] ) ) {
+            $flag = wp_unslash( $_POST['rfq_draft_allow_system_invites'] );
+            $meta_json['rfq_draft_allow_system_invites'] = ( $flag === '1' || $flag === 1 || $flag === true || $flag === 'true' );
+        }
+
+        // COMMIT 3.C.3: Store all uploaded reference/inspiration image IDs with optional captions
         if ( ! empty( $uploaded_attachment_ids ) ) {
             $meta_json['inspiration'] = array();
-            foreach ( $uploaded_attachment_ids as $aid ) {
+
+            $image_captions = array();
+            if ( isset( $_POST['image_captions'] ) ) {
+                $captions_raw = wp_unslash( $_POST['image_captions'] );
+                $decoded      = json_decode( $captions_raw, true );
+                if ( is_array( $decoded ) ) {
+                    $image_captions = $decoded;
+                }
+            }
+
+            foreach ( $uploaded_attachment_ids as $index => $aid ) {
+                $caption = '';
+                if ( isset( $image_captions[ $index ] ) && is_string( $image_captions[ $index ] ) ) {
+                    $caption = substr( sanitize_text_field( $image_captions[ $index ] ), 0, 100 );
+                }
+
                 $meta_json['inspiration'][] = array(
-                    'type' => 'image',
-                    'id'   => (int) $aid,
-                    'url'  => wp_get_attachment_url( $aid ) ?: null,
+                    'type'    => 'image',
+                    'id'      => (int) $aid,
+                    'url'     => wp_get_attachment_url( $aid ) ?: null,
+                    'caption' => $caption,
                 );
             }
         }

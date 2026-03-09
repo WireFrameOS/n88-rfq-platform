@@ -6201,7 +6201,102 @@
                                 </div>
                                 <div class="n88-image-preview-wrap n88-multi-preview" id="n88-modal-image-preview-wrap"></div>
                                 <input type="hidden" id="n88-modal-item-image-id" name="image_id">
+                                <input type="hidden" id="n88-modal-item-image-captions" name="image_captions" value="[]">
                             </div>
+
+                            <!-- COMMIT 3.C.3: Delivery + RFQ evidence fields at Add Item stage -->
+                            <div class="n88-field">
+                                <label for="n88-modal-delivery-country">Delivery Country</label>
+                                <select id="n88-modal-delivery-country" name="delivery_country">
+                                    <option value="">Select Country</option>
+                                    <option value="US">US</option>
+                                    <option value="CA">CA</option>
+                                    <option value="CN">CN</option>
+                                    <option value="VN">VN</option>
+                                    <option value="EU">EU</option>
+                                </select>
+                            </div>
+
+                            <div class="n88-field">
+                                <label for="n88-modal-delivery-postal">Final Delivery ZIP Code</label>
+                                <input
+                                    type="text"
+                                    id="n88-modal-delivery-postal"
+                                    name="delivery_postal"
+                                    placeholder="Required for US/CA"
+                                >
+                            </div>
+
+                            <div class="n88-field">
+                                <label for="n88-modal-rfq-overall-notes">Overall Notes</label>
+                                <p class="n88-hint">Overall notes for these references (dimensions, finish, proportions, performance requirements).</p>
+                                <textarea
+                                    id="n88-modal-rfq-overall-notes"
+                                    name="rfq_overall_notes"
+                                    rows="2"
+                                    maxlength="100"
+                                    placeholder="Overall notes for these references…"
+                                ></textarea>
+                            </div>
+
+                            <div class="n88-field">
+                                <label>Where applicable, will you supply fabric?</label>
+                                <p class="n88-hint">Use Yes if you will supply fabric (COM). Use No if the supplier should quote using in-house fabric/material where applicable.</p>
+                                <div class="n88-radio-row">
+                                    <label>
+                                        <input
+                                            type="radio"
+                                            name="rfq_fabric_supplied_flag"
+                                            value="yes"
+                                            checked
+                                            data-rfq-fabric-flag="yes"
+                                        >
+                                        Yes
+                                    </label>
+                                    <label>
+                                        <input
+                                            type="radio"
+                                            name="rfq_fabric_supplied_flag"
+                                            value="no"
+                                            data-rfq-fabric-flag="no"
+                                        >
+                                        No
+                                    </label>
+                                </div>
+                                <div class="n88-field n88-fabric-notes-wrap">
+                                    <label for="n88-modal-fabric-notes">Fabric Notes (optional)</label>
+                                    <textarea
+                                        id="n88-modal-fabric-notes"
+                                        name="rfq_fabric_notes"
+                                        rows="2"
+                                        placeholder="Fabric type, yardage assumptions, testing requirements, shipping timing."
+                                    ></textarea>
+                                </div>
+                            </div>
+
+                            <div class="n88-field">
+                                <div><strong>Invite Suppliers</strong></div>
+                                <p class="n88-hint">Enter existing supplier username(s) or email address(es). Press Enter or click Add. (1–5 invites)</p>
+                                <div class="n88-invite-row">
+                                    <input
+                                        type="text"
+                                        class="n88-invite-input"
+                                        placeholder="Username or email"
+                                    >
+                                    <button type="button" class="n88-invite-add-btn">Add</button>
+                                </div>
+                                <div class="n88-invite-chips"></div>
+                                <div class="n88-field" style="margin-top:8px;">
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            class="n88-allow-system-invites"
+                                        >
+                                        Let WireFrame (OS) source makers for this request
+                                    </label>
+                                </div>
+                            </div>
+
                             <input type="hidden" id="n88-modal-item-size" name="size" value="S">
                             <input type="hidden" id="n88-modal-item-board" name="board_id" value="<?php echo esc_attr( $add_item_modal_board_id ); ?>">
                             <?php if ( $add_item_modal_board_id > 0 ) : ?>
@@ -6384,6 +6479,21 @@
                     var previewWrap = document.getElementById('n88-modal-image-preview-wrap');
                     var defaultUploadLabel = 'Upload sketches, inspiration photos, shop drawings, or material references';
                     var n88ModalSelectedFiles = [];
+                    var n88ModalCaptions = [];
+                    var n88ModalPrimaryIndex = 0;
+
+                    function updatePrimaryBadgesDefault() {
+                        if (!previewWrap) return;
+                        var items = previewWrap.querySelectorAll('.n88-preview-item');
+                        items.forEach(function(el, idx) {
+                            if (idx === n88ModalPrimaryIndex) {
+                                el.classList.add('n88-primary-selected');
+                            } else {
+                                el.classList.remove('n88-primary-selected');
+                            }
+                        });
+                    }
+
                     function renderAddItemPreviews() {
                         if (!previewWrap) return;
                         previewWrap.innerHTML = '';
@@ -6407,6 +6517,19 @@
                                     place.textContent = '[img]';
                                     wrap.appendChild(place);
                                 }
+
+                                // Primary photo selector
+                                var primaryBtn = document.createElement('button');
+                                primaryBtn.type = 'button';
+                                primaryBtn.className = 'n88-preview-primary';
+                                primaryBtn.textContent = 'Primary';
+                                primaryBtn.onclick = function() {
+                                    n88ModalPrimaryIndex = idx;
+                                    updatePrimaryBadgesDefault();
+                                };
+                                wrap.appendChild(primaryBtn);
+
+                                // Remove button
                                 var btn = document.createElement('button');
                                 btn.type = 'button';
                                 btn.className = 'n88-preview-remove';
@@ -6414,22 +6537,50 @@
                                 btn.textContent = '\u00D7';
                                 btn.onclick = function() {
                                     n88ModalSelectedFiles.splice(idx, 1);
+                                    if (n88ModalCaptions.length > idx) {
+                                        n88ModalCaptions.splice(idx, 1);
+                                    }
+                                    if (n88ModalPrimaryIndex === idx) {
+                                        n88ModalPrimaryIndex = 0;
+                                    } else if (n88ModalPrimaryIndex > idx) {
+                                        n88ModalPrimaryIndex--;
+                                    }
                                     renderAddItemPreviews();
                                     if (uploadText) uploadText.textContent = n88ModalSelectedFiles.length === 0 ? defaultUploadLabel : (n88ModalSelectedFiles.length + ' files selected');
                                     if (uploadZone) uploadZone.classList.toggle('has-file', n88ModalSelectedFiles.length > 0);
                                 };
                                 wrap.appendChild(btn);
+
+                                // Caption input (per-image comment, max 100 chars)
+                                var captionInput = document.createElement('input');
+                                captionInput.type = 'text';
+                                captionInput.className = 'n88-preview-caption';
+                                captionInput.maxLength = 100;
+                                captionInput.placeholder = 'Caption (max 100)';
+                                captionInput.value = (n88ModalCaptions[idx] || '').slice(0, 100);
+                                captionInput.oninput = function(e) {
+                                    n88ModalCaptions[idx] = (e.target.value || '').slice(0, 100);
+                                };
+                                wrap.appendChild(captionInput);
+
                                 previewWrap.appendChild(wrap);
                             })(i);
                         }
                         previewWrap.classList.toggle('visible', n88ModalSelectedFiles.length > 0);
+                        if (n88ModalSelectedFiles.length > 0 && (n88ModalPrimaryIndex < 0 || n88ModalPrimaryIndex >= n88ModalSelectedFiles.length)) {
+                            n88ModalPrimaryIndex = 0;
+                        }
+                        updatePrimaryBadgesDefault();
                     }
                     if (uploadZone && fileInput) {
                         uploadZone.addEventListener('click', function() { fileInput.click(); });
                         fileInput.addEventListener('change', function() {
                             var files = fileInput.files;
                             if (files && files.length > 0) {
-                                for (var j = 0; j < files.length; j++) n88ModalSelectedFiles.push(files[j]);
+                                for (var j = 0; j < files.length; j++) {
+                                    n88ModalSelectedFiles.push(files[j]);
+                                    n88ModalCaptions.push('');
+                                }
                                 fileInput.value = '';
                                 uploadZone.classList.add('has-file');
                                 if (uploadText) uploadText.textContent = n88ModalSelectedFiles.length === 1 ? n88ModalSelectedFiles[0].name : (n88ModalSelectedFiles.length + ' files selected');
@@ -6469,6 +6620,20 @@
                                 var block = e.target.closest('.n88-add-item-block');
                                 loadRoomsForBlock(block, e.target.value);
                             }
+
+                            // Fabric supplied radio toggles Fabric Notes visibility per block
+                            if (e.target && e.target.getAttribute('data-rfq-fabric-flag')) {
+                                var block = e.target.closest('.n88-add-item-block');
+                                if (!block) return;
+                                var notesWrap = block.querySelector('.n88-fabric-notes-wrap');
+                                if (!notesWrap) return;
+                                var flag = e.target.getAttribute('data-rfq-fabric-flag');
+                                if (flag === 'yes' && e.target.checked) {
+                                    notesWrap.style.display = '';
+                                } else if (flag === 'no' && e.target.checked) {
+                                    notesWrap.style.display = 'none';
+                                }
+                            }
                         });
                     }
                     if (projectSelect && roomRow && roomSelect) {
@@ -6478,6 +6643,69 @@
                     }
                     
                     var addAnotherBtnInForm = document.getElementById('n88-modal-add-another-item');
+
+                    // Invite Suppliers helpers
+                    function initInviteControlsForBlock(block) {
+                        if (!block) return;
+                        var input = block.querySelector('.n88-invite-input');
+                        var addBtn = block.querySelector('.n88-invite-add-btn');
+                        var chipsWrap = block.querySelector('.n88-invite-chips');
+                        if (!chipsWrap) return;
+
+                        if (!Array.isArray(block.n88InvitedSuppliers)) {
+                            block.n88InvitedSuppliers = [];
+                        }
+
+                        function renderChips() {
+                            chipsWrap.innerHTML = '';
+                            block.n88InvitedSuppliers.forEach(function(val) {
+                                var chip = document.createElement('span');
+                                chip.setAttribute('data-supplier', val);
+                                chip.textContent = val;
+                                chip.className = 'n88-invite-chip';
+                                var removeBtn = document.createElement('button');
+                                removeBtn.type = 'button';
+                                removeBtn.textContent = '×';
+                                removeBtn.className = 'n88-invite-chip-remove';
+                                removeBtn.onclick = function() {
+                                    block.n88InvitedSuppliers = block.n88InvitedSuppliers.filter(function(s) { return s !== val; });
+                                    renderChips();
+                                };
+                                chip.appendChild(removeBtn);
+                                chipsWrap.appendChild(chip);
+                            });
+                        }
+
+                        function addInvite(value) {
+                            var v = (value || '').trim();
+                            if (!v) return;
+                            if (block.n88InvitedSuppliers.indexOf(v) !== -1) return;
+                            if (block.n88InvitedSuppliers.length >= 5) return;
+                            block.n88InvitedSuppliers.push(v);
+                            renderChips();
+                        }
+
+                        if (addBtn) {
+                            addBtn.onclick = function() {
+                                if (input) {
+                                    addInvite(input.value);
+                                    input.value = '';
+                                }
+                            };
+                        }
+                        if (input) {
+                            input.addEventListener('keypress', function(e) {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    addInvite(input.value);
+                                    input.value = '';
+                                }
+                            });
+                        }
+
+                        renderChips();
+                    }
+
                     function renderPreviewsForBlock(block, files) {
                         var wrap = block.querySelector('.n88-image-preview-wrap');
                         if (!wrap) return;
@@ -6486,6 +6714,12 @@
                         if (!files || files.length === 0) return;
                         var uploadZone = block.querySelector('.n88-upload-zone');
                         var uploadText = block.querySelector('.n88-upload-text, [id$="upload-text"]');
+                        if (typeof block.n88PrimaryIndex !== 'number') {
+                            block.n88PrimaryIndex = 0;
+                        }
+                        if (!Array.isArray(block.n88Captions)) {
+                            block.n88Captions = [];
+                        }
                         for (var i = 0; i < files.length; i++) {
                             (function(idx) {
                                 var file = files[idx];
@@ -6506,6 +6740,25 @@
                                     place.textContent = '[img]';
                                     wrapEl.appendChild(place);
                                 }
+                                // Primary selector for this block
+                                var primaryBtn = document.createElement('button');
+                                primaryBtn.type = 'button';
+                                primaryBtn.className = 'n88-preview-primary';
+                                primaryBtn.textContent = 'Primary';
+                                primaryBtn.onclick = function() {
+                                    block.n88PrimaryIndex = idx;
+                                    var items = wrap.querySelectorAll('.n88-preview-item');
+                                    items.forEach(function(el, index) {
+                                        if (index === block.n88PrimaryIndex) {
+                                            el.classList.add('n88-primary-selected');
+                                        } else {
+                                            el.classList.remove('n88-primary-selected');
+                                        }
+                                    });
+                                };
+                                wrapEl.appendChild(primaryBtn);
+
+                                // Remove button
                                 var btn = document.createElement('button');
                                 btn.type = 'button';
                                 btn.className = 'n88-preview-remove';
@@ -6513,14 +6766,50 @@
                                 btn.textContent = '\u00D7';
                                 btn.onclick = function() {
                                     files.splice(idx, 1);
+                                    if (Array.isArray(block.n88Captions) && block.n88Captions.length > idx) {
+                                        block.n88Captions.splice(idx, 1);
+                                    }
+                                    if (block.n88PrimaryIndex === idx) {
+                                        block.n88PrimaryIndex = 0;
+                                    } else if (block.n88PrimaryIndex > idx) {
+                                        block.n88PrimaryIndex--;
+                                    }
                                     renderPreviewsForBlock(block, files);
                                     if (uploadText) uploadText.textContent = files.length === 0 ? defaultUploadLabel : (files.length + ' files selected');
                                     if (uploadZone) uploadZone.classList.toggle('has-file', files.length > 0);
                                 };
                                 wrapEl.appendChild(btn);
+
+                                // Caption input per image
+                                var captionInput = document.createElement('input');
+                                captionInput.type = 'text';
+                                captionInput.className = 'n88-preview-caption';
+                                captionInput.maxLength = 100;
+                                captionInput.placeholder = 'Caption (max 100)';
+                                captionInput.value = (block.n88Captions[idx] || '').slice(0, 100);
+                                captionInput.oninput = function(e) {
+                                    if (!Array.isArray(block.n88Captions)) {
+                                        block.n88Captions = [];
+                                    }
+                                    block.n88Captions[idx] = (e.target.value || '').slice(0, 100);
+                                };
+                                wrapEl.appendChild(captionInput);
+
                                 wrap.appendChild(wrapEl);
                             })(i);
                         }
+                        // Ensure a valid primary index for this block
+                        if (files.length > 0 && (block.n88PrimaryIndex < 0 || block.n88PrimaryIndex >= files.length)) {
+                            block.n88PrimaryIndex = 0;
+                        }
+                        var items = wrap.querySelectorAll('.n88-preview-item');
+                        items.forEach(function(el, index) {
+                            if (index === block.n88PrimaryIndex) {
+                                el.classList.add('n88-primary-selected');
+                            } else {
+                                el.classList.remove('n88-primary-selected');
+                            }
+                        });
                     }
                     function addAnotherItemBlock() {
                         var first = blocksContainer ? blocksContainer.querySelector('.n88-add-item-block') : null;
@@ -6550,20 +6839,34 @@
                             if (inp.name === 'quantity') inp.value = '1';
                             else if (inp.type !== 'checkbox' && inp.type !== 'radio') inp.value = '';
                         });
+                        // Ensure fabric supplied radios are scoped per block
+                        var fabricRadiosClone = clone.querySelectorAll('input[name="rfq_fabric_supplied_flag"]');
+                        fabricRadiosClone.forEach(function(r) {
+                            r.name = 'rfq_fabric_supplied_flag_' + nextIdx;
+                        });
                         var fileInp = clone.querySelector('input[type="file"]');
                         var zone = clone.querySelector('.n88-upload-zone');
                         clone.n88Files = [];
+                        clone.n88Captions = [];
+                        clone.n88PrimaryIndex = 0;
                         if (fileInp) fileInp.value = '';
                         if (zone) zone.classList.remove('has-file');
                         var uploadTextClone = clone.querySelector('.n88-upload-text, [id$="upload-text"]');
                         if (uploadTextClone) uploadTextClone.textContent = defaultUploadLabel;
                         renderPreviewsForBlock(clone, []);
+                        // Reset invite suppliers state for this block
+                        clone.n88InvitedSuppliers = [];
+                        initInviteControlsForBlock(clone);
+
                         if (zone && fileInp) {
                             zone.addEventListener('click', function() { fileInp.click(); });
                             fileInp.addEventListener('change', function() {
                                 var files = fileInp.files;
                                 if (files && files.length > 0) {
-                                    for (var j = 0; j < files.length; j++) clone.n88Files.push(files[j]);
+                                    for (var j = 0; j < files.length; j++) {
+                                        clone.n88Files.push(files[j]);
+                                        clone.n88Captions.push('');
+                                    }
                                     fileInp.value = '';
                                     zone.classList.add('has-file');
                                     if (uploadTextClone) uploadTextClone.textContent = clone.n88Files.length === 1 ? clone.n88Files[0].name : (clone.n88Files.length + ' files selected');
@@ -6574,6 +6877,14 @@
                         blocksContainer.appendChild(clone);
                     }
                     if (addAnotherBtnInForm) addAnotherBtnInForm.addEventListener('click', addAnotherItemBlock);
+
+                    // Initialize invite controls for the first (default) block on load
+                    if (blocksContainer) {
+                        var firstBlockInit = blocksContainer.querySelector('.n88-add-item-block');
+                        if (firstBlockInit) {
+                            initInviteControlsForBlock(firstBlockInit);
+                        }
+                    }
                     
                     function dataURLtoBlob(dataurl) {
                         var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1], bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
@@ -6618,10 +6929,69 @@
                         if (w || d || h) {
                             formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
                         }
+                        // Delivery and RFQ evidence fields
+                        var deliveryCountrySelect = document.getElementById('n88-modal-delivery-country');
+                        var deliveryPostalInput = document.getElementById('n88-modal-delivery-postal');
+                        var overallNotesEl = document.getElementById('n88-modal-rfq-overall-notes');
+                        var fabricYes = form.querySelector('input[name="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="yes"]');
+                        var fabricNo = form.querySelector('input[name="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="no"]');
+                        var fabricNotesEl = document.getElementById('n88-modal-fabric-notes');
+
+                        var deliveryCountryVal = deliveryCountrySelect ? deliveryCountrySelect.value : '';
+                        var deliveryPostalVal = deliveryPostalInput ? deliveryPostalInput.value : '';
+                        var overallNotesVal = overallNotesEl ? overallNotesEl.value : '';
+                        var fabricFlagVal = 'yes';
+                        if (fabricNo && fabricNo.checked) {
+                            fabricFlagVal = 'no';
+                        }
+
+                        if (deliveryCountryVal) formData.append('delivery_country', deliveryCountryVal);
+                        if (deliveryPostalVal) formData.append('delivery_postal', deliveryPostalVal);
+                        if (overallNotesVal) formData.append('rfq_overall_notes', overallNotesVal);
+                        formData.append('rfq_fabric_supplied_flag', fabricFlagVal);
+                        if (fabricFlagVal === 'yes' && fabricNotesEl && fabricNotesEl.value) {
+                            formData.append('rfq_fabric_notes', fabricNotesEl.value);
+                        }
+
+                        // Invite suppliers draft state
+                        var inviteBlocks = form.querySelector('.n88-add-item-block');
+                        var invited = [];
+                        var allowSystem = false;
+                        if (inviteBlocks) {
+                            var chips = inviteBlocks.querySelectorAll('.n88-invite-chips span[data-supplier]');
+                            chips.forEach(function(chip) {
+                                var v = (chip.getAttribute('data-supplier') || '').trim();
+                                if (v) invited.push(v);
+                            });
+                            var allowBox = inviteBlocks.querySelector('.n88-allow-system-invites');
+                            if (allowBox && allowBox.checked) allowSystem = true;
+                        }
+                        if (invited.length > 0) {
+                            formData.append('rfq_draft_invited_suppliers', JSON.stringify(invited));
+                        }
+                        formData.append('rfq_draft_allow_system_invites', allowSystem ? '1' : '0');
+
+                        // Images + captions (single-block path, legacy)
                         if (n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
-                            for (var i = 0; i < n88ModalSelectedFiles.length; i++) {
-                                formData.append('image_file[]', n88ModalSelectedFiles[i]);
+                            // Ensure primary index in range
+                            if (n88ModalPrimaryIndex < 0 || n88ModalPrimaryIndex >= n88ModalSelectedFiles.length) {
+                                n88ModalPrimaryIndex = 0;
                             }
+                            var orderedFiles = [];
+                            var orderedCaptions = [];
+                            for (var i = 0; i < n88ModalSelectedFiles.length; i++) {
+                                if (i === n88ModalPrimaryIndex) continue;
+                                orderedFiles.push(n88ModalSelectedFiles[i]);
+                                orderedCaptions.push((n88ModalCaptions[i] || '').slice(0, 100));
+                            }
+                            // Put primary first
+                            orderedFiles.unshift(n88ModalSelectedFiles[n88ModalPrimaryIndex]);
+                            orderedCaptions.unshift((n88ModalCaptions[n88ModalPrimaryIndex] || '').slice(0, 100));
+
+                            for (var j = 0; j < orderedFiles.length; j++) {
+                                formData.append('image_file[]', orderedFiles[j]);
+                            }
+                            formData.append('image_captions', JSON.stringify(orderedCaptions));
                         } else {
                             var imgId = document.getElementById('n88-modal-item-image-id').value;
                             if (imgId && parseInt(imgId, 10) > 0) formData.append('image_id', imgId);
@@ -6664,9 +7034,84 @@
                         var h = (block.querySelector('[name="height"]') || {}).value;
                         var unit = (block.querySelector('[name="dimension_unit"]') || {}).value || 'in';
                         if (w || d || h) formData.append('dims', JSON.stringify({ w: w ? parseFloat(w) : null, d: d ? parseFloat(d) : null, h: h ? parseFloat(h) : null, unit: unit }));
+
+                        // Delivery + RFQ evidence (per block)
+                        var deliveryCountrySel = block.querySelector('select[name="delivery_country"]');
+                        var deliveryPostalInp = block.querySelector('input[name="delivery_postal"]');
+                        var overallNotesBlock = block.querySelector('textarea[name="rfq_overall_notes"]');
+                        var fabricYesRadio = block.querySelector('input[name^="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="yes"]') || block.querySelector('input[name="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="yes"]');
+                        var fabricNoRadio = block.querySelector('input[name^="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="no"]') || block.querySelector('input[name="rfq_fabric_supplied_flag"][data-rfq-fabric-flag="no"]');
+                        var fabricNotesBlock = block.querySelector('textarea[name="rfq_fabric_notes"]');
+
+                        var deliveryCountryBlockVal = deliveryCountrySel ? deliveryCountrySel.value : '';
+                        var deliveryPostalBlockVal = deliveryPostalInp ? deliveryPostalInp.value : '';
+                        var overallNotesBlockVal = overallNotesBlock ? overallNotesBlock.value : '';
+                        var fabricFlagBlockVal = 'yes';
+                        if (fabricNoRadio && fabricNoRadio.checked) {
+                            fabricFlagBlockVal = 'no';
+                        }
+
+                        if (deliveryCountryBlockVal) formData.append('delivery_country', deliveryCountryBlockVal);
+                        if (deliveryPostalBlockVal) formData.append('delivery_postal', deliveryPostalBlockVal);
+                        if (overallNotesBlockVal) formData.append('rfq_overall_notes', overallNotesBlockVal);
+                        formData.append('rfq_fabric_supplied_flag', fabricFlagBlockVal);
+                        if (fabricFlagBlockVal === 'yes' && fabricNotesBlock && fabricNotesBlock.value) {
+                            formData.append('rfq_fabric_notes', fabricNotesBlock.value);
+                        }
+
+                        // Invite suppliers per block
+                        var chipsWrap = block.querySelector('.n88-invite-chips');
+                        var invitedBlock = [];
+                        if (chipsWrap) {
+                            var chips = chipsWrap.querySelectorAll('span[data-supplier]');
+                            chips.forEach(function(chip) {
+                                var v = (chip.getAttribute('data-supplier') || '').trim();
+                                if (v) invitedBlock.push(v);
+                            });
+                        }
+                        var allowBoxBlock = block.querySelector('.n88-allow-system-invites');
+                        var allowSystemBlock = !!(allowBoxBlock && allowBoxBlock.checked);
+                        if (invitedBlock.length > 0) {
+                            formData.append('rfq_draft_invited_suppliers', JSON.stringify(invitedBlock));
+                        }
+                        formData.append('rfq_draft_allow_system_invites', allowSystemBlock ? '1' : '0');
+
+                        // Images + captions per block
                         var files = (block.n88Files && block.n88Files.length > 0) ? block.n88Files : n88ModalSelectedFiles;
+                        var captions = Array.isArray(block.n88Captions) ? block.n88Captions.slice() : [];
+
+                        // For the first block, fall back to shared state used by the default uploader
+                        if (blocksContainer) {
+                            var firstBlock = blocksContainer.querySelector('.n88-add-item-block');
+                            if (firstBlock && firstBlock === block) {
+                                if ((!files || files.length === 0) && n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
+                                    files = n88ModalSelectedFiles;
+                                }
+                                if ((!captions || captions.length === 0) && n88ModalCaptions && n88ModalCaptions.length > 0) {
+                                    captions = n88ModalCaptions.slice();
+                                }
+                                if (typeof block.n88PrimaryIndex !== 'number') {
+                                    block.n88PrimaryIndex = n88ModalPrimaryIndex;
+                                }
+                            }
+                        }
                         if (files && files.length > 0) {
-                            for (var i = 0; i < files.length; i++) formData.append('image_file[]', files[i]);
+                            var primaryIndex = typeof block.n88PrimaryIndex === 'number' ? block.n88PrimaryIndex : 0;
+                            if (primaryIndex < 0 || primaryIndex >= files.length) primaryIndex = 0;
+                            var orderedFilesBlock = [];
+                            var orderedCaptionsBlock = [];
+                            for (var i2 = 0; i2 < files.length; i2++) {
+                                if (i2 === primaryIndex) continue;
+                                orderedFilesBlock.push(files[i2]);
+                                orderedCaptionsBlock.push((captions[i2] || '').slice(0, 100));
+                            }
+                            orderedFilesBlock.unshift(files[primaryIndex]);
+                            orderedCaptionsBlock.unshift((captions[primaryIndex] || '').slice(0, 100));
+
+                            for (var j2 = 0; j2 < orderedFilesBlock.length; j2++) {
+                                formData.append('image_file[]', orderedFilesBlock[j2]);
+                            }
+                            formData.append('image_captions', JSON.stringify(orderedCaptionsBlock));
                         } else {
                             var imgIdEl = block.querySelector('[name="image_id"]');
                             var imgId = imgIdEl ? imgIdEl.value : '';
@@ -6691,6 +7136,8 @@
                         if (hEl) hEl.value = '';
                         if (imgIdEl) imgIdEl.value = '';
                         n88ModalSelectedFiles = [];
+                        n88ModalCaptions = [];
+                        n88ModalPrimaryIndex = 0;
                         if (uploadZone) {
                             uploadZone.classList.remove('has-file');
                         }
@@ -6793,6 +7240,35 @@
                             var blocks = blocksContainer.querySelectorAll('.n88-add-item-block');
                             for (var i = 1; i < blocks.length; i++) blocks[i].remove();
                         }
+
+                        // Auto-select project/room when opened from project or room views
+                        try {
+                            var url = new URL(window.location.href);
+                            var projectIdParam = url.searchParams.get('project_id') || '';
+                            var roomIdParam = url.searchParams.get('room_id') || '';
+                            var firstBlock = blocksContainer ? blocksContainer.querySelector('.n88-add-item-block') : null;
+                            if (firstBlock) {
+                                // Project preselect/lock
+                                var projSel = firstBlock.querySelector('select[name="project_id"]');
+                                if (projSel && projectIdParam && projectIdParam !== '0') {
+                                    projSel.value = projectIdParam;
+                                    projSel.disabled = true; // locked when launched from a project board
+                                    loadRoomsForBlock(firstBlock, projectIdParam);
+                                }
+                                // Room preselect (room remains editable so designers can change per item)
+                                if (roomIdParam && roomIdParam !== '0') {
+                                    setTimeout(function() {
+                                        var roomSelBlock = firstBlock.querySelector('select[name="room_id"]');
+                                        if (roomSelBlock) {
+                                            roomSelBlock.value = roomIdParam;
+                                        }
+                                    }, 800);
+                                }
+                            }
+                        } catch (e) {
+                            // Fail silently if URL parsing fails
+                        }
+
                         origOpenAddItemModal();
                     };
                 })();
@@ -11127,8 +11603,12 @@
                         var showRfqForm = _showRfqFormState[0];
                         var setShowRfqForm = _showRfqFormState[1];
                         
-                        // Invite Makers state
-                        var _invitedSuppliersState = React.useState([]);
+                        // Invite Makers state - allow Add Item draft invites to pre-fill RFQ form
+                        var _invitedSuppliersState = React.useState(
+                            item.meta && Array.isArray(item.meta.rfq_draft_invited_suppliers)
+                                ? item.meta.rfq_draft_invited_suppliers
+                                : []
+                        );
                         var invitedSuppliers = _invitedSuppliersState[0];
                         var setInvitedSuppliers = _invitedSuppliersState[1];
                         
@@ -11136,7 +11616,9 @@
                         var inviteSupplierInput = _inviteSupplierInputState[0];
                         var setInviteSupplierInput = _inviteSupplierInputState[1];
                         
-                        var _allowSystemInvitesState = React.useState(false);
+                        var _allowSystemInvitesState = React.useState(
+                            !!(item.meta && (item.meta.rfq_draft_allow_system_invites === true || item.meta.rfq_draft_allow_system_invites === '1'))
+                        );
                         var allowSystemInvites = _allowSystemInvitesState[0];
                         var setAllowSystemInvites = _allowSystemInvitesState[1];
                         
