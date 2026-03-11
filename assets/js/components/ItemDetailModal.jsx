@@ -131,7 +131,7 @@ const getTimelineTypeFromCategory = (category) => {
     
     const categoryLower = category.toLowerCase();
     
-    // The Workflow categories
+    // Project Workflow categories
     const sixStepCategories = [
         'indoor furniture',
         'sofas & seating (indoor)',
@@ -153,7 +153,7 @@ const getTimelineTypeFromCategory = (category) => {
     
     // Check if category matches 6-step
     if (sixStepCategories.some(cat => categoryLower.includes(cat.toLowerCase()))) {
-        return 'The Workflow';
+        return 'Project Workflow';
     }
     
     // Check if category matches 4-step
@@ -165,7 +165,7 @@ const getTimelineTypeFromCategory = (category) => {
     if (categoryLower.includes('furniture') || categoryLower.includes('sofa') || 
         categoryLower.includes('chair') || categoryLower.includes('table') ||
         categoryLower.includes('bed') || categoryLower.includes('cabinet')) {
-        return 'The Workflow';
+        return 'Project Workflow';
     }
     
     // Default to 4-step for sourcing categories
@@ -2219,7 +2219,7 @@ const BidItem = ({ bid, idx, totalBids, darkBorder, greenAccent }) => {
 /**
  * ItemDetailModal - Designer Item Modal with Three States
  */
-const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceRequested = false, onPriceRequest }) => {
+const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceRequested = false, onPriceRequest, openToDetailsAndSupport = false }) => {
     // Commit 2.6.1: Check if user is view-only team member
     const isViewOnly = window.n88BoardData?.isViewOnly || false;
     const updateLayout = useBoardStore((state) => state.updateLayout);
@@ -2482,13 +2482,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
         if (currentState === 'C' && itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
             setBidsExpanded(true);
             setActiveTab('bids');
-        } else if (currentState === 'B') {
-            setActiveTab('rfq');
         } else {
             setActiveTab('details');
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDesignerMessages is defined later; effect correctly runs when action_required/unread/CAD-pending or itemState change
     }, [itemState.loading, currentState, itemState.has_bids, itemState.bids, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, item?.action_required, item?.has_unread_operator_messages]);
+    
+    // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
+    React.useEffect(() => {
+        if (isOpen && openToDetailsAndSupport) {
+            setActiveTab('details');
+            setShowDesignerMessageForm(true);
+            loadDesignerMessages();
+            const scrollToSupport = () => {
+                const el = document.getElementById('n88-item-spec-support-box');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            };
+            setTimeout(scrollToSupport, 300);
+        }
+    }, [isOpen, openToDetailsAndSupport]);
     
     // Image lightbox state
     const [lightboxImage, setLightboxImage] = React.useState(null);
@@ -4794,23 +4806,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         The Mission Spec
                                     </button>
                                     <button
-                                        onClick={() => setActiveTab('rfq')}
-                                        style={{
-                                            flex: 1,
-                                            padding: '12px 16px',
-                                            background: activeTab === 'rfq' ? '#111111' : 'transparent',
-                                            border: 'none',
-                                            borderBottom: activeTab === 'rfq' ? `2px solid ${greenAccent}` : 'none',
-                                            color: activeTab === 'rfq' ? greenAccent : darkText,
-                                            fontSize: '12px',
-                                            fontWeight: activeTab === 'rfq' ? '600' : '400',
-                                            cursor: 'pointer',
-                                            fontFamily: 'monospace',
-                                        }}
-                                    >
-                                        Launch Brief
-                                    </button>
-                                    <button
                                         onClick={() => setActiveTab('workflow')}
                                         style={{
                                             flex: 1,
@@ -4825,7 +4820,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             fontFamily: 'monospace',
                                         }}
                                     >
-                                        The Workflow
+                                        Project Workflow
                                     </button>
                                     {itemState.has_bids && itemState.bids && itemState.bids.length > 0 && (
                                         <button
@@ -4892,53 +4887,292 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 </div>
                                             )}
 
-                                            {/* Review and Message (CAD) moved to Workflow tab → Step 2 — redirect (aligned with admin) */}
-                                            {(itemState.has_rfq || itemState.has_prototype_payment) && (
-                                                <div style={{
+                                            {/* Unified Item Specification summary (all states) */}
+                                            <div
+                                                style={{
                                                     marginBottom: '24px',
                                                     padding: '16px',
+                                                    backgroundColor: '#111111',
                                                     border: `1px solid ${darkBorder}`,
                                                     borderRadius: '4px',
-                                                    backgroundColor: 'rgba(0,0,0,0.2)',
-                                                }}>
-                                                    <div style={{ fontSize: '12px', color: darkText, marginBottom: '10px' }}>
-                                                        {(Number(itemState.cad_current_version) || 0) > 0
-                                                            ? 'Review and Message (CAD review) has moved to Workflow tab → Step 2.'
-                                                            : 'Clarifications / Message Operator has moved to Workflow tab → Step 1.'}
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const cadDone = (Number(itemState.cad_current_version) || 0) > 0;
-                                                            setActiveTab('workflow');
-                                                            setSelectedStepIndex(cadDone ? 1 : 0);
-                                                            setShowDesignerMessageForm(true);
-                                                            loadDesignerMessages();
-                                                        }}
-                                                        style={{
-                                                            padding: '10px 16px',
-                                                            background: greenAccent,
-                                                            color: '#000',
-                                                            border: 'none',
-                                                            borderRadius: '4px',
-                                                            cursor: 'pointer',
-                                                            fontWeight: '600',
-                                                            fontSize: '12px',
-                                                        }}
-                                                    >
-                                                        Open Workflow → {(Number(itemState.cad_current_version) || 0) > 0 ? 'Step 2' : 'Step 1'}
-                                                    </button>
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: 600,
+                                                        marginBottom: '16px',
+                                                        color: darkText,
+                                                        borderBottom: `1px solid ${darkBorder}`,
+                                                        paddingBottom: '8px',
+                                                    }}
+                                                >
+                                                    Item Specification
                                                 </div>
-                                            )}
-                                            {/* Item Title */}
-                                            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '20px' }}>
-                                                {item.title || item.description || 'Untitled Item'}
+                                                {(item.title || description) && (
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                marginBottom: '4px',
+                                                                color: darkText,
+                                                                opacity: 0.7,
+                                                            }}
+                                                        >
+                                                            Name:
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '13px',
+                                                                color: greenAccent,
+                                                                fontWeight: 500,
+                                                            }}
+                                                        >
+                                                            {item.title || description || 'Untitled Item'}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {description && (
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                marginBottom: '4px',
+                                                                color: darkText,
+                                                                opacity: 0.7,
+                                                            }}
+                                                        >
+                                                            Description:
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                color: darkText,
+                                                                lineHeight: 1.6,
+                                                            }}
+                                                        >
+                                                            {description}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {category && (
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                marginBottom: '4px',
+                                                                color: darkText,
+                                                                opacity: 0.7,
+                                                            }}
+                                                        >
+                                                            Category:
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                color: greenAccent,
+                                                            }}
+                                                        >
+                                                            {category}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {(() => {
+                                                    const timelineType = getTimelineTypeFromCategory(category);
+                                                    if (!timelineType) return null;
+                                                    return (
+                                                        <div style={{ marginBottom: '12px' }}>
+                                                            <div
+                                                                style={{
+                                                                    fontSize: '12px',
+                                                                    marginBottom: '4px',
+                                                                    color: darkText,
+                                                                    opacity: 0.7,
+                                                                }}
+                                                            >
+                                                                Timeline Type:
+                                                            </div>
+                                                            <div
+                                                                style={{
+                                                                    fontSize: '12px',
+                                                                    color: greenAccent,
+                                                                }}
+                                                            >
+                                                                {timelineType}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                                {quantity && (
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                marginBottom: '4px',
+                                                                color: darkText,
+                                                                opacity: 0.7,
+                                                            }}
+                                                        >
+                                                            Quantity:
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                color: greenAccent,
+                                                            }}
+                                                        >
+                                                            {quantity}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {width && depth && height && (
+                                                    <div style={{ marginBottom: '0' }}>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                marginBottom: '4px',
+                                                                color: darkText,
+                                                                opacity: 0.7,
+                                                            }}
+                                                        >
+                                                            Dimensions:
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: '12px',
+                                                                color: greenAccent,
+                                                            }}
+                                                        >
+                                                            {`${width} × ${depth} × ${height} ${unit}`}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                            
-                                            {/* RFQ Sent Status Indicator moved to Launch Brief tab */}
-                                            
+
+                                            {/* Support box (same as Step 01 workflow): operator–designer chat — always open in Item Spec (hidden on Workflow/Bids tabs) */}
+                                            {activeTab === 'details' && (
+                                            <div id="n88-item-spec-support-box" style={{ marginBottom: '24px' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>Support</div>
+                                                <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                            <span style={{ fontSize: '12px', color: darkText }}>Check files for CAD · Check messages below</span>
+                                                            {/* No close button in Item Spec; support is always visible */}
+                                                        </div>
+                                                        <div id="n88-designer-messages-container-details" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
+                                                            {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
+                                                                [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
+                                                                    const isDesigner = msg.sender_role === 'designer';
+                                                                    const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                                                                    const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
+                                                                    const rawText = (msg.message_text || '').substring(0, 2000);
+                                                                    const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
+                                                                    let displayText = rawText;
+                                                                    const fileList = [];
+                                                                    if (hasFilesBlock) {
+                                                                        const lines = rawText.split('\n');
+                                                                        let filesStart = -1;
+                                                                        for (let li = 0; li < lines.length; li++) {
+                                                                            const trimmed = (lines[li] || '').trim();
+                                                                            if (trimmed === 'CAD Files:' || trimmed === 'Files:') { filesStart = li; break; }
+                                                                        }
+                                                                        if (filesStart >= 0) {
+                                                                            let filesEnd = lines.length;
+                                                                            for (let li = filesStart + 1; li < lines.length; li++) {
+                                                                                const t = (lines[li] || '').trim();
+                                                                                if (t.indexOf('Direction Keywords') === 0 || t === '') { filesEnd = li; break; }
+                                                                            }
+                                                                            displayText = lines.slice(0, filesStart).join('\n').trim();
+                                                                            for (let fi = filesStart + 1; fi < filesEnd; fi++) {
+                                                                                const line = (lines[fi] || '').trim();
+                                                                                if (line.indexOf('- ') === 0) {
+                                                                                    const withoutDash = line.slice(2);
+                                                                                    const sepIdx = withoutDash.indexOf(': ');
+                                                                                    if (sepIdx > 0) {
+                                                                                        const fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                        const fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                        if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) fileList.push({ name: fileName, url: fileUrl });
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
+                                                                    const parts = [];
+                                                                    let urlM;
+                                                                    let last = 0;
+                                                                    while ((urlM = urlRe.exec(displayText)) !== null) {
+                                                                        if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
+                                                                        const url = urlM[0];
+                                                                        const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+                                                                        parts.push({ t: isImg ? 'image' : 'file', v: url });
+                                                                        last = urlRe.lastIndex;
+                                                                    }
+                                                                    if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
+                                                                    const content = parts.length === 0 ? displayText : parts.map((p, i) => {
+                                                                        if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
+                                                                        if (p.t === 'image') return (
+                                                                            <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
+                                                                                <img src={p.v} alt="" style={{ maxWidth: 120, maxHeight: 80, objectFit: 'contain', display: 'block', borderRadius: 4, border: `1px solid ${darkBorder}` }} onError={(e) => { e.target.style.display = 'none'; const n = e.target.nextSibling; if (n) n.style.display = 'block'; }} />
+                                                                                <a href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', marginTop: 4, display: 'none' }}>View image →</a>
+                                                                            </span>
+                                                                        );
+                                                                        return <a key={i} href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: 4, marginRight: 8 }}>View file →</a>;
+                                                                    });
+                                                                    return (
+                                                                        <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
+                                                                            <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
+                                                                                <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
+                                                                                {content}
+                                                                                {fileList.length > 0 && (
+                                                                                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                                        {fileList.map((file, fi) => {
+                                                                                            const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
+                                                                                            return (
+                                                                                                <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
+                                                                                                    {isImageFile ? (
+                                                                                                        <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                                            <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
+                                                                                                        </span>
+                                                                                                    ) : (
+                                                                                                        <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
+                                                                                                    )}
+                                                                                                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
+                                                                                                    <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
+                                                                                                </a>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div style={{ fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                        <form onSubmit={sendDesignerMessage} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                                            <textarea
+                                                                value={designerMessageText}
+                                                                onChange={(e) => setDesignerMessageText(e.target.value)}
+                                                                required
+                                                                rows={2}
+                                                                style={{ flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }}
+                                                                placeholder="Type your message here..."
+                                                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }}
+                                                            />
+                                                            <button
+                                                                type="submit"
+                                                                disabled={isSendingDesignerMessage || !designerMessageText.trim()}
+                                                                style={{ padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+                                                            >{isSendingDesignerMessage ? 'Sending...' : 'Send'}</button>
+                                                        </form>
+                                                    </div>
+                                            </div>
+                                            )}
+
+                                            {/* Review and Message (CAD) redirect notice removed from Item Specification tab per UX request */}
                                             {/* Editable fields section - State A only */}
-                            {currentState !== 'C' && isEditable && currentState === 'A' ? (
+                            {false && currentState !== 'C' && isEditable && currentState === 'A' ? (
                                 <>
                                     {/* 3. Description */}
                                     <div style={{ marginBottom: '24px' }}>
@@ -5397,61 +5631,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     </div>
                                                                 )}
                                                                 {/* Step 1: Award project — when prototype approved but not yet awarded (button removed per requirements) */}
-                                                                {/* Step 1: Clarifications / Message Operator (before CAD submitted) */}
-                                                                {s.step_number === 1 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep && (
-                                                                    <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>Clarifications / Message Operator</div>
-                                                                        {!showDesignerMessageForm ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => { setShowDesignerMessageForm(true); loadDesignerMessages(); }}
-                                                                                style={{ width: '100%', padding: '12px', backgroundColor: '#111', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' }}
-                                                                            >
-                                                                                Open Clarifications / Message Operator
-                                                                            </button>
-                                                                        ) : (
-                                                                            <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                                                    <span style={{ fontSize: '12px', color: darkText }}>Clarifications with operator</span>
-                                                                                    <button type="button" onClick={() => setShowDesignerMessageForm(false)} style={{ background: 'none', border: 'none', color: darkText, fontSize: '18px', cursor: 'pointer', padding: '0 6px' }}>×</button>
-                                                                                </div>
-                                                                                <div id="n88-designer-messages-container-workflow" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
-                                                                                    {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
-                                                                                        [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
-                                                                                            const isDesigner = msg.sender_role === 'designer';
-                                                                                            const senderName = isDesigner ? 'You' : 'Operator';
-                                                                                            return (
-                                                                                                <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
-                                                                                                    <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
-                                                                                                        <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
-                                                                                                        {msg.message_text || ''}
-                                                                                                        <div style={{ fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            );
-                                                                                        })
-                                                                                    )}
-                                                                                </div>
-                                                                                <form onSubmit={sendDesignerMessage} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                                                                                    <textarea
-                                                                                        value={designerMessageText}
-                                                                                        onChange={(e) => setDesignerMessageText(e.target.value)}
-                                                                                        required
-                                                                                        rows={2}
-                                                                                        style={{ flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }}
-                                                                                        placeholder="Type your message here..."
-                                                                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }}
-                                                                                    />
-                                                                                    <button
-                                                                                        type="submit"
-                                                                                        disabled={isSendingDesignerMessage || !designerMessageText.trim()}
-                                                                                        style={{ padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
-                                                                                    >{isSendingDesignerMessage ? 'Sending...' : 'Send'}</button>
-                                                                                </form>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
+                                                                {/* Step 1: Clarifications / Message Operator (before CAD submitted) — moved to Item Spec Support box; hide in Workflow tab */}
+                                                                {null}
                                                                 {/* Generic State line: show for steps 2–6 only (Step 1 shows only milestone dots) */}
                                                                 {s.step_number !== 1 && (
                                                                     <div style={{ fontSize: '12px', color: darkText, marginBottom: '4px' }}>
@@ -5630,8 +5811,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                         </div>
                                                                     </div>
                                                                 )}
-                                                                {/* Step 2: Review and Message + CAD Review (after CAD submitted) */}
-                                                                {s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep && (
+                                                                {/* Step 2: Review and Message + CAD Review (after CAD submitted) – hidden in designer Project Workflow (moved to Item Spec Support box) */}
+                                                                {false && s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep && (
                                                                     <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
                                                                         <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>🎧 Review and Message</div>
                                                                         {!showDesignerMessageForm ? (
@@ -6105,9 +6286,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                         </div>
                                     )}
 
-                                    {/* Tab 2: Launch Brief */}
-                                    {activeTab === 'rfq' && (
+                                    {/* Launch Brief content (integrated into Mission Spec tab) */}
+                                    {activeTab === 'details' && (
                                         <div>
+                                            {/* Helper text before Request RFQ form — show always */}
+                                            <div style={{
+                                                marginBottom: '20px',
+                                                padding: '12px 16px',
+                                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                                border: `1px solid ${darkBorder}`,
+                                                borderRadius: '4px',
+                                                display: 'flex',
+                                                alignItems: 'flex-start',
+                                                gap: '10px',
+                                            }}>
+                                                <span style={{ fontSize: '18px', lineHeight: 1, opacity: 0.9 }} title="Helper">ℹ️</span>
+                                                <div style={{ flex: 1, fontSize: '12px', color: darkText, lineHeight: 1.5 }}>
+                                                    When you're ready, you can request quotes now or return later after refining your specifications.
+                                                </div>
+                                            </div>
                                             {/* RFQ Sent Status Indicator (State B Only) */}
                                             {currentState === 'B' && (
                                                 <div style={{
@@ -6242,6 +6439,32 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                                     fontFamily: 'monospace',
                                                                 }}
                                                             />
+                                                        </div>
+
+                                                        {/* Inline Update button for dimensions & quantity (always visible on Item Specification tab) */}
+                                                        <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                                                            <span style={{ fontSize: '11px', color: '#999' }}>
+                                                                Edit RFQ details and click <strong>Update</strong>.
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleUpdateDimensions}
+                                                                disabled={isSaving || isUploadingInspiration || isLockedAwaitingPayment}
+                                                                style={{
+                                                                    padding: '8px 16px',
+                                                                    backgroundColor: '#111111',
+                                                                    border: `1px solid ${darkBorder}`,
+                                                                    borderRadius: '4px',
+                                                                    color: darkText,
+                                                                    fontSize: '12px',
+                                                                    fontFamily: 'monospace',
+                                                                    cursor: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer',
+                                                                    fontWeight: '600',
+                                                                    opacity: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1,
+                                                                }}
+                                                            >
+                                                                {isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')}
+                                                            </button>
                                                         </div>
                                                     </div>
                                                     
@@ -8161,191 +8384,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                 </div>
                             </div>
                         </div>
-                        
-                        {/* Footer - Save button and Update button - Hidden in State C (when bids exist); Lock Designer: hidden when awaiting payment */}
-                        {(currentState === 'A' || currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && !isLockedAwaitingPayment && (
-                                <>
-                                    {/* Warning Banner - Show if dims/qty changed after RFQ with bids */}
-                                    {showWarningBanner && itemState.has_rfq && itemState.has_bids && (
-                                <div style={{ 
-                                            marginBottom: '16px',
-                                            padding: '12px',
-                                            backgroundColor: '#330000',
-                                            border: '1px solid #ff0000',
-                                    borderRadius: '4px',
-                                    fontSize: '12px', 
-                                            color: '#ff0000',
-                                }}>
-                                            ⚠️ Dims/Qty changed after RFQ. Existing bids may reflect previous values.
-                                </div>
-                                    )}
-                                    
-                                    {/* Redirected warning - Show if item is redirected and bids are available */}
-                                    {currentState === 'C' && item.redirected && itemState.bids && itemState.bids.length > 0 && (
-                                <div style={{ 
-                                            marginBottom: '16px',
-                                            padding: '12px',
-                                            backgroundColor: '#331100',
-                                            border: '1px solid #ff8800',
-                                    borderRadius: '4px',
-                                    fontSize: '12px',
-                                            color: '#ff8800',
-                                }}>
-                                            ⚠️ This item has been redirected. Existing bids may reflect previous routing.
-                                </div>
-                                    )}
-                                    
-                                    {/* Commit 2.3.5.4: Removed duplicate Description heading - already shown above in State B/C section */}
-                        
-                                    {/* Quantity, Dimensions, and Notes for suppliers - Hidden in State C (when bids exist) */}
-                                    {!itemState.has_bids && (
-                                    <div style={{ marginBottom: '24px' }}>
-                        <div style={{
-                                            border: `1px solid ${darkBorder}`,
-                                            borderRadius: '4px',
-                                            padding: '12px',
-                                            backgroundColor: '#111111',
-                                        }}>
-                                            {/* Quantity */}
-                                            <div style={{ marginBottom: '12px' }}>
-                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Quantity
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    value={quantity}
-                                                    onChange={(e) => setQuantity(e.target.value)}
-                                                    min="1"
-                                                    placeholder="1"
-                                style={{
-                                                        width: '100%',
-                                    padding: '8px',
-                                                        backgroundColor: darkBg,
-                                                        border: `1px solid ${darkBorder}`,
-                                    borderRadius: '4px',
-                                                        color: darkText,
-                                    fontSize: '12px',
-                                                        fontFamily: 'monospace',
-                                                    }}
-                                                />
-                                </div>
-                                            
-                                            {/* Dimensions */}
-                                            <div style={{ marginBottom: '12px' }}>
-                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Dimensions (provide ideal dimensions when applicable)
-                                                </label>
-                                                <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px auto', gap: '8px' }}>
-                                                    <input
-                                                        type="number"
-                                                        value={width}
-                                                        onChange={(e) => setWidth(e.target.value)}
-                                                        placeholder="W"
-                                                        step="0.01"
-                                                        style={{
-                                                            padding: '8px',
-                                                            backgroundColor: darkBg,
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            color: darkText,
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <input
-                                                        type="number"
-                                                        value={depth}
-                                                        onChange={(e) => setDepth(e.target.value)}
-                                                        placeholder="D"
-                                                        step="0.01"
-                                                        style={{
-                                                            padding: '8px',
-                                                            backgroundColor: darkBg,
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            color: darkText,
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <input
-                                                        type="number"
-                                                        value={height}
-                                                        onChange={(e) => setHeight(e.target.value)}
-                                                        placeholder="H"
-                                                        step="0.01"
-                                                        style={{
-                                                            padding: '8px',
-                                                            backgroundColor: darkBg,
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            color: darkText,
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                        }}
-                                                    />
-                                                    <select
-                                                        value={unit}
-                                                        onChange={(e) => setUnit(e.target.value)}
-                                                        style={{
-                                                            padding: '8px',
-                                                            backgroundColor: darkBg,
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            color: darkText,
-                                                            fontSize: '12px',
-                                                            fontFamily: 'monospace',
-                                                        }}
-                                                    >
-                                                        <option value="in">in</option>
-                                                        <option value="cm">cm</option>
-                                                        <option value="mm">mm</option>
-                                                        <option value="m">m</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            
-                                            {/* Notes for suppliers */}
-                                            <div style={{ marginBottom: '0' }}>
-                                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                                                    Notes for suppliers (optional)
-                                                </label>
-                                                <textarea
-                                                    value={smartAlternativesNote}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        if (val.length <= 240) {
-                                                            setSmartAlternativesNote(val);
-                                                        }
-                                                    }}
-                                                    placeholder="[ Add notes for suppliers ]"
-                                                    maxLength={240}
-                                                    style={{
-                                                        width: '100%',
-                                                        minHeight: '60px',
-                                                        padding: '8px',
-                                                        backgroundColor: darkBg,
-                                                        border: `1px solid ${darkBorder}`,
-                                                        borderRadius: '4px',
-                                                        color: darkText,
-                                                        fontSize: '12px',
-                                                        fontFamily: 'monospace',
-                                                        resize: 'vertical',
-                                                    }}
-                                                />
-                                            </div>
-                                            {/* Edit RFQ details - show only when RFQ submitted, in dimension/qty update box */}
-                                            {itemState.has_rfq && (
-                                                <div style={{ marginTop: '12px', fontSize: '11px', color: '#999', textAlign: 'center', fontFamily: 'monospace' }}>
-                                                    Edit RFQ details and click Update.
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    )}
-                                </>
-                            )}
-                        
                         {/* Footer - Save button and Update button - Hidden in State C (when bids exist); Lock Designer: hidden when awaiting payment */}
                         {(currentState === 'A' || currentState === 'B' || (currentState === 'C' && !itemState.has_bids)) && !isLockedAwaitingPayment && (
                         <div style={{

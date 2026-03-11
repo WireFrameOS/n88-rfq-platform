@@ -9760,46 +9760,92 @@
                             }
                         },
                             React.createElement('div', { style: { fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '1.2' } }, item.title || item.description || ('Item ' + item.id)),
+                            // Status + Support row
                             React.createElement('div', {
                                 style: {
                                     display: 'flex',
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: '6px',
+                                    flexDirection: (currentSize === 'S' || currentSize === 'D') ? 'column' : 'row',
+                                    alignItems: (currentSize === 'S' || currentSize === 'D') ? 'flex-start' : 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '4px',
                                     fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
                                     color: '#333'
                                 }
                             },
-                                React.createElement('span', {
+                                // Left side: status dot + text
+                                React.createElement('div', {
                                     style: {
-                                        width: '8px',
-                                        height: '8px',
-                                        borderRadius: '50%',
-                                        backgroundColor: itemStatus.dot,
-                                        display: 'inline-block',
-                                        flexShrink: 0
+                                        display: 'flex',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: '6px',
                                     }
-                                }),
-                                React.createElement('span', {
+                                },
+                                    React.createElement('span', {
+                                        style: {
+                                            width: '8px',
+                                            height: '8px',
+                                            borderRadius: '50%',
+                                            backgroundColor: itemStatus.dot,
+                                            display: 'inline-block',
+                                            flexShrink: 0
+                                        }
+                                    }),
+                                    React.createElement('span', {
+                                        style: {
+                                            fontWeight: 500,
+                                            lineHeight: '1.2',
+                                            wordBreak: 'break-word',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis'
+                                        }
+                                    }, itemStatus.text),
+                                    // Action Required Indicator (if needed)
+                                    item.action_required ? React.createElement('span', {
+                                        style: {
+                                            fontSize: '10px',
+                                            color: '#ff9800',
+                                            marginLeft: '4px',
+                                            flexShrink: 0
+                                        },
+                                        title: 'Action Required'
+                                    }, '⚠') : null
+                                ),
+                                // Right side: Support link (for all sizes)
+                                React.createElement('a', {
+                                    href: '#',
+                                    onClick: function(e) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        var h = props._modalHandlers;
+                                        if (h && typeof h.openSupport === 'function') {
+                                            h.openSupport();
+                                        } else {
+                                            setIsModalOpen(true);
+                                        }
+                                    },
                                     style: {
-                                        fontWeight: 500,
-                                        lineHeight: '1.2',
-                                        wordBreak: 'break-word',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis'
-                                    }
-                                }, itemStatus.text),
-                                // Action Required Indicator (if needed)
-                                item.action_required ? React.createElement('span', {
-                                    style: {
-                                        fontSize: '10px',
-                                        color: '#ff9800',
-                                        marginLeft: '4px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        marginTop: (currentSize === 'S' || currentSize === 'D') ? '2px' : 0,
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
+                                        cursor: 'pointer',
+                                        fontSize: (currentSize === 'S' || currentSize === 'D') ? '9px' : '10px',
+                                        color: '#666',
+                                        fontFamily: 'inherit',
+                                        textDecoration: 'underline',
                                         flexShrink: 0
                                     },
-                                    title: 'Action Required'
-                                }, '⚠') : null
+                                    title: 'Open Item Specification and Support',
+                                    role: 'button'
+                                },
+                                    React.createElement('span', { 'aria-hidden': 'true' }, '\uD83C\uDFA7'),
+                                    React.createElement('span', null, 'Support')
+                                )
                             ),
                             // Sizes Button Row - hidden (use context menu for size)
                             React.createElement('div', {
@@ -10250,7 +10296,7 @@
                                     return React.createElement('tr', { key: 'proto-del' }, React.createElement('td', { style: rowLabelStylePHP }, 'Prototype Delivery'), React.createElement('td', { style: rowValueStylePHP }, protoText));
                                 })(),
                                 React.createElement('tr', { key: 'prod-h' }, React.createElement('td', { colSpan: 2, style: sectionHeaderStylePHP }, 'Production')),
-                                bid.production_lead_time ? React.createElement('tr', { key: 'leadtime' }, React.createElement('td', { style: rowLabelStylePHP }, 'Production Lead Time'), React.createElement('td', { style: rowValueStylePHP }, bid.production_lead_time)) : null,
+                                bid.production_lead_time ? React.createElement('tr', { key: 'leadtime' }, React.createElement('td', { style: rowLabelStylePHP }, 'Project Workflow'), React.createElement('td', { style: rowValueStylePHP }, bid.production_lead_time)) : null,
                                 bid.unit_price !== null ? React.createElement('tr', { key: 'unitprice' }, React.createElement('td', { style: rowLabelStylePHP }, 'Unit Price'), React.createElement('td', { style: rowValueStylePHP }, '$' + (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)).toFixed(2) + (bid.total_price && bid.item_quantity > 1 ? ' (Total: $' + parseFloat(bid.total_price).toFixed(2) + ')' : ''))) : null,
                                 React.createElement('tr', { key: 'log-h' }, React.createElement('td', { colSpan: 2, style: sectionHeaderStylePHP }, 'Logistics')),
                                 (function() {
@@ -10904,7 +10950,7 @@
                                             alignItems: 'center',
                                             whiteSpace: 'nowrap',
                                         }
-                                    }, 'Production Lead Time'),
+                                    }, 'Project Workflow'),
                                     displayBids.map(function(bid, idx) {
                                         return React.createElement('div', {
                                             key: 'leadtime-' + bid.bid_id,
@@ -11766,6 +11812,7 @@
                     var ItemDetailModalInline = function(props) {
                         var item = props.item;
                         var isOpen = props.isOpen;
+                        var openToDetailsAndSupport = props.openToDetailsAndSupport || false;
                         var onClose = props.onClose;
                         var onSave = props.onSave;
                         var boardId = props.boardId;
@@ -12246,7 +12293,7 @@
 
                         // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
                         React.useEffect(function() {
-                            if (!initialTabProp) return;
+                            if (!initialTabProp || openToDetailsAndSupport) return;
                             if (activeTab !== initialTabProp) {
                                 setActiveTab(initialTabProp);
                             }
@@ -12268,8 +12315,28 @@
                         var supplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[0];
                         var setSupplierStepEvidenceLoading = _supplierStepEvidenceLoadingState[1];
                         
-                        // Auto-select tab: CAD/messages pending → Step 2; CAD released or video submitted → Step 3; payment approved → Step 1; else bids/rfq/details
+                        // When opened from card Support link: switch to Item Spec tab and open Support (messages) box
                         React.useEffect(function() {
+                            if (!isOpen || !openToDetailsAndSupport) return;
+                            setActiveTab('details');
+                            setShowDesignerMessageForm(true);
+                            if (typeof loadDesignerMessages === 'function') {
+                                loadDesignerMessages();
+                            }
+                            try {
+                                setTimeout(function() {
+                                    var el = document.getElementById('n88-item-spec-support-box');
+                                    if (el && el.scrollIntoView) {
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                    }
+                                }, 300);
+                            } catch (e) {}
+                        }, [isOpen, openToDetailsAndSupport]);
+                        
+                        // Auto-select tab: CAD/messages pending → Step 2; CAD released or video submitted → Step 3; payment approved → Step 1; else bids/rfq/details
+                        // Skip when opened from Support link so we stay on Item Spec + chat box
+                        React.useEffect(function() {
+                            if (openToDetailsAndSupport) return;
                             if (itemState.loading) return;
                             if (skipNextTabSwitchFromCadActionRef.current) {
                                 skipNextTabSwitchFromCadActionRef.current = false;
@@ -12317,12 +12384,10 @@
                             if (itemState.has_bids && itemState.bids && itemState.bids.length > 0) {
                                 setActiveTab('timeline');
                                 setSelectedStepIndex(0); // Step 1: Design & Specifications (quotes, request CAD, payment)
-                            } else if (itemState.has_rfq) {
-                                setActiveTab('rfq');
                             } else {
                                 setActiveTab('details');
                             }
-                        }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status]);
+                        }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, openToDetailsAndSupport]);
                         
                         // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                         React.useEffect(function() {
@@ -14538,21 +14603,6 @@
                                                 }
                                             }, 'Item Specification'),
                                             React.createElement('button', {
-                                                onClick: function() { setActiveTab('rfq'); },
-                                                style: {
-                                                    flex: 1,
-                                                    padding: '12px 16px',
-                                                    background: activeTab === 'rfq' ? '#111111' : 'transparent',
-                                                    border: 'none',
-                                                    borderBottom: activeTab === 'rfq' ? '2px solid ' + greenAccent : 'none',
-                                                    color: activeTab === 'rfq' ? greenAccent : darkText,
-                                                    fontSize: '12px',
-                                                    fontWeight: activeTab === 'rfq' ? '600' : '400',
-                                                    cursor: 'pointer',
-                                                    fontFamily: 'monospace',
-                                                }
-                                            }, 'Request Quote'),
-                                            React.createElement('button', {
                                                 onClick: function() { setActiveTab('timeline'); },
                                                 style: {
                                                     flex: 1,
@@ -14566,7 +14616,7 @@
                                                     cursor: 'pointer',
                                                     fontFamily: 'monospace',
                                                 }
-                                            }, 'Production Lead Time'),
+                                            }, 'Project Workflow'),
                                             false ? React.createElement('button', {
                                                 onClick: function() { setActiveTab('bids'); },
                                                 style: { flex: 1, padding: '12px 16px', background: activeTab === 'bids' ? '#111111' : 'transparent', border: 'none', borderBottom: activeTab === 'bids' ? '2px solid ' + greenAccent : 'none', color: activeTab === 'bids' ? greenAccent : darkText, fontSize: '12px', fontWeight: activeTab === 'bids' ? '600' : '400', cursor: 'pointer', fontFamily: 'monospace' }
@@ -14647,79 +14697,9 @@
                                                         onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
                                                         onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
                                                     }, 'Open Workflow \u2192 ' + ((Number(itemState.cad_current_version) || 0) > 0 ? 'Step 2 (Review and Message)' : 'Step 1 (Clarifications)'))) : null,
-                                                // Item Title
-                                                React.createElement('div', {
-                                                    style: { fontSize: '16px', fontWeight: '600', marginBottom: '20px' }
-                                                }, item.title || item.description || 'Untitled Item'),
-                                                // RFQ Sent Status Indicator moved to Request Quote tab
-                                                // Editable fields section - State A only
-                                                currentState !== 'C' && isEditable && currentState === 'A' ? React.createElement(React.Fragment, null,
-                                                    // Description
-                                                    React.createElement('div', {
-                                                        style: { marginBottom: '24px' }
-                                                    },
-                                                        React.createElement('label', {
-                                                            style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                        }, 'Description (tell us what you\'re sourcing)'),
-                                                        React.createElement('textarea', {
-                                                            value: description,
-                                                            onChange: function(e) { setDescription(e.target.value); },
-                                                            placeholder: 'Item description',
-                                                            rows: 3,
-                                                            style: {
-                                                                width: '100%',
-                                                                padding: '8px',
-                                                                backgroundColor: darkBg,
-                                                                border: '1px solid ' + darkBorder,
-                                                                borderRadius: '4px',
-                                                                color: darkText,
-                                                                fontSize: '12px',
-                                                                fontFamily: 'monospace',
-                                                                resize: 'vertical',
-                                                            }
-                                                        })
-                                                    ),
-                                                    // Category
-                                                    React.createElement('div', {
-                                                        style: { marginBottom: '24px' }
-                                                    },
-                                                        React.createElement('label', {
-                                                            style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
-                                                        }, 'Category'),
-                                                        React.createElement('select', {
-                                                            value: category,
-                                                            onChange: function(e) { setCategory(e.target.value); },
-                                                            style: {
-                                                                width: '100%',
-                                                                padding: '8px',
-                                                                backgroundColor: darkBg,
-                                                                border: '1px solid ' + darkBorder,
-                                                                borderRadius: '4px',
-                                                                color: darkText,
-                                                                fontSize: '12px',
-                                                                fontFamily: 'monospace',
-                                                            }
-                                                        },
-                                                            React.createElement('option', { value: '' }, '-- Select Category --'),
-                                                            React.createElement('option', { value: 'UPHOLSTERY' }, 'UPHOLSTERY'),
-                                                            React.createElement('option', { value: 'INDOOR FURNITURE (CASEGOODS)' }, 'INDOOR FURNITURE (CASEGOODS)'),
-                                                            React.createElement('option', { value: 'OUTDOOR FURNITURE' }, 'OUTDOOR FURNITURE'),
-                                                            React.createElement('option', { value: 'LIGHTING' }, 'LIGHTING'),
-                                                            React.createElement('option', { value: 'STONE (MARBLE / GRANITE / QUARTZ)' }, 'STONE (MARBLE / GRANITE / QUARTZ)'),
-                                                            React.createElement('option', { value: 'METALWORK' }, 'METALWORK'),
-                                                            React.createElement('option', { value: 'MILLWORK / CABINETRY' }, 'MILLWORK / CABINETRY'),
-                                                            React.createElement('option', { value: 'FLOORING' }, 'FLOORING'),
-                                                            React.createElement('option', { value: 'DRAPERY / WINDOW TREATMENTS' }, 'DRAPERY / WINDOW TREATMENTS'),
-                                                            React.createElement('option', { value: 'GLASS / MIRRORS' }, 'GLASS / MIRRORS'),
-                                                            React.createElement('option', { value: 'HARDWARE / ACCESSORIES' }, 'HARDWARE / ACCESSORIES'),
-                                                            React.createElement('option', { value: 'RUGS / CARPETS' }, 'RUGS / CARPETS'),
-                                                            React.createElement('option', { value: 'WALLCOVERINGS / FINISHES' }, 'WALLCOVERINGS / FINISHES'),
-                                                            React.createElement('option', { value: 'APPLIANCES' }, 'APPLIANCES'),
-                                                            React.createElement('option', { value: 'OTHER' }, 'OTHER')
-                                                        )
-                                                    )
-                                                ) : (currentState === 'B' || currentState === 'C') ? (
-                                                    // State B and C: Show complete Item Specification box
+                                                // Unified Item Specification summary (all states)
+                                                (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
+                                                    // State A, B and C: Show complete Item Specification box
                                                     React.createElement(React.Fragment, null,
                                                         React.createElement('div', {
                                                             style: {
@@ -14838,8 +14818,50 @@
                                                     )
                                                 ) : null
                                             ) : null,
-                                            // Tab 2: Request Quote
-                                            activeTab === 'rfq' ? React.createElement('div', null,
+                                            // Support box in Item Spec (same as Step 01 workflow): operator–designer chat — show only on Item Spec tab (details)
+                                            activeTab === 'details' ? React.createElement('div', { id: 'n88-item-spec-support-box', style: { marginBottom: '24px' } },
+                                                React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' } }, 'Support'),
+                                                React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '12px', backgroundColor: '#111' } },
+                                                    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
+                                                        React.createElement('span', { style: { fontSize: '12px', color: darkText } }, 'Check files for CAD · Check messages below')
+                                                    ),
+                                                    React.createElement('div', { id: 'n88-designer-messages-container-details-admin', style: { height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
+                                                        isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation…') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px' } }, 'No messages yet.') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
+                                                            var isD = msg.sender_role === 'designer';
+                                                            var senderName = isD ? 'You' : 'Operator';
+                                                            return React.createElement('div', { key: idx, style: { marginBottom: '10px', textAlign: isD ? 'right' : 'left' } },
+                                                                React.createElement('div', { style: { display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' } },
+                                                                    React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 4 } }, senderName),
+                                                                    React.createElement('div', null, (msg.message_text || '').substring(0, 2000)),
+                                                                    React.createElement('div', { style: { fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
+                                                                )
+                                                            );
+                                                        })
+                                                    ),
+                                                    React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
+                                                        React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 2, style: { flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }, placeholder: 'Type your message here...' }),
+                                                        React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !designerMessageText.trim(), style: { padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' } }, isSendingDesignerMessage ? 'Sending...' : 'Send')
+                                                    )
+                                                )
+                                            ) : null,
+                                            // Request Quote content (integrated into Item Specification tab)
+                                            activeTab === 'details' ? React.createElement('div', null,
+                                                // Helper text before Request RFQ form — show always
+                                                React.createElement('div', {
+                                                    style: {
+                                                        marginBottom: '20px',
+                                                        padding: '12px 16px',
+                                                        backgroundColor: 'rgba(0,0,0,0.2)',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: '10px',
+                                                    }
+                                                },
+                                                    React.createElement('span', { style: { fontSize: '18px', lineHeight: 1, opacity: 0.9 }, title: 'Helper' }, '\u2139\uFE0F'),
+                                                    React.createElement('div', { style: { flex: 1, fontSize: '12px', color: darkText, lineHeight: 1.5 } }, "When you're ready, you can request quotes now or return later after refining your specifications.")
+                                                ),
                                                 // RFQ Sent Status Indicator (State B Only)
                                                 currentState === 'B' ? React.createElement('div', {
                                                     style: {
@@ -14961,7 +14983,7 @@
                                             React.createElement('div', {
                                                 style: { marginBottom: '12px' }
                                             },
-                                            React.createElement('label', {
+                                                React.createElement('label', {
                                                     style: { display: 'block', fontSize: '12px', marginBottom: '4px' }
                                                 }, 'Quantity'),
                                                 React.createElement('input', {
@@ -14969,19 +14991,42 @@
                                                     value: quantity,
                                                     onChange: function(e) { setQuantity(e.target.value); },
                                                     min: '1',
-                                                style: {
+                                                    style: {
                                                         width: '100%',
                                                         padding: '8px',
                                                         backgroundColor: darkBg,
                                                         border: '1px solid ' + darkBorder,
-                                                    borderRadius: '4px',
+                                                        borderRadius: '4px',
                                                         color: darkText,
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
-                                                }
-                                                }),
-                                                // Commit 2.3.5.3: CBM calculation removed from display (kept in background for later use)
-                                                null
+                                                    }
+                                                })
+                                            ),
+                                            // Inline Update button for dimensions & quantity (always visible on Item Specification tab) - admin view
+                                            React.createElement('div', {
+                                                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', marginBottom: '16px', gap: '8px' }
+                                            },
+                                                React.createElement('span', {
+                                                    style: { fontSize: '11px', color: '#999' }
+                                                }, 'Edit RFQ details and click ', React.createElement('strong', null, 'Update'), '.'),
+                                                React.createElement('button', {
+                                                    type: 'button',
+                                                    onClick: handleUpdateDimensions,
+                                                    disabled: isSaving || isUploadingInspiration || isLockedAwaitingPayment,
+                                                    style: {
+                                                        padding: '8px 16px',
+                                                        backgroundColor: '#111111',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        color: darkText,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'monospace',
+                                                        cursor: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer',
+                                                        fontWeight: '600',
+                                                        opacity: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1,
+                                                    }
+                                                }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update'))
                                             ),
                                             // Delivery Country
                                             React.createElement('div', {
@@ -15460,7 +15505,30 @@
                                                 ),
                                                 itemState.has_rfq ? React.createElement('div', {
                                                     style: { marginTop: '12px', fontSize: '11px', color: '#999', textAlign: 'center', fontFamily: 'monospace' }
-                                                }, 'Edit RFQ details and click Update.') : null
+                                                },
+                                                    'Edit RFQ details and click Update.',
+                                                    React.createElement('div', {
+                                                        style: { marginTop: '8px' }
+                                                    },
+                                                        React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: handleUpdateDimensions,
+                                                            disabled: isSaving || isUploadingInspiration || isLockedAwaitingPayment,
+                                                            style: {
+                                                                padding: '8px 16px',
+                                                                backgroundColor: '#111111',
+                                                                border: '1px solid ' + darkBorder,
+                                                                borderRadius: '4px',
+                                                                color: darkText,
+                                                                fontSize: '12px',
+                                                                fontFamily: 'monospace',
+                                                                cursor: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer',
+                                                                fontWeight: '600',
+                                                                opacity: (isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1,
+                                                            }
+                                                        }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update'))
+                                                    )
+                                                ) : null
                                             ),
                                             // Instructional microcopy - Outside the box; hide when locked awaiting payment
                                         )
@@ -16993,7 +17061,7 @@
                                                                 itemState.workflow_milestones.step2.cad_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· CAD approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_approved_at))) : null,
                                                                 itemState.workflow_milestones.step2.cad_released_to_supplier_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Final CAD file submitted to supplier — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_released_to_supplier_at))) : null
                                                             ) : null,
-                                                            (s.step_number === 2 && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                            (false && s.step_number === 2 && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                 !showDesignerMessageForm ? React.createElement('button', {
                                                                     type: 'button',
                                                                     onClick: function() { setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
@@ -18181,6 +18249,9 @@
                         var _modalState = React.useState(false);
                         var isModalOpen = _modalState[0];
                         var setIsModalOpen = _modalState[1];
+                        var _supportState = React.useState(false);
+                        var openModalToSupport = _supportState[0];
+                        var setOpenModalToSupport = _supportState[1];
                         var _initialTabState = React.useState('details');
                         var initialTab = _initialTabState[0];
                         var setInitialTab = _initialTabState[1];
@@ -18191,9 +18262,15 @@
                         boardItemProps._modalHandlers = {
                             open: function() { 
                                 setInitialTab('details');
+                                setOpenModalToSupport(false);
                                 setIsModalOpen(true);
                             },
-                            close: function() { setIsModalOpen(false); }
+                            openSupport: function() {
+                                setInitialTab('details');
+                                setOpenModalToSupport(true);
+                                setIsModalOpen(true);
+                            },
+                            close: function() { setOpenModalToSupport(false); setIsModalOpen(false); }
                         };
 
                         // Auto-open RFQ tab for newly created items (Commit 3.C.4) via global event
@@ -18311,8 +18388,10 @@
                             React.createElement(ItemDetailModalInline, {
                                 item: item,
                                 isOpen: isModalOpen,
+                                openToDetailsAndSupport: openModalToSupport,
                                 onClose: function() {
                                     try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
+                                    setOpenModalToSupport(false);
                                     setIsModalOpen(false);
                                 },
                                 onSave: handleSave,

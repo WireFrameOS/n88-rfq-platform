@@ -46,6 +46,7 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
     
     // Commit 1.3.8: Modal state
     const [isModalOpen, setIsModalOpen] = React.useState(false);
+    const [openModalToSupport, setOpenModalToSupport] = React.useState(false);
     // Context menu (three-dots) open state
     const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
     const contextMenuRef = React.useRef(null);
@@ -794,9 +795,46 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
                         <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '12px' : '14px', fontWeight: 700, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {itemTitle}
                         </div>
-                        <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', color: '#888' }}>
-                            • {itemStatus.text}
-                        </div>
+                        {/* Status row: for S/D show status and Support on separate lines; for L/XL show side by side */}
+                        {(currentSize === 'S' || currentSize === 'D') ? (
+                            <>
+                                <div style={{ fontSize: (currentSize === 'S' || currentSize === 'D') ? '10px' : '12px', color: '#888' }}>
+                                    • {itemStatus.text}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpenModalToSupport(true); setIsModalOpen(true); }}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px',
+                                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                        fontSize: '10px', color: '#666', fontFamily: 'inherit',
+                                    }}
+                                    title="Open Item Specification and Support"
+                                >
+                                    <span aria-hidden="true">🎧</span>
+                                    <span>Support</span>
+                                </button>
+                            </>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: '12px', color: '#888' }}>
+                                    • {itemStatus.text}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpenModalToSupport(true); setIsModalOpen(true); }}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                        fontSize: '11px', color: '#666', fontFamily: 'inherit',
+                                    }}
+                                    title="Open Item Specification and Support"
+                                >
+                                    <span aria-hidden="true">🎧</span>
+                                    <span>Support</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -807,8 +845,10 @@ const BoardItem = ({ item, onLayoutChanged, onSizeChange, boardId }) => {
                 isOpen={isModalOpen}
                 onClose={() => {
                     window.dispatchEvent(new CustomEvent('n88-board-refresh-status'));
+                    setOpenModalToSupport(false);
                     setIsModalOpen(false);
                 }}
+                openToDetailsAndSupport={openModalToSupport}
                 boardId={boardId}
                 priceRequested={priceRequested}
                 onPriceRequest={() => setPriceRequested(true)}

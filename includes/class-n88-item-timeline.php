@@ -12,12 +12,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class N88_Item_Timeline {
 
     const STEP_LABELS = array(
-        1 => 'Design & Specifications',
-        2 => 'Technical Review & Documentation',
-        3 => 'Pre-Production Approval',
-        4 => 'Production / Fabrication',
+        1 => 'Supplier Proposals',
+        2 => 'Evaluation',
+        3 => 'Project Award',
+        4 => 'Production',
         5 => 'Quality Review & Packing',
-        6 => 'Logistics & Delivery',
+        6 => 'Delivery',
     );
 
     const STATUS_PENDING    = 'pending';
@@ -130,7 +130,7 @@ class N88_Item_Timeline {
             $step_data = array(
                 'step_id'              => (int) $row['step_id'],
                 'step_number'          => $step_number,
-                'label'                => $row['label'],
+                'label'                => isset( self::STEP_LABELS[ $step_number ] ) ? self::STEP_LABELS[ $step_number ] : $row['label'],
                 'status'               => $row['status'],
                 'display_status'       => $is_delayed ? self::STATUS_DELAYED : $row['status'],
                 'started_at'           => $row['started_at'],
