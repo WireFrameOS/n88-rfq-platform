@@ -1735,6 +1735,27 @@ class N88_Items {
         if ( array_key_exists( 'rfq_fabric_notes', $payload ) ) {
             $meta['rfq_fabric_notes'] = sanitize_textarea_field( $payload['rfq_fabric_notes'] );
         }
+        if ( array_key_exists( 'rfq_draft_invited_suppliers', $payload ) ) {
+            $raw_invites = $payload['rfq_draft_invited_suppliers'];
+            $clean_invites = array();
+            if ( is_array( $raw_invites ) ) {
+                foreach ( $raw_invites as $invite ) {
+                    $invite = trim( (string) $invite );
+                    if ( $invite === '' ) {
+                        continue;
+                    }
+                    $clean_invites[] = substr( sanitize_text_field( $invite ), 0, 255 );
+                    if ( count( $clean_invites ) >= 5 ) {
+                        break;
+                    }
+                }
+            }
+            $meta['rfq_draft_invited_suppliers'] = $clean_invites;
+        }
+        if ( array_key_exists( 'rfq_draft_allow_system_invites', $payload ) ) {
+            $v = $payload['rfq_draft_allow_system_invites'];
+            $meta['rfq_draft_allow_system_invites'] = ( $v === true || $v === 'true' || $v === 1 || $v === '1' );
+        }
         
         // COMMIT 3.C.3: Log rfq_field_updated and file_caption_updated events when values changed
         $current_user_id = get_current_user_id();
@@ -2351,4 +2372,3 @@ class N88_Items {
         ) );
     }
 }
-

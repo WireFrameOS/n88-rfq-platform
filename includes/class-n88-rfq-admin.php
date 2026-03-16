@@ -758,7 +758,7 @@ class N88_RFQ_Admin {
                                             <tr style="background: #fff3cd; border-bottom: 2px solid #ff9800;">
                                                 <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Item #</th>
                                                 <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Material</th>
-                                                <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Dimensions (L×D×H)</th>
+                                                <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Dimensions (LxDxH)</th>
                                                 <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Quantity</th>
                                                 <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Construction Notes</th>
                                                 <th style="padding: 12px; text-align: left; font-weight: 700; color: #856404;">Notes</th>
@@ -787,7 +787,7 @@ class N88_RFQ_Admin {
                                                 <tr style="border-bottom: 1px solid #eee; background: <?php echo ( $index % 2 === 0 ) ? '#fff' : '#fffbf0'; ?>;">
                                                     <td style="padding: 12px; font-weight: 700; color: #ff9800; font-size: 16px;">#<?php echo esc_html( $item_num ); ?></td>
                                                     <td style="padding: 12px;"><?php echo esc_html( $primary_material ?: '—' ); ?></td>
-                                                    <td style="padding: 12px; font-weight: 600;"><?php echo esc_html( $length . '×' . $depth . '×' . $height ); ?></td>
+                                                    <td style="padding: 12px; font-weight: 600;"><?php echo esc_html( $length . 'x' . $depth . 'x' . $height ); ?></td>
                                                     <td style="padding: 12px; font-weight: 600;"><?php echo esc_html( $item['quantity'] ?? '—' ); ?></td>
                                                     <td style="padding: 12px; color: #666;"><?php echo nl2br( esc_html( $item['construction_notes'] ?? '—' ) ); ?></td>
                                                     <td style="padding: 12px; color: #666; max-width: 200px;"><?php echo esc_html( $item['notes'] ?? '—' ); ?></td>
@@ -1251,7 +1251,7 @@ class N88_RFQ_Admin {
                                             'unit_price' => 0,
                                             'quantity' => $item['quantity'] ?? 0,
                                             'total_price' => 0,
-                                            'dimensions' => trim( sprintf( '%s × %s × %s', $length, $depth, $height ) ),
+                                            'dimensions' => trim( sprintf( '%s x %s x %s', $length, $depth, $height ) ),
                                             'material' => $item['primary_material'] ?? $item['materials']['primary'] ?? '',
                                             'notes' => $item['notes'] ?? '',
                                         );
@@ -1290,7 +1290,7 @@ class N88_RFQ_Admin {
                                                                 'unit_price' => 0,
                                                                 'quantity' => $item['quantity'] ?? 0,
                                                                 'total_price' => 0,
-                                                                'dimensions' => trim( sprintf( '%s × %s × %s', $length, $depth, $height ) ),
+                                                                'dimensions' => trim( sprintf( '%s x %s x %s', $length, $depth, $height ) ),
                                                                 'material' => $item['primary_material'] ?? $item['materials']['primary'] ?? '',
                                                                 'notes' => $item['notes'] ?? '',
                                                             );
@@ -1305,7 +1305,7 @@ class N88_RFQ_Admin {
                                                                 <span style="font-weight: 600;"><?php echo esc_html( $quote_item['item_id'] ?? 'item_' . $index ); ?></span>
                                                             </td>
                                                             <td style="padding: 10px;">
-                                                                <input type="text" name="quote_items[<?php echo esc_attr( $index ); ?>][dimensions]" value="<?php echo esc_attr( $quote_item['dimensions'] ?? '' ); ?>" class="regular-text" placeholder="L × D × H" style="width: 100%;">
+                                                                <input type="text" name="quote_items[<?php echo esc_attr( $index ); ?>][dimensions]" value="<?php echo esc_attr( $quote_item['dimensions'] ?? '' ); ?>" class="regular-text" placeholder="L x D x H" style="width: 100%;">
                                                             </td>
                                                             <td style="padding: 10px;">
                                                                 <input type="text" name="quote_items[<?php echo esc_attr( $index ); ?>][material]" value="<?php echo esc_attr( $quote_item['material'] ?? '' ); ?>" class="regular-text" style="width: 100%;">
@@ -1327,7 +1327,7 @@ class N88_RFQ_Admin {
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <p class="description" style="margin-top: 10px;">💡 <strong>Tip:</strong> Unit Price × Quantity = Total Price (auto-calculated)</p>
+                                        <p class="description" style="margin-top: 10px;">💡 <strong>Tip:</strong> Unit Price x Quantity = Total Price (auto-calculated)</p>
                     </div>
                 <?php endif; ?>
 
@@ -1347,7 +1347,7 @@ class N88_RFQ_Admin {
                                                 <thead>
                                                     <tr style="background: #f5f5f5;">
                                                         <th style="width: 50px; padding: 10px;">#</th>
-                                                        <th style="padding: 10px;">Dimensions (L × D × H)</th>
+                                                        <th style="padding: 10px;">Dimensions (L x D x H)</th>
                                                         <th style="padding: 10px;">Qty</th>
                                                         <th style="padding: 10px;">Primary Material</th>
                                                         <th style="padding: 10px;">Finishes</th>
@@ -1364,9 +1364,9 @@ class N88_RFQ_Admin {
                                                             <td style="padding: 10px; text-align: center; font-weight: bold;"><?php echo esc_html( $index + 1 ); ?></td>
                                                             <td style="padding: 10px;">
                                                                 <input type="text" name="project_items[<?php echo esc_attr( $index ); ?>][dimensions_length]" value="<?php echo esc_attr( $length ); ?>" placeholder="Length" style="width: 80px; margin-right: 5px;">
-                                                                <span>×</span>
+                                                                <span>x</span>
                                                                 <input type="text" name="project_items[<?php echo esc_attr( $index ); ?>][dimensions_depth]" value="<?php echo esc_attr( $depth ); ?>" placeholder="Depth" style="width: 80px; margin: 0 5px;">
-                                                                <span>×</span>
+                                                                <span>x</span>
                                                                 <input type="text" name="project_items[<?php echo esc_attr( $index ); ?>][dimensions_height]" value="<?php echo esc_attr( $height ); ?>" placeholder="Height" style="width: 80px; margin-left: 5px;">
                                                             </td>
                                                             <td style="padding: 10px;">
@@ -1531,7 +1531,7 @@ class N88_RFQ_Admin {
                             (function($) {
                                 'use strict';
                                 
-                                // Auto-calculate total price (unit_price × quantity)
+                                // Auto-calculate total price (unit_price x quantity)
                                 $(document).on('input', '.n88-quote-unit-price, .n88-quote-qty', function() {
                                     var $row = $(this).closest('tr');
                                     var unitPrice = parseFloat($row.find('.n88-quote-unit-price').val()) || 0;
@@ -1811,7 +1811,7 @@ class N88_RFQ_Admin {
                                 <thead>
                                     <tr>
                                         <th style="width: 60px;">#</th>
-                                        <th>Dimensions (L × D × H)</th>
+                                        <th>Dimensions (L x D x H)</th>
                                         <th>Qty</th>
                                         <th>Primary Material</th>
                                         <th>Finishes</th>
@@ -1827,7 +1827,7 @@ class N88_RFQ_Admin {
                                                 $length = isset( $item['length_in'] ) ? $item['length_in'] : ( $item['dimensions']['length'] ?? '' );
                                                 $depth  = isset( $item['depth_in'] ) ? $item['depth_in'] : ( $item['dimensions']['depth'] ?? '' );
                                                 $height = isset( $item['height_in'] ) ? $item['height_in'] : ( $item['dimensions']['height'] ?? '' );
-                                                echo esc_html( trim( sprintf( '%s × %s × %s', $length, $depth, $height ) ) );
+                                                echo esc_html( trim( sprintf( '%s x %s x %s', $length, $depth, $height ) ) );
                                                 ?>
                                             </td>
                                             <td><?php echo esc_html( $item['quantity'] ?? 0 ); ?></td>
@@ -2547,7 +2547,7 @@ class N88_RFQ_Admin {
                                             </select>
                                         </div>
                                     </div>
-                                    <p class="description">Optional: Enter dimensions (W × D × H)</p>
+                                    <p class="description">Optional: Enter dimensions (W x D x H)</p>
                                 </td>
                             </tr>
                             <tr>
@@ -2567,10 +2567,10 @@ class N88_RFQ_Admin {
                                 <th><label for="item-size">Default Size</label></th>
                                 <td>
                                     <select id="item-size" name="size" style="width: 100%;">
-                                        <option value="S" selected>S (160×200px) - Default</option>
-                                        <option value="D">D (200×250px)</option>
-                                        <option value="L">L (280×350px)</option>
-                                        <option value="XL">XL (360×450px)</option>
+                                        <option value="S" selected>S (160x200px) - Default</option>
+                                        <option value="D">D (200x250px)</option>
+                                        <option value="L">L (280x350px)</option>
+                                        <option value="XL">XL (360x450px)</option>
                                     </select>
                                     <p class="description">Default size when item is added to a board</p>
                                 </td>
@@ -5662,7 +5662,7 @@ class N88_RFQ_Admin {
                                     <span class="n88-room-name">[ <?php echo esc_html( $room['name'] ); ?> ]</span>
                                     <span class="n88-room-actions" style="margin-left: 8px; display: inline-flex; gap: 4px;">
                                         <button class="n88-edit-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" data-room-name="<?php echo esc_attr( $room['name'] ); ?>" type="button" style="padding: 2px 6px; background: #2d2d2d; color: #e0e0e0; border: 1px solid rgba(255,255,255,0.12); border-radius: 2px; cursor: pointer; font-size: 10px;" title="Edit">✎</button>
-                                        <button class="n88-delete-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" type="button" style="padding: 2px 6px; background: #8b1538; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Delete">×</button>
+                                        <button class="n88-delete-room-btn" data-room-id="<?php echo esc_attr( $room['id'] ); ?>" type="button" style="padding: 2px 6px; background: #8b1538; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-size: 10px;" title="Delete">x</button>
                                     </span>
                                 </button>
                             <?php endforeach; ?>
@@ -6274,7 +6274,7 @@ class N88_RFQ_Admin {
                 <div id="n88-add-item-modal" role="dialog" aria-labelledby="n88-add-item-title" aria-modal="true">
                     <div class="n88-add-item-header">
                         <h2 class="n88-add-item-title" id="n88-add-item-title">Add Item</h2>
-                        <button type="button" class="n88-add-item-close" id="n88-add-item-modal-close" aria-label="Close">×</button>
+                        <button type="button" class="n88-add-item-close" id="n88-add-item-modal-close" aria-label="Close">x</button>
                     </div>
                     <form id="n88-add-item-modal-form" class="n88-add-item-body">
                         <div id="n88-add-item-blocks">
@@ -6492,7 +6492,7 @@ class N88_RFQ_Admin {
                 <div id="n88-add-project-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-add-project-title" aria-modal="true">
                     <div class="n88-add-item-header">
                         <h2 class="n88-add-item-title" id="n88-add-project-title">Create Project</h2>
-                        <button type="button" class="n88-add-item-close" id="n88-add-project-modal-close" aria-label="Close">×</button>
+                        <button type="button" class="n88-add-item-close" id="n88-add-project-modal-close" aria-label="Close">x</button>
                     </div>
                     <div class="n88-add-item-body">
                         <div class="n88-field">
@@ -6512,7 +6512,7 @@ class N88_RFQ_Admin {
                 <div id="n88-add-room-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-add-room-title" aria-modal="true">
                     <div class="n88-add-item-header">
                         <h2 class="n88-add-item-title" id="n88-add-room-title">Add Room</h2>
-                        <button type="button" class="n88-add-item-close" id="n88-add-room-modal-close" aria-label="Close">×</button>
+                        <button type="button" class="n88-add-item-close" id="n88-add-room-modal-close" aria-label="Close">x</button>
                     </div>
                     <div class="n88-add-item-body">
                         <div class="n88-field">
@@ -6532,7 +6532,7 @@ class N88_RFQ_Admin {
                 <div id="n88-invite-team-member-modal" class="n88-board-modal-box" role="dialog" aria-labelledby="n88-invite-team-member-title" aria-modal="true">
                     <div class="n88-add-item-header">
                         <h2 class="n88-add-item-title" id="n88-invite-team-member-title">Invite Team Member</h2>
-                        <button type="button" class="n88-add-item-close" id="n88-invite-team-member-modal-close" aria-label="Close">×</button>
+                        <button type="button" class="n88-add-item-close" id="n88-invite-team-member-modal-close" aria-label="Close">x</button>
                     </div>
                     <div class="n88-add-item-body">
                         <div class="n88-field">
@@ -6984,7 +6984,7 @@ class N88_RFQ_Admin {
                             chip.className = 'n88-invite-chip';
                             var removeBtn = document.createElement('button');
                             removeBtn.type = 'button';
-                            removeBtn.textContent = '×';
+                            removeBtn.textContent = 'x';
                             removeBtn.className = 'n88-invite-chip-remove';
                             removeBtn.onclick = function() {
                                 block.n88InvitedSuppliers = block.n88InvitedSuppliers.filter(function(s) { return s !== val; });
@@ -8096,7 +8096,7 @@ class N88_RFQ_Admin {
             // Show loading message first
             var loadingHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                 '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote' + (itemIds.length > 1 ? 's' : '') + '</h2>' +
-                '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                 '</div>' +
                 '<div style="flex: 1; overflow-y: auto; padding: 60px 20px; background-color: #fff; text-align: center;">' +
                 '<div style="font-size: 16px; color: #666;">Loading...</div>' +
@@ -8109,7 +8109,7 @@ class N88_RFQ_Admin {
             // Build form HTML directly (full implementation)
             var formHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                 '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote' + (itemIds.length > 1 ? 's' : '') + '</h2>' +
-                '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                 '</div>' +
                 '<div style="flex: 1; overflow-y: auto; padding: 20px; background-color: #fff;">' +
                 '<form id="n88-rfq-submission-form" onsubmit="return submitRfqForm(event);">' +
@@ -8149,7 +8149,7 @@ class N88_RFQ_Admin {
             if (totalItems === 0) {
                 modalContent.innerHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                     '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote</h2>' +
-                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                     '</div>' +
                     '<div style="flex: 1; overflow-y: auto; padding: 60px 20px; background-color: #fff; text-align: center;">' +
                     '<div style="font-size: 16px; color: #d32f2f;">No items selected.</div>' +
@@ -8692,7 +8692,7 @@ class N88_RFQ_Admin {
                 var chip = document.createElement('div');
                 chip.style.cssText = 'display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background-color: #e3f2fd; border: 1px solid #90caf9; border-radius: 16px; font-size: 13px; color: #1976d2;';
                 chip.innerHTML = '<span>' + value + '</span>' +
-                    '<button type="button" onclick="removeInvitedSupplierChip(\'' + value.replace(/'/g, "\\'") + '\')" style="background: none; border: none; color: #1976d2; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; margin-left: 4px; font-weight: bold;">×</button>';
+                    '<button type="button" onclick="removeInvitedSupplierChip(\'' + value.replace(/'/g, "\\'") + '\')" style="background: none; border: none; color: #1976d2; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; margin-left: 4px; font-weight: bold;">x</button>';
                 
                 chipsContainer.appendChild(chip);
                 input.value = '';
@@ -10186,12 +10186,12 @@ class N88_RFQ_Admin {
                 
                 /**
                  * Calculate CBM (Cubic Meters) - per unit
-                 * Formula: (W_cm × D_cm × H_cm) / 1,000,000
+                 * Formula: (W_cm x D_cm x H_cm) / 1,000,000
                  * This is equivalent to:
-                 * - Inches: (W × D × H) / 61023.7441
-                 * - Centimeters: (W × D × H) / 1,000,000
-                 * - Millimeters: (W × D × H) / 1,000,000,000
-                 * - Meters: W × D × H
+                 * - Inches: (W x D x H) / 61023.7441
+                 * - Centimeters: (W x D x H) / 1,000,000
+                 * - Millimeters: (W x D x H) / 1,000,000,000
+                 * - Meters: W x D x H
                  */
                 var calculateCBM = function(wCm, dCm, hCm) {
                     if (!wCm || !dCm || !hCm) return null;
@@ -10204,8 +10204,8 @@ class N88_RFQ_Admin {
                 };
                 
                 /**
-                 * Calculate Total CBM (item_cbm × quantity)
-                 * Formula: total_cbm = item_cbm × quantity
+                 * Calculate Total CBM (item_cbm x quantity)
+                 * Formula: total_cbm = item_cbm x quantity
                  * Returns value rounded to 3 decimal places
                  */
                 var calculateTotalCBM = function(itemCbm, quantity) {
@@ -13576,7 +13576,7 @@ class N88_RFQ_Admin {
                         var h = parseFloat(height);
                         if (isNaN(w) || isNaN(d) || isNaN(h)) return null;
                         var unitStr = unit === 'in' ? '"' : unit;
-                        return w + unitStr + 'W × ' + d + unitStr + 'D × ' + h + unitStr + 'H';
+                        return w + unitStr + 'W x ' + d + unitStr + 'D x ' + h + unitStr + 'H';
                     };
                     
                     // Format delivery for display
@@ -14652,7 +14652,7 @@ class N88_RFQ_Admin {
                                             justifyContent: 'center',
                                             fontFamily: 'monospace',
                                         }
-                                    }, '×')
+                                    }, 'x')
                                 )
                             ),
                             // Main Content - Two Columns
@@ -14800,7 +14800,7 @@ class N88_RFQ_Admin {
                                                             justifyContent: 'center',
                                                             padding: 0,
                                                         }
-                                                    }, '×')
+                                                    }, 'x')
                                                 );
                                             })
                                         )
@@ -15192,7 +15192,7 @@ class N88_RFQ_Admin {
                                                                             type: 'button',
                                                                             onClick: function() { removeInvitedSupplierChip(supplier); },
                                                                             style: { background: 'none', border: 'none', color: darkText, cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: 0, marginLeft: '4px', fontWeight: 'bold' }
-                                                                        }, '×')
+                                                                        }, 'x')
                                                                     );
                                                                 })
                                                             ),
@@ -15903,7 +15903,7 @@ class N88_RFQ_Admin {
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                             }
-                                                        }, '×')
+                                                        }, 'x')
                                                     ),
                                                     React.createElement('div', {
                                                         style: {
@@ -16308,7 +16308,7 @@ class N88_RFQ_Admin {
                                                                     alignItems: 'center',
                                                                     justifyContent: 'center',
                                                                 }
-                                                            }, '×')
+                                                            }, 'x')
                                                         ),
                                                         // Success Message
                                                         cadPrototypeSuccess ? React.createElement('div', {
@@ -17017,7 +17017,7 @@ class N88_RFQ_Admin {
                                                                     React.createElement('button', {
                                                                         onClick: function() { setShowDesignerMessageForm(false); },
                                                                         style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
-                                                                    }, '×')
+                                                                    }, 'x')
                                                                 ),
                                                                 React.createElement('div', {
                                                                     id: 'n88-designer-messages-container-admin',
@@ -17127,7 +17127,7 @@ class N88_RFQ_Admin {
                                                                                 revisionFiles.length > 0 ? React.createElement('div', { style: { marginBottom: '12px' } }, revisionFiles.map(function(file, idx) {
                                                                                     return React.createElement('div', { key: idx, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px', marginBottom: '6px', fontSize: '11px', color: '#fff' } },
                                                                                         React.createElement('span', null, file.name),
-                                                                                        React.createElement('button', { type: 'button', onClick: function() { setRevisionFiles(function(prev) { return prev.filter(function(_, i) { return i !== idx; }); }); }, style: { background: 'none', border: 'none', color: '#ff6666', cursor: 'pointer', fontSize: '14px', padding: '0 4px' } }, '×')
+                                                                                        React.createElement('button', { type: 'button', onClick: function() { setRevisionFiles(function(prev) { return prev.filter(function(_, i) { return i !== idx; }); }); }, style: { background: 'none', border: 'none', color: '#ff6666', cursor: 'pointer', fontSize: '14px', padding: '0 4px' } }, 'x')
                                                                                     );
                                                                                 })) : null,
                                                                                 React.createElement('div', { style: { display: 'flex', gap: '8px' } },
@@ -17581,7 +17581,7 @@ class N88_RFQ_Admin {
                                         transition: 'all 0.2s',
                                         zIndex: 10000002,
                                     }
-                                }, '×')
+                                }, 'x')
                             )
                         );
                     }
@@ -17649,7 +17649,7 @@ class N88_RFQ_Admin {
                                             justifyContent: 'center',
                                             zIndex: 10000004,
                                         }
-                                    }, '×')
+                                    }, 'x')
                                 )
                             )
                         );
@@ -17721,7 +17721,7 @@ class N88_RFQ_Admin {
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                             }
-                                        }, '×')
+                                        }, 'x')
                                     ),
                                     React.createElement('div', {
                                         style: {
@@ -18384,7 +18384,7 @@ class N88_RFQ_Admin {
                             marginLeft: '8px',
                             lineHeight: '1',
                         },
-                    }, '×')));
+                    }, 'x')));
                 };
 
                 // ConciergeOverlay Component (inline)
@@ -18510,7 +18510,7 @@ class N88_RFQ_Admin {
                             lineHeight: 1,
                         },
                         'aria-label': 'Close',
-                    }, '×'), React.createElement('h2', {
+                    }, 'x'), React.createElement('h2', {
                         style: {
                             marginTop: 0,
                             marginBottom: '16px',
@@ -18619,6 +18619,7 @@ class N88_RFQ_Admin {
                         return item && item.meta && typeof item.meta === 'object' ? item.meta : {};
                     };
                     var hasReferenceImage = function(row) {
+                        if (Array.isArray(row.new_files) && row.new_files.length > 0) return true;
                         var hasPrimary = !!(row.image_url && String(row.image_url).trim());
                         if (hasPrimary) return true;
                         if (!Array.isArray(row.inspiration)) return false;
@@ -18651,6 +18652,7 @@ class N88_RFQ_Admin {
                         var imageUrl = item.imageUrl || meta.image_url || '';
                         var invited = Array.isArray(meta.rfq_draft_invited_suppliers) ? meta.rfq_draft_invited_suppliers.slice(0, 5) : [];
                         var allowSystem = !!meta.rfq_draft_allow_system_invites;
+                        var fabricFlag = meta.rfq_fabric_supplied_flag === 'no' ? 'no' : 'yes';
                         return {
                             item_id: toNumericItemId(item.id),
                             title: item.title || ('Item ' + toNumericItemId(item.id)),
@@ -18664,6 +18666,11 @@ class N88_RFQ_Admin {
                             delivery_postal: item.delivery_postal || meta.delivery_postal || '',
                             image_url: imageUrl,
                             inspiration: inspiration,
+                            new_files: [],
+                            file_previews: [],
+                            rfq_overall_notes: meta.rfq_overall_notes || '',
+                            rfq_fabric_supplied_flag: fabricFlag,
+                            rfq_fabric_notes: meta.rfq_fabric_notes || '',
                             invited_suppliers: invited,
                             invite_input: '',
                             allow_system_invites: allowSystem,
@@ -18805,6 +18812,11 @@ class N88_RFQ_Admin {
                             setBatchSelected(valid);
                         }
                     }, [items, batchMode, batchSelected]);
+                    React.useEffect(function() {
+                        if (batchModalOpen) document.body.classList.add('n88-modal-open');
+                        else document.body.classList.remove('n88-modal-open');
+                        return function() { document.body.classList.remove('n88-modal-open'); };
+                    }, [batchModalOpen]);
                     
                     // Handle layout changes - trigger debounced save
                     var handleLayoutChanged = function(data) {
@@ -18899,43 +18911,96 @@ class N88_RFQ_Admin {
                         });
                     };
 
+                    var setRowFiles = function(itemId, fileList) {
+                        var filesArr = Array.prototype.slice.call(fileList || []);
+                        setBatchRows(function(prev) {
+                            return (prev || []).map(function(r) {
+                                if (r.item_id !== itemId) return r;
+                                var previews = filesArr.map(function(f) {
+                                    return { name: f.name || 'file', url: URL.createObjectURL(f) };
+                                });
+                                return Object.assign({}, r, { new_files: filesArr, file_previews: previews });
+                            });
+                        });
+                    };
+
+                    var uploadInspirationFiles = function(files, ajaxUrl, nonce) {
+                        if (!Array.isArray(files) || files.length === 0) return Promise.resolve([]);
+                        var chain = Promise.resolve([]);
+                        files.forEach(function(file) {
+                            chain = chain.then(function(acc) {
+                                var fd = new FormData();
+                                fd.append('action', 'n88_upload_inspiration_image');
+                                fd.append('nonce', nonce);
+                                fd.append('inspiration_image', file);
+                                return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                                    .then(function(r) { return r.json(); })
+                                    .then(function(data) {
+                                        if (!data || !data.success || !data.data) {
+                                            throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed uploading inspiration image.');
+                                        }
+                                        var d = data.data;
+                                        acc.push({
+                                            type: 'image',
+                                            id: d.id ? parseInt(d.id, 10) : null,
+                                            url: d.url || d.full_url || '',
+                                            title: d.title || file.name || '',
+                                            caption: ''
+                                        });
+                                        return acc;
+                                    });
+                            });
+                        });
+                        return chain;
+                    };
+
                     var saveBatchRowToItem = function(row) {
                         var nonce = (window.n88BoardData && window.n88BoardData.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
                         if (!nonce) return Promise.reject(new Error('Security token missing.'));
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
-                        var inspiration = Array.isArray(row.inspiration) ? row.inspiration.slice() : [];
-                        if (row.image_url && String(row.image_url).trim()) {
-                            inspiration = [{ type: 'image', id: null, url: String(row.image_url).trim(), title: '', caption: '' }];
-                        }
-                        var payload = {
-                            category: row.category || '',
-                            quantity: row.quantity ? parseInt(row.quantity, 10) : 0,
-                            dims: {
-                                w: row.width ? parseFloat(row.width) : null,
-                                d: row.depth ? parseFloat(row.depth) : null,
-                                h: row.height ? parseFloat(row.height) : null,
-                                unit: row.dimension_unit || 'in'
-                            },
-                            delivery_country: row.delivery_country || '',
-                            delivery_postal: row.delivery_postal || '',
-                            inspiration: inspiration
-                        };
-                        return fetch(ajaxUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            credentials: 'same-origin',
-                            body: new URLSearchParams({
-                                action: 'n88_save_item_facts',
-                                board_id: String(boardId || 0),
-                                item_id: String(row.item_id),
-                                nonce: nonce,
-                                payload: JSON.stringify(payload)
-                            })
-                        }).then(function(r) { return r.json(); }).then(function(data) {
-                            if (!data || !data.success) {
-                                throw new Error((data && data.data && data.data.message) ? data.data.message : ('Failed to save item #' + row.item_id));
+                        return uploadInspirationFiles(row.new_files || [], ajaxUrl, nonce).then(function(uploaded) {
+                            var inspiration = Array.isArray(row.inspiration) ? row.inspiration.slice() : [];
+                            if (row.image_url && String(row.image_url).trim()) {
+                                inspiration = inspiration.concat([{ type: 'image', id: null, url: String(row.image_url).trim(), title: '', caption: '' }]);
                             }
-                            return data;
+                            if (uploaded.length > 0) {
+                                inspiration = inspiration.concat(uploaded);
+                            }
+                            var payload = {
+                                category: row.category || '',
+                                quantity: row.quantity ? parseInt(row.quantity, 10) : 0,
+                                dims: {
+                                    w: row.width ? parseFloat(row.width) : null,
+                                    d: row.depth ? parseFloat(row.depth) : null,
+                                    h: row.height ? parseFloat(row.height) : null,
+                                    unit: row.dimension_unit || 'in'
+                                },
+                                delivery_country: row.delivery_country || '',
+                                delivery_postal: row.delivery_postal || '',
+                                rfq_overall_notes: row.rfq_overall_notes || '',
+                                rfq_fabric_supplied_flag: row.rfq_fabric_supplied_flag === 'no' ? 'no' : 'yes',
+                                rfq_fabric_notes: row.rfq_fabric_notes || '',
+                                rfq_draft_invited_suppliers: Array.isArray(row.invited_suppliers) ? row.invited_suppliers.slice(0, 5) : [],
+                                rfq_draft_allow_system_invites: !!row.allow_system_invites,
+                                inspiration: inspiration
+                            };
+                            return fetch(ajaxUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                credentials: 'same-origin',
+                                body: new URLSearchParams({
+                                    action: 'n88_save_item_facts',
+                                    board_id: String(boardId || 0),
+                                    item_id: String(row.item_id),
+                                    nonce: nonce,
+                                    payload: JSON.stringify(payload)
+                                })
+                            }).then(function(r) { return r.json(); }).then(function(data) {
+                                if (!data || !data.success) {
+                                    throw new Error((data && data.data && data.data.message) ? data.data.message : ('Failed to save item #' + row.item_id));
+                                }
+                                return data;
+                            });
                         });
                     };
 
@@ -19062,10 +19127,12 @@ class N88_RFQ_Admin {
                             }
                         }, '[ Send RFQ Request (' + selectedCount + ') ]') : null,
                         batchModalOpen ? React.createElement('div', {
+                            className: 'n88-board-modal-backdrop n88-modal-open',
                             style: {
                                 position: 'fixed',
                                 inset: 0,
-                                backgroundColor: 'rgba(0,0,0,0.7)',
+                                backgroundColor: 'rgba(17, 43, 74, 0.72)',
+                                backdropFilter: 'blur(3px)',
                                 zIndex: 10001,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -19076,77 +19143,111 @@ class N88_RFQ_Admin {
                                 if (e.target === e.currentTarget && !batchSubmitting) setBatchModalOpen(false);
                             }
                         }, React.createElement('div', {
+                            className: 'n88-board-modal-box',
                             style: {
                                 width: 'min(980px, 96vw)',
-                                maxHeight: '88vh',
+                                maxHeight: '90vh',
                                 overflow: 'auto',
-                                background: '#1f1f1f',
+                                background: '#323232',
                                 color: '#fff',
                                 border: '1px solid rgba(255,255,255,0.12)',
-                                borderRadius: '10px',
+                                borderRadius: '8px',
                                 boxShadow: '0 12px 40px rgba(0,0,0,0.45)'
                             },
                             onClick: function(e) { e.stopPropagation(); }
                         }, React.createElement('div', {
-                            style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
+                            className: 'n88-add-item-header',
+                            style: { padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
                         }, React.createElement('div', null,
-                            React.createElement('div', { style: { fontSize: '16px', fontWeight: 700 } }, 'Batch RFQ Readiness'),
+                            React.createElement('div', { style: { fontSize: '18px', fontWeight: 600 } }, 'Create Batch RFQ'),
                             React.createElement('div', { style: { fontSize: '12px', opacity: 0.85, marginTop: '2px' } }, 'Ready to Send: ' + batchRows.filter(function(r) { return getBatchMissing(r).length === 0; }).length + ' | Missing Information: ' + batchRows.filter(function(r) { return getBatchMissing(r).length > 0; }).length)
                         ), React.createElement('button', {
                             type: 'button',
                             disabled: batchSubmitting,
                             onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); },
-                            style: { background: 'none', border: 'none', color: '#ccc', fontSize: '24px', cursor: batchSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1 }
-                        }, '×')),
-                        React.createElement('div', { style: { padding: '14px 16px' } },
-                            batchError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,0,101,0.12)', border: '1px solid rgba(255,0,101,0.45)', borderRadius: '6px', color: '#ffd7e8', fontSize: '12px' } }, batchError) : null,
+                            style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: batchSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
+                        }, 'x')),
+                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px' } },
+                            batchError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,0,101,0.12)', border: '1px solid rgba(255,0,101,0.45)', borderRadius: '6px', color: '#ffd7e8', fontSize: '13px' } }, batchError) : null,
                             (batchRows || []).map(function(row) {
                                 var missing = getBatchMissing(row);
                                 var isReady = missing.length === 0;
-                                var inputBase = { width: '100%', background: '#2a2a2a', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', padding: '6px 8px', fontSize: '12px', boxSizing: 'border-box' };
+                                var inputBase = { width: '100%', background: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', padding: '10px 12px', fontSize: '14px', boxSizing: 'border-box' };
                                 var missingStyle = { borderColor: '#ff0065', boxShadow: '0 0 0 1px rgba(255,0,101,0.3) inset' };
-                                return React.createElement('div', { key: row.item_id, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', marginBottom: '10px', overflow: 'hidden' } },
+                                return React.createElement('div', { key: row.item_id, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', marginBottom: '12px', overflow: 'hidden', background: '#2a2a2a' } },
                                     React.createElement('button', {
                                         type: 'button',
                                         onClick: function() { updateBatchRow(row.item_id, { expanded: !row.expanded }); },
-                                        style: { width: '100%', textAlign: 'left', padding: '10px 12px', background: '#252525', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+                                        style: { width: '100%', textAlign: 'left', padding: '12px 14px', background: '#2f2f2f', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
                                     }, React.createElement('span', { style: { fontWeight: 600, fontSize: '13px' } }, row.title + ' (Item ' + row.item_id + ')'),
                                        React.createElement('span', { style: { fontSize: '11px', padding: '3px 8px', borderRadius: '999px', background: isReady ? 'rgba(76,175,80,0.22)' : 'rgba(255,0,101,0.22)', color: isReady ? '#9cffb2' : '#ff9dc7', border: isReady ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,0,101,0.4)' } }, isReady ? 'Ready to Send' : 'Missing Information')),
-                                    row.expanded ? React.createElement('div', { style: { padding: '10px 12px', background: '#202020' } },
-                                        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' } },
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Category'),
+                                    row.expanded ? React.createElement('div', { style: { padding: '12px 14px 14px', background: '#323232' } },
+                                        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '12px' } },
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Category'),
                                                 React.createElement('select', { value: row.category || '', onChange: function(e) { updateBatchRow(row.item_id, { category: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Category') !== -1 ? missingStyle : {}) },
                                                     React.createElement('option', { value: '' }, 'Select category'),
                                                     ['UPHOLSTERY','INDOOR FURNITURE (CASEGOODS)','OUTDOOR FURNITURE','LIGHTING','STONE (MARBLE / GRANITE / QUARTZ)','METALWORK','MILLWORK / CABINETRY','FLOORING','DRAPERY / WINDOW TREATMENTS','GLASS / MIRRORS','HARDWARE / ACCESSORIES','RUGS / CARPETS','WALLCOVERINGS / FINISHES','APPLIANCES','OTHER'].map(function(c) { return React.createElement('option', { key: c, value: c }, c); })
                                                 )
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Quantity'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Quantity'),
                                                 React.createElement('input', { type: 'number', min: '1', value: row.quantity || '', onChange: function(e) { updateBatchRow(row.item_id, { quantity: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Quantity') !== -1 ? missingStyle : {}) })
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Width'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '12px', opacity: 0.9, display: 'block', marginBottom: '6px' } }, 'Width'),
                                                 React.createElement('input', { type: 'number', min: '0', step: '0.01', value: row.width || '', onChange: function(e) { updateBatchRow(row.item_id, { width: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Width') !== -1 ? missingStyle : {}) })
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Depth'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '12px', opacity: 0.9, display: 'block', marginBottom: '6px' } }, 'Depth'),
                                                 React.createElement('input', { type: 'number', min: '0', step: '0.01', value: row.depth || '', onChange: function(e) { updateBatchRow(row.item_id, { depth: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Depth') !== -1 ? missingStyle : {}) })
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Height'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '12px', opacity: 0.9, display: 'block', marginBottom: '6px' } }, 'Height'),
                                                 React.createElement('input', { type: 'number', min: '0', step: '0.01', value: row.height || '', onChange: function(e) { updateBatchRow(row.item_id, { height: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Height') !== -1 ? missingStyle : {}) })
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Unit'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '12px', opacity: 0.9, display: 'block', marginBottom: '6px' } }, 'Unit'),
                                                 React.createElement('select', { value: row.dimension_unit || 'in', onChange: function(e) { updateBatchRow(row.item_id, { dimension_unit: e.target.value }); }, style: inputBase },
                                                     ['in','cm','mm','m'].map(function(u) { return React.createElement('option', { key: u, value: u }, u); })
                                                 )
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Delivery Country'),
-                                                React.createElement('input', { type: 'text', maxLength: 2, value: row.delivery_country || '', onChange: function(e) { updateBatchRow(row.item_id, { delivery_country: String(e.target.value || '').toUpperCase() }); }, style: Object.assign({}, inputBase, missing.indexOf('Delivery Country') !== -1 ? missingStyle : {}) })
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Delivery Country'),
+                                                React.createElement('select', { value: row.delivery_country || '', onChange: function(e) { updateBatchRow(row.item_id, { delivery_country: String(e.target.value || '').toUpperCase() }); }, style: Object.assign({}, inputBase, missing.indexOf('Delivery Country') !== -1 ? missingStyle : {}) },
+                                                    React.createElement('option', { value: '' }, 'Select Country'),
+                                                    React.createElement('option', { value: 'US' }, 'US'),
+                                                    React.createElement('option', { value: 'CA' }, 'CA'),
+                                                    React.createElement('option', { value: 'CN' }, 'CN'),
+                                                    React.createElement('option', { value: 'VN' }, 'VN'),
+                                                    React.createElement('option', { value: 'EU' }, 'EU')
+                                                )
                                             ),
-                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Delivery ZIP'),
+                                            React.createElement('div', null, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Final Delivery ZIP Code'),
                                                 React.createElement('input', { type: 'text', value: row.delivery_postal || '', onChange: function(e) { updateBatchRow(row.item_id, { delivery_postal: e.target.value }); }, style: Object.assign({}, inputBase, missing.indexOf('Delivery ZIP') !== -1 ? missingStyle : {}) })
                                             ),
-                                            React.createElement('div', { style: { gridColumn: '1 / -1' } }, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Reference Image URL'),
-                                                React.createElement('input', { type: 'text', value: row.image_url || '', onChange: function(e) { updateBatchRow(row.item_id, { image_url: e.target.value }); }, placeholder: 'https://example.com/image.jpg', style: Object.assign({}, inputBase, missing.indexOf('Reference Image') !== -1 ? missingStyle : {}) })
+                                            React.createElement('div', { style: { gridColumn: '1 / -1' } }, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Reference Images / Inspiration'),
+                                                React.createElement('input', { type: 'file', multiple: true, accept: '.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf', onChange: function(e) { setRowFiles(row.item_id, e.target.files); }, style: Object.assign({}, inputBase, missing.indexOf('Reference Image') !== -1 ? missingStyle : {}) }),
+                                                React.createElement('div', { style: { marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                    (row.file_previews || []).map(function(pv, idx) {
+                                                        return React.createElement('div', { key: pv.url + '-' + idx, style: { width: '74px', height: '74px', borderRadius: '4px', background: '#2f2f2f', border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#ddd', textAlign: 'center', padding: '4px', boxSizing: 'border-box' } },
+                                                            pv.name && pv.name.toLowerCase().indexOf('.pdf') !== -1 ? 'PDF' : React.createElement('img', { src: pv.url, alt: pv.name || 'preview', style: { width: '100%', height: '100%', objectFit: 'cover' } })
+                                                        );
+                                                    }),
+                                                    (!row.file_previews || row.file_previews.length === 0) && Array.isArray(row.inspiration) ? row.inspiration.slice(0, 4).map(function(ins, idx2) {
+                                                        var url = ins && ins.url ? ins.url : '';
+                                                        if (!url) return null;
+                                                        return React.createElement('img', { key: url + '-' + idx2, src: url, alt: 'existing inspiration', style: { width: '74px', height: '74px', objectFit: 'cover', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)' } });
+                                                    }) : null
+                                                ),
+                                                React.createElement('div', { style: { marginTop: '8px', fontSize: '12px', opacity: 0.85 } }, 'Optional URL fallback'),
+                                                React.createElement('input', { type: 'text', value: row.image_url || '', onChange: function(e) { updateBatchRow(row.item_id, { image_url: e.target.value }); }, placeholder: 'https://example.com/image.jpg', style: inputBase })
                                             ),
-                                            React.createElement('div', { style: { gridColumn: '1 / -1' } }, React.createElement('label', { style: { fontSize: '11px', opacity: 0.85, display: 'block', marginBottom: '4px' } }, 'Invite Makers'),
+                                            React.createElement('div', { style: { gridColumn: '1 / -1' } }, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Overall Notes'),
+                                                React.createElement('textarea', { value: row.rfq_overall_notes || '', maxLength: 100, onChange: function(e) { updateBatchRow(row.item_id, { rfq_overall_notes: e.target.value }); }, style: Object.assign({}, inputBase, { minHeight: '52px', resize: 'vertical' }) })
+                                            ),
+                                            React.createElement('div', { style: { gridColumn: '1 / -1' } },
+                                                React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Where applicable, will you supply fabric?'),
+                                                React.createElement('div', { style: { display: 'flex', gap: '14px', marginBottom: '6px' } },
+                                                    React.createElement('label', { style: { fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' } }, React.createElement('input', { type: 'radio', checked: row.rfq_fabric_supplied_flag !== 'no', onChange: function() { updateBatchRow(row.item_id, { rfq_fabric_supplied_flag: 'yes' }); } }), 'Yes'),
+                                                    React.createElement('label', { style: { fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' } }, React.createElement('input', { type: 'radio', checked: row.rfq_fabric_supplied_flag === 'no', onChange: function() { updateBatchRow(row.item_id, { rfq_fabric_supplied_flag: 'no' }); } }), 'No')
+                                                ),
+                                                React.createElement('textarea', { value: row.rfq_fabric_notes || '', onChange: function(e) { updateBatchRow(row.item_id, { rfq_fabric_notes: e.target.value }); }, placeholder: 'Fabric notes', style: Object.assign({}, inputBase, { minHeight: '52px', resize: 'vertical' }) })
+                                            ),
+                                            React.createElement('div', { style: { gridColumn: '1 / -1' } }, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Invite Suppliers'),
                                                 React.createElement('div', { style: { display: 'flex', gap: '8px' } },
                                                     React.createElement('input', {
                                                         type: 'text',
@@ -19156,29 +19257,29 @@ class N88_RFQ_Admin {
                                                         placeholder: 'username or email (comma separated)',
                                                         style: Object.assign({}, inputBase, { flex: 1 }, missing.indexOf('Invite Makers') !== -1 ? missingStyle : {})
                                                     }),
-                                                    React.createElement('button', { type: 'button', onClick: function() { addInviteToRow(row.item_id); }, style: { padding: '6px 10px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: '#2a2a2a', color: '#fff', cursor: 'pointer' } }, 'Add')
+                                                    React.createElement('button', { type: 'button', onClick: function() { addInviteToRow(row.item_id); }, style: { padding: '10px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: '#2d2d2d', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Add')
                                                 ),
                                                 React.createElement('div', { style: { marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' } },
                                                     (row.invited_suppliers || []).map(function(v) {
-                                                        return React.createElement('span', { key: v, style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 8px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.2)', fontSize: '11px' } },
+                                                        return React.createElement('span', { key: v, style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 9px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.2)', fontSize: '12px' } },
                                                             v,
-                                                            React.createElement('button', { type: 'button', onClick: function() { removeInviteFromRow(row.item_id, v); }, style: { background: 'none', border: 'none', color: '#ff9dc7', cursor: 'pointer', padding: 0 } }, '×')
+                                                            React.createElement('button', { type: 'button', onClick: function() { removeInviteFromRow(row.item_id, v); }, style: { background: 'none', border: 'none', color: '#ff9dc7', cursor: 'pointer', padding: 0 } }, 'x')
                                                         );
                                                     })
                                                 ),
-                                                React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', opacity: 0.9 } },
+                                                React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '12px', opacity: 0.9 } },
                                                     React.createElement('input', { type: 'checkbox', checked: !!row.allow_system_invites, onChange: function(e) { updateBatchRow(row.item_id, { allow_system_invites: !!e.target.checked }); } }),
                                                     'Let Wireframe find suppliers'
                                                 )
                                             )
                                         ),
-                                        missing.length > 0 ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: '#ff9dc7' } }, 'Missing: ' + missing.join(', ')) : null
+                                        missing.length > 0 ? React.createElement('div', { style: { marginTop: '10px', fontSize: '12px', color: '#ff9dc7' } }, 'Missing: ' + missing.join(', ')) : null
                                     ) : null
                                 );
                             }),
-                            React.createElement('div', { style: { marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' } },
-                                React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); }, style: { padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'not-allowed' : 'pointer' } }, 'Cancel'),
-                                React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: submitBatchRfq, style: { padding: '8px 14px', borderRadius: '4px', border: 'none', background: 'rgb(255, 0, 101)', color: '#fff', cursor: batchSubmitting ? 'wait' : 'pointer', fontWeight: 600 } }, batchSubmitting ? 'Sending...' : 'Submit Batch RFQ')
+                            React.createElement('div', { style: { marginTop: '14px', display: 'flex', justifyContent: 'flex-end', gap: '8px' } },
+                                React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); }, style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'not-allowed' : 'pointer', fontSize: '13px' } }, 'Cancel'),
+                                React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: submitBatchRfq, style: { padding: '10px 16px', borderRadius: '4px', border: '1px solid rgb(255, 0, 101)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px' } }, batchSubmitting ? 'Sending...' : 'Submit Batch RFQ')
                             )
                         ))) : null,
                         // Welcome Modal - shown once per user
@@ -19920,7 +20021,7 @@ class N88_RFQ_Admin {
                 // Show loading message first
                 var loadingHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                     '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote' + (itemIds.length > 1 ? 's' : '') + '</h2>' +
-                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                     '</div>' +
                     '<div style="flex: 1; overflow-y: auto; padding: 60px 20px; background-color: #fff; text-align: center;">' +
                     '<div style="font-size: 16px; color: #666;">Loading...</div>' +
@@ -19933,7 +20034,7 @@ class N88_RFQ_Admin {
                 // Build full form HTML
                 var formHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                     '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote' + (itemIds.length > 1 ? 's' : '') + '</h2>' +
-                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                     '</div>' +
                     '<div style="flex: 1; overflow-y: auto; padding: 20px; background-color: #fff;">' +
                     '<form id="n88-rfq-submission-form" onsubmit="return submitRfqForm(event);">' +
@@ -19981,7 +20082,7 @@ class N88_RFQ_Admin {
                 if (totalItems === 0) {
                     modalContent.innerHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                         '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Request Quote</h2>' +
-                        '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                        '<button onclick="closeRfqSubmissionModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">x</button>' +
                         '</div>' +
                         '<div style="flex: 1; overflow-y: auto; padding: 60px 20px; background-color: #fff; text-align: center;">' +
                         '<div style="font-size: 16px; color: #d32f2f;">No items selected.</div>' +
@@ -20434,5 +20535,6 @@ class N88_RFQ_Admin {
 }
 
 // .....
+
 
 
