@@ -4846,16 +4846,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                 {/* Tab Content */}
                                 <div style={{
                                     flex: 1,
-                                    overflowY: 'auto',
+                                    minHeight: 0,
+                                    overflow: activeTab === 'details' ? 'hidden' : 'auto',
+                                    overflowY: activeTab === 'details' ? 'hidden' : 'auto',
                                     padding: '0px 20px',
                                     scrollbarWidth: 'none',
                                     msOverflowStyle: 'none',
+                                    display: activeTab === 'details' ? 'flex' : 'block',
                                 }}
                                 className="n88-modal-scroll-content"
                                 >
-                                    {/* Tab 1: The Mission Spec */}
+                                    {/* Tab 1: Item Specification — 60% left (scrollable) / 40% right (fixed Support) */}
                                     {activeTab === 'details' && (
-                                        <div>
+                                        <>
+                                        <div style={{ display: 'flex', gap: '16px', alignItems: 'stretch', flex: 1, minHeight: 0, overflow: 'hidden', width: '100%' }}>
+                                            {/* Left: 60% — scrollable: Item Specification box + Request Quote form */}
+                                            <div style={{ flex: '0 0 60%', maxWidth: '60%', overflowY: 'auto', minHeight: 0, paddingRight: '8px' }}>
                                             {/* Action Required Banner - Show when operator has sent messages */}
                                             {itemState.has_unread_operator_messages && (
                                                 <div style={{
@@ -5049,130 +5055,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                                 )}
                                             </div>
 
-                                            {/* Support box (same as Step 01 workflow): operator–designer chat — always open in Item Spec (hidden on Workflow/Bids tabs) */}
-                                            {activeTab === 'details' && (
-                                            <div id="n88-item-spec-support-box" style={{ marginBottom: '24px' }}>
-                                                <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>Support</div>
-                                                <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                            <span style={{ fontSize: '12px', color: darkText }}>Check files for CAD · Check messages below</span>
-                                                            {/* No close button in Item Spec; support is always visible */}
-                                                        </div>
-                                                        <div id="n88-designer-messages-container-details" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
-                                                            {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
-                                                                [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
-                                                                    const isDesigner = msg.sender_role === 'designer';
-                                                                    const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
-                                                                    const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
-                                                                    const rawText = (msg.message_text || '').substring(0, 2000);
-                                                                    const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
-                                                                    let displayText = rawText;
-                                                                    const fileList = [];
-                                                                    if (hasFilesBlock) {
-                                                                        const lines = rawText.split('\n');
-                                                                        let filesStart = -1;
-                                                                        for (let li = 0; li < lines.length; li++) {
-                                                                            const trimmed = (lines[li] || '').trim();
-                                                                            if (trimmed === 'CAD Files:' || trimmed === 'Files:') { filesStart = li; break; }
-                                                                        }
-                                                                        if (filesStart >= 0) {
-                                                                            let filesEnd = lines.length;
-                                                                            for (let li = filesStart + 1; li < lines.length; li++) {
-                                                                                const t = (lines[li] || '').trim();
-                                                                                if (t.indexOf('Direction Keywords') === 0 || t === '') { filesEnd = li; break; }
-                                                                            }
-                                                                            displayText = lines.slice(0, filesStart).join('\n').trim();
-                                                                            for (let fi = filesStart + 1; fi < filesEnd; fi++) {
-                                                                                const line = (lines[fi] || '').trim();
-                                                                                if (line.indexOf('- ') === 0) {
-                                                                                    const withoutDash = line.slice(2);
-                                                                                    const sepIdx = withoutDash.indexOf(': ');
-                                                                                    if (sepIdx > 0) {
-                                                                                        const fileName = withoutDash.slice(0, sepIdx).trim();
-                                                                                        const fileUrl = withoutDash.slice(sepIdx + 2).trim();
-                                                                                        if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) fileList.push({ name: fileName, url: fileUrl });
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
-                                                                    const parts = [];
-                                                                    let urlM;
-                                                                    let last = 0;
-                                                                    while ((urlM = urlRe.exec(displayText)) !== null) {
-                                                                        if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
-                                                                        const url = urlM[0];
-                                                                        const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
-                                                                        parts.push({ t: isImg ? 'image' : 'file', v: url });
-                                                                        last = urlRe.lastIndex;
-                                                                    }
-                                                                    if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
-                                                                    const content = parts.length === 0 ? displayText : parts.map((p, i) => {
-                                                                        if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
-                                                                        if (p.t === 'image') return (
-                                                                            <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
-                                                                                <img src={p.v} alt="" style={{ maxWidth: 120, maxHeight: 80, objectFit: 'contain', display: 'block', borderRadius: 4, border: `1px solid ${darkBorder}` }} onError={(e) => { e.target.style.display = 'none'; const n = e.target.nextSibling; if (n) n.style.display = 'block'; }} />
-                                                                                <a href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', marginTop: 4, display: 'none' }}>View image →</a>
-                                                                            </span>
-                                                                        );
-                                                                        return <a key={i} href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: 4, marginRight: 8 }}>View file →</a>;
-                                                                    });
-                                                                    return (
-                                                                        <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
-                                                                            <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
-                                                                                <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
-                                                                                {content}
-                                                                                {fileList.length > 0 && (
-                                                                                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                                                        {fileList.map((file, fi) => {
-                                                                                            const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
-                                                                                            return (
-                                                                                                <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
-                                                                                                    {isImageFile ? (
-                                                                                                        <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                                                                            <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
-                                                                                                        </span>
-                                                                                                    ) : (
-                                                                                                        <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
-                                                                                                    )}
-                                                                                                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
-                                                                                                    <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
-                                                                                                </a>
-                                                                                            );
-                                                                                        })}
-                                                                                    </div>
-                                                                                )}
-                                                                                <div style={{ fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })
-                                                            )}
-                                                        </div>
-                                                        <form onSubmit={sendDesignerMessage} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                                                            <textarea
-                                                                value={designerMessageText}
-                                                                onChange={(e) => setDesignerMessageText(e.target.value)}
-                                                                required
-                                                                rows={2}
-                                                                style={{ flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }}
-                                                                placeholder="Type your message here..."
-                                                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }}
-                                                            />
-                                                            <button
-                                                                type="submit"
-                                                                disabled={isSendingDesignerMessage || !designerMessageText.trim()}
-                                                                style={{ padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
-                                                            >{isSendingDesignerMessage ? 'Sending...' : 'Send'}</button>
-                                                        </form>
-                                                    </div>
-                                            </div>
-                                            )}
-
                                             {/* Review and Message (CAD) redirect notice removed from Item Specification tab per UX request */}
                                             {/* Editable fields section - State A only */}
-                            {false && currentState !== 'C' && isEditable && currentState === 'A' ? (
+                            {currentState !== 'C' && isEditable && currentState === 'A' ? (
                                 <>
                                     {/* 3. Description */}
                                     <div style={{ marginBottom: '24px' }}>
@@ -5410,881 +5295,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                     
                                 </>
                             )}
-                                        </div>
-                                    )}
-
-                                    {/* Tab: The Workflow (Commit 3.A.1 — read-only 6-step timeline) */}
-                                    {activeTab === 'workflow' && (
-                                        <div style={{ fontFamily: 'monospace' }}>
-                                            <div style={{ marginBottom: '16px', fontSize: '11px', color: darkText }}>
-                                            </div>
-                                            {timelineLoading && (
-                                                <div style={{ padding: '24px', textAlign: 'center', color: darkText }}>Loading timeline…</div>
-                                            )}
-                                            {timelineError && (
-                                                <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
-                                            )}
-                                            {/* Operator: standalone Step 4 Deposit block — always visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps */}
-                                            {!timelineLoading && itemState && itemState.has_awarded_bid && window.n88BoardData && window.n88BoardData.isOperator && (
-                                                <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                                                    <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Step 4 — Sent Deposit to start production</div>
-                                                    {itemState.deposit_status === 'received' ? (
-                                                        <div style={{ fontSize: '11px', color: greenAccent }}>
-                                                            ✓ Deposit received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
-                                                                {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
-                                                                {itemState.deposit_status === 'sent_by_designer' ? 'Designer has submitted payment proof — review and approve below.' : 'Waiting for designer to submit deposit payment proof.'}
-                                                            </div>
-                                                            {itemState.deposit_status === 'sent_by_designer' && (
-                                                                <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
-                                                                    <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
-                                                                    {itemState.deposit_receipt_url && (
-                                                                        <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
-                                                                            View payment receipt
-                                                                        </a>
-                                                                    )}
-                                                                    {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
-                                                                        <div style={{ marginBottom: '10px' }}>
-                                                                            <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
-                                                                            <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
-                                                                            {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
-                                                                        </div>
-                                                                    )}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={async () => {
-                                                                            if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
-                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
-                                                                            if (!nonce) { alert('Security token missing.'); return; }
-                                                                            const fd = new FormData();
-                                                                            fd.append('action', 'n88_mark_deposit_received');
-                                                                            fd.append('item_id', String(getItemId()));
-                                                                            fd.append('_ajax_nonce', nonce);
-                                                                            try {
-                                                                                const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
-                                                                                const data = await res.json();
-                                                                                if (data.success) { fetchItemState(); fetchTimeline(); }
-                                                                                else alert(data.data?.message || 'Failed.');
-                                                                            } catch (e) { console.error(e); alert('Error. Please try again.'); }
-                                                                        }}
-                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
-                                                                    >
-                                                                        Approve (mark deposit received)
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
-                                                <>
-                                                    {/* Horizontal 6-step row with connector lines between steps — sticky */}
-                                                    <div style={{
-                                                        position: 'sticky',
-                                                        top: 0,
-                                                        zIndex: 10,
-                                                        backgroundColor: '#0a0a0a',
-                                                        marginTop: '-20px',
-                                                        marginBottom: '24px',
-                                                        paddingTop: '20px',
-                                                        paddingBottom: '12px',
-                                                        borderBottom: `1px solid ${darkBorder}`,
-                                                        display: 'flex',
-                                                        alignItems: 'flex-start',
-                                                        justifyContent: 'space-between',
-                                                        gap: 0,
-                                                    }}>
-                                                        {timelineData.steps.flatMap((step, idx) => {
-                                                            const isSelected = selectedStepIndex === idx;
-                                                            const stepEl = (
-                                                                <div
-                                                                    key={step.step_id ?? idx}
-                                                                    onClick={() => { setSelectedStepIndex(idx); setSupplierStepEvidenceView(null); }}
-                                                                    style={{
-                                                                        flex: 1,
-                                                                        display: 'flex',
-                                                                        flexDirection: 'column',
-                                                                        alignItems: 'center',
-                                                                        cursor: 'pointer',
-                                                                        minWidth: 0,
-                                                                    }}
-                                                                >
-                                                                    <div style={{
-                                                                        width: '28px',
-                                                                        height: '28px',
-                                                                        borderRadius: '50%',
-                                                                        border: `2px solid ${isSelected ? greenAccent : darkBorder}`,
-                                                                        background: isSelected ? greenAccent : '#333',
-                                                                        color: isSelected ? '#0a0a0a' : '#888',
-                                                                        fontSize: '12px',
-                                                                        fontWeight: '600',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        marginBottom: '6px',
-                                                                    }}>
-                                                                        {step.step_number}
-                                                                    </div>
-                                                                    <div style={{
-                                                                        fontSize: '10px',
-                                                                        color: isSelected ? greenAccent : '#888',
-                                                                        textAlign: 'center',
-                                                                        lineHeight: 1.2,
-                                                                        overflow: 'hidden',
-                                                                        textOverflow: 'ellipsis',
-                                                                        display: '-webkit-box',
-                                                                        WebkitLineClamp: 2,
-                                                                        WebkitBoxOrient: 'vertical',
-                                                                    }}>
-                                                                        {step.label}
-                                                                    </div>
-                                                                    {step.is_delayed && (
-                                                                        <span style={{ fontSize: '9px', color: '#ff6666', marginTop: '2px' }}>[ ! Delayed ]</span>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                            const connector = idx < timelineData.steps.length - 1 ? (
-                                                                <div
-                                                                    key={`conn-${idx}`}
-                                                                    style={{ flex: '0 0 20px', alignSelf: 'center', height: '2px', background: darkBorder, marginBottom: '20px' }}
-                                                                    aria-hidden={true}
-                                                                />
-                                                            ) : null;
-                                                            return [stepEl, connector].filter(Boolean);
-                                                        })}
-                                                    </div>
-                                                    {/* Selected step detail */}
-                                                    {timelineData.steps[selectedStepIndex] && (() => {
-                                                        const s = timelineData.steps[selectedStepIndex];
-                                                        const cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
-                                                        const statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                                        return (
-                                                            <div style={{
-                                                                padding: '16px',
-                                                                border: `1px solid ${darkBorder}`,
-                                                                borderRadius: '4px',
-                                                                backgroundColor: 'rgba(0,0,0,0.2)',
-                                                            }}>
-                                                                <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>
-                                                                    {s.step_number}. {s.label}
-                                                                </div>
-                                                                <div style={{ fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 }}>
-                                                                    {({ 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' })[s.step_number] || ''}
-                                                                </div>
-                                                                {/* Step 1: Design & Specifications — dot + CAD requested, Payment sent, Payment approved with dates (no generic status dot) */}
-                                                                {s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1 && (
-                                                                    <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                                            {itemState.workflow_milestones.step1.cad_requested_at && (
-                                                                                <div>· CAD requested — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step1.payment_sent_at && (
-                                                                                <div>· Payment sent — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step1.payment_approved_at && (
-                                                                                <div>· Payment approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at)}</span></div>
-                                                                            )}
-                                                                            {!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment && (
-                                                                                <div style={{ color: '#888' }}>No milestone dates yet.</div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 1: CAD requested — when CAD request submitted */}
-                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && !itemState.workflow_milestones?.step1?.payment_sent_at && (
-                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: `1px solid #66aaff`, borderRadius: '4px' }}>
-                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' }}>CAD Requested</div>
-                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Designer has requested CAD with selected keywords.</div>
-                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
-                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
-                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 1: Payment sent — pending approval */}
-                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones?.step1?.payment_sent_at && (
-                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: `1px solid #ff8800`, borderRadius: '4px' }}>
-                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' }}>Payment Sent — Pending Approval</div>
-                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Receipt uploaded. CAD drafting will begin once payment is confirmed.</div>
-                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
-                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
-                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 1: Payment Confirmed (prototype video is in Step 3) */}
-                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
-                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,17,0,0.4)', border: `1px solid ${greenAccent}`, borderRadius: '4px' }}>
-                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>Payment Confirmed</div>
-                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>CAD drafting has begun.</div>
-                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
-                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
-                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 1: Award project — when prototype approved but not yet awarded (button removed per requirements) */}
-                                                                {/* Step 1: Clarifications / Message Operator (before CAD submitted) — moved to Item Spec Support box; hide in Workflow tab */}
-                                                                {null}
-                                                                {/* Generic State line: show for steps 2–6 only (Step 1 shows only milestone dots) */}
-                                                                {s.step_number !== 1 && (
-                                                                    <div style={{ fontSize: '12px', color: darkText, marginBottom: '4px' }}>
-                                                                        · State: <span style={{ color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText }}>{statusLabel}</span>
-                                                                    </div>
-                                                                )}
-                                                                {s.started_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Started: {formatWorkflowDateTime(s.started_at)}</div>
-                                                                )}
-                                                                {s.completed_at && (
-                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Completed: {formatWorkflowDateTime(s.completed_at)}</div>
-                                                                )}
-                                                                {s.expected_by && (
-                                                                    <div style={{ fontSize: '11px', color: darkText }}>Expected by: {formatWorkflowDateTime(s.expected_by)}</div>
-                                                                )}
-                                                                {/* Step 3: Pre-Production Approval — prototype video timeline: Video submitted, Changes requested, Video resubmitted, Approved with dates */}
-                                                                {s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3 && (
-                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                                            {(itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) && (
-                                                                                <div>· Video submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_submitted_at || itemState.prototype_submission.created_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step3.changes_requested_at && (
-                                                                                <div>· Changes requested — <span style={{ color: '#ffaa00' }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step3.video_resubmitted_at && (
-                                                                                <div>· Video resubmitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step3.video_approved_at && (
-                                                                                <div>· Approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at)}</span></div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 3: Prototype Video box (moved from Proposals tab) — status, links, Approve / Request Changes */}
-                                                                {s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
-                                                                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Prototype Video</div>
-                                                                        {itemState.prototype_status && (
-                                                                            <div style={{
-                                                                                display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600',
-                                                                                backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
-                                                                                border: `1px solid ${itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'}`,
-                                                                                color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
-                                                                            }}>
-                                                                                {itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? `Submitted (v${itemState.prototype_current_version || 0})` : 'Not Submitted'}
-                                                                            </div>
-                                                                        )}
-                                                                        {itemState.prototype_submission?.links?.length > 0 && (
-                                                                            <div style={{ marginBottom: '8px' }}>
-                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Video Links (v{itemState.prototype_submission.version}):</div>
-                                                                                {itemState.prototype_submission.links.map((link, idx) => (
-                                                                                    <div key={idx} style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            title="Play on screen"
-                                                                                            onClick={(e) => { e.preventDefault(); setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }}
-                                                                                            onMouseEnter={() => setHoverVideoPlayIdx(idx)}
-                                                                                            onMouseLeave={() => setHoverVideoPlayIdx(null)}
-                                                                                            style={{
-                                                                                                padding: '8px 12px',
-                                                                                                background: 'rgba(0,255,0,0.15)',
-                                                                                                color: greenAccent,
-                                                                                                border: `1px solid ${greenAccent}`,
-                                                                                                borderRadius: '4px',
-                                                                                                fontSize: '16px',
-                                                                                                cursor: 'pointer',
-                                                                                                transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)',
-                                                                                                transition: 'transform 0.2s ease',
-                                                                                            }}
-                                                                                        >
-                                                                                            ▶
-                                                                                        </button>
-                                                                                        <a
-                                                                                            href={link.url}
-                                                                                            target="_blank"
-                                                                                            rel="noopener noreferrer"
-                                                                                            title="Open in new tab"
-                                                                                            onMouseEnter={() => setHoverVideoLinkIdx(idx)}
-                                                                                            onMouseLeave={() => setHoverVideoLinkIdx(null)}
-                                                                                            style={{
-                                                                                                color: greenAccent,
-                                                                                                fontSize: '18px',
-                                                                                                textDecoration: 'none',
-                                                                                                transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)',
-                                                                                                transition: 'transform 0.2s ease',
-                                                                                                display: 'inline-flex',
-                                                                                                alignItems: 'center',
-                                                                                                gap: '4px',
-                                                                                            }}
-                                                                                        >
-                                                                                            {link.provider || 'Video'} →
-                                                                                        </a>
-                                                                                    </div>
-                                                                                ))}
-                                                                                {itemState.prototype_submission.created_at && (
-                                                                                    <div style={{ fontSize: '10px', color: darkText, marginTop: '4px' }}>Submitted: {formatWorkflowDateTime(itemState.prototype_submission.created_at)}</div>
-                                                                                )}
-                                                                            </div>
-                                                                        )}
-                                                                        {itemState.prototype_status === 'submitted' && (
-                                                                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                                                                                <button type="button" onClick={async () => {
-                                                                                    if (!window.confirm(`Approve prototype v${itemState.prototype_current_version}?`)) return;
-                                                                                    const fd = new FormData();
-                                                                                    fd.append('action', 'n88_approve_prototype');
-                                                                                    fd.append('item_id', String(getItemId()));
-                                                                                    fd.append('payment_id', String(itemState.prototype_payment_id));
-                                                                                    fd.append('bid_id', String(itemState.prototype_payment_bid_id));
-                                                                                    fd.append('version', String(itemState.prototype_current_version));
-                                                                                    fd.append('_ajax_nonce', window.n88BoardNonce?.nonce_approve_prototype || '');
-                                                                                    const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
-                                                                                    const data = await res.json();
-                                                                                    if (data.success) {
-                                                                                        fetchItemState();
-                                                                                        if (data.data && data.data.message) alert(data.data.message);
-                                                                                    } else alert(data.message || data.data?.message || 'Failed');
-                                                                                }} style={{ padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Approve</button>
-                                                                                <button type="button" onClick={() => setShowRequestChangesModal(true)} style={{ padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Request Changes</button>
-                                                                            </div>
-                                                                        )}
-                {itemState.prototype_status === 'approved' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
-                        <div style={{ fontSize: '11px', color: greenAccent }}>✓ Prototype approved (v{itemState.prototype_approved_version || itemState.prototype_current_version})</div>
-                        {!isViewOnly && !itemState.has_awarded_bid && itemState.prototype_payment_bid_id && (
-                            <button
-                                type="button"
-                                onClick={async () => {
-                                    if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
-                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                    const nonce = window.n88BoardNonce?.nonce_award_bid || window.n88BoardData?.nonce || window.n88?.nonce;
-                                    if (!nonce) { alert('Security token missing.'); return; }
-                                    const fd = new FormData();
-                                    fd.append('action', 'n88_award_bid');
-                                    fd.append('item_id', String(getItemId()));
-                                    fd.append('bid_id', String(itemState.prototype_payment_bid_id));
-                                    fd.append('_ajax_nonce', nonce);
-                                    try {
-                                        const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
-                                        const data = await res.json();
-                                        if (data.success) { if (onSave) await onSave(getItemId(), {}); fetchItemState(); onClose(); }
-                                        else alert(data.data?.message || 'Failed to award.');
-                                    } catch (e) { console.error(e); alert('Error awarding. Please try again.'); }
-                                }}
-                                style={{ padding: '8px 12px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }}
-                            >
-                                Award Bid
-                            </button>
-                        )}
-                        {itemState.has_awarded_bid && (
-                            <div style={{ fontSize: '11px', color: greenAccent }}>Bid Awarded</div>
-                        )}
-                    </div>
-                )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 2: Technical Review & Documentation — CAD received, Revision submitted, Revision sent, CAD approved, CAD released with dates */}
-                                                                {s.step_number === 2 && itemState.workflow_milestones && itemState.workflow_milestones.step2 && (
-                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                                            {itemState.workflow_milestones.step2.cad_received_at && (
-                                                                                <div>· CAD file received — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_received_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step2.revision_submitted_at && (
-                                                                                <div>· Revision submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_submitted_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step2.revision_sent_at && (
-                                                                                <div>· Revision sent (operator) — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_sent_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step2.cad_approved_at && (
-                                                                                <div>· CAD approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_approved_at)}</span></div>
-                                                                            )}
-                                                                            {itemState.workflow_milestones.step2.cad_released_to_supplier_at && (
-                                                                                <div>· Final CAD file submitted to supplier — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_released_to_supplier_at)}</span></div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {/* Step 2: Review and Message + CAD Review (after CAD submitted) – hidden in designer Project Workflow (moved to Item Spec Support box) */}
-                                                                {false && s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep && (
-                                                                    <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>🎧 Review and Message</div>
-                                                                        {!showDesignerMessageForm ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => { setShowDesignerMessageForm(true); loadDesignerMessages(); }}
-                                                                                style={{ width: '100%', padding: '12px', backgroundColor: '#111', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' }}
-                                                                            >
-                                                                                Open Review and Message (CAD · Messages · Support)
-                                                                            </button>
-                                                                        ) : (
-                                                                            <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                                                    <span style={{ fontSize: '12px', color: darkText }}>Check files for CAD · Check messages below</span>
-                                                                                    <button type="button" onClick={() => setShowDesignerMessageForm(false)} style={{ background: 'none', border: 'none', color: darkText, fontSize: '18px', cursor: 'pointer', padding: '0 6px' }}>×</button>
-                                                                                </div>
-                                                                                <div id="n88-designer-messages-container-workflow" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
-                                                                                    {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
-                                                                                        [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
-                                                                                            const isDesigner = msg.sender_role === 'designer';
-                                                                                            const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
-                                                                                            const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
-                                                                                            const rawText = (msg.message_text || '').substring(0, 2000);
-                                                                                            // Parse "CAD Files:" / "Files:" block so operator files are clickable and open in new tab
-                                                                                            const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
-                                                                                            let displayText = rawText;
-                                                                                            const fileList = [];
-                                                                                            if (hasFilesBlock) {
-                                                                                                const lines = rawText.split('\n');
-                                                                                                let filesStart = -1;
-                                                                                                for (let li = 0; li < lines.length; li++) {
-                                                                                                    const trimmed = (lines[li] || '').trim();
-                                                                                                    if (trimmed === 'CAD Files:' || trimmed === 'Files:') {
-                                                                                                        filesStart = li;
-                                                                                                        break;
-                                                                                                    }
-                                                                                                }
-                                                                                                if (filesStart >= 0) {
-                                                                                                    let filesEnd = lines.length;
-                                                                                                    for (let li = filesStart + 1; li < lines.length; li++) {
-                                                                                                        const t = (lines[li] || '').trim();
-                                                                                                        if (t.indexOf('Direction Keywords') === 0 || t === '') {
-                                                                                                            filesEnd = li;
-                                                                                                            break;
-                                                                                                        }
-                                                                                                    }
-                                                                                                    displayText = lines.slice(0, filesStart).join('\n').trim();
-                                                                                                    for (let fi = filesStart + 1; fi < filesEnd; fi++) {
-                                                                                                        const line = (lines[fi] || '').trim();
-                                                                                                        if (line.indexOf('- ') === 0) {
-                                                                                                            const withoutDash = line.slice(2);
-                                                                                                            const sepIdx = withoutDash.indexOf(': ');
-                                                                                                            if (sepIdx > 0) {
-                                                                                                                const fileName = withoutDash.slice(0, sepIdx).trim();
-                                                                                                                const fileUrl = withoutDash.slice(sepIdx + 2).trim();
-                                                                                                                if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-                                                                                                                    fileList.push({ name: fileName, url: fileUrl });
-                                                                                                                }
-                                                                                                            }
-                                                                                                        }
-                                                                                                    }
-                                                                                                }
-                                                                                            }
-                                                                                            const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
-                                                                                            const parts = [];
-                                                                                            let urlM;
-                                                                                            let last = 0;
-                                                                                            while ((urlM = urlRe.exec(displayText)) !== null) {
-                                                                                                if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
-                                                                                                const url = urlM[0];
-                                                                                                const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
-                                                                                                parts.push({ t: isImg ? 'image' : 'file', v: url });
-                                                                                                last = urlRe.lastIndex;
-                                                                                            }
-                                                                                            if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
-                                                                                            const content = parts.length === 0 ? displayText : parts.map((p, i) => {
-                                                                                                if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
-                                                                                                if (p.t === 'image') return (
-                                                                                                    <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
-                                                                                                        <img src={p.v} alt="" style={{ maxWidth: 120, maxHeight: 80, objectFit: 'contain', display: 'block', borderRadius: 4, border: `1px solid ${darkBorder}` }} onError={(e) => { e.target.style.display = 'none'; const n = e.target.nextSibling; if (n) n.style.display = 'block'; }} />
-                                                                                                        <a href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', marginTop: 4, display: 'none' }}>View image →</a>
-                                                                                                    </span>
-                                                                                                );
-                                                                                                return <a key={i} href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: 4, marginRight: 8 }}>View file →</a>;
-                                                                                            });
-                                                                                            return (
-                                                                                                <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
-                                                                                                    <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
-                                                                                                        <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
-                                                                                                        {content}
-                                                                                                        {fileList.length > 0 && (
-                                                                                                            <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                                                                                {fileList.map((file, fi) => {
-                                                                                                                    const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
-                                                                                                                    return (
-                                                                                                                    <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
-                                                                                                                        {isImageFile ? (
-                                                                                                                            <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                                                                                                <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
-                                                                                                                            </span>
-                                                                                                                        ) : (
-                                                                                                                            <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
-                                                                                                                        )}
-                                                                                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
-                                                                                                                        <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
-                                                                                                                    </a>
-                                                                                                                    );
-                                                                                                                })}
-                                                                                                            </div>
-                                                                                                        )}
-                                                                                                        <div style={{ fontSize: '9px', color: '#666', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}</div>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            );
-                                                                                        })
-                                                                                    )}
-                                                                                </div>
-                                                                                {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && itemState.cad_current_version && Number(itemState.cad_current_version) > 0 && (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') && (
-                                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }}>
-                                                                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#66aaff', marginBottom: '8px' }}>CAD Review</div>
-                                                                                        <div style={{ fontSize: '11px', color: '#ccc', marginBottom: '8px' }}>Current CAD: v{itemState.cad_current_version} {itemState.cad_status === 'approved' && itemState.cad_approved_version ? <span style={{ color: greenAccent }}>· Approved v{itemState.cad_approved_version}</span> : null}</div>
-                                                                                        {!isViewOnly && itemState.cad_status !== 'approved' && (
-                                                                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                                                                {!showRevisionUpload ? (
-                                                                                                    <>
-                                                                                                        <button type="button" onClick={() => setShowRevisionUpload(true)} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>Submit revised CAD</button>
-                                                                                                        <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: 'rgba(255,0,101,0.2)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
-                                                                                                    </>
-                                                                                                ) : (
-                                                                                                    <div style={{ width: '100%' }}>
-                                                                                                        <div style={{ fontSize: '11px', marginBottom: '8px' }}>Upload files for revision</div>
-                                                                                                        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setRevisionFiles(prev => [...prev, ...Array.from(e.target.files || [])])} style={{ marginBottom: '8px', fontSize: '11px' }} />
-                                                                                                        {revisionFiles.length > 0 && <div style={{ marginBottom: '8px' }}>{revisionFiles.map((f, i) => <span key={i} style={{ marginRight: '8px', fontSize: '11px' }}>{f.name} <button type="button" onClick={() => setRevisionFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ color: '#ff6666', background: 'none', border: 'none', cursor: 'pointer' }}>×</button></span>)}</div>}
-                                                                                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                                                                                            <button type="button" onClick={() => { requestCadRevision(revisionFiles); setShowRevisionUpload(false); setRevisionFiles([]); }} disabled={isCadActionBusy} style={{ padding: '6px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Send revision request</button>
-                                                                                                            <button type="button" onClick={() => { setShowRevisionUpload(false); setRevisionFiles([]); }} style={{ padding: '6px 12px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                )}
-                                                                                <form onSubmit={(e) => { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); }} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                                                                                    <textarea value={designerMessageText} onChange={(e) => setDesignerMessageText(e.target.value)} required rows={2} placeholder="Type your message…" style={{ flex: 1, padding: '8px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '12px', minHeight: '40px' }} />
-                                                                                    <button type="submit" disabled={isSendingDesignerMessage || !designerMessageText.trim()} style={{ padding: '10px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', fontSize: '12px' }}>{isSendingDesignerMessage ? 'Sending…' : 'Send'}</button>
-                                                                                </form>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Commit 3.A.2 + 3.A.3: Evidence (watermarked) + immutable comments beneath each */}
-                                                                {(() => {
-                                                                    const byStep = timelineData.evidence_by_step || {};
-                                                                    const stepKey = s.step_id;
-                                                                    const evidenceList = byStep[stepKey] || byStep[String(stepKey)] || [];
-                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
-                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
-                                                                    if (!evidenceList.length) return null;
-                                                                    return (
-                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Evidence</div>
-                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                                                                {evidenceList.map((ev) => (
-                                                                                    <div key={ev.id || ev.view_url} style={{ fontSize: '11px', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '10px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                                                                                        {ev.media_type === 'youtube' ? (
-                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>YouTube</a>
-                                                                                        ) : ev.media_type === 'image' ? (
-                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>
-                                                                                                <img src={ev.view_url} alt="" style={{ maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', marginBottom: '4px' }} />
-                                                                                            </a>
-                                                                                        ) : (
-                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{ev.media_type || 'File'}</a>
-                                                                                        )}
-                                                                                        {ev.created_at && <div style={{ fontSize: '10px', color: darkText }}>{ev.created_at}</div>}
-                                                                                        {/* 3.A.3: Comments (immutable) beneath this media */}
-                                                                                        {(ev.comments && ev.comments.length) ? (
-                                                                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                                                <div style={{ fontSize: '10px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Comments</div>
-                                                                                                {ev.comments.map((c) => (
-                                                                                                    <div key={c.id} style={{ fontSize: '11px', color: darkText, marginBottom: '6px', whiteSpace: 'pre-wrap' }}>
-                                                                                                        {c.comment_text}
-                                                                                                        {c.created_at && <div style={{ fontSize: '10px', opacity: 0.8 }}>{c.created_at}</div>}
-                                                                                                    </div>
-                                                                                                ))}
-                                                                                            </div>
-                                                                                        ) : null}
-                                                                                        {canAddComment && (
-                                                                                            <div style={{ marginTop: '8px' }}>
-                                                                                                <textarea
-                                                                                                    placeholder="Add comment (immutable, anchored to this media)"
-                                                                                                    value={evidenceCommentDrafts[ev.id] ?? ''}
-                                                                                                    onChange={(e) => setEvidenceCommentDrafts((prev) => ({ ...prev, [ev.id]: e.target.value }))}
-                                                                                                    style={{ width: '100%', minHeight: '48px', padding: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
-                                                                                                />
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    disabled={evidenceCommentSubmitting || !(evidenceCommentDrafts[ev.id] || '').trim()}
-                                                                                                    onClick={async () => {
-                                                                                                        const text = (evidenceCommentDrafts[ev.id] || '').trim();
-                                                                                                        if (!text || !nonce) return;
-                                                                                                        setEvidenceCommentSubmitting(true);
-                                                                                                        try {
-                                                                                                            const fd = new FormData();
-                                                                                                            fd.append('action', 'n88_add_evidence_comment');
-                                                                                                            fd.append('evidence_id', String(ev.id));
-                                                                                                            fd.append('comment_text', text);
-                                                                                                            fd.append('_ajax_nonce', nonce);
-                                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
-                                                                                                            const data = await res.json();
-                                                                                                            if (data.success) {
-                                                                                                                setEvidenceCommentDrafts((prev) => { const n = { ...prev }; delete n[ev.id]; return n; });
-                                                                                                                fetchTimeline();
-                                                                                                            } else {
-                                                                                                                alert(data.data?.message || 'Failed to add comment.');
-                                                                                                            }
-                                                                                                        } finally {
-                                                                                                            setEvidenceCommentSubmitting(false);
-                                                                                                        }
-                                                                                                    }}
-                                                                                                    style={{ marginTop: '4px', padding: '4px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                                                                                                >
-                                                                                                    Add comment
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })()}
-                                                                {/* Commit 28: Deposit — show when Step 4 selected and item awarded; operator marks received before production can start */}
-                                                                {s.step_number === 4 && itemState.has_awarded_bid && (
-                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Sent Deposit to start production</div>
-                                                                        {itemState.deposit_status === 'received' ? (
-                                                                            <div style={{ fontSize: '11px', color: greenAccent }}>
-                                                                                ✓ Received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
-                                                                            </div>
-                                                                        ) : (
-                                                                            <>
-                                                                                <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
-                                                                                    {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
-                                                                                    {itemState.deposit_status === 'sent_by_designer'
-                                                                                        ? 'Status: Awaiting Deposit Confirmation. Operator will review your proof and mark received.'
-                                                                                        : 'Production can start only after the operator marks deposit received.'}
-                                                                                </div>
-                                                                                {/* Designer: open modal to send payment proof (screenshot/file) */}
-                                                                                {(!window.n88BoardData || !window.n88BoardData.isOperator) && itemState.deposit_status !== 'sent_by_designer' && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => setShowDepositProofModal(true)}
-                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: '#FF0065', color: '#000', border: '1px solid #FF0065', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }}
-                                                                                    >
-                                                                                        [ Send Deposit Payment Proof ]
-                                                                                    </button>
-                                                                                )}
-                                                                                {/* Operator: view payment receipt, designer comments, approve */}
-                                                                                {window.n88BoardData && window.n88BoardData.isOperator && (
-                                                                                    <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
-                                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
-                                                                                        {itemState.deposit_receipt_url && (
-                                                                                            <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
-                                                                                                View payment receipt
-                                                                                            </a>
-                                                                                        )}
-                                                                                        {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
-                                                                                            <div style={{ marginBottom: '10px' }}>
-                                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
-                                                                                                <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
-                                                                                                {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
-                                                                                            </div>
-                                                                                        )}
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={async () => {
-                                                                                                if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
-                                                                                                const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
-                                                                                                if (!nonce) { alert('Security token missing.'); return; }
-                                                                                                const fd = new FormData();
-                                                                                                fd.append('action', 'n88_mark_deposit_received');
-                                                                                                fd.append('item_id', String(getItemId()));
-                                                                                                fd.append('_ajax_nonce', nonce);
-                                                                                                try {
-                                                                                                    const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
-                                                                                                    const data = await res.json();
-                                                                                                    if (data.success) { fetchItemState(); fetchTimeline(); }
-                                                                                                    else alert(data.data?.message || 'Failed.');
-                                                                                                } catch (e) { console.error(e); alert('Error. Please try again.'); }
-                                                                                            }}
-                                                                                            style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
-                                                                                        >
-                                                                                            Approve (mark deposit received)
-                                                                                        </button>
-                                                                                    </div>
-                                                                                )}
-                                                                            </>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                {/* Commit 3.B.5.A1: Step 4–6 — Video evidence + designer step comments */}
-                                                                {s.step_number >= 4 && s.step_number <= 6 && (() => {
-                                                                    const videos = (timelineData.step_456_videos || {})[s.step_number] || [];
-                                                                    const comments = (timelineData.step_456_comments || {})[s.step_number] || [];
-                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
-                                                                    const draft = designerStep456CommentDraft[s.step_number] ?? '';
-                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
-                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                                                    return (
-                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Video Evidence</div>
-                                                                            {videos.length > 0 ? videos.map((sub, i) => (
-                                                                                <div key={i} style={{ marginBottom: '12px' }}>
-                                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '4px' }}>Video Evidence v{sub.version || ''}</div>
-                                                                                    {(sub.links || []).map((lk, j) => (
-                                                                                        <div key={j} style={{ marginBottom: '6px' }}>
-                                                                                            <a href={lk.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px' }}>{lk.provider || 'Link'} — Open video</a>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                    {sub.optional_note && (
-                                                                                        <div style={{ fontSize: '11px', color: darkText, fontStyle: 'italic', marginTop: '6px' }}>Optional Supplier Note: {sub.optional_note}</div>
-                                                                                    )}
-                                                                                </div>
-                                                                            )) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No video evidence yet.</div>}
-                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginTop: '12px', marginBottom: '8px' }}>Designer Comments</div>
-                                                                            {comments.length > 0 ? (
-                                                                                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: darkText }}>
-                                                                                    {comments.map((c, i) => (
-                                                                                        <li key={i} style={{ marginBottom: '6px' }}>{c.created_at?.split(' ')[0] || ''} {c.designer_name || ''}: &quot;{c.comment_text}&quot;</li>
-                                                                                    ))}
-                                                                                </ul>
-                                                                            ) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No comments yet.</div>}
-                                                                            {/* Acceptance: Designer sees comment option under same step (4–6); form when owner, note when not */}
-                                                                            <div style={{ marginTop: '12px' }}>
-                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Review This Step</div>
-                                                                                {canAddComment ? (
-                                                                                    <>
-                                                                                        <textarea
-                                                                                            placeholder="Add feedback or approval note for this step…"
-                                                                                            value={draft}
-                                                                                            onChange={(e) => setDesignerStep456CommentDraft((prev) => ({ ...prev, [s.step_number]: e.target.value }))}
-                                                                                            rows={3}
-                                                                                            style={{ width: '100%', padding: '8px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
-                                                                                        />
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            disabled={designerStep456CommentSubmitting || !draft.trim()}
-                                                                                            onClick={async () => {
-                                                                                                if (!draft.trim() || !nonce) return;
-                                                                                                setDesignerStep456CommentSubmitting(true);
-                                                                                                try {
-                                                                                                    const fd = new FormData();
-                                                                                                    fd.append('action', 'n88_designer_submit_step_comment');
-                                                                                                    fd.append('item_id', String(getItemId()));
-                                                                                                    fd.append('step_number', String(s.step_number));
-                                                                                                    fd.append('comment_text', draft.trim());
-                                                                                                    fd.append('_ajax_nonce', nonce);
-                                                                                                    const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
-                                                                                                    const data = await res.json();
-                                                                                                    if (data.success) {
-                                                                                                        setDesignerStep456CommentDraft((prev) => { const n = { ...prev }; n[s.step_number] = ''; return n; });
-                                                                                                        fetchTimeline();
-                                                                                                        try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
-                                                                                                    } else {
-                                                                                                        alert(data.data?.message || 'Failed to submit comment.');
-                                                                                                    }
-                                                                                                } finally {
-                                                                                                    setDesignerStep456CommentSubmitting(false);
-                                                                                                }
-                                                                                            }}
-                                                                                            style={{ marginTop: '6px', padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-                                                                                        >
-                                                                                            Submit Comment
-                                                                                        </button>
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <div style={{ fontSize: '11px', color: '#888' }}>Only the item owner (designer) can add step comments here.</div>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })()}
-                                                                {/* Commit 3.A.2S: Supplier step evidence (designer read-only — Evidence Received + View Step Evidence) */}
-                                                                {(() => {
-                                                                    const stepsWithEvidence = timelineData.steps_with_supplier_evidence || {};
-                                                                    const hasSupplierEvidence = stepsWithEvidence[s.step_id] || stepsWithEvidence[String(s.step_id)];
-                                                                    if (!hasSupplierEvidence) return null;
-                                                                    const viewingThis = supplierStepEvidenceView && supplierStepEvidenceView.stepId === s.step_id;
-                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
-                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
-                                                                    return (
-                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
-                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Supplier Evidence Received</div>
-                                                                            {!viewingThis ? (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    disabled={supplierStepEvidenceLoading}
-                                                                                    onClick={async () => {
-                                                                                        if (!nonce || !getItemId()) return;
-                                                                                        setSupplierStepEvidenceLoading(true);
-                                                                                        try {
-                                                                                            const fd = new FormData();
-                                                                                            fd.append('action', 'n88_get_step_evidence');
-                                                                                            fd.append('item_id', String(getItemId()));
-                                                                                            fd.append('step_id', String(s.step_id));
-                                                                                            fd.append('_ajax_nonce', nonce);
-                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
-                                                                                            const data = await res.json();
-                                                                                            if (data.success && data.data && data.data.for_step) {
-                                                                                                setSupplierStepEvidenceView({ stepId: s.step_id, data: data.data.for_step });
-                                                                                            }
-                                                                                        } finally {
-                                                                                            setSupplierStepEvidenceLoading(false);
-                                                                                        }
-                                                                                    }}
-                                                                                    style={{ padding: '6px 12px', fontSize: '11px', background: '#111', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
-                                                                                >
-                                                                                    {supplierStepEvidenceLoading ? 'Loading…' : '[ View Step Evidence ]'}
-                                                                                </button>
-                                                                            ) : (
-                                                                                <div>
-                                                                                    {supplierStepEvidenceView.data.submissions && supplierStepEvidenceView.data.submissions.length > 0 ? (
-                                                                                        <ul style={{ margin: '8px 0 0 18px', padding: 0, fontSize: '11px', color: darkText }}>
-                                                                                            {supplierStepEvidenceView.data.submissions.flatMap((sub, i) => (sub.links || []).map((link, j) => (
-                                                                                                <li key={`${i}-${j}`} style={{ marginBottom: '4px' }}>
-                                                                                                    <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{link.provider || 'Link'}</a>
-                                                                                                </li>
-                                                                                            )))}
-                                                                                        </ul>
-                                                                                    ) : (
-                                                                                        <div style={{ fontSize: '11px', color: darkText }}>No links.</div>
-                                                                                    )}
-                                                                                    <button type="button" onClick={() => setSupplierStepEvidenceView(null)} style={{ marginTop: '8px', padding: '4px 10px', fontSize: '11px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>Close</button>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    );
-                                                                })()}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                    {/* Prototype mini-timeline under Step 3 */}
-                                                    {timelineData.show_prototype_mini && (
-                                                        <div style={{
-                                                            marginTop: '20px',
-                                                            padding: '12px',
-                                                            border: `1px solid ${darkBorder}`,
-                                                            borderRadius: '4px',
-                                                            fontSize: '11px',
-                                                            color: darkText,
-                                                        }}>
-                                                            <div style={{ marginBottom: '8px', color: greenAccent }}>Prototype Mini-Timeline (visual only)</div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                                <span>Requested</span>
-                                                                <span>→</span>
-                                                                <span>Paid</span>
-                                                                <span>→</span>
-                                                                <span>CAD Approved</span>
-                                                                <span>→</span>
-                                                                <span>Prototype Submitted</span>
-                                                                <span>→</span>
-                                                                <span>Approved</span>
-                                                            </div>
-                                                            <div style={{ marginTop: '6px', opacity: 0.8, fontSize: '10px' }}>Appears after prototype payment evidence is cleared.</div>
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
 
                                     {/* Launch Brief content (integrated into Mission Spec tab) */}
                                     {activeTab === 'details' && (
@@ -8381,6 +7391,1013 @@ const ItemDetailModal = ({ item, isOpen, onClose, onSave, boardId = null, priceR
                                             )}
                                         </div>
                                     )}
+                                            </div>
+                                            {/* Right: 40% — fixed Support / message box (no scroll with left) */}
+                                            <div
+                                                id="n88-item-spec-support-box"
+                                                style={{
+                                                    flex: '0 0 40%',
+                                                    maxWidth: '40%',
+                                                    overflow: 'hidden',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    minHeight: 0,
+                                                }}
+                                            >
+                                                <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>Support</div>
+                                                <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                            <span style={{ fontSize: '12px', color: darkText }}>Check files for CAD · Check messages below</span>
+                                                            {/* No close button in Item Spec; support is always visible */}
+                                                        </div>
+                                                        <div id="n88-designer-messages-container-details" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
+                                                            {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
+                                                                [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
+                                                                    const isDesigner = msg.sender_role === 'designer';
+                                                                    const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                                                                    const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
+                                                                    const rawText = (msg.message_text || '').substring(0, 2000);
+                                                                    const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
+                                                                    let displayText = rawText;
+                                                                    const fileList = [];
+                                                                    if (hasFilesBlock) {
+                                                                        const lines = rawText.split('\n');
+                                                                        let filesStart = -1;
+                                                                        for (let li = 0; li < lines.length; li++) {
+                                                                            const trimmed = (lines[li] || '').trim();
+                                                                            if (trimmed === 'CAD Files:' || trimmed === 'Files:') { filesStart = li; break; }
+                                                                        }
+                                                                        if (filesStart >= 0) {
+                                                                            let filesEnd = lines.length;
+                                                                            for (let li = filesStart + 1; li < lines.length; li++) {
+                                                                                const t = (lines[li] || '').trim();
+                                                                                if (t.indexOf('Direction Keywords') === 0 || t === '') { filesEnd = li; break; }
+                                                                            }
+                                                                            displayText = lines.slice(0, filesStart).join('\n').trim();
+                                                                            for (let fi = filesStart + 1; fi < filesEnd; fi++) {
+                                                                                const line = (lines[fi] || '').trim();
+                                                                                if (line.indexOf('- ') === 0) {
+                                                                                    const withoutDash = line.slice(2);
+                                                                                    const sepIdx = withoutDash.indexOf(': ');
+                                                                                    if (sepIdx > 0) {
+                                                                                        const fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                        const fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                        if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) fileList.push({ name: fileName, url: fileUrl });
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
+                                                                    const parts = [];
+                                                                    let urlM;
+                                                                    let last = 0;
+                                                                    while ((urlM = urlRe.exec(displayText)) !== null) {
+                                                                        if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
+                                                                        const url = urlM[0];
+                                                                        const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+                                                                        parts.push({ t: isImg ? 'image' : 'file', v: url });
+                                                                        last = urlRe.lastIndex;
+                                                                    }
+                                                                    if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
+                                                                    const content = parts.length === 0 ? displayText : parts.map((p, i) => {
+                                                                        if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
+                                                                        if (p.t === 'image') return (
+                                                                            <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
+                                                                                <img src={p.v} alt="" style={{ maxWidth: 120, maxHeight: 80, objectFit: 'contain', display: 'block', borderRadius: 4, border: `1px solid ${darkBorder}` }} onError={(e) => { e.target.style.display = 'none'; const n = e.target.nextSibling; if (n) n.style.display = 'block'; }} />
+                                                                                <a href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', marginTop: 4, display: 'none' }}>View image →</a>
+                                                                            </span>
+                                                                        );
+                                                                        return <a key={i} href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: 4, marginRight: 8 }}>View file →</a>;
+                                                                    });
+                                                                    return (
+                                                                        <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
+                                                                            <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
+                                                                                <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
+                                                                                {content}
+                                                                                {fileList.length > 0 && (
+                                                                                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                                        {fileList.map((file, fi) => {
+                                                                                            const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
+                                                                                            return (
+                                                                                                <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
+                                                                                                    {isImageFile ? (
+                                                                                                        <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                                            <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
+                                                                                                        </span>
+                                                                                                    ) : (
+                                                                                                        <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
+                                                                                                    )}
+                                                                                                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
+                                                                                                    <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
+                                                                                                </a>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div style={{ fontSize: '9px', color: '#666', textAlign: 'right', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                        <form onSubmit={sendDesignerMessage} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                                            <textarea
+                                                                value={designerMessageText}
+                                                                onChange={(e) => setDesignerMessageText(e.target.value)}
+                                                                required
+                                                                rows={2}
+                                                                style={{ flex: 1, padding: '10px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', resize: 'none', minHeight: '40px', maxHeight: '100px' }}
+                                                                placeholder="Type your message here..."
+                                                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); } }}
+                                                            />
+                                                            <button
+                                                                type="submit"
+                                                                disabled={isSendingDesignerMessage || !designerMessageText.trim()}
+                                                                style={{ padding: '10px 20px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '20px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+                                                            >{isSendingDesignerMessage ? 'Sending...' : 'Send'}</button>
+                                                        </form>
+                                                    </div>
+                                            </div>
+                                        </div>
+                                        </>
+                                    )}
+
+                                    {/* Tab: The Workflow (Commit 3.A.1 — read-only 6-step timeline) */}
+                                    {activeTab === 'workflow' && (
+                                        <div style={{ fontFamily: 'monospace' }}>
+                                            <div style={{ marginBottom: '16px', fontSize: '11px', color: darkText }}>
+                                            </div>
+                                            {timelineLoading && (
+                                                <div style={{ padding: '24px', textAlign: 'center', color: darkText }}>Loading timeline…</div>
+                                            )}
+                                            {timelineError && (
+                                                <div style={{ padding: '16px', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' }}>{timelineError}</div>
+                                            )}
+                                            {/* Operator: standalone Step 4 Deposit block — always visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps */}
+                                            {!timelineLoading && itemState && itemState.has_awarded_bid && window.n88BoardData && window.n88BoardData.isOperator && (
+                                                <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                    <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Step 4 — Sent Deposit to start production</div>
+                                                    {itemState.deposit_status === 'received' ? (
+                                                        <div style={{ fontSize: '11px', color: greenAccent }}>
+                                                            ✓ Deposit received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
+                                                                {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
+                                                                {itemState.deposit_status === 'sent_by_designer' ? 'Designer has submitted payment proof — review and approve below.' : 'Waiting for designer to submit deposit payment proof.'}
+                                                            </div>
+                                                            {itemState.deposit_status === 'sent_by_designer' && (
+                                                                <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
+                                                                    {itemState.deposit_receipt_url && (
+                                                                        <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
+                                                                            View payment receipt
+                                                                        </a>
+                                                                    )}
+                                                                    {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
+                                                                        <div style={{ marginBottom: '10px' }}>
+                                                                            <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
+                                                                            <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
+                                                                            {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                                                                        </div>
+                                                                    )}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={async () => {
+                                                                            if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                            const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                            if (!nonce) { alert('Security token missing.'); return; }
+                                                                            const fd = new FormData();
+                                                                            fd.append('action', 'n88_mark_deposit_received');
+                                                                            fd.append('item_id', String(getItemId()));
+                                                                            fd.append('_ajax_nonce', nonce);
+                                                                            try {
+                                                                                const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                const data = await res.json();
+                                                                                if (data.success) { fetchItemState(); fetchTimeline(); }
+                                                                                else alert(data.data?.message || 'Failed.');
+                                                                            } catch (e) { console.error(e); alert('Error. Please try again.'); }
+                                                                        }}
+                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
+                                                                    >
+                                                                        Approve (mark deposit received)
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {!timelineLoading && !timelineError && timelineData && timelineData.steps && timelineData.steps.length >= 6 && (
+                                                <>
+                                                    {/* Horizontal 6-step row with connector lines between steps — sticky */}
+                                                    <div style={{
+                                                        position: 'sticky',
+                                                        top: 0,
+                                                        zIndex: 10,
+                                                        backgroundColor: '#0a0a0a',
+                                                        marginTop: '-20px',
+                                                        marginBottom: '24px',
+                                                        paddingTop: '20px',
+                                                        paddingBottom: '12px',
+                                                        borderBottom: `1px solid ${darkBorder}`,
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        justifyContent: 'space-between',
+                                                        gap: 0,
+                                                    }}>
+                                                        {timelineData.steps.flatMap((step, idx) => {
+                                                            const isSelected = selectedStepIndex === idx;
+                                                            const stepEl = (
+                                                                <div
+                                                                    key={step.step_id ?? idx}
+                                                                    onClick={() => { setSelectedStepIndex(idx); setSupplierStepEvidenceView(null); }}
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        display: 'flex',
+                                                                        flexDirection: 'column',
+                                                                        alignItems: 'center',
+                                                                        cursor: 'pointer',
+                                                                        minWidth: 0,
+                                                                    }}
+                                                                >
+                                                                    <div style={{
+                                                                        width: '28px',
+                                                                        height: '28px',
+                                                                        borderRadius: '50%',
+                                                                        border: `2px solid ${isSelected ? greenAccent : darkBorder}`,
+                                                                        background: isSelected ? greenAccent : '#333',
+                                                                        color: isSelected ? '#0a0a0a' : '#888',
+                                                                        fontSize: '12px',
+                                                                        fontWeight: '600',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        marginBottom: '6px',
+                                                                    }}>
+                                                                        {step.step_number}
+                                                                    </div>
+                                                                    <div style={{
+                                                                        fontSize: '10px',
+                                                                        color: isSelected ? greenAccent : '#888',
+                                                                        textAlign: 'center',
+                                                                        lineHeight: 1.2,
+                                                                        overflow: 'hidden',
+                                                                        textOverflow: 'ellipsis',
+                                                                        display: '-webkit-box',
+                                                                        WebkitLineClamp: 2,
+                                                                        WebkitBoxOrient: 'vertical',
+                                                                    }}>
+                                                                        {step.label}
+                                                                    </div>
+                                                                    {step.is_delayed && (
+                                                                        <span style={{ fontSize: '9px', color: '#ff6666', marginTop: '2px' }}>[ ! Delayed ]</span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                            const connector = idx < timelineData.steps.length - 1 ? (
+                                                                <div
+                                                                    key={`conn-${idx}`}
+                                                                    style={{ flex: '0 0 20px', alignSelf: 'center', height: '2px', background: darkBorder, marginBottom: '20px' }}
+                                                                    aria-hidden={true}
+                                                                />
+                                                            ) : null;
+                                                            return [stepEl, connector].filter(Boolean);
+                                                        })}
+                                                    </div>
+                                                    {/* Selected step detail */}
+                                                    {timelineData.steps[selectedStepIndex] && (() => {
+                                                        const s = timelineData.steps[selectedStepIndex];
+                                                        const cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
+                                                        const statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
+                                                        return (
+                                                            <div style={{
+                                                                padding: '16px',
+                                                                border: `1px solid ${darkBorder}`,
+                                                                borderRadius: '4px',
+                                                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                                            }}>
+                                                                <div style={{ fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>
+                                                                    {s.step_number}. {s.label}
+                                                                </div>
+                                                                <div style={{ fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 }}>
+                                                                    {({ 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' })[s.step_number] || ''}
+                                                                </div>
+                                                                {/* Step 1: Design & Specifications — dot + CAD requested, Payment sent, Payment approved with dates (no generic status dot) */}
+                                                                {s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1 && (
+                                                                    <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                            {itemState.workflow_milestones.step1.cad_requested_at && (
+                                                                                <div>· CAD requested — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step1.payment_sent_at && (
+                                                                                <div>· Payment sent — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step1.payment_approved_at && (
+                                                                                <div>· Payment approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at)}</span></div>
+                                                                            )}
+                                                                            {!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment && (
+                                                                                <div style={{ color: '#888' }}>No milestone dates yet.</div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: CAD requested — when CAD request submitted */}
+                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && !itemState.workflow_milestones?.step1?.payment_sent_at && (
+                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: `1px solid #66aaff`, borderRadius: '4px' }}>
+                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' }}>CAD Requested</div>
+                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Designer has requested CAD with selected keywords.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Payment sent — pending approval */}
+                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones?.step1?.payment_sent_at && (
+                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: `1px solid #ff8800`, borderRadius: '4px' }}>
+                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' }}>Payment Sent — Pending Approval</div>
+                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>Receipt uploaded. CAD drafting will begin once payment is confirmed.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Payment Confirmed (prototype video is in Step 3) */}
+                                                                {s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
+                                                                    <div style={{ marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,17,0,0.4)', border: `1px solid ${greenAccent}`, borderRadius: '4px' }}>
+                                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' }}>Payment Confirmed</div>
+                                                                        <div style={{ fontSize: '12px', color: darkText, lineHeight: 1.5 }}>CAD drafting has begun.</div>
+                                                                        {itemState.direction_keyword_ids?.length > 0 && itemState.direction_keyword_names && (
+                                                                            <div style={{ marginTop: '8px', fontSize: '11px', color: darkText }}>
+                                                                                Keywords: {itemState.direction_keyword_ids.map(id => itemState.direction_keyword_names[id] || `#${id}`).join(', ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 1: Award project — when prototype approved but not yet awarded (button removed per requirements) */}
+                                                                {/* Step 1: Clarifications / Message Operator (before CAD submitted) — moved to Item Spec Support box; hide in Workflow tab */}
+                                                                {null}
+                                                                {/* Generic State line: show for steps 2–6 only (Step 1 shows only milestone dots) */}
+                                                                {s.step_number !== 1 && (
+                                                                    <div style={{ fontSize: '12px', color: darkText, marginBottom: '4px' }}>
+                                                                        · State: <span style={{ color: s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? greenAccent : darkText }}>{statusLabel}</span>
+                                                                    </div>
+                                                                )}
+                                                                {s.started_at && (
+                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Started: {formatWorkflowDateTime(s.started_at)}</div>
+                                                                )}
+                                                                {s.completed_at && (
+                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '2px' }}>Completed: {formatWorkflowDateTime(s.completed_at)}</div>
+                                                                )}
+                                                                {s.expected_by && (
+                                                                    <div style={{ fontSize: '11px', color: darkText }}>Expected by: {formatWorkflowDateTime(s.expected_by)}</div>
+                                                                )}
+                                                                {/* Step 3: Pre-Production Approval — prototype video timeline: Video submitted, Changes requested, Video resubmitted, Approved with dates */}
+                                                                {s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3 && (
+                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                            {(itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) && (
+                                                                                <div>· Video submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_submitted_at || itemState.prototype_submission.created_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step3.changes_requested_at && (
+                                                                                <div>· Changes requested — <span style={{ color: '#ffaa00' }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step3.video_resubmitted_at && (
+                                                                                <div>· Video resubmitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step3.video_approved_at && (
+                                                                                <div>· Approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at)}</span></div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 3: Prototype Video box (moved from Proposals tab) — status, links, Approve / Request Changes */}
+                                                                {s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && (
+                                                                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Prototype Video</div>
+                                                                        {itemState.prototype_status && (
+                                                                            <div style={{
+                                                                                display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600',
+                                                                                backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133',
+                                                                                border: `1px solid ${itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'}`,
+                                                                                color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff',
+                                                                            }}>
+                                                                                {itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? `Submitted (v${itemState.prototype_current_version || 0})` : 'Not Submitted'}
+                                                                            </div>
+                                                                        )}
+                                                                        {itemState.prototype_submission?.links?.length > 0 && (
+                                                                            <div style={{ marginBottom: '8px' }}>
+                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Video Links (v{itemState.prototype_submission.version}):</div>
+                                                                                {itemState.prototype_submission.links.map((link, idx) => (
+                                                                                    <div key={idx} style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            title="Play on screen"
+                                                                                            onClick={(e) => { e.preventDefault(); setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }}
+                                                                                            onMouseEnter={() => setHoverVideoPlayIdx(idx)}
+                                                                                            onMouseLeave={() => setHoverVideoPlayIdx(null)}
+                                                                                            style={{
+                                                                                                padding: '8px 12px',
+                                                                                                background: 'rgba(0,255,0,0.15)',
+                                                                                                color: greenAccent,
+                                                                                                border: `1px solid ${greenAccent}`,
+                                                                                                borderRadius: '4px',
+                                                                                                fontSize: '16px',
+                                                                                                cursor: 'pointer',
+                                                                                                transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                                                transition: 'transform 0.2s ease',
+                                                                                            }}
+                                                                                        >
+                                                                                            ▶
+                                                                                        </button>
+                                                                                        <a
+                                                                                            href={link.url}
+                                                                                            target="_blank"
+                                                                                            rel="noopener noreferrer"
+                                                                                            title="Open in new tab"
+                                                                                            onMouseEnter={() => setHoverVideoLinkIdx(idx)}
+                                                                                            onMouseLeave={() => setHoverVideoLinkIdx(null)}
+                                                                                            style={{
+                                                                                                color: greenAccent,
+                                                                                                fontSize: '18px',
+                                                                                                textDecoration: 'none',
+                                                                                                transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)',
+                                                                                                transition: 'transform 0.2s ease',
+                                                                                                display: 'inline-flex',
+                                                                                                alignItems: 'center',
+                                                                                                gap: '4px',
+                                                                                            }}
+                                                                                        >
+                                                                                            {link.provider || 'Video'} →
+                                                                                        </a>
+                                                                                    </div>
+                                                                                ))}
+                                                                                {itemState.prototype_submission.created_at && (
+                                                                                    <div style={{ fontSize: '10px', color: darkText, marginTop: '4px' }}>Submitted: {formatWorkflowDateTime(itemState.prototype_submission.created_at)}</div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                        {itemState.prototype_status === 'submitted' && (
+                                                                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                                                                <button type="button" onClick={async () => {
+                                                                                    if (!window.confirm(`Approve prototype v${itemState.prototype_current_version}?`)) return;
+                                                                                    const fd = new FormData();
+                                                                                    fd.append('action', 'n88_approve_prototype');
+                                                                                    fd.append('item_id', String(getItemId()));
+                                                                                    fd.append('payment_id', String(itemState.prototype_payment_id));
+                                                                                    fd.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                                                                    fd.append('version', String(itemState.prototype_current_version));
+                                                                                    fd.append('_ajax_nonce', window.n88BoardNonce?.nonce_approve_prototype || '');
+                                                                                    const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                    const data = await res.json();
+                                                                                    if (data.success) {
+                                                                                        fetchItemState();
+                                                                                        if (data.data && data.data.message) alert(data.data.message);
+                                                                                    } else alert(data.message || data.data?.message || 'Failed');
+                                                                                }} style={{ padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Approve</button>
+                                                                                <button type="button" onClick={() => setShowRequestChangesModal(true)} style={{ padding: '8px 12px', background: '#331100', color: '#ff8800', border: '1px solid #ff8800', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Request Changes</button>
+                                                                            </div>
+                                                                        )}
+                {itemState.prototype_status === 'approved' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+                        <div style={{ fontSize: '11px', color: greenAccent }}>✓ Prototype approved (v{itemState.prototype_approved_version || itemState.prototype_current_version})</div>
+                        {!isViewOnly && !itemState.has_awarded_bid && itemState.prototype_payment_bid_id && (
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                    const nonce = window.n88BoardNonce?.nonce_award_bid || window.n88BoardData?.nonce || window.n88?.nonce;
+                                    if (!nonce) { alert('Security token missing.'); return; }
+                                    const fd = new FormData();
+                                    fd.append('action', 'n88_award_bid');
+                                    fd.append('item_id', String(getItemId()));
+                                    fd.append('bid_id', String(itemState.prototype_payment_bid_id));
+                                    fd.append('_ajax_nonce', nonce);
+                                    try {
+                                        const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                        const data = await res.json();
+                                        if (data.success) { if (onSave) await onSave(getItemId(), {}); fetchItemState(); onClose(); }
+                                        else alert(data.data?.message || 'Failed to award.');
+                                    } catch (e) { console.error(e); alert('Error awarding. Please try again.'); }
+                                }}
+                                style={{ padding: '8px 12px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', fontFamily: 'monospace' }}
+                            >
+                                Award Bid
+                            </button>
+                        )}
+                        {itemState.has_awarded_bid && (
+                            <div style={{ fontSize: '11px', color: greenAccent }}>Bid Awarded</div>
+                        )}
+                    </div>
+                )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 2: Technical Review & Documentation — CAD received, Revision submitted, Revision sent, CAD approved, CAD released with dates */}
+                                                                {s.step_number === 2 && itemState.workflow_milestones && itemState.workflow_milestones.step2 && (
+                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '11px', color: darkText, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                            {itemState.workflow_milestones.step2.cad_received_at && (
+                                                                                <div>· CAD file received — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_received_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step2.revision_submitted_at && (
+                                                                                <div>· Revision submitted — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_submitted_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step2.revision_sent_at && (
+                                                                                <div>· Revision sent (operator) — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.revision_sent_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step2.cad_approved_at && (
+                                                                                <div>· CAD approved — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_approved_at)}</span></div>
+                                                                            )}
+                                                                            {itemState.workflow_milestones.step2.cad_released_to_supplier_at && (
+                                                                                <div>· Final CAD file submitted to supplier — <span style={{ color: greenAccent }}>{formatWorkflowDateTime(itemState.workflow_milestones.step2.cad_released_to_supplier_at)}</span></div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {/* Step 2: Review and Message + CAD Review (after CAD submitted) – hidden in designer Project Workflow (moved to Item Spec Support box) */}
+                                                                {false && s.step_number === 2 && !isViewOnly && (itemState.has_rfq || itemState.has_prototype_payment) && cadSubmittedStep && (
+                                                                    <div style={{ marginTop: '16px', marginBottom: '16px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' }}>🎧 Review and Message</div>
+                                                                        {!showDesignerMessageForm ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { setShowDesignerMessageForm(true); loadDesignerMessages(); }}
+                                                                                style={{ width: '100%', padding: '12px', backgroundColor: '#111', border: `1px solid ${darkBorder}`, borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' }}
+                                                                            >
+                                                                                Open Review and Message (CAD · Messages · Support)
+                                                                            </button>
+                                                                        ) : (
+                                                                            <div style={{ border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '12px', backgroundColor: '#111' }}>
+                                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                                                    <span style={{ fontSize: '12px', color: darkText }}>Check files for CAD · Check messages below</span>
+                                                                                    <button type="button" onClick={() => setShowDesignerMessageForm(false)} style={{ background: 'none', border: 'none', color: darkText, fontSize: '18px', cursor: 'pointer', padding: '0 6px' }}>×</button>
+                                                                                </div>
+                                                                                <div id="n88-designer-messages-container-workflow" style={{ height: '320px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: `1px solid ${darkBorder}` }}>
+                                                                                    {isLoadingDesignerMessages ? <div style={{ textAlign: 'center', color: '#888', padding: '20px' }}>Loading conversation…</div> : designerMessages.length === 0 ? <div style={{ textAlign: 'center', color: '#666', fontSize: '12px' }}>No messages yet.</div> : (
+                                                                                        [...designerMessages].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((msg, idx) => {
+                                                                                            const isDesigner = msg.sender_role === 'designer';
+                                                                                            const isOperatorView = !!(window.n88BoardData && window.n88BoardData.isOperator);
+                                                                                            const senderName = isDesigner ? (isOperatorView ? 'Comment by designer' : 'You') : 'Operator';
+                                                                                            const rawText = (msg.message_text || '').substring(0, 2000);
+                                                                                            // Parse "CAD Files:" / "Files:" block so operator files are clickable and open in new tab
+                                                                                            const hasFilesBlock = rawText.indexOf('CAD Files:') !== -1 || rawText.indexOf('Files:') !== -1;
+                                                                                            let displayText = rawText;
+                                                                                            const fileList = [];
+                                                                                            if (hasFilesBlock) {
+                                                                                                const lines = rawText.split('\n');
+                                                                                                let filesStart = -1;
+                                                                                                for (let li = 0; li < lines.length; li++) {
+                                                                                                    const trimmed = (lines[li] || '').trim();
+                                                                                                    if (trimmed === 'CAD Files:' || trimmed === 'Files:') {
+                                                                                                        filesStart = li;
+                                                                                                        break;
+                                                                                                    }
+                                                                                                }
+                                                                                                if (filesStart >= 0) {
+                                                                                                    let filesEnd = lines.length;
+                                                                                                    for (let li = filesStart + 1; li < lines.length; li++) {
+                                                                                                        const t = (lines[li] || '').trim();
+                                                                                                        if (t.indexOf('Direction Keywords') === 0 || t === '') {
+                                                                                                            filesEnd = li;
+                                                                                                            break;
+                                                                                                        }
+                                                                                                    }
+                                                                                                    displayText = lines.slice(0, filesStart).join('\n').trim();
+                                                                                                    for (let fi = filesStart + 1; fi < filesEnd; fi++) {
+                                                                                                        const line = (lines[fi] || '').trim();
+                                                                                                        if (line.indexOf('- ') === 0) {
+                                                                                                            const withoutDash = line.slice(2);
+                                                                                                            const sepIdx = withoutDash.indexOf(': ');
+                                                                                                            if (sepIdx > 0) {
+                                                                                                                const fileName = withoutDash.slice(0, sepIdx).trim();
+                                                                                                                const fileUrl = withoutDash.slice(sepIdx + 2).trim();
+                                                                                                                if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+                                                                                                                    fileList.push({ name: fileName, url: fileUrl });
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                            const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
+                                                                                            const parts = [];
+                                                                                            let urlM;
+                                                                                            let last = 0;
+                                                                                            while ((urlM = urlRe.exec(displayText)) !== null) {
+                                                                                                if (urlM.index > last) parts.push({ t: 'text', v: displayText.slice(last, urlM.index) });
+                                                                                                const url = urlM[0];
+                                                                                                const isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+                                                                                                parts.push({ t: isImg ? 'image' : 'file', v: url });
+                                                                                                last = urlRe.lastIndex;
+                                                                                            }
+                                                                                            if (last < displayText.length) parts.push({ t: 'text', v: displayText.slice(last) });
+                                                                                            const content = parts.length === 0 ? displayText : parts.map((p, i) => {
+                                                                                                if (p.t === 'text') return <React.Fragment key={i}>{p.v}</React.Fragment>;
+                                                                                                if (p.t === 'image') return (
+                                                                                                    <span key={i} style={{ display: 'inline-block', marginTop: 6, marginBottom: 4 }}>
+                                                                                                        <img src={p.v} alt="" style={{ maxWidth: 120, maxHeight: 80, objectFit: 'contain', display: 'block', borderRadius: 4, border: `1px solid ${darkBorder}` }} onError={(e) => { e.target.style.display = 'none'; const n = e.target.nextSibling; if (n) n.style.display = 'block'; }} />
+                                                                                                        <a href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', marginTop: 4, display: 'none' }}>View image →</a>
+                                                                                                    </span>
+                                                                                                );
+                                                                                                return <a key={i} href={p.v} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: 4, marginRight: 8 }}>View file →</a>;
+                                                                                            });
+                                                                                            return (
+                                                                                                <div key={idx} style={{ marginBottom: '10px', textAlign: isDesigner ? 'right' : 'left' }}>
+                                                                                                    <div style={{ display: 'inline-block', maxWidth: '85%', padding: '8px 12px', backgroundColor: isDesigner ? '#1a1a1a' : '#0a0a0a', border: `1px solid ${isDesigner ? greenAccent : '#333'}`, borderRadius: '8px', fontSize: '11px', color: '#fff', whiteSpace: 'pre-wrap' }}>
+                                                                                                        <div style={{ fontSize: '10px', fontWeight: 600, color: isDesigner ? greenAccent : '#00aa00', marginBottom: 4 }}>{senderName}</div>
+                                                                                                        {content}
+                                                                                                        {fileList.length > 0 && (
+                                                                                                            <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${darkBorder}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                                                                {fileList.map((file, fi) => {
+                                                                                                                    const isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(file.name);
+                                                                                                                    return (
+                                                                                                                    <a key={fi} href={file.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' }}>
+                                                                                                                        {isImageFile ? (
+                                                                                                                            <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                                                                <img src={file.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.parentNode) { const ph = e.target.parentNode; ph.style.fontSize = '18px'; ph.textContent = '🖼️'; } }} />
+                                                                                                                            </span>
+                                                                                                                        ) : (
+                                                                                                                            <span style={{ fontSize: '14px' }}>{file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📎'}</span>
+                                                                                                                        )}
+                                                                                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
+                                                                                                                        <span style={{ color: greenAccent, fontSize: '10px', flexShrink: 0 }}>Open in new tab →</span>
+                                                                                                                    </a>
+                                                                                                                    );
+                                                                                                                })}
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                        <div style={{ fontSize: '9px', color: '#666', marginTop: 4 }}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}</div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            );
+                                                                                        })
+                                                                                    )}
+                                                                                </div>
+                                                                                {itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received' && itemState.cad_current_version && Number(itemState.cad_current_version) > 0 && (itemState.cad_status === 'uploaded' || itemState.cad_status === 'revision_requested' || itemState.cad_status === 'approved') && (
+                                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #333', borderRadius: '4px', flexShrink: 0 }}>
+                                                                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#66aaff', marginBottom: '8px' }}>CAD Review</div>
+                                                                                        <div style={{ fontSize: '11px', color: '#ccc', marginBottom: '8px' }}>Current CAD: v{itemState.cad_current_version} {itemState.cad_status === 'approved' && itemState.cad_approved_version ? <span style={{ color: greenAccent }}>· Approved v{itemState.cad_approved_version}</span> : null}</div>
+                                                                                        {!isViewOnly && itemState.cad_status !== 'approved' && (
+                                                                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                                                                {!showRevisionUpload ? (
+                                                                                                    <>
+                                                                                                        <button type="button" onClick={() => setShowRevisionUpload(true)} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: '#111', border: '1px solid #666', borderRadius: '4px', color: '#fff', fontSize: '11px', cursor: 'pointer' }}>Submit revised CAD</button>
+                                                                                                        <button type="button" onClick={approveCad} disabled={isCadActionBusy} style={{ padding: '8px 12px', backgroundColor: 'rgba(255,0,101,0.2)', border: '1px solid #FF0065', borderRadius: '4px', color: '#FF0065', fontSize: '11px', cursor: 'pointer' }}>Approve CAD</button>
+                                                                                                    </>
+                                                                                                ) : (
+                                                                                                    <div style={{ width: '100%' }}>
+                                                                                                        <div style={{ fontSize: '11px', marginBottom: '8px' }}>Upload files for revision</div>
+                                                                                                        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setRevisionFiles(prev => [...prev, ...Array.from(e.target.files || [])])} style={{ marginBottom: '8px', fontSize: '11px' }} />
+                                                                                                        {revisionFiles.length > 0 && <div style={{ marginBottom: '8px' }}>{revisionFiles.map((f, i) => <span key={i} style={{ marginRight: '8px', fontSize: '11px' }}>{f.name} <button type="button" onClick={() => setRevisionFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ color: '#ff6666', background: 'none', border: 'none', cursor: 'pointer' }}>×</button></span>)}</div>}
+                                                                                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                                                                                            <button type="button" onClick={() => { requestCadRevision(revisionFiles); setShowRevisionUpload(false); setRevisionFiles([]); }} disabled={isCadActionBusy} style={{ padding: '6px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Send revision request</button>
+                                                                                                            <button type="button" onClick={() => { setShowRevisionUpload(false); setRevisionFiles([]); }} style={{ padding: '6px 12px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                )}
+                                                                                <form onSubmit={(e) => { e.preventDefault(); if (designerMessageText.trim()) sendDesignerMessage(e); }} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                                                                    <textarea value={designerMessageText} onChange={(e) => setDesignerMessageText(e.target.value)} required rows={2} placeholder="Type your message…" style={{ flex: 1, padding: '8px 12px', backgroundColor: '#000', color: '#fff', border: `1px solid ${darkBorder}`, borderRadius: '4px', fontSize: '12px', minHeight: '40px' }} />
+                                                                                    <button type="submit" disabled={isSendingDesignerMessage || !designerMessageText.trim()} style={{ padding: '10px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim()) ? '#666' : '#000', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', fontSize: '12px' }}>{isSendingDesignerMessage ? 'Sending…' : 'Send'}</button>
+                                                                                </form>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Commit 3.A.2 + 3.A.3: Evidence (watermarked) + immutable comments beneath each */}
+                                                                {(() => {
+                                                                    const byStep = timelineData.evidence_by_step || {};
+                                                                    const stepKey = s.step_id;
+                                                                    const evidenceList = byStep[stepKey] || byStep[String(stepKey)] || [];
+                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+                                                                    if (!evidenceList.length) return null;
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Evidence</div>
+                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                                                {evidenceList.map((ev) => (
+                                                                                    <div key={ev.id || ev.view_url} style={{ fontSize: '11px', border: `1px solid ${darkBorder}`, borderRadius: '4px', padding: '10px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                                                        {ev.media_type === 'youtube' ? (
+                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>YouTube</a>
+                                                                                        ) : ev.media_type === 'image' ? (
+                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>
+                                                                                                <img src={ev.view_url} alt="" style={{ maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', marginBottom: '4px' }} />
+                                                                                            </a>
+                                                                                        ) : (
+                                                                                            <a href={ev.view_url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{ev.media_type || 'File'}</a>
+                                                                                        )}
+                                                                                        {ev.created_at && <div style={{ fontSize: '10px', color: darkText }}>{ev.created_at}</div>}
+                                                                                        {/* 3.A.3: Comments (immutable) beneath this media */}
+                                                                                        {(ev.comments && ev.comments.length) ? (
+                                                                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                                                <div style={{ fontSize: '10px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Comments</div>
+                                                                                                {ev.comments.map((c) => (
+                                                                                                    <div key={c.id} style={{ fontSize: '11px', color: darkText, marginBottom: '6px', whiteSpace: 'pre-wrap' }}>
+                                                                                                        {c.comment_text}
+                                                                                                        {c.created_at && <div style={{ fontSize: '10px', opacity: 0.8 }}>{c.created_at}</div>}
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        ) : null}
+                                                                                        {canAddComment && (
+                                                                                            <div style={{ marginTop: '8px' }}>
+                                                                                                <textarea
+                                                                                                    placeholder="Add comment (immutable, anchored to this media)"
+                                                                                                    value={evidenceCommentDrafts[ev.id] ?? ''}
+                                                                                                    onChange={(e) => setEvidenceCommentDrafts((prev) => ({ ...prev, [ev.id]: e.target.value }))}
+                                                                                                    style={{ width: '100%', minHeight: '48px', padding: '6px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
+                                                                                                />
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    disabled={evidenceCommentSubmitting || !(evidenceCommentDrafts[ev.id] || '').trim()}
+                                                                                                    onClick={async () => {
+                                                                                                        const text = (evidenceCommentDrafts[ev.id] || '').trim();
+                                                                                                        if (!text || !nonce) return;
+                                                                                                        setEvidenceCommentSubmitting(true);
+                                                                                                        try {
+                                                                                                            const fd = new FormData();
+                                                                                                            fd.append('action', 'n88_add_evidence_comment');
+                                                                                                            fd.append('evidence_id', String(ev.id));
+                                                                                                            fd.append('comment_text', text);
+                                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                                            const data = await res.json();
+                                                                                                            if (data.success) {
+                                                                                                                setEvidenceCommentDrafts((prev) => { const n = { ...prev }; delete n[ev.id]; return n; });
+                                                                                                                fetchTimeline();
+                                                                                                            } else {
+                                                                                                                alert(data.data?.message || 'Failed to add comment.');
+                                                                                                            }
+                                                                                                        } finally {
+                                                                                                            setEvidenceCommentSubmitting(false);
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    style={{ marginTop: '4px', padding: '4px 10px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                                                                                >
+                                                                                                    Add comment
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                                {/* Commit 28: Deposit — show when Step 4 selected and item awarded; operator marks received before production can start */}
+                                                                {s.step_number === 4 && itemState.has_awarded_bid && (
+                                                                    <div style={{ marginTop: '12px', marginBottom: '12px', padding: '12px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '6px' }}>Sent Deposit to start production</div>
+                                                                        {itemState.deposit_status === 'received' ? (
+                                                                            <div style={{ fontSize: '11px', color: greenAccent }}>
+                                                                                ✓ Received {itemState.deposit_received_at ? new Date(itemState.deposit_received_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : ''}. Production (Step 4) can be started.
+                                                                            </div>
+                                                                        ) : (
+                                                                            <>
+                                                                                <div style={{ fontSize: '11px', color: darkText, marginBottom: '8px' }}>
+                                                                                    {itemState.deposit_amount != null ? `$${Number(itemState.deposit_amount).toFixed(2)} pending.` : 'Deposit pending.'}{' '}
+                                                                                    {itemState.deposit_status === 'sent_by_designer'
+                                                                                        ? 'Status: Awaiting Deposit Confirmation. Operator will review your proof and mark received.'
+                                                                                        : 'Production can start only after the operator marks deposit received.'}
+                                                                                </div>
+                                                                                {/* Designer: open modal to send payment proof (screenshot/file) */}
+                                                                                {(!window.n88BoardData || !window.n88BoardData.isOperator) && itemState.deposit_status !== 'sent_by_designer' && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setShowDepositProofModal(true)}
+                                                                                        style={{ padding: '8px 12px', fontSize: '11px', background: '#FF0065', color: '#000', border: '1px solid #FF0065', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600', marginRight: '8px' }}
+                                                                                    >
+                                                                                        [ Send Deposit Payment Proof ]
+                                                                                    </button>
+                                                                                )}
+                                                                                {/* Operator: view payment receipt, designer comments, approve */}
+                                                                                {window.n88BoardData && window.n88BoardData.isOperator && (
+                                                                                    <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #555', borderRadius: '4px' }}>
+                                                                                        <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Review payment proof</div>
+                                                                                        {itemState.deposit_receipt_url && (
+                                                                                            <a href={itemState.deposit_receipt_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '6px 12px', fontSize: '11px', background: '#003300', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', textDecoration: 'none', fontFamily: 'monospace', fontWeight: '600', marginBottom: '8px' }}>
+                                                                                                View payment receipt
+                                                                                            </a>
+                                                                                        )}
+                                                                                        {(itemState.deposit_sent_note && String(itemState.deposit_sent_note).trim()) && (
+                                                                                            <div style={{ marginBottom: '10px' }}>
+                                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Designer comment</div>
+                                                                                                <div style={{ fontSize: '11px', color: '#ccc', whiteSpace: 'pre-wrap', padding: '8px', background: '#111', borderRadius: '4px', border: '1px solid #333' }}>{itemState.deposit_sent_note}</div>
+                                                                                                {itemState.deposit_sent_at && <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Sent {new Date(itemState.deposit_sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={async () => {
+                                                                                                if (!window.confirm('Mark deposit as received for this item? Production (Step 4) will then be allowed to start.')) return;
+                                                                                                const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce;
+                                                                                                if (!nonce) { alert('Security token missing.'); return; }
+                                                                                                const fd = new FormData();
+                                                                                                fd.append('action', 'n88_mark_deposit_received');
+                                                                                                fd.append('item_id', String(getItemId()));
+                                                                                                fd.append('_ajax_nonce', nonce);
+                                                                                                try {
+                                                                                                    const res = await fetch(window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php', { method: 'POST', body: fd });
+                                                                                                    const data = await res.json();
+                                                                                                    if (data.success) { fetchItemState(); fetchTimeline(); }
+                                                                                                    else alert(data.data?.message || 'Failed.');
+                                                                                                } catch (e) { console.error(e); alert('Error. Please try again.'); }
+                                                                                            }}
+                                                                                            style={{ padding: '8px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '600' }}
+                                                                                        >
+                                                                                            Approve (mark deposit received)
+                                                                                        </button>
+                                                                                    </div>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Commit 3.B.5.A1: Step 4–6 — Video evidence + designer step comments */}
+                                                                {s.step_number >= 4 && s.step_number <= 6 && (() => {
+                                                                    const videos = (timelineData.step_456_videos || {})[s.step_number] || [];
+                                                                    const comments = (timelineData.step_456_comments || {})[s.step_number] || [];
+                                                                    const canAddComment = !!timelineData.can_add_evidence_comment;
+                                                                    const draft = designerStep456CommentDraft[s.step_number] ?? '';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Video Evidence</div>
+                                                                            {videos.length > 0 ? videos.map((sub, i) => (
+                                                                                <div key={i} style={{ marginBottom: '12px' }}>
+                                                                                    <div style={{ fontSize: '11px', color: darkText, marginBottom: '4px' }}>Video Evidence v{sub.version || ''}</div>
+                                                                                    {(sub.links || []).map((lk, j) => (
+                                                                                        <div key={j} style={{ marginBottom: '6px' }}>
+                                                                                            <a href={lk.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent, fontSize: '11px' }}>{lk.provider || 'Link'} — Open video</a>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                    {sub.optional_note && (
+                                                                                        <div style={{ fontSize: '11px', color: darkText, fontStyle: 'italic', marginTop: '6px' }}>Optional Supplier Note: {sub.optional_note}</div>
+                                                                                    )}
+                                                                                </div>
+                                                                            )) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No video evidence yet.</div>}
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginTop: '12px', marginBottom: '8px' }}>Designer Comments</div>
+                                                                            {comments.length > 0 ? (
+                                                                                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: darkText }}>
+                                                                                    {comments.map((c, i) => (
+                                                                                        <li key={i} style={{ marginBottom: '6px' }}>{c.created_at?.split(' ')[0] || ''} {c.designer_name || ''}: &quot;{c.comment_text}&quot;</li>
+                                                                                    ))}
+                                                                                </ul>
+                                                                            ) : <div style={{ fontSize: '11px', color: darkText, marginBottom: '10px' }}>No comments yet.</div>}
+                                                                            {/* Acceptance: Designer sees comment option under same step (4–6); form when owner, note when not */}
+                                                                            <div style={{ marginTop: '12px' }}>
+                                                                                <div style={{ fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' }}>Review This Step</div>
+                                                                                {canAddComment ? (
+                                                                                    <>
+                                                                                        <textarea
+                                                                                            placeholder="Add feedback or approval note for this step…"
+                                                                                            value={draft}
+                                                                                            onChange={(e) => setDesignerStep456CommentDraft((prev) => ({ ...prev, [s.step_number]: e.target.value }))}
+                                                                                            rows={3}
+                                                                                            style={{ width: '100%', padding: '8px', fontSize: '11px', background: '#111', color: '#ccc', border: `1px solid ${darkBorder}`, borderRadius: '4px', resize: 'vertical' }}
+                                                                                        />
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={designerStep456CommentSubmitting || !draft.trim()}
+                                                                                            onClick={async () => {
+                                                                                                if (!draft.trim() || !nonce) return;
+                                                                                                setDesignerStep456CommentSubmitting(true);
+                                                                                                try {
+                                                                                                    const fd = new FormData();
+                                                                                                    fd.append('action', 'n88_designer_submit_step_comment');
+                                                                                                    fd.append('item_id', String(getItemId()));
+                                                                                                    fd.append('step_number', String(s.step_number));
+                                                                                                    fd.append('comment_text', draft.trim());
+                                                                                                    fd.append('_ajax_nonce', nonce);
+                                                                                                    const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                                    const data = await res.json();
+                                                                                                    if (data.success) {
+                                                                                                        setDesignerStep456CommentDraft((prev) => { const n = { ...prev }; n[s.step_number] = ''; return n; });
+                                                                                                        fetchTimeline();
+                                                                                                        try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
+                                                                                                    } else {
+                                                                                                        alert(data.data?.message || 'Failed to submit comment.');
+                                                                                                    }
+                                                                                                } finally {
+                                                                                                    setDesignerStep456CommentSubmitting(false);
+                                                                                                }
+                                                                                            }}
+                                                                                            style={{ marginTop: '6px', padding: '6px 12px', fontSize: '11px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
+                                                                                        >
+                                                                                            Submit Comment
+                                                                                        </button>
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <div style={{ fontSize: '11px', color: '#888' }}>Only the item owner (designer) can add step comments here.</div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                                {/* Commit 3.A.2S: Supplier step evidence (designer read-only — Evidence Received + View Step Evidence) */}
+                                                                {(() => {
+                                                                    const stepsWithEvidence = timelineData.steps_with_supplier_evidence || {};
+                                                                    const hasSupplierEvidence = stepsWithEvidence[s.step_id] || stepsWithEvidence[String(s.step_id)];
+                                                                    if (!hasSupplierEvidence) return null;
+                                                                    const viewingThis = supplierStepEvidenceView && supplierStepEvidenceView.stepId === s.step_id;
+                                                                    const ajaxUrl = window.n88BoardData?.ajaxUrl || window.n88?.ajaxUrl || '/wp-admin/admin-ajax.php';
+                                                                    const nonce = window.n88BoardNonce?.nonce_get_item_rfq_state || window.n88BoardData?.nonce || window.n88?.nonce || '';
+                                                                    return (
+                                                                        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${darkBorder}` }}>
+                                                                            <div style={{ fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' }}>Supplier Evidence Received</div>
+                                                                            {!viewingThis ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={supplierStepEvidenceLoading}
+                                                                                    onClick={async () => {
+                                                                                        if (!nonce || !getItemId()) return;
+                                                                                        setSupplierStepEvidenceLoading(true);
+                                                                                        try {
+                                                                                            const fd = new FormData();
+                                                                                            fd.append('action', 'n88_get_step_evidence');
+                                                                                            fd.append('item_id', String(getItemId()));
+                                                                                            fd.append('step_id', String(s.step_id));
+                                                                                            fd.append('_ajax_nonce', nonce);
+                                                                                            const res = await fetch(ajaxUrl, { method: 'POST', body: fd });
+                                                                                            const data = await res.json();
+                                                                                            if (data.success && data.data && data.data.for_step) {
+                                                                                                setSupplierStepEvidenceView({ stepId: s.step_id, data: data.data.for_step });
+                                                                                            }
+                                                                                        } finally {
+                                                                                            setSupplierStepEvidenceLoading(false);
+                                                                                        }
+                                                                                    }}
+                                                                                    style={{ padding: '6px 12px', fontSize: '11px', background: '#111', color: greenAccent, border: `1px solid ${greenAccent}`, borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace' }}
+                                                                                >
+                                                                                    {supplierStepEvidenceLoading ? 'Loading…' : '[ View Step Evidence ]'}
+                                                                                </button>
+                                                                            ) : (
+                                                                                <div>
+                                                                                    {supplierStepEvidenceView.data.submissions && supplierStepEvidenceView.data.submissions.length > 0 ? (
+                                                                                        <ul style={{ margin: '8px 0 0 18px', padding: 0, fontSize: '11px', color: darkText }}>
+                                                                                            {supplierStepEvidenceView.data.submissions.flatMap((sub, i) => (sub.links || []).map((link, j) => (
+                                                                                                <li key={`${i}-${j}`} style={{ marginBottom: '4px' }}>
+                                                                                                    <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: greenAccent }}>{link.provider || 'Link'}</a>
+                                                                                                </li>
+                                                                                            )))}
+                                                                                        </ul>
+                                                                                    ) : (
+                                                                                        <div style={{ fontSize: '11px', color: darkText }}>No links.</div>
+                                                                                    )}
+                                                                                    <button type="button" onClick={() => setSupplierStepEvidenceView(null)} style={{ marginTop: '8px', padding: '4px 10px', fontSize: '11px', background: 'transparent', color: darkText, border: `1px solid ${darkBorder}`, borderRadius: '4px', cursor: 'pointer' }}>Close</button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                    {/* Prototype mini-timeline under Step 3 */}
+                                                    {timelineData.show_prototype_mini && (
+                                                        <div style={{
+                                                            marginTop: '20px',
+                                                            padding: '12px',
+                                                            border: `1px solid ${darkBorder}`,
+                                                            borderRadius: '4px',
+                                                            fontSize: '11px',
+                                                            color: darkText,
+                                                        }}>
+                                                            <div style={{ marginBottom: '8px', color: greenAccent }}>Prototype Mini-Timeline (visual only)</div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                                <span>Requested</span>
+                                                                <span>→</span>
+                                                                <span>Paid</span>
+                                                                <span>→</span>
+                                                                <span>CAD Approved</span>
+                                                                <span>→</span>
+                                                                <span>Prototype Submitted</span>
+                                                                <span>→</span>
+                                                                <span>Approved</span>
+                                                            </div>
+                                                            <div style={{ marginTop: '6px', opacity: 0.8, fontSize: '10px' }}>Appears after prototype payment evidence is cleared.</div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
+
                                 </div>
                             </div>
                         </div>

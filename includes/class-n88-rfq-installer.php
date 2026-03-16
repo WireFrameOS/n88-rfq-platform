@@ -2675,6 +2675,7 @@ class N88_RFQ_Installer {
             sender_user_id BIGINT UNSIGNED NOT NULL,
             message_text TEXT NOT NULL,
             category VARCHAR(50) NULL,
+            message_attachments TEXT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (message_id),
             KEY idx_item_thread (item_id, thread_type),
@@ -2685,6 +2686,16 @@ class N88_RFQ_Installer {
         ) {$charset_collate};";
 
         dbDelta( $sql_messages );
+
+        // Add message_attachments column for existing installs (designer message file uploads)
+        $col = $wpdb->get_row( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'message_attachments'",
+            DB_NAME,
+            $messages_table
+        ) );
+        if ( ! $col ) {
+            $wpdb->query( "ALTER TABLE " . $wpdb->prefix . "n88_item_messages ADD COLUMN message_attachments TEXT NULL AFTER category" );
+        }
 
         // Add foreign keys separately
         $messages_table_safe = esc_sql( $messages_table );

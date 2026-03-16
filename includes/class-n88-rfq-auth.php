@@ -3326,7 +3326,7 @@ class N88_RFQ_Auth {
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Routing:</strong> <span style="color: #FF0065;">' + item.route_label + '</span></div>' : '') +
                         '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
                         (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (item.rfq_fabric_supplied_flag === 'yes' ? 'YES' : 'NO') + '</span></div>' : '') +
-                        (item.rfq_fabric_supplied_flag === 'yes' && item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
+                        (item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                         '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
                         '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || '—') + '</div>' +
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
@@ -20613,6 +20613,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
         $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
+        // Message tags (designer_operator designer only): required — at least one of clarifying_questions, mse_material
+        $message_tags = array();
+        if ( isset( $_POST['message_tags'] ) && is_array( $_POST['message_tags'] ) ) {
+            $message_tags = array_map( 'sanitize_text_field', wp_unslash( $_POST['message_tags'] ) );
+        } elseif ( ! empty( $_POST['message_tags'] ) ) {
+            $message_tags = array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['message_tags'] ) ) ) );
+        }
         
         if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator' ), true ) || empty( trim( $message_text ) ) ) {
             wp_send_json_error( array( 'message' => 'Invalid parameters. Message text is required.' ) );
@@ -20725,7 +20732,47 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
 
+        // Designer sending to operator: require at least one message tag (Clarifying questions / MSE/Material Suggestions)
+        if ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) {
+            $allowed_tags = array( 'clarifying_questions', 'mse_material' );
+            $selected = array_intersect( $message_tags, $allowed_tags );
+            if ( empty( $selected ) ) {
+                wp_send_json_error( array( 'message' => 'Please select at least one: Clarifying questions or MSE/Material Suggestions.' ) );
+                return;
+            }
+            $category = implode( ',', array_values( $selected ) );
+        }
+
+        // Optional file attachments (designer_operator designer only)
+        $attachment_urls = array();
+        if ( $thread_type === 'designer_operator' && $sender_role === 'designer' && ! empty( $_FILES['message_attachments'] ) ) {
+            $files = $_FILES['message_attachments'];
+            $count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
+            if ( $count > 5 ) {
+                $count = 5;
+            }
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            for ( $i = 0; $i < $count; $i++ ) {
+                $name = is_array( $files['name'] ) ? $files['name'][ $i ] : $files['name'];
+                $tmp = is_array( $files['tmp_name'] ) ? $files['tmp_name'][ $i ] : $files['tmp_name'];
+                $error = is_array( $files['error'] ) ? $files['error'][ $i ] : $files['error'];
+                if ( $error !== UPLOAD_ERR_OK || empty( $tmp ) || ! is_uploaded_file( $tmp ) ) {
+                    continue;
+                }
+                $file = array( 'name' => $name, 'tmp_name' => $tmp, 'error' => $error, 'size' => is_array( $files['size'] ) ? $files['size'][ $i ] : $files['size'], 'type' => is_array( $files['type'] ) ? $files['type'][ $i ] : $files['type'] );
+                $id = media_handle_sideload( $file, 0 );
+                if ( ! is_wp_error( $id ) ) {
+                    $url = wp_get_attachment_url( $id );
+                    if ( $url ) {
+                        $attachment_urls[] = array( 'url' => $url, 'name' => basename( $name ) );
+                    }
+                }
+            }
+        }
+
         // Insert message
+        $message_attachments_json = empty( $attachment_urls ) ? null : wp_json_encode( $attachment_urls );
         $insert_result = $wpdb->insert(
             $messages_table,
             array(
@@ -20738,9 +20785,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'sender_user_id' => $current_user->ID,
                 'message_text' => $message_text,
                 'category' => $category ? $category : null,
+                'message_attachments' => $message_attachments_json,
                 'created_at' => current_time( 'mysql' ),
             ),
-            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s' )
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s' )
         );
 
         if ( ! $insert_result ) {
