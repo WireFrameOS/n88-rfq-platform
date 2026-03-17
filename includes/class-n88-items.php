@@ -276,6 +276,11 @@ class N88_Items {
         
         // Commit 2.3.5.1: Handle dimensions and quantity from Add Item form
         $quantity = isset( $_POST['quantity'] ) ? intval( $_POST['quantity'] ) : null;
+        $measurement_type = isset( $_POST['measurement_type'] ) ? sanitize_text_field( wp_unslash( $_POST['measurement_type'] ) ) : '';
+        $allowed_measurement_types = array( 'dimensions', 'area', 'linear_length', 'quantity_only', 'custom_specification' );
+        if ( ! in_array( $measurement_type, $allowed_measurement_types, true ) ) {
+            $measurement_type = '';
+        }
         $dims = null;
         if ( isset( $_POST['dims'] ) ) {
             $dims_data = json_decode( wp_unslash( $_POST['dims'] ), true );
@@ -288,6 +293,17 @@ class N88_Items {
                 );
             }
         }
+        $measurement_area = isset( $_POST['measurement_area'] ) && $_POST['measurement_area'] !== '' ? floatval( wp_unslash( $_POST['measurement_area'] ) ) : null;
+        $measurement_area_unit = isset( $_POST['measurement_area_unit'] ) ? sanitize_text_field( wp_unslash( $_POST['measurement_area_unit'] ) ) : 'sq_ft';
+        if ( ! in_array( $measurement_area_unit, array( 'sq_ft', 'sq_m' ), true ) ) {
+            $measurement_area_unit = 'sq_ft';
+        }
+        $measurement_length = isset( $_POST['measurement_length'] ) && $_POST['measurement_length'] !== '' ? floatval( wp_unslash( $_POST['measurement_length'] ) ) : null;
+        $measurement_length_unit = isset( $_POST['measurement_length_unit'] ) ? sanitize_text_field( wp_unslash( $_POST['measurement_length_unit'] ) ) : 'ft';
+        if ( ! in_array( $measurement_length_unit, array( 'ft', 'm' ), true ) ) {
+            $measurement_length_unit = 'ft';
+        }
+        $custom_specification = isset( $_POST['custom_specification'] ) ? sanitize_textarea_field( wp_unslash( $_POST['custom_specification'] ) ) : '';
         
         // Prepare meta_json with default size (only if column exists)
         $meta_json = array(
@@ -346,6 +362,20 @@ class N88_Items {
         if ( isset( $_POST['rfq_draft_allow_system_invites'] ) ) {
             $flag = wp_unslash( $_POST['rfq_draft_allow_system_invites'] );
             $meta_json['rfq_draft_allow_system_invites'] = ( $flag === '1' || $flag === 1 || $flag === true || $flag === 'true' );
+        }
+        if ( $measurement_type !== '' ) {
+            $meta_json['measurement_type'] = $measurement_type;
+        }
+        if ( $measurement_area !== null && $measurement_area > 0 ) {
+            $meta_json['measurement_area'] = $measurement_area;
+            $meta_json['measurement_area_unit'] = $measurement_area_unit;
+        }
+        if ( $measurement_length !== null && $measurement_length > 0 ) {
+            $meta_json['measurement_length'] = $measurement_length;
+            $meta_json['measurement_length_unit'] = $measurement_length_unit;
+        }
+        if ( $custom_specification !== '' ) {
+            $meta_json['custom_specification'] = $custom_specification;
         }
 
         // COMMIT 3.C.3: Store all uploaded reference/inspiration image IDs with optional captions
@@ -425,6 +455,9 @@ class N88_Items {
                 $cbm = ( $w_cm * $d_cm * $h_cm ) / 1000000.0;
                 $meta_json['cbm'] = round( $cbm, 6 );
             }
+        }
+        if ( $measurement_type && $measurement_type !== 'dimensions' ) {
+            unset( $meta_json['dims'], $meta_json['dims_cm'], $meta_json['cbm'] );
         }
         
         // Check if meta_json column exists
@@ -1594,6 +1627,9 @@ class N88_Items {
             if ( isset( $meta['cbm'] ) ) {
                 $old_values['cbm'] = $meta['cbm'];
             }
+            if ( isset( $meta['measurement_type'] ) ) {
+                $old_values['measurement_type'] = $meta['measurement_type'];
+            }
         }
         
         // Store item facts in meta_json
@@ -1604,6 +1640,38 @@ class N88_Items {
                 'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
                 'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
             );
+        }
+        if ( array_key_exists( 'measurement_type', $payload ) ) {
+            $measurement_type = sanitize_text_field( $payload['measurement_type'] );
+            if ( in_array( $measurement_type, array( 'dimensions', 'area', 'linear_length', 'quantity_only', 'custom_specification' ), true ) ) {
+                $meta['measurement_type'] = $measurement_type;
+                if ( $measurement_type !== 'dimensions' ) {
+                    unset( $meta['dims'], $meta['dims_cm'], $meta['cbm'] );
+                }
+            }
+        }
+        if ( array_key_exists( 'measurement_area', $payload ) ) {
+            $area_value = $payload['measurement_area'];
+            $meta['measurement_area'] = ( $area_value !== null && $area_value !== '' ) ? floatval( $area_value ) : null;
+        }
+        if ( array_key_exists( 'measurement_area_unit', $payload ) ) {
+            $area_unit = sanitize_text_field( $payload['measurement_area_unit'] );
+            if ( in_array( $area_unit, array( 'sq_ft', 'sq_m' ), true ) ) {
+                $meta['measurement_area_unit'] = $area_unit;
+            }
+        }
+        if ( array_key_exists( 'measurement_length', $payload ) ) {
+            $length_value = $payload['measurement_length'];
+            $meta['measurement_length'] = ( $length_value !== null && $length_value !== '' ) ? floatval( $length_value ) : null;
+        }
+        if ( array_key_exists( 'measurement_length_unit', $payload ) ) {
+            $length_unit = sanitize_text_field( $payload['measurement_length_unit'] );
+            if ( in_array( $length_unit, array( 'ft', 'm' ), true ) ) {
+                $meta['measurement_length_unit'] = $length_unit;
+            }
+        }
+        if ( array_key_exists( 'custom_specification', $payload ) ) {
+            $meta['custom_specification'] = sanitize_textarea_field( (string) $payload['custom_specification'] );
         }
         
         if ( isset( $payload['dims_cm'] ) ) {
@@ -1875,16 +1943,19 @@ class N88_Items {
         // Commit 2.3.5.1: Detect changes after RFQ (for event logging) - must be done before updating meta_json
         if ( $has_rfq ) {
             // Check if dims changed
-            if ( isset( $payload['dims'] ) ) {
+            if ( isset( $payload['dims'] ) || ( isset( $payload['measurement_type'] ) && $payload['measurement_type'] !== 'dimensions' ) ) {
                 $new_dims = array(
                     'w' => isset( $payload['dims']['w'] ) ? floatval( $payload['dims']['w'] ) : null,
                     'd' => isset( $payload['dims']['d'] ) ? floatval( $payload['dims']['d'] ) : null,
                     'h' => isset( $payload['dims']['h'] ) ? floatval( $payload['dims']['h'] ) : null,
                     'unit' => isset( $payload['dims']['unit'] ) ? sanitize_text_field( $payload['dims']['unit'] ) : 'in',
                 );
+                if ( isset( $payload['measurement_type'] ) && $payload['measurement_type'] !== 'dimensions' ) {
+                    $new_dims = null;
+                }
                 $old_dims = isset( $old_values['dims'] ) ? $old_values['dims'] : null;
                 $old_unit = isset( $old_dims['unit'] ) ? $old_dims['unit'] : null;
-                $new_unit = $new_dims['unit'];
+                $new_unit = is_array( $new_dims ) && isset( $new_dims['unit'] ) ? $new_dims['unit'] : null;
                 
                 if ( wp_json_encode( $old_dims ) !== wp_json_encode( $new_dims ) ) {
                     $changed_fields[] = 'dims';
@@ -1900,6 +1971,15 @@ class N88_Items {
                             $old_values['dimension_unit'] = $old_unit;
                         }
                     }
+                }
+            }
+            if ( array_key_exists( 'measurement_type', $payload ) ) {
+                $old_measurement_type = isset( $old_values['measurement_type'] ) ? $old_values['measurement_type'] : '';
+                $new_measurement_type = sanitize_text_field( $payload['measurement_type'] );
+                if ( $old_measurement_type !== $new_measurement_type ) {
+                    $changed_fields[] = 'measurement_type';
+                    $new_values['measurement_type'] = $new_measurement_type;
+                    $old_values['measurement_type'] = $old_measurement_type;
                 }
             }
             
