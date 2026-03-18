@@ -103,7 +103,7 @@ class N88_RFQ_Auth {
         // Commit 2.3.9.1C-a: Mark payment received
         add_action( 'wp_ajax_n88_mark_payment_received', array( $this, 'ajax_mark_payment_received' ) );
 
-        // Fix #13/#26: Mark Resolved — clear Action Required for operator/supplier/designer
+        // Fix #13/#26: Mark Resolved â€” clear Action Required for operator/supplier/designer
         add_action( 'wp_ajax_n88_mark_clarification_resolved', array( $this, 'ajax_mark_clarification_resolved' ) );
         // Supplier confirms clarification (operator sees via case_resolutions)
         add_action( 'wp_ajax_n88_supplier_confirm_clarification', array( $this, 'ajax_supplier_confirm_clarification' ) );
@@ -147,7 +147,7 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_supplier_submit_step_evidence', array( $this, 'ajax_supplier_submit_step_evidence' ) );
         add_action( 'wp_ajax_n88_get_step_evidence', array( $this, 'ajax_get_step_evidence' ) );
 
-        // Commit 3.B.5.A1: Step 4–6 video evidence + designer step comments
+        // Commit 3.B.5.A1: Step 4â€“6 video evidence + designer step comments
         add_action( 'wp_ajax_n88_supplier_submit_step_video_456', array( $this, 'ajax_supplier_submit_step_video_456' ) );
         add_action( 'wp_ajax_n88_operator_add_step_video', array( $this, 'ajax_operator_add_step_video' ) );
         add_action( 'wp_ajax_n88_designer_submit_step_comment', array( $this, 'ajax_designer_submit_step_comment' ) );
@@ -842,7 +842,7 @@ class N88_RFQ_Auth {
             );
         }
 
-        // Maker flow: Step 1 Signup → Step 2 Onboarding → Login → Queue. Log maker in and send to onboarding.
+        // Maker flow: Step 1 Signup â†’ Step 2 Onboarding â†’ Login â†’ Queue. Log maker in and send to onboarding.
         if ( $user_role === 'n88_supplier_admin' ) {
             wp_clear_auth_cookie();
             wp_set_current_user( $user_id );
@@ -854,7 +854,7 @@ class N88_RFQ_Auth {
             ) );
         }
 
-        // Creator flow: Same as Maker - Step 1 Signup → Step 2 Onboarding → Login → Workspace.
+        // Creator flow: Same as Maker - Step 1 Signup â†’ Step 2 Onboarding â†’ Login â†’ Workspace.
         if ( $user_role === 'n88_designer' ) {
             wp_clear_auth_cookie();
             wp_set_current_user( $user_id );
@@ -1975,7 +1975,7 @@ class N88_RFQ_Auth {
                         }
                     }
                 }
-                // When supplier has marked as clarified (supplier clicked "Mark as Clarified"), do not show Action Required for operator message — show current item status instead
+                // When supplier has marked as clarified (supplier clicked "Mark as Clarified"), do not show Action Required for operator message â€” show current item status instead
                 $supplier_has_marked_clarified = false;
                 if ( $has_unread_operator_messages ) {
                     $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
@@ -2050,7 +2050,7 @@ class N88_RFQ_Auth {
                 }
                 $oq_status = isset( $meta_award['official_quote_status'] ) ? $meta_award['official_quote_status'] : '';
                 if ( $oq_status !== 'submitted' ) {
-                    $show_action_required = true; // Awarded — Quote PDF Required = action required
+                    $show_action_required = true; // Awarded â€” Quote PDF Required = action required
                 } else {
                     $show_action_required = false;
                 }
@@ -2061,7 +2061,7 @@ class N88_RFQ_Auth {
             if ( $cad_status === 'approved' && ( $prototype_status === null || $prototype_status === '' || $prototype_status === 'approved' ) ) {
                 $show_action_required = false;
             }
-            // When operator sent CAD and supplier has submitted prototype video: no reply needed — clear Action Required (unread)
+            // When operator sent CAD and supplier has submitted prototype video: no reply needed â€” clear Action Required (unread)
             if ( $cad_released_to_supplier_at && $prototype_status === 'submitted' ) {
                 $show_action_required = false;
             }
@@ -2092,16 +2092,16 @@ class N88_RFQ_Auth {
                 $official_quote_status = isset( $meta_for_status['official_quote_status'] ) ? $meta_for_status['official_quote_status'] : '';
 
                 if ( $award_set || $deposit_status === 'received' ) {
-                    // Deposit confirmed – production started
+                    // Deposit confirmed â€“ production started
                     $status_label = __( 'In Production', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $official_quote_status === 'submitted' ) {
-                    // Official quote PDF submitted — supplier sees "Quote File Submitted", not "Awaiting Deposit"
+                    // Official quote PDF submitted â€” supplier sees "Quote File Submitted", not "Awaiting Deposit"
                     $status_label = __( 'Awarded - Quote File Submitted', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } else {
-                    // Awarded, but supplier still must submit Official Quote PDF — Action Required, distinct color
-                    $status_label = __( 'Awarded — Quote PDF Required', 'n88-rfq-platform' );
+                    // Awarded, but supplier still must submit Official Quote PDF â€” Action Required, distinct color
+                    $status_label = __( 'Awarded â€” Quote PDF Required', 'n88-rfq-platform' );
                     $status_color = '#ff8800';
                     $is_action_required = true;
                 }
@@ -2109,28 +2109,28 @@ class N88_RFQ_Auth {
                 $status_label = __( 'Expired', 'n88-rfq-platform' );
                 $status_color = '#999';
             } elseif ( $action_badge === 'changes_received' || $prototype_status === 'changes_requested' ) {
-                $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” Video Changes Received', 'n88-rfq-platform' );
                 $status_color = '#ff8800';
                 $is_action_required = true;
             } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
                 // CAD files sent to supplier; supplier must submit prototype video (any state except already submitted/approved/changes_requested)
-                $status_label = __( 'Action Required — CAD Files approved', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” CAD Files approved', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $show_action_required && $has_unread_operator_messages ) {
-                $status_label = __( 'Action Required — Message from operator', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” Message from operator', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $action_badge === 'submit_bid' ) {
-                $status_label = __( 'Action Required — Submit proposal', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” Submit proposal', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $action_badge === 'continue_draft' ) {
-                $status_label = __( 'Action Required — Continue draft', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” Continue draft', 'n88-rfq-platform' );
                 $status_color = '#ff8800';
                 $is_action_required = true;
             } elseif ( $action_badge === 'specs_changed' ) {
-                $status_label = __( 'Action Required — Specs changed, update bid', 'n88-rfq-platform' );
+                $status_label = __( 'Action Required â€” Specs changed, update bid', 'n88-rfq-platform' );
                 $status_color = '#ff8800';
                 $is_action_required = true;
             } elseif ( $action_badge === 'cad_video_approved' || ( $cad_released && $prototype_status === 'approved' ) ) {
@@ -2141,14 +2141,14 @@ class N88_RFQ_Auth {
                 $status_color = '#66aaff';
             } elseif ( $action_badge === 'submitted' && $has_prototype_payment && $prototype_payment_status !== 'requested' && ! $cad_released ) {
                 // Operator approved payment; CAD not yet released to supplier
-                $status_label = __( 'Payment Received — CAD Pending', 'n88-rfq-platform' );
+                $status_label = __( 'Payment Received â€” CAD Pending', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $action_badge === 'submitted' && $has_prototype_payment && $prototype_payment_status === 'requested' ) {
                 // Designer requested CAD; payment not yet approved
                 $status_label = __( 'CAD Requested - Pending Payment', 'n88-rfq-platform' );
                 $status_color = '#ff5722'; // red-orange for pending payment
             } elseif ( $action_badge === 'submitted' && $cad_released ) {
-                $status_label = __( 'CAD received — Pending video', 'n88-rfq-platform' );
+                $status_label = __( 'CAD received â€” Pending video', 'n88-rfq-platform' );
                 $status_color = '#66aaff';
             } elseif ( $action_badge === 'submitted' ) {
                 $status_label = __( 'Proposal submitted', 'n88-rfq-platform' );
@@ -2158,18 +2158,18 @@ class N88_RFQ_Auth {
                     $status_label = __( 'Video approved', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $cad_released && $prototype_status === 'changes_requested' ) {
-                    $status_label = __( 'Action Required — Video Changes Received', 'n88-rfq-platform' );
+                    $status_label = __( 'Action Required â€” Video Changes Received', 'n88-rfq-platform' );
                     $status_color = '#ff8800';
                     $is_action_required = true;
                 } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
-                    $status_label = __( 'Action Required — CAD Files approved', 'n88-rfq-platform' );
+                    $status_label = __( 'Action Required â€” CAD Files approved', 'n88-rfq-platform' );
                     $status_color = '#ff4500';
                     $is_action_required = true;
                 } elseif ( $cad_released ) {
-                    $status_label = __( 'CAD received — Pending video', 'n88-rfq-platform' );
+                    $status_label = __( 'CAD received â€” Pending video', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
                 } elseif ( $cad_status === 'approved' ) {
-                    $status_label = __( 'CAD approved — Pending release', 'n88-rfq-platform' );
+                    $status_label = __( 'CAD approved â€” Pending release', 'n88-rfq-platform' );
                     $status_color = '#66aaff';
                 } elseif ( $cad_status ) {
                     $status_label = __( 'CAD in progress', 'n88-rfq-platform' );
@@ -2262,14 +2262,14 @@ class N88_RFQ_Auth {
         <div class="n88-supplier-queue">
             <!-- Header -->
             <div class="n88-supplier-queue-header">
-                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-supplier-queue-close" title="Close">×</a>
+                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-supplier-queue-close" title="Close">x</a>
                 <div class="n88-supplier-queue-logo">
                     <h1 class="n88-supplier-queue-logo-title">WireFrame (OS)</h1>
                     <p class="n88-supplier-queue-logo-by">By Neev</p>
                 </div>
                 <div class="n88-supplier-queue-user-dropdown">
                     <button type="button" class="n88-supplier-queue-user-trigger" aria-expanded="false" aria-haspopup="true">
-                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                        <?php echo esc_html( $current_user->display_name ); ?> &#9662;
                     </button>
                     <div class="n88-supplier-queue-user-menu">
                         <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>">Logout</a>
@@ -2296,7 +2296,7 @@ class N88_RFQ_Auth {
                         <label class="n88-supplier-queue-filter-label">Time Remaining:</label>
                         <select id="n88-supplier-time-remaining">
                             <option value="all" <?php selected( $time_remaining_filter, 'all' ); ?>>All</option>
-                            <option value="due_soon" <?php selected( $time_remaining_filter, 'due_soon' ); ?>>All Due Soon (≤24h)</option>
+                            <option value="due_soon" <?php selected( $time_remaining_filter, 'due_soon' ); ?>>All Due Soon (<=24h)</option>
                             <option value="active" <?php selected( $time_remaining_filter, 'active' ); ?>>Active (24-72h)</option>
                             <option value="later" <?php selected( $time_remaining_filter, 'later' ); ?>>Later (>72h)</option>
                         </select>
@@ -2362,22 +2362,22 @@ class N88_RFQ_Auth {
                                     case 'cad_video_approved':
                                     case 'changes_received':
                                     case 'submitted':
-                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ►';
+                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' â–º';
                                         break;
                                     case 'submit_bid':
-                                        $action_button_text = __( 'Submit Proposal', 'n88-rfq-platform' ) . ' ►';
+                                        $action_button_text = __( 'Submit Proposal', 'n88-rfq-platform' ) . ' â–º';
                                         break;
                                     case 'continue_draft':
-                                        $action_button_text = __( 'Continue Draft', 'n88-rfq-platform' ) . ' ►';
+                                        $action_button_text = __( 'Continue Draft', 'n88-rfq-platform' ) . ' â–º';
                                         break;
                                     case 'specs_changed':
-                                        $action_button_text = __( 'Update Bid', 'n88-rfq-platform' ) . ' ►';
+                                        $action_button_text = __( 'Update Bid', 'n88-rfq-platform' ) . ' â–º';
                                         break;
                                     case 'expired':
                                         $action_button_text = __( 'Expired', 'n88-rfq-platform' );
                                         break;
                                     default:
-                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ►';
+                                        $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' â–º';
                                         break;
                                 }
                             ?>
@@ -2401,7 +2401,7 @@ class N88_RFQ_Auth {
                                                     data-item-title="<?php echo esc_attr( $item_title ); ?>" 
                                                     data-category="<?php echo esc_attr( $category ); ?>"
                                                     data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>">
-                                                [ <?php echo esc_html( preg_replace( '/\s*►\s*$/', '', $action_button_text ) ); ?> ]
+                                                [ <?php echo esc_html( preg_replace( '/\s*>\s*$/', '', $action_button_text ) ); ?> ]
                                             </button>
                                         <?php else : ?>
                                             <span style="color: #999;">[ <?php echo esc_html( $action_button_text ); ?> ]</span>
@@ -2508,7 +2508,7 @@ class N88_RFQ_Auth {
         <!-- Supplier Image Lightbox (Commit 2.3.5.1) -->
         <div id="n88-supplier-image-lightbox" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.9); z-index: 10004; overflow: hidden; cursor: pointer;" onclick="closeSupplierImageLightbox(event);">
             <div style="position: absolute; top: 20px; right: 20px; z-index: 10005;">
-                <button onclick="closeSupplierImageLightbox(event); event.stopPropagation();" style="background: rgba(255, 255, 255, 0.9); border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; color: #333; display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" onmouseover="this.style.background='rgba(255, 255, 255, 1)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.9)';" title="Close">×</button>
+                <button onclick="closeSupplierImageLightbox(event); event.stopPropagation();" style="background: rgba(255, 255, 255, 0.9); border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; color: #333; display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" onmouseover="this.style.background='rgba(255, 255, 255, 1)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.9)';" title="Close">Ã—</button>
             </div>
             <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; max-height: 90vh; display: flex; align-items: center; justify-content: center;" onclick="event.stopPropagation();">
                 <img id="n88-supplier-lightbox-image" src="" style="max-width: 90vw; max-height: 90vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" alt="Enlarged image" />
@@ -2597,7 +2597,7 @@ class N88_RFQ_Auth {
                     });
                 }
                 
-                // Commit 2.3.9.1C-a: Attach event listeners to Operator–Supplier Messages (clarification) buttons
+                // Commit 2.3.9.1C-a: Attach event listeners to Operatorâ€“Supplier Messages (clarification) buttons
                 var clarificationButtons = document.querySelectorAll('.n88-open-clarification-modal');
                 clarificationButtons.forEach(function(btn) {
                     btn.addEventListener('click', function() {
@@ -2693,6 +2693,67 @@ class N88_RFQ_Auth {
                     
                     var renderedText = rawText;
                     var cadFiles = [];
+                    var messageAttachments = [];
+                    var messageTags = [];
+                    try {
+                        if (msg.message_attachments) {
+                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
+                            if (Array.isArray(parsedAttachments)) {
+                                messageAttachments = parsedAttachments.filter(function(att) {
+                                    return att && typeof att === 'object' && att.url;
+                                });
+                            }
+                        }
+                    } catch (attachmentParseError) {
+                        console.warn('Failed to parse message attachments:', attachmentParseError);
+                    }
+                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
+                        String(msg.category).split(',').forEach(function(tagKey) {
+                            var normalizedTagKey = String(tagKey || '').trim();
+                            if (normalizedTagKey === 'clarifying_questions') {
+                                messageTags.push('Clarifying questions');
+                            } else if (normalizedTagKey === 'mse_material') {
+                                messageTags.push('MSE/Material Suggestions');
+                            }
+                        });
+                    }
+                    var messageAttachments = [];
+                    var messageTags = [];
+                    try {
+                        if (msg.message_attachments) {
+                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
+                            if (Array.isArray(parsedAttachments)) {
+                                messageAttachments = parsedAttachments.filter(function(att) {
+                                    return att && typeof att === 'object' && att.url;
+                                });
+                            }
+                        }
+                    } catch (attachmentParseError) {
+                        console.warn('Failed to parse message attachments:', attachmentParseError);
+                    }
+                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
+                        String(msg.category).split(',').forEach(function(tagKey) {
+                            var normalizedTagKey = String(tagKey || '').trim();
+                            if (normalizedTagKey === 'clarifying_questions') {
+                                messageTags.push('Clarifying questions');
+                            } else if (normalizedTagKey === 'mse_material') {
+                                messageTags.push('MSE/Material Suggestions');
+                            }
+                        });
+                    }
+                    var messageAttachments = [];
+                    try {
+                        if (msg.message_attachments) {
+                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
+                            if (Array.isArray(parsedAttachments)) {
+                                messageAttachments = parsedAttachments.filter(function(att) {
+                                    return att && typeof att === 'object' && att.url;
+                                });
+                            }
+                        }
+                    } catch (attachmentParseError) {
+                        console.warn('Failed to parse message attachments:', attachmentParseError);
+                    }
                     
                     if (isCadReleasedMessage) {
                         var lines = rawText.split('\n');
@@ -2746,11 +2807,11 @@ class N88_RFQ_Auth {
                         cadFiles.forEach(function(file) {
                             var isPdf = file.ext === 'pdf';
                             var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
-                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                            var icon = isPdf ? 'ðŸ“„' : (isImage ? 'ðŸ–¼ï¸' : 'ðŸ“Ž');
                             html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
                             html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
                             html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open →</div>';
+                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open -></div>';
                             html += '</a>';
                         });
                         html += '</div>';
@@ -2768,7 +2829,7 @@ class N88_RFQ_Auth {
                         var bidIdVal = (opts.bid_id || 0);
                         html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
                     } else if (opts.supplier_confirmed_clarification) {
-                        html += '<span style="font-size: 11px; color: #FF0065;">✓ Clarified</span>';
+                        html += '<span style="font-size: 11px; color: #FF0065;">âœ“ Clarified</span>';
                         if (!opts.supplier_has_submitted_bid) {
                             html += '<button type="button" class="n88-supplier-submit-proposal-from-overview" data-item-id="' + itemId + '" style="padding: 8px 16px; font-size: 12px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace; font-weight: 600;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Submit Proposal</button>';
                         }
@@ -3155,29 +3216,29 @@ class N88_RFQ_Auth {
                     
                     var item = data.data;
                     
-                    // Format dimensions (Commit 2.3.5.4: Format as W × D × H + unit)
-                    var dimsText = '—';
+                    // Format dimensions (Commit 2.3.5.4: Format as W Ã— D Ã— H + unit)
+                    var dimsText = 'â€”';
                     if (item.dimensions) {
                         // Support both formats: {w, d, h, unit} and {width, depth, height, unit}
-                        var w = item.dimensions.width || item.dimensions.w || '—';
-                        var d = item.dimensions.depth || item.dimensions.d || '—';
-                        var h = item.dimensions.height || item.dimensions.h || '—';
+                        var w = item.dimensions.width || item.dimensions.w || 'â€”';
+                        var d = item.dimensions.depth || item.dimensions.d || 'â€”';
+                        var h = item.dimensions.height || item.dimensions.h || 'â€”';
                         var unit = item.dimensions.unit || '';
-                        if (w !== '—' && d !== '—' && h !== '—') {
+                        if (w !== 'â€”' && d !== 'â€”' && h !== 'â€”') {
                             var unitStr = unit === 'in' ? '"' : unit;
-                            dimsText = w + unitStr + 'W × ' + d + unitStr + 'D × ' + h + unitStr + 'H';
+                            dimsText = w + unitStr + 'W Ã— ' + d + unitStr + 'D Ã— ' + h + unitStr + 'H';
                         }
                     }
                     
-                    // Format keywords (Commit 2.3.5.4: Display keywords or "—")
-                    var keywordsText = '—';
+                    // Format keywords (Commit 2.3.5.4: Display keywords or "â€”")
+                    var keywordsText = 'â€”';
                     if (item.keywords && Array.isArray(item.keywords) && item.keywords.length > 0) {
                         keywordsText = item.keywords.join(', ');
                     }
                     
                     // Format sourcing_type and timeline_type
-                    var sourcingTypeText = item.sourcing_type || '—';
-                    var timelineTypeText = item.timeline_type || '—';
+                    var sourcingTypeText = item.sourcing_type || 'â€”';
+                    var timelineTypeText = item.timeline_type || 'â€”';
                     
                     // Build reference images HTML - improved with better click handling
                     var refImagesHTML = '';
@@ -3232,7 +3293,7 @@ class N88_RFQ_Auth {
                             var url = link.url || link;
                             var provider = link.provider || 'external';
                             mediaLinksHTML += '<a href="' + url + '" target="_blank" style="color: #0073aa; text-decoration: none; font-size: 13px;">' + 
-                                (provider === 'youtube' ? '▶ YouTube' : provider === 'vimeo' ? '▶ Vimeo' : provider === 'loom' ? '▶ Loom' : '▶ Media Link') + 
+                                (provider === 'youtube' ? 'â–¶ YouTube' : provider === 'vimeo' ? 'â–¶ Vimeo' : provider === 'loom' ? 'â–¶ Loom' : 'â–¶ Media Link') + 
                                 '</a>';
                         });
                         mediaLinksHTML += '</div>';
@@ -3312,30 +3373,30 @@ class N88_RFQ_Auth {
                             '</div>' +
                             (refImages && refImages.length > 0 ? '<div style="margin-top: 16px;"><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #FF0065;">References</label>' + refImagesHTMLDark + '</div>' : '');
                     })() : (refImages && refImages.length > 0 ? '<div><label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #FF0065;">References</label>' + refImagesHTMLDark + '</div>' : '<div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>'));
-                    // Item box only (for 40% column) — font 14px inside detail box
+                    // Item box only (for 40% column) â€” font 14px inside detail box
                     var itemBoxHTML = (item.show_dims_qty_warning ? '<div style="padding: 12px; background-color: #1a1a1a; border: 1px solid #ffc107; border-radius: 2px; font-size: 12px; color: #ffc107; margin-bottom: 16px; font-weight: 500; font-family: monospace;">' +
-                            '⚠️ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
+                            'âš ï¸ Dims/Qty changed after you submitted your bid. Your bid reflects the previous specs.' +
                             '</div>' : '') +
                         '<div style="padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; height: 100%; box-sizing: border-box; font-size: 14px;">' +
                         '<div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Item</div>' +
                         '<div style="font-size: 14px; color: #fff; line-height: 1.8;">' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">' + (item.title || '—') + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;">' + (item.category || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">' + (item.title || 'â€”') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;">' + (item.category || 'â€”') + '</span></div>' +
                         '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;">' + dimsText + '</span></div>' +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || '—') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;">' + (item.quantity || 'â€”') + '</span></div>' +
                         (item.route_label ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Routing:</strong> <span style="color: #FF0065;">' + item.route_label + '</span></div>' : '') +
-                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || '—') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
+                        '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;">' + (item.delivery_country || 'â€”') + (item.delivery_postal_code ? ' ' + (item.delivery_postal_code || '') : '') + '</span></div>' +
                         (item.rfq_fabric_supplied_flag ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Supplied:</strong> <span style="color: #fff;">' + (item.rfq_fabric_supplied_flag === 'yes' ? 'YES' : 'NO') + '</span></div>' : '') +
                         (item.rfq_fabric_notes && String(item.rfq_fabric_notes).trim() ? '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Fabric Notes:</strong> <span style="color: #fff; white-space: pre-wrap;">' + String(item.rfq_fabric_notes).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>' : '') +
                         '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Description:</strong></div>' +
-                        '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || '—') + '</div>' +
+                        '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + (item.description || 'â€”') + '</div>' +
                         (item.smart_alternatives_note && item.smart_alternatives_note.trim() ? 
                             '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Designer notes:</strong></div>' +
                             '<div style="margin-top: 8px; color: #fff; white-space: pre-wrap; font-size: 14px;">' + item.smart_alternatives_note.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' :
-                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Designer notes:</strong> <span style="color: #fff;">—</span></div>'
+                            '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Designer notes:</strong> <span style="color: #fff;">â€”</span></div>'
                         ) +
                         '</div></div>';
-                    // Support section: open by default (display: flex), in 70% column — light borders, 10px radius on input + Send
+                    // Support section: open by default (display: flex), in 70% column â€” light borders, 10px radius on input + Send
                     var supportSectionHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">' +
                         '<button id="n88-supplier-clarification-toggle-' + itemId + '" onclick="toggleSupplierClarification(' + itemId + ');" style="flex-shrink: 0; width: 100%; padding: 12px; background-color: #111111; border: 1px solid #555; border-radius: 10px; color: #ccc; font-family: \'Courier New\', Courier, monospace; font-size: 14px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#111111\'; this.style.borderColor=\'#555\';">' +
                         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;flex-shrink:0;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support' +
@@ -3343,7 +3404,7 @@ class N88_RFQ_Auth {
                         '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: flex; flex: 1; min-height: 0; margin-top: 16px; padding: 16px; background-color: #111111; border: 1px solid #555; border-radius: 10px; flex-direction: column; overflow: hidden;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
-                        '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>' +
+                        '<button onclick="toggleSupplierClarification(' + itemId + ');" style="background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">Ã—</button>' +
                         '</div>' +
                         '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
@@ -3362,7 +3423,7 @@ class N88_RFQ_Auth {
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message…"></textarea>' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your messageâ€¦"></textarea>' +
                         '<button type="submit" style="padding: 10px 20px; background-color: #FF0065; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#cc0052\';" onmouseout="this.style.backgroundColor=\'#FF0065\';">Send</button>' +
                         '</div>' +
                         '</form>' +
@@ -3372,7 +3433,7 @@ class N88_RFQ_Auth {
                         '<div style="width: 40%; flex: 0 0 40%; min-width: 0; overflow-y: auto;">' + itemBoxHTML + '</div>' +
                         '<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;">' + supportSectionHTML + '</div>' +
                         '</div>';
-                        // Bid Details Box — returns { bidBox, prototypeBlock } for Bid and Prototype tabs
+                        // Bid Details Box â€” returns { bidBox, prototypeBlock } for Bid and Prototype tabs
                         // Commit 2.3.9.2: Prototype block uses item.payment_notification OR bid_data.payment_notification so tab shows whenever CAD/prototype request exists
                         var paymentNotif = item.payment_notification || (item.bid_data && item.bid_data.payment_notification);
                         var protoFallback = { full: '', step1Box: '', step2Box: '', step3Box: '' };
@@ -3411,11 +3472,11 @@ class N88_RFQ_Auth {
                                     notif.cad_files.forEach(function(file) {
                                         var isPdf = file.ext === 'pdf';
                                         var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
-                                        var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                                        var icon = isPdf ? 'ðŸ“„' : (isImage ? 'ðŸ–¼ï¸' : 'ðŸ“Ž');
                                         cadFilesHTML += '<a href="' + (file.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 10px;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">' +
                                             '<span style="font-size: 16px;">' + icon + '</span>' +
                                             '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (file.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                                            '<span style="font-size: 9px; color: #FF0065;">Open →</span>' +
+                                            '<span style="font-size: 9px; color: #FF0065;">Open â†’</span>' +
                                             '</a>';
                                     });
                                     cadFilesHTML += '</div></div>';
@@ -3426,13 +3487,13 @@ class N88_RFQ_Auth {
                                     statusText = 'CAD Request Pending Payment';
                                     statusMessage = 'A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction keywords before filming begins.';
                                 } else if (notif.cad_status === 'approved' && !cadReleasedToSupplier) {
-                                    statusText = 'CAD Approved — Awaiting Release';
+                                    statusText = 'CAD Approved â€” Awaiting Release';
                                     statusMessage = 'Payment has been confirmed and the designer has approved the CAD. The approved CAD and direction will be released to you by the operator shortly. You will be able to view files and submit your prototype video once they are released.';
                                 } else if (notif.cad_status === 'approved') {
-                                    statusText = 'Payment Received — CAD Approved';
+                                    statusText = 'Payment Received â€” CAD Approved';
                                     statusMessage = 'Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production according to the files and direction keywords provided.';
                                 } else {
-                                    statusText = 'Payment Received — CAD Pending';
+                                    statusText = 'Payment Received â€” CAD Pending';
                                     statusMessage = 'Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.';
                                 }
                                 var releasedContent = cadReleasedToSupplier ? (cadFilesHTML + keywordsHTML + noteHTML) : '';
@@ -3444,9 +3505,9 @@ class N88_RFQ_Auth {
                                     '</div>' + releasedContent + '</div>';
                                 var step1Box = (notif.status === 'requested' || (notif.status !== 'marked_received' && notif.cad_status !== 'approved')) ?
                                     '<div style="background-color: #2a0a0a; border: 2px solid #e53935; border-radius: 4px; padding: 14px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; color: #ff4444; font-weight: 700; margin-bottom: 6px;">CAD Request Pending Payment</div><div style="font-size: 12px; color: #ccc; line-height: 1.5;">A CAD/prototype request has been made. Awaiting payment confirmation and final CAD approval. You will receive approved CAD and direction before filming begins.</div></div>' :
-                                    '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Pending</div><div style="font-size: 12px; color: #aaa; line-height: 1.5;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div>' + keywordsHTML + '</div>';
-                                var step2BoxApproved = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received — CAD Approved</div><div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production.</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
-                                var step2BoxAwaitingRelease = '<div style="background-color: rgba(255, 255, 255, 0.06); border: 2px solid #666; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #888; margin-bottom: 8px;">CAD Approved — Awaiting Release</div><div style="font-size: 12px; color: #888; line-height: 1.5;">The designer has approved the CAD. The operator will release the approved CAD and direction to you shortly. You will then see the files here and can submit your prototype video.</div></div>';
+                                    '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received â€” CAD Pending</div><div style="font-size: 12px; color: #aaa; line-height: 1.5;">Payment has been confirmed. CAD drafting is in progress and will be sent to you after designer approval. You will receive approved CAD + direction before filming begins.</div>' + keywordsHTML + '</div>';
+                                var step2BoxApproved = '<div style="background-color: rgba(255, 255, 255, 0.08); border: 2px solid #888; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px;">Payment Received â€” CAD Approved</div><div style="font-size: 12px; color: #aaa; line-height: 1.5; margin-bottom: 12px;">Payment has been confirmed. CAD has been approved and released to you. Please review the approved CAD files below and proceed with prototype video production.</div>' + cadFilesHTML + keywordsHTML + noteHTML + '</div>';
+                                var step2BoxAwaitingRelease = '<div style="background-color: rgba(255, 255, 255, 0.06); border: 2px solid #666; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-family: monospace;"><div style="font-size: 14px; font-weight: 600; color: #888; margin-bottom: 8px;">CAD Approved â€” Awaiting Release</div><div style="font-size: 12px; color: #888; line-height: 1.5;">The designer has approved the CAD. The operator will release the approved CAD and direction to you shortly. You will then see the files here and can submit your prototype video.</div></div>';
                                 var step2Box = (notif.cad_status === 'approved' && cadReleasedToSupplier) ? step2BoxApproved : (notif.cad_status === 'approved') ? step2BoxAwaitingRelease : '';
                                 if (!isCadApprovedForSubmit) return { full: baseBlock, step1Box: step1Box, step2Box: step2Box, step3Box: '' };
                                 var hasSubmission = notif.prototype_video_submission && notif.prototype_video_submission.version;
@@ -3459,7 +3520,7 @@ class N88_RFQ_Auth {
                                         submission.links.forEach(function(link) {
                                             linksHTML += '<a href="' + (link.url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; text-decoration: none; color: #fff; font-size: 11px;">' +
                                                 '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (link.url || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
-                                                '<span style="font-size: 10px; color: #888;">Open →</span></a>';
+                                                '<span style="font-size: 10px; color: #888;">Open â†’</span></a>';
                                         });
                                         linksHTML += '</div></div>';
                                     }
@@ -3468,7 +3529,7 @@ class N88_RFQ_Auth {
                                     var statusMessage = 'Awaiting designer review';
                                     var helpMessage = '';
                                     if (notif.prototype_status === 'changes_requested' && notif.prototype_feedback && notif.prototype_feedback.keywords) {
-                                        statusBadge = '<div style="font-size: 11px; color: #ff8800; margin-bottom: 8px; padding: 6px 10px; background-color: #331100; border: 1px solid #ff8800; border-radius: 4px; display: inline-block;">⚠️ Changes Requested</div>';
+                                        statusBadge = '<div style="font-size: 11px; color: #ff8800; margin-bottom: 8px; padding: 6px 10px; background-color: #331100; border: 1px solid #ff8800; border-radius: 4px; display: inline-block;">âš ï¸ Changes Requested</div>';
                                         statusMessage = 'Designer has requested changes. Please review feedback and submit an updated version.';
                                         helpMessage = '<div style="font-size: 10px; color: #888; padding: 8px; background-color: #1a1a1a; border-radius: 3px; margin-bottom: 12px;">Review the feedback and submit an updated version.</div>';
                                         var feedbackId = 'feedback_' + (notif.payment_id || '') + '_' + Date.now();
@@ -3479,12 +3540,12 @@ class N88_RFQ_Auth {
                                         window.prototypeFeedbackData[feedbackId].bid_id = notif.bid_id;
                                         viewChangesBtn = '<button onclick="if(window.prototypeFeedbackData && window.prototypeFeedbackData[\'' + feedbackId + '\']){window.showPrototypeFeedbackModal(window.prototypeFeedbackData[\'' + feedbackId + '\'], true);}" style="margin-top: 12px; padding: 8px 16px; background-color: #331100; color: #ff8800; border: 1px solid #ff8800; border-radius: 4px; font-family: monospace; font-size: 11px; font-weight: 600; cursor: pointer;">View Changes</button>';
                                     } else if (notif.prototype_status === 'approved') {
-                                        statusBadge = '<div style="font-size: 11px; color: #FF0065; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; display: inline-block;">✓ CAD Video Approved</div>';
+                                        statusBadge = '<div style="font-size: 11px; color: #FF0065; margin-bottom: 8px; padding: 6px 10px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; display: inline-block;">âœ“ CAD Video Approved</div>';
                                         statusMessage = 'Prototype video has been approved by the designer.';
                                     }
                                     var step3Box = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
-                                        '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">✓ Prototype Video Submitted</div>' + statusBadge +
-                                        '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' — ' + statusMessage + '</div>' + helpMessage + linksHTML + viewChangesBtn + '</div>';
+                                        '<div style="font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 8px;">âœ“ Prototype Video Submitted</div>' + statusBadge +
+                                        '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px;">Submitted on ' + submissionDate + ' â€” ' + statusMessage + '</div>' + helpMessage + linksHTML + viewChangesBtn + '</div>';
                                     return { full: baseBlock + step3Box, step1Box: step1Box, step2Box: step2Box, step3Box: step3Box };
                                 }
                                 var submissionHTML = '<div style="margin-top: 16px; padding: 16px; background-color: rgba(255, 255, 255, 0.08); border: 1px solid #888; border-radius: 4px;">' +
@@ -3629,14 +3690,14 @@ class N88_RFQ_Auth {
                             var isBidAwarded = item.bid_status === 'awarded' || bid.bid_status === 'awarded' || bid.is_awarded === true;
                             var prototypeApprovedNotAwarded = paymentNotif && paymentNotif.prototype_status === 'approved' && !isBidAwarded;
                             
-                            var bidHeaderLabel = isBidAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ AWARDED</span>' : (prototypeApprovedNotAwarded ? ' <span style="color: #FF0065; font-size: 14px;">✓ Prototype Approved</span>' : '');
+                            var bidHeaderLabel = isBidAwarded ? ' <span style="color: #FF0065; font-size: 14px;">âœ“ AWARDED</span>' : (prototypeApprovedNotAwarded ? ' <span style="color: #FF0065; font-size: 14px;">âœ“ Prototype Approved</span>' : '');
                             var statusBlockHTML = isBidAwarded ? ('<div style="background-color: #003300; border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
-                                    '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">🎉 Congratulations! Your Bid Has Been Awarded</div>' +
+                                    '<div style="font-weight: 600; margin-bottom: 8px; font-size: 16px;">ðŸŽ‰ Congratulations! Your Bid Has Been Awarded</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Item:</strong> ' + (item.title || 'Item #' + itemId) + '</div>' +
                                     '<div style="margin-bottom: 8px;"><strong>Status:</strong> <span style="color: #FF0065; font-weight: 600;">Awarded</span></div>' +
                                     '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #FF0065; font-size: 13px;">Your bid has been awarded. Please submit the Official Quote PDF and then proceed according to the next workflow steps.</div>' +
                                     '</div>') : (prototypeApprovedNotAwarded ? '<div style="background-color: rgba(0, 51, 0, 0.3); border: 2px solid #FF0065; border-radius: 4px; padding: 16px; margin-bottom: 16px; font-size: 14px; color: #FF0065; line-height: 1.6;">' +
-                                    '<div style="font-weight: 600; margin-bottom: 8px;">✓ Prototype Approved</div>' +
+                                    '<div style="font-weight: 600; margin-bottom: 8px;">âœ“ Prototype Approved</div>' +
                                     '<div style="font-size: 13px;">Your prototype video has been approved by the designer. The project has not been awarded yet; you will be notified if the designer awards the project.</div>' +
                                     '</div>' : '');
                             var officialStatus = item.official_quote_status || '';
@@ -3651,7 +3712,7 @@ class N88_RFQ_Auth {
                                     var awardedBidId = item.awarded_bid_id || (bid.bid_id || null);
                                     var quoteNonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_official_quote_pdf' ) ); ?>';
                                     officialQuoteBlockHTML = '<div style="margin-bottom: 16px; padding: 14px; background-color: #1a1a1a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
-                                        '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded — Quote PDF Required</div>' +
+                                        '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded â€” Quote PDF Required</div>' +
                                         '<div style="font-size: 11px; color: #ccc; margin-bottom: 8px;">Your bid has been awarded. Please upload the Official Quote PDF to finalize award documentation.</div>' +
                                         (awardedBidId ? ('<form onsubmit="return submitOfficialQuotePDF(this,' + (item.item_id || itemId) + ',' + awardedBidId + ');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">' +
                                             '<input type="file" name="official_quote_pdf" accept="application/pdf" required style="font-size:11px; color:#fff;"/>' +
@@ -3677,7 +3738,7 @@ class N88_RFQ_Auth {
                                 (bid.unit_price !== null && bid.unit_price !== undefined ? (function() {
                                     var unitPriceHtml = '<div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Unit Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.unit_price).toFixed(2) + '</span></div>';
                                     if (bid.total_price && bid.item_quantity && bid.item_quantity > 1) {
-                                        unitPriceHtml += '<div style="margin-bottom: 8px; margin-left: 16px; font-size: 12px;"><strong style="color: #C8C8C8;">Total Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.total_price).toFixed(2) + '</span> <span style="color: #999; font-size: 11px;">(' + parseFloat(bid.unit_price).toFixed(2) + ' × ' + bid.item_quantity + ')</span></div>';
+                                        unitPriceHtml += '<div style="margin-bottom: 8px; margin-left: 16px; font-size: 12px;"><strong style="color: #C8C8C8;">Total Price:</strong> <span style="color: #FF0065; font-weight: 600;">$' + parseFloat(bid.total_price).toFixed(2) + '</span> <span style="color: #999; font-size: 11px;">(' + parseFloat(bid.unit_price).toFixed(2) + ' Ã— ' + bid.item_quantity + ')</span></div>';
                                     }
                                     return unitPriceHtml;
                                 })() : '') +
@@ -3697,7 +3758,7 @@ class N88_RFQ_Auth {
                                 var protoApprovedOnly = !isAwarded && paymentNotifFooter && paymentNotifFooter.prototype_status === 'approved';
                                 var label = isAwarded ? 'Bid Awarded' : (protoApprovedOnly ? 'Prototype Approved' : (item.is_resubmission ? 'Bid Already Resubmitted' : 'Bid Already Submitted'));
                                 return '<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">' +
-                                '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">✓ ' + label + '</div>' +
+                                '<div style="padding: 12px 24px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; font-family: monospace;">âœ“ ' + label + '</div>' +
                                 (item.bid_status !== 'awarded' ? '<button onclick="withdrawBid(' + item.item_id + ')" style="padding: 12px 24px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: monospace;">Withdraw Bid</button>' : '') +
                                 '</div>';
                             })() :
@@ -3716,7 +3777,7 @@ class N88_RFQ_Auth {
                         '<div id="n88-bid-form-section-' + item.item_id + '" style="display: none; padding: 20px; background-color: #000; border-top: 1px solid #555;">' +
                         '<div id="n88-bid-form-content-' + item.item_id + '"></div></div>';
                     var m = item.workflow_milestones || { step1: {}, step2: {}, step3: {} };
-                    var fmtDate = function(d) { return (d && (d = (typeof d === 'string' ? d : (d && d.toISOString ? d.toISOString() : '')))) ? new Date(d).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'; };
+                    var fmtDate = function(d) { return (d && (d = (typeof d === 'string' ? d : (d && d.toISOString ? d.toISOString() : '')))) ? new Date(d).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : 'â€”'; };
                     var step1Dates = (m.step1 && (m.step1.cad_requested_at || m.step1.payment_approved_at)) ? ('<div style="font-size: 11px; color: #888; margin-bottom: 8px;">CAD requested: ' + fmtDate(m.step1.cad_requested_at) + '</div>' + (m.step1.payment_approved_at ? '<div style="font-size: 11px; color: #888; margin-bottom: 12px;">Payment received: ' + fmtDate(m.step1.payment_approved_at) + '</div>' : '')) : '';
                     var step2Dates = '';
                     if (m.step2) {
@@ -3756,7 +3817,7 @@ class N88_RFQ_Auth {
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">2. Technical Review & Documentation</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc2 + '</div>' + step2Dates + (bidAndPrototype.workflowStep2 || '') + '</div>' : '');
                     var w3WithClass = (w3Show ? '<div id="n88-supplier-workflow-step-2" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 2 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">3. Pre-Production Approval</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc3 + '</div>' + (step3Dates ? '<div style="margin-bottom: 12px;">' + step3Dates + '</div>' : '') + (bidAndPrototype.workflowStep3 || '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Prototype video step.</div>') + '</div>' : '');
-                    // Step 4: Official Quote PDF — sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
+                    // Step 4: Official Quote PDF â€” sirf award pe depend kare, payment se taaluq nahi. Award hote hi supplier ko Step 04 mein PDF upload option mile.
                     var step4OfficialQuoteHTML = '';
                     var isAwardedForStep4 = item.bid_status === 'awarded' || (item.bid_data && (item.bid_data.bid_status === 'awarded' || item.bid_data.is_awarded === true)) || (item.awarded_bid_id && item.bid_data && Number(item.bid_data.bid_id) === Number(item.awarded_bid_id));
                     if (isAwardedForStep4) {
@@ -3770,7 +3831,7 @@ class N88_RFQ_Auth {
                             var aBidId = item.awarded_bid_id || (item.bid_data && item.bid_data.bid_id) || null;
                             var quoteNonce = '<?php echo esc_js( wp_create_nonce( 'n88_submit_official_quote_pdf' ) ); ?>';
                             step4OfficialQuoteHTML = '<div style="margin-bottom: 16px; padding: 14px; background-color: #1a1a1a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #d3d3d3;">' +
-                                '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded — Quote PDF Required</div>' +
+                                '<div style="font-weight: 600; color: #FF0065; margin-bottom: 6px;">Awarded â€” Quote PDF Required</div>' +
                                 '<div style="font-size: 11px; color: #ccc; margin-bottom: 8px;">Your bid has been awarded. Please upload the Official Quote PDF to finalize award documentation.</div>' +
                                 (aBidId ? ('<form onsubmit="return submitOfficialQuotePDF(this,' + (item.item_id || itemId) + ',' + aBidId + ');" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">' +
                                     '<input type="file" name="official_quote_pdf" accept="application/pdf" required style="font-size:11px; color:#fff;"/>' +
@@ -3782,15 +3843,15 @@ class N88_RFQ_Auth {
                     } else if (bidAndPrototype.workflowStep4OfficialQuote && bidAndPrototype.workflowStep4OfficialQuote.length) {
                         step4OfficialQuoteHTML = bidAndPrototype.workflowStep4OfficialQuote;
                     }
-                    var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div>';
-                    // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF) — PDF upload ka payment se taaluq nahi
+                    var w4Content = step4OfficialQuoteHTML.length ? step4OfficialQuoteHTML : '<div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div>';
+                    // Workflow tab: show when payment/CAD/prototype hai YA sirf award pe Step 4 (Official Quote PDF) â€” PDF upload ka payment se taaluq nahi
                     var showWorkflowSteps = paymentNotif || (step4OfficialQuoteHTML && step4OfficialQuoteHTML.length > 0);
                     var w4WithClass = (showWorkflowSteps ? '<div id="n88-supplier-workflow-step-3" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 3 ? 'block' : 'none') + ';">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">4. Production / Fabrication</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc4 + '</div>' + w4Content + '</div>' : '');
                     var w5WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-4" class="n88-workflow-step-detail" style="margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #555; display: ' + (activeStepIdx === 4 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">5. Quality Review & Packing</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc5 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">5. Quality Review & Packing</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc5 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div></div>' : '');
                     var w6WithClass = (paymentNotif ? '<div id="n88-supplier-workflow-step-5" class="n88-workflow-step-detail" style="margin-bottom: 28px; display: ' + (activeStepIdx === 5 ? 'block' : 'none') + ';">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">6. Ready for Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timeline…</div></div>' : '');
+                        '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">6. Ready for Delivery</div><div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + supplierDesc6 + '</div><div style="padding: 12px; border: 1px solid #555; border-radius: 4px; font-size: 12px; color: #888;">Loading timelineâ€¦</div></div>' : '');
                     var stepRow = '';
                     if (showWorkflowSteps) {
                         stepRow = '<div id="n88-supplier-workflow-step-row" data-active-idx="' + activeStepIdx + '" style="position: sticky; top: 0; z-index: 10; background: #000; display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid ' + darkBorder + ';">';
@@ -3808,7 +3869,7 @@ class N88_RFQ_Auth {
                         }
                         stepRow += '</div>';
                     }
-                    // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4–6 show video evidence, not "Coming soon"). Show workflow when paymentNotif OR Official Quote block (Step 4) required.
+                    // Commit 3.B.5.A1: Use dynamic timeline container so n88LoadSupplierWorkflowTimeline can replace content (Steps 4â€“6 show video evidence, not "Coming soon"). Show workflow when paymentNotif OR Official Quote block (Step 4) required.
                     var workflowTabHTML = '<div id="n88-supplier-workflow-timeline-wrap" data-item-id="' + (itemId || item.item_id || '') + '" data-active-step="' + (item.supplier_workflow_active_step != null ? item.supplier_workflow_active_step : '') + '" style="margin-bottom: 24px; padding-bottom: 20px; font-family: monospace;">' +
                         (showWorkflowSteps ? '<div id="n88-supplier-workflow-timeline" style="min-height: 80px;">' + (stepRow + w1WithClass + w2WithClass + w3WithClass + w4WithClass + w5WithClass + w6WithClass) + '</div>' : '<div id="n88-supplier-workflow-timeline"><div style="padding: 20px; color: #666; font-size: 12px;">No CAD/prototype workflow for this item yet. Submit a proposal and, if awarded, workflow steps will appear here.</div></div>') + '</div>';
                     var prototypeOnlyTabHTML = '<div style="padding: 20px; color: #888; font-family: monospace; font-size: 12px;">CAD and Prototype steps are in the <strong style="color: #C8C8C8;">The WorkFlow</strong> tab. Open The WorkFlow to see dates and actions.</div>';
@@ -3846,7 +3907,7 @@ class N88_RFQ_Auth {
                                 if (stepEl) stepEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }
                         } else if (paymentNotif) {
-                            // Preload timeline so when supplier clicks The WorkFlow tab, Step 4–6 and [ Submit Step Video ] show instead of staying on "Loading timeline…"
+                            // Preload timeline so when supplier clicks The WorkFlow tab, Step 4â€“6 and [ Submit Step Video ] show instead of staying on "Loading timelineâ€¦"
                             setTimeout(function() {
                                 var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
                                 if (wrap && wrap.getAttribute('data-timeline-loaded') !== '1' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') window.n88LoadSupplierWorkflowTimeline();
@@ -3881,7 +3942,7 @@ class N88_RFQ_Auth {
                             var feedbackHTML = '<div style="background-color: #111; border: 2px solid #ff8800; border-radius: 8px; max-width: 800px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 24px; font-family: monospace;">';
                             feedbackHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #333;">';
                             feedbackHTML += '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #ff8800;">Designer Feedback (v' + (feedbackData.submission_version || '?') + ')</h2>';
-                            feedbackHTML += '<button onclick="document.getElementById(\'n88-prototype-feedback-modal\').remove(); document.body.style.overflow=\'\';" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #ff8800; line-height: 1;">×</button>';
+                            feedbackHTML += '<button onclick="document.getElementById(\'n88-prototype-feedback-modal\').remove(); document.body.style.overflow=\'\';" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #ff8800; line-height: 1;">Ã—</button>';
                             feedbackHTML += '</div>';
                             
                             feedbackHTML += '<div style="font-size: 11px; color: #888; margin-bottom: 20px; padding: 10px; background-color: #1a1a1a; border-radius: 4px; border: 1px solid #333;">';
@@ -3890,8 +3951,8 @@ class N88_RFQ_Auth {
                             
                             // Display each keyword with its status and phrases
                             feedbackData.keywords.forEach(function(keywordFeedback, index) {
-                                var statusIcon = keywordFeedback.keyword_status === 'satisfied' ? '✅' : 
-                                                keywordFeedback.keyword_status === 'needs_adjustment' ? '⚠️' : '❌';
+                                var statusIcon = keywordFeedback.keyword_status === 'satisfied' ? 'âœ…' : 
+                                                keywordFeedback.keyword_status === 'needs_adjustment' ? 'âš ï¸' : 'âŒ';
                                 var statusText = keywordFeedback.keyword_status === 'satisfied' ? 'Satisfied' : 
                                                 keywordFeedback.keyword_status === 'needs_adjustment' ? 'Needs Adjustment' : 'Not Addressed';
                                 var statusColor = keywordFeedback.keyword_status === 'satisfied' ? '#FF0065' : 
@@ -3916,7 +3977,7 @@ class N88_RFQ_Auth {
                                     feedbackHTML += '<div style="display: flex; flex-direction: column; gap: 6px;">';
                                     keywordFeedback.phrases.forEach(function(phrase) {
                                         feedbackHTML += '<div style="padding: 8px 12px; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; font-size: 11px; color: #ccc; line-height: 1.4;">';
-                                        feedbackHTML += '• ' + (phrase.phrase_text || '');
+                                        feedbackHTML += 'â€¢ ' + (phrase.phrase_text || '');
                                         feedbackHTML += '</div>';
                                     });
                                     feedbackHTML += '</div>';
@@ -4193,19 +4254,19 @@ class N88_RFQ_Auth {
                 var nonce = '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>';
                 if (!nonce) return;
                 // Preserve Steps 1-3: only show loading in Steps 4-6, never wipe the container
-                // IMPORTANT: Do NOT overwrite Step 4 if it already has the Official Quote PDF form (supplier awarded — must submit PDF)
+                // IMPORTANT: Do NOT overwrite Step 4 if it already has the Official Quote PDF form (supplier awarded â€” must submit PDF)
                 var step4El = document.getElementById('n88-supplier-workflow-step-3');
                 var step5El = document.getElementById('n88-supplier-workflow-step-4');
                 var step6El = document.getElementById('n88-supplier-workflow-step-5');
                 var hasOriginalStructure = !!(step4El && step5El && step6El);
                 var step4HasOfficialQuote = step4El && (step4El.innerHTML.indexOf('official_quote_pdf') !== -1 || step4El.innerHTML.indexOf('Submit Official Quote PDF') !== -1 || step4El.innerHTML.indexOf('Quote file submitted') !== -1);
                 if (hasOriginalStructure) {
-                    var loadingHtml = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                    var loadingHtml = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timelineâ€¦</div>';
                     if (!step4HasOfficialQuote) step4El.innerHTML = loadingHtml;
                     step5El.innerHTML = loadingHtml;
                     step6El.innerHTML = loadingHtml;
                 } else {
-                    container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                    container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timelineâ€¦</div>';
                 }
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_timeline');
@@ -4255,8 +4316,8 @@ class N88_RFQ_Auth {
                             var stepNumber = sel.step_number || 0;
                             var isStep456 = stepNumber >= 4 && stepNumber <= 6;
                             var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>';
-                            // Acceptance: Supplier can submit video for Steps 4–6 only; Steps 1–3 never show [ Submit Step Video ].
-                            // Allow submit for Pending/In Progress/Completed (steps 4–6 default to Pending until operator starts them).
+                            // Acceptance: Supplier can submit video for Steps 4â€“6 only; Steps 1â€“3 never show [ Submit Step Video ].
+                            // Allow submit for Pending/In Progress/Completed (steps 4â€“6 default to Pending until operator starts them).
                             if (isStep456) {
                                 var videos = step456Videos[stepNumber] || [];
                                 if (videos.length > 0) {
@@ -4307,7 +4368,7 @@ class N88_RFQ_Auth {
                                 var desc = supplierStepDescriptions[stepNum] || '';
                                 detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepNum + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
                                     (desc ? '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : '') +
-                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
@@ -4323,14 +4384,14 @@ class N88_RFQ_Auth {
                                 if (lbl) lbl.style.color = bidx === idx ? green : darkText;
                             }
                         };
-                        // Commit fix: Preserve Steps 1-3 (CAD / CAD Approved / Prototype) — only update Steps 4-6.
+                        // Commit fix: Preserve Steps 1-3 (CAD / CAD Approved / Prototype) â€” only update Steps 4-6.
                         // Steps 1-3 show supplier-specific content: CAD Request Pending Payment, keywords, files, prototype video submit.
                         var step456Labels = ['Production / Fabrication', 'Quality Review & Packing', 'Ready for Delivery'];
                         var step4El = document.getElementById('n88-supplier-workflow-step-3');
                         var step5El = document.getElementById('n88-supplier-workflow-step-4');
                         var step6El = document.getElementById('n88-supplier-workflow-step-5');
                         if (step4El && step5El && step6El) {
-                            // Original supplier structure exists — only update Steps 4, 5, 6 content. Do NOT replace Steps 1-3.
+                            // Original supplier structure exists â€” only update Steps 4, 5, 6 content. Do NOT replace Steps 1-3.
                             // Do NOT replace Step 4 if it has the Official Quote PDF form (awarded supplier must submit PDF).
                             for (var idx = 3; idx <= 5; idx++) {
                                 var el = document.getElementById('n88-supplier-workflow-step-' + idx);
@@ -4343,7 +4404,7 @@ class N88_RFQ_Auth {
                                 var desc456 = supplierStepDescriptions456[stepN] || '';
                                 var content = '<div style="font-size: 14px; font-weight: 600; color: #FF0065; margin-bottom: 4px;">' + stepN + '. ' + step456Labels[idx - 3] + '</div>';
                                 if (desc456) content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 12px; line-height: 1.4;">' + desc456.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                                content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">· State: <span style="color: ' + (s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? green : darkText) + ';">' + sl + '</span></div>';
+                                content += '<div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">Â· State: <span style="color: ' + (s.display_status === 'delayed' ? '#ff6666' : s.display_status === 'completed' ? green : darkText) + ';">' + sl + '</span></div>';
                                 if (s.started_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Started: ' + s.started_at + '</div>';
                                 if (s.completed_at) content += '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + s.completed_at + '</div>';
                                 if (s.expected_by) content += '<div style="font-size: 11px; color: #ccc;">Expected by: ' + s.expected_by + '</div>';
@@ -4351,7 +4412,7 @@ class N88_RFQ_Auth {
                                 el.innerHTML = content;
                             }
                         } else {
-                            // Fallback: no original structure (e.g. direct timeline view) — full replace
+                            // Fallback: no original structure (e.g. direct timeline view) â€” full replace
                             var row = '<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid ' + darkBorder + ';">';
                             for (var i = 0; i < steps.length; i++) {
                                 var s = steps[i];
@@ -4376,7 +4437,7 @@ class N88_RFQ_Auth {
                             var detail = '<div id="n88-supplier-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
                             detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 4px;">' + stepNum0 + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                             if (desc0) detail += '<div style="font-size: 12px; color: ' + darkText + '; margin-bottom: 12px; line-height: 1.4;">' + desc0.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
+                            detail += '<div style="font-size: 12px; color: ' + darkText + ';">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
                             if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                             if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                             if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
@@ -4385,7 +4446,7 @@ class N88_RFQ_Auth {
                             if (t.show_prototype_mini) {
                                 detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
                                 detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
-                                detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
+                                detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested â†’ Paid â†’ CAD Approved â†’ Prototype Submitted â†’ Approved</div></div>';
                             }
                             container.innerHTML = row + detail;
                         }
@@ -4431,7 +4492,7 @@ class N88_RFQ_Auth {
                     }
                     var btn = this;
                     btn.disabled = true;
-                    btn.textContent = 'Submitting…';
+                    btn.textContent = 'Submittingâ€¦';
                     var formData = new FormData();
                     formData.append('action', 'n88_supplier_submit_step_evidence');
                     formData.append('item_id', String(itemId));
@@ -4471,13 +4532,13 @@ class N88_RFQ_Auth {
                 var darkText = '#ccc';
                 var stepLabel = stepNumber === 4 ? 'Production / Fabrication' : stepNumber === 5 ? 'Quality Review & Packing' : 'Ready for Delivery';
                 formWrap.style.display = 'block';
-                formWrap.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 10px;">Submit Video Evidence — Step ' + stepNumber + '</div>' +
+                formWrap.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 10px;">Submit Video Evidence â€” Step ' + stepNumber + '</div>' +
                     '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px;">Video Link (YouTube / Vimeo / Loom only)</p>' +
                     '<input type="url" id="n88-step-456-url-1" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 6px;" />' +
                     '<input type="url" id="n88-step-456-url-2" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 6px;" />' +
                     '<input type="url" id="n88-step-456-url-3" placeholder="https://..." style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 10px;" />' +
                     '<p style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Optional Note (visible to operator + designer)</p>' +
-                    '<textarea id="n88-step-456-optional-note" placeholder="Add a note…" rows="3" style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 12px; resize: vertical;"></textarea>' +
+                    '<textarea id="n88-step-456-optional-note" placeholder="Add a noteâ€¦" rows="3" style="width: 100%; padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; margin-bottom: 12px; resize: vertical;"></textarea>' +
                     '<div style="display: flex; gap: 8px;">' +
                     '<button type="button" id="n88-step-456-submit-btn" style="padding: 8px 16px; font-size: 12px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Submit</button>' +
                     '<button type="button" id="n88-step-456-cancel-btn" style="padding: 8px 16px; font-size: 12px; background: #333; color: #ccc; border: 1px solid ' + darkBorder + '; border-radius: 4px; cursor: pointer; font-family: monospace;">Cancel</button>' +
@@ -4498,7 +4559,7 @@ class N88_RFQ_Auth {
                     var optionalNote = (document.getElementById('n88-step-456-optional-note').value || '').trim();
                     var btn = this;
                     btn.disabled = true;
-                    btn.textContent = 'Submitting…';
+                    btn.textContent = 'Submittingâ€¦';
                     var formData = new FormData();
                     formData.append('action', 'n88_supplier_submit_step_video_456');
                     formData.append('item_id', String(itemId));
@@ -4779,7 +4840,7 @@ class N88_RFQ_Auth {
                 var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
                     // Commit 2.3.5.4: Images removed from bid form (only shown at top of modal)
                     
-                    // BID FORM Title (Commit 2.3.5.4: Remove "Anonymous • No contact info allowed")
+                    // BID FORM Title (Commit 2.3.5.4: Remove "Anonymous â€¢ No contact info allowed")
                     '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
                     '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
@@ -4797,7 +4858,7 @@ class N88_RFQ_Auth {
                     // 2. Video links (1-3, required at least one)
                         '<div style="margin-bottom: 24px;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">VIDEO LINKS</label>' +
-                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1–3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
+                    '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1â€“3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
                     '<div id="n88-video-links-container-embedded-' + itemId + '">' +
                     '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
                     '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
@@ -4829,12 +4890,12 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 12px;">' +
                     '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Prototype timeline (Required):</label>' +
                     '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
-                    '<option value="">[ Select timeline... ▼ ]</option>' +
-                    '<option value="1-2w">1–2w</option>' +
-                    '<option value="2-4w">2–4w</option>' +
-                    '<option value="4-6w">4–6w</option>' +
-                    '<option value="6-8w">6–8w</option>' +
-                    '<option value="8-10w">8–10w</option>' +
+                    '<option value="">[ Select timeline... â–¼ ]</option>' +
+                    '<option value="1-2w">1â€“2w</option>' +
+                    '<option value="2-4w">2â€“4w</option>' +
+                    '<option value="4-6w">4â€“6w</option>' +
+                    '<option value="6-8w">6â€“8w</option>' +
+                    '<option value="8-10w">8â€“10w</option>' +
                     '</select>' +
                     '<div id="n88-prototype-timeline-error-embedded-' + itemId + '" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -4848,14 +4909,14 @@ class N88_RFQ_Auth {
                         
                     // 6. Production lead time (dropdown) - Commit 2.3.5.4: Field order 6
                         '<div style="margin-bottom: 24px;">' +
-                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) — Dropdown</label>' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) â€” Dropdown</label>' +
                     '<select name="production_lead_time_text" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
-                    '<option value="">[ Select lead time... ▼ ]</option>' +
-                    '<option value="2-4 weeks">2–4 weeks</option>' +
-                    '<option value="4-6 weeks">4–6 weeks</option>' +
-                    '<option value="6-8 weeks">6–8 weeks</option>' +
-                    '<option value="8-12 weeks">8–12 weeks</option>' +
-                    '<option value="12-16 weeks">12–16 weeks</option>' +
+                    '<option value="">[ Select lead time... â–¼ ]</option>' +
+                    '<option value="2-4 weeks">2â€“4 weeks</option>' +
+                    '<option value="4-6 weeks">4â€“6 weeks</option>' +
+                    '<option value="6-8 weeks">6â€“8 weeks</option>' +
+                    '<option value="8-12 weeks">8â€“12 weeks</option>' +
+                    '<option value="12-16 weeks">12â€“16 weeks</option>' +
                     '</select>' +
                     '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -5064,22 +5125,22 @@ class N88_RFQ_Auth {
                     var item = data.data;
                     
                     // Format dimensions for item header (Commit 2.3.5.2)
-                    var dimsText = '—';
+                    var dimsText = 'â€”';
                     if (item.dimensions) {
-                        var w = item.dimensions.width || item.dimensions.w || '—';
-                        var d = item.dimensions.depth || item.dimensions.d || '—';
-                        var h = item.dimensions.height || item.dimensions.h || '—';
+                        var w = item.dimensions.width || item.dimensions.w || 'â€”';
+                        var d = item.dimensions.depth || item.dimensions.d || 'â€”';
+                        var h = item.dimensions.height || item.dimensions.h || 'â€”';
                         var unit = item.dimensions.unit || '';
-                        if (w !== '—' && d !== '—' && h !== '—') {
-                            dimsText = w + '"W × ' + d + '"D × ' + h + '"H';
+                        if (w !== 'â€”' && d !== 'â€”' && h !== 'â€”') {
+                            dimsText = w + '"W Ã— ' + d + '"D Ã— ' + h + '"H';
                             if (unit && unit !== 'in') {
-                                dimsText = w + unit + 'W × ' + d + unit + 'D × ' + h + unit + 'H';
+                                dimsText = w + unit + 'W Ã— ' + d + unit + 'D Ã— ' + h + unit + 'H';
                             }
                         }
                     }
                     
                     // Format delivery location
-                    var deliveryText = '—';
+                    var deliveryText = 'â€”';
                     if (item.delivery_country && item.delivery_postal_code) {
                         deliveryText = item.delivery_country + ' ' + item.delivery_postal_code;
                     } else if (item.delivery_country) {
@@ -5216,7 +5277,7 @@ class N88_RFQ_Auth {
                         '<div style="flex: 1;">' +
                         '<div style="font-size: 12px; color: #FF0065; font-family: monospace; margin-bottom: 4px;">RFQ: <span style="color: #fff;">' + itemTitleText + '</span></div>' +
                         '<div style="display: flex; gap: 16px; font-size: 11px; color: #FF0065; font-family: monospace; flex-wrap: wrap;">' +
-                        '<span>Qty: <span style="color: #fff;">' + (item.quantity || '—') + '</span></span>' +
+                        '<span>Qty: <span style="color: #fff;">' + (item.quantity || 'â€”') + '</span></span>' +
                         '<span>Dims: <span style="color: #fff;">' + dimsText + '</span></span>' +
                         '<span>Delivery: <span style="color: #fff;">' + deliveryText + '</span></span>' +
                         '</div>' +
@@ -5228,7 +5289,7 @@ class N88_RFQ_Auth {
                         // G) Specs Changed Warning Banner (show but don't block form)
                         (item.has_revision_mismatch ? 
                             '<div id="n88-specs-changed-banner" style="margin: 20px; padding: 16px; background-color: #331100; border: 2px solid #ff9800; border-radius: 4px;">' +
-                            '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                            '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">âš ï¸ Specs changed since your last bid.</div>' +
                             '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
                             'The item specifications have been updated. Please review and update your bid to match the new specs before submitting.' +
                             '</div>' +
@@ -5239,7 +5300,7 @@ class N88_RFQ_Auth {
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
                         
-                        // Commit 2.3.5.4: BID FORM Title - Remove "Anonymous • No contact info allowed"
+                        // Commit 2.3.5.4: BID FORM Title - Remove "Anonymous â€¢ No contact info allowed"
                         '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
                         '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">BID FORM</h2>' +
                         '</div>' +
@@ -5257,7 +5318,7 @@ class N88_RFQ_Auth {
                         // 2. Video links (1-3, required at least one)
                         '<div style="margin-bottom: 24px;">' +
                         '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #FF0065; font-family: monospace;">VIDEO LINKS</label>' +
-                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1–3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
+                        '<div style="font-size: 11px; color: #fff; margin-bottom: 8px; font-family: monospace;">Enter 1â€“3 video links (YouTube / Vimeo / Loom). At least 1 video link is required.</div>' +
                         '<div id="n88-video-links-container">' +
                         '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">' +
                         '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
@@ -5276,7 +5337,7 @@ class N88_RFQ_Auth {
                         '<div style="display: flex; gap: 16px; margin-bottom: 8px;">' +
                         '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
                         '<input type="radio" name="prototype_video_yes" value="1" required style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidForm();" />' +
-                        '<span style="font-size: 12px; color: #fff; font-family: monospace;">(●) YES</span>' +
+                        '<span style="font-size: 12px; color: #fff; font-family: monospace;">(â—) YES</span>' +
                         '</label>' +
                         '<label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">' +
                         '<input type="radio" name="prototype_video_yes" value="0" style="width: 16px; height: 16px; cursor: pointer; accent-color: #FF0065;" onchange="validateBidForm();" />' +
@@ -5289,12 +5350,12 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom: 12px;">' +
                         '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace;">Prototype timeline (Required):</label>' +
                         '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
-                        '<option value="">[ Select timeline... ▼ ]</option>' +
-                        '<option value="1-2w">1–2w</option>' +
-                        '<option value="2-4w">2–4w</option>' +
-                        '<option value="4-6w">4–6w</option>' +
-                        '<option value="6-8w">6–8w</option>' +
-                        '<option value="8-10w">8–10w</option>' +
+                        '<option value="">[ Select timeline... â–¼ ]</option>' +
+                        '<option value="1-2w">1â€“2w</option>' +
+                        '<option value="2-4w">2â€“4w</option>' +
+                        '<option value="4-6w">4â€“6w</option>' +
+                        '<option value="6-8w">6â€“8w</option>' +
+                        '<option value="8-10w">8â€“10w</option>' +
                         '</select>' +
                         '<div id="n88-prototype-timeline-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -5308,14 +5369,14 @@ class N88_RFQ_Auth {
                         
                         // 3. Production lead time - Commit 2.3.5.2: Dark theme
                         '<div style="margin-bottom: 24px;">' +
-                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) — Dropdown</label>' +
+                        '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">Production lead time (Required) â€” Dropdown</label>' +
                         '<select name="production_lead_time_text" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
-                        '<option value="">[ Select lead time... ▼ ]</option>' +
-                        '<option value="2-4 weeks">2–4 weeks</option>' +
-                        '<option value="4-6 weeks">4–6 weeks</option>' +
-                        '<option value="6-8 weeks">6–8 weeks</option>' +
-                        '<option value="8-12 weeks">8–12 weeks</option>' +
-                        '<option value="12-16 weeks">12–16 weeks</option>' +
+                        '<option value="">[ Select lead time... â–¼ ]</option>' +
+                        '<option value="2-4 weeks">2â€“4 weeks</option>' +
+                        '<option value="4-6 weeks">4â€“6 weeks</option>' +
+                        '<option value="6-8 weeks">6â€“8 weeks</option>' +
+                        '<option value="8-12 weeks">8â€“12 weeks</option>' +
+                        '<option value="12-16 weeks">12â€“16 weeks</option>' +
                         '</select>' +
                         '<div id="n88-lead-time-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
                         '</div>' +
@@ -5601,7 +5662,7 @@ class N88_RFQ_Auth {
                                 var thumbDiv = document.createElement('div');
                                 thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #ddd; border-radius: 4px; overflow: hidden;';
                                 thumbDiv.innerHTML = '<img src="' + data.data.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                    '<button type="button" onclick="removeBidPhoto(this, ' + data.data.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                    '<button type="button" onclick="removeBidPhoto(this, ' + data.data.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                                 
                                 // Add hidden input INSIDE THE FORM (not in preview container)
                                 var form = document.getElementById('n88-bid-form');
@@ -5613,9 +5674,9 @@ class N88_RFQ_Auth {
                                     hiddenInput.setAttribute('data-photo-id', data.data.id);
                                     hiddenInput.setAttribute('data-thumb-div', 'photo-' + data.data.id); // Link to thumbDiv
                                     form.appendChild(hiddenInput);
-                                    console.log('✓ Added hidden input to form - Photo ID:', data.data.id, 'Total inputs:', form.querySelectorAll('input[name="bid_photo_ids[]"]').length);
+                                    console.log('âœ“ Added hidden input to form - Photo ID:', data.data.id, 'Total inputs:', form.querySelectorAll('input[name="bid_photo_ids[]"]').length);
                                 } else {
-                                    console.error('✗ Form #n88-bid-form not found when adding photo!');
+                                    console.error('âœ— Form #n88-bid-form not found when adding photo!');
                                 }
                                 
                                 // Store reference in thumbDiv for easy removal
@@ -5930,19 +5991,19 @@ class N88_RFQ_Auth {
                         photosError.textContent = 'At least 2 photos are required.';
                         photosError.style.display = 'block';
                     }
-                    console.log('✗ Photo validation FAILED - Need at least 1 photo');
+                    console.log('âœ— Photo validation FAILED - Need at least 1 photo');
                 } else if (bidPhotosCount > 5) {
                     isValid = false;
                     if (photosError) {
                         photosError.textContent = 'Maximum 5 photos allowed.';
                         photosError.style.display = 'block';
                     }
-                    console.log('✗ Photo validation FAILED - Maximum 5 photos allowed');
+                    console.log('âœ— Photo validation FAILED - Maximum 5 photos allowed');
                 } else {
                     if (photosError) {
                         photosError.style.display = 'none';
                     }
-                    console.log('✓ Photo validation PASSED -', bidPhotosCount, 'photo(s)');
+                    console.log('âœ“ Photo validation PASSED -', bidPhotosCount, 'photo(s)');
                 }
                 
                 // 2. Prototype video (optional - YES or NO)
@@ -6263,7 +6324,7 @@ class N88_RFQ_Auth {
                                 existingError.remove();
                             }
                             var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong>✓ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
+                                '<strong>âœ“ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
                                 '</div>';
                             form.insertAdjacentHTML('afterbegin', successHtml);
                             
@@ -6539,7 +6600,7 @@ class N88_RFQ_Auth {
                                 var thumbDiv = document.createElement('div');
                                 thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                                 thumbDiv.innerHTML = '<img src="' + data.data.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                    '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + data.data.id + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(220, 53, 69, 0.9); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                    '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + data.data.id + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(220, 53, 69, 0.9); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                                 
                                 // Add hidden input INSIDE THE FORM
                                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
@@ -6550,9 +6611,9 @@ class N88_RFQ_Auth {
                                     hiddenInput.value = data.data.id;
                                     hiddenInput.setAttribute('data-photo-id', data.data.id);
                                     form.appendChild(hiddenInput);
-                                    console.log('✓ Added hidden input to embedded form - Photo ID:', data.data.id);
+                                    console.log('âœ“ Added hidden input to embedded form - Photo ID:', data.data.id);
                                 } else {
-                                    console.error('✗ Embedded form #n88-bid-form-embedded-' + itemId + ' not found when adding photo!');
+                                    console.error('âœ— Embedded form #n88-bid-form-embedded-' + itemId + ' not found when adding photo!');
                                 }
                                 
                                 // Store reference in thumbDiv for easy removal
@@ -6958,7 +7019,7 @@ class N88_RFQ_Auth {
                         // Show success message
                         var successMsg = document.createElement('div');
                         successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
-                        successMsg.textContent = '✓ Draft saved successfully';
+                        successMsg.textContent = 'âœ“ Draft saved successfully';
                         document.body.appendChild(successMsg);
                         
                         // Remove message after 3 seconds
@@ -7105,7 +7166,7 @@ class N88_RFQ_Auth {
                                 existingError.remove();
                             }
                             var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong>✓ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
+                                '<strong>âœ“ Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
                                 '</div>';
                             form.insertAdjacentHTML('afterbegin', successHtml);
                             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -7399,7 +7460,7 @@ class N88_RFQ_Auth {
                                     var thumbDiv = document.createElement('div');
                                     thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
                                     thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                        '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                        '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                                     thumbDiv.setAttribute('data-photo-id', photo.id || '');
                                     previewContainer.appendChild(thumbDiv);
                                     
@@ -7419,7 +7480,7 @@ class N88_RFQ_Auth {
                                     var thumbDiv = document.createElement('div');
                                     thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden; margin: 5px; display: inline-block;';
                                     thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                        '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                        '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                                     previewContainer.appendChild(thumbDiv);
                                 });
                             }
@@ -7433,7 +7494,7 @@ class N88_RFQ_Auth {
                         // Show notification that draft was loaded
                         var notification = document.createElement('div');
                         notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
-                        notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
+                        notification.textContent = 'âœ“ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
                         document.body.appendChild(notification);
                         setTimeout(function() {
                             if (notification.parentNode) {
@@ -7488,7 +7549,7 @@ class N88_RFQ_Auth {
                         // Show notification
                         var notification = document.createElement('div');
                         notification.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
-                        notification.textContent = '✓ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
+                        notification.textContent = 'âœ“ Draft loaded (saved ' + (draft.saved_at ? new Date(draft.saved_at).toLocaleString() : 'previously') + ')';
                         document.body.appendChild(notification);
                         setTimeout(function() {
                             if (notification.parentNode) {
@@ -7545,7 +7606,7 @@ class N88_RFQ_Auth {
                             var thumbDiv = document.createElement('div');
                             thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                '<button type="button" onclick="removeBidPhoto(this, ' + photo.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                '<button type="button" onclick="removeBidPhoto(this, ' + photo.id + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                             thumbDiv.setAttribute('data-photo-id', photo.id);
                             previewContainer.appendChild(thumbDiv);
                             
@@ -7568,7 +7629,7 @@ class N88_RFQ_Auth {
                             var thumbDiv = document.createElement('div');
                             thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                '<button type="button" onclick="removeBidPhoto(this, null);" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                '<button type="button" onclick="removeBidPhoto(this, null);" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                             previewContainer.appendChild(thumbDiv);
                         });
                     }
@@ -7692,7 +7753,7 @@ class N88_RFQ_Auth {
                             var thumbDiv = document.createElement('div');
                             thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photo.url.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                '<button type="button" onclick="removeBidPhotoEmbedded(this, ' + (photo.id || 'null') + ', ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                             thumbDiv.setAttribute('data-photo-id', photo.id || '');
                             previewContainer.appendChild(thumbDiv);
                             
@@ -7709,7 +7770,7 @@ class N88_RFQ_Auth {
                             var thumbDiv = document.createElement('div');
                             thumbDiv.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px solid #FF0065; border-radius: 4px; overflow: hidden;';
                             thumbDiv.innerHTML = '<img src="' + photoUrl.replace(/"/g, '&quot;') + '" style="width: 100%; height: 100%; object-fit: cover;" alt="Bid photo" />' +
-                                '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">×</button>';
+                                '<button type="button" onclick="removeBidPhotoEmbedded(this, null, ' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: rgba(255, 0, 0, 0.8); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;" title="Remove">Ã—</button>';
                             previewContainer.appendChild(thumbDiv);
                         });
                     }
@@ -7811,7 +7872,7 @@ class N88_RFQ_Auth {
                     if (!data.success) {
                         alert(data.data && data.data.message ? data.data.message : 'Failed to create draft. Please try again.');
                         if (banner) {
-                            banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                            banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">âš ï¸ Specs changed since your last bid.</div>' +
                                 '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
                                 'The item specifications have been updated. Please update your bid to match the new specs before submitting.' +
                                 '</div>' +
@@ -7836,7 +7897,7 @@ class N88_RFQ_Auth {
                     console.error('Error updating bid:', error);
                     alert('An error occurred. Please try again.');
                     if (banner) {
-                        banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">⚠️ Specs changed since your last bid.</div>' +
+                        banner.innerHTML = '<div style="font-size: 14px; font-weight: 600; color: #ff9800; margin-bottom: 12px; font-family: monospace;">âš ï¸ Specs changed since your last bid.</div>' +
                             '<div style="font-size: 12px; color: #fff; margin-bottom: 16px; font-family: monospace; line-height: 1.5;">' +
                             'The item specifications have been updated. Please update your bid to match the new specs before submitting.' +
                             '</div>' +
@@ -8108,7 +8169,7 @@ class N88_RFQ_Auth {
                     var submitBtn = form.querySelector('button[type="submit"]');
                     if (submitBtn) {
                         submitBtn.disabled = true;
-                        submitBtn.textContent = 'Submitting…';
+                        submitBtn.textContent = 'Submittingâ€¦';
                     }
                     var fd = new FormData(form);
                     fd.append('action', 'n88_submit_official_quote_pdf');
@@ -8321,7 +8382,7 @@ class N88_RFQ_Auth {
                             <td style="padding: 15px; font-size: 14px; color: #999;">(Unassigned)</td>
                             <td style="padding: 15px;">
                                 <button class="n88-open-admin-modal" data-item-id="1023" data-item-title="Curved Sofa" data-request-type="Pricing Req" data-supplier="Unassigned" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                                    Open ►
+                                    Open â–º
                                 </button>
                             </td>
                         </tr>
@@ -8333,7 +8394,7 @@ class N88_RFQ_Auth {
                             <td style="padding: 15px; font-size: 14px; color: #666;">Supplier X</td>
                             <td style="padding: 15px;">
                                 <button class="n88-open-admin-modal" data-item-id="1027" data-item-title="Dining Chair" data-request-type="Pricing Req" data-supplier="Supplier X" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                                    Open ►
+                                    Open â–º
                                 </button>
                             </td>
                         </tr>
@@ -8345,7 +8406,7 @@ class N88_RFQ_Auth {
                             <td style="padding: 15px; font-size: 14px; color: #666;">Supplier X</td>
                             <td style="padding: 15px;">
                                 <button class="n88-open-admin-modal" data-item-id="1031" data-item-title="Banquette" data-request-type="Prototype" data-supplier="Supplier X" style="padding: 6px 12px; background-color: #0073aa; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                                    Open ►
+                                    Open â–º
                                 </button>
                             </td>
                         </tr>
@@ -8517,7 +8578,7 @@ class N88_RFQ_Auth {
                 // Build modal HTML - Admin Queue Modal (matching wireframe exactly)
                 var modalHTML = '<div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #fff;">' +
                     '<h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #333;">Item #' + item.id + ' <span style="color: #666; font-weight: 400;">(Operator View)</span></h2>' +
-                    '<button onclick="closeAdminModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">×</button>' +
+                    '<button onclick="closeAdminModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #666; line-height: 1;">Ã—</button>' +
                     '</div>' +
                     '<div style="flex: 1; overflow-y: auto; padding: 0; background-color: #fff;">' +
                     '<div style="padding: 20px;">' +
@@ -10432,7 +10493,7 @@ class N88_RFQ_Auth {
         $bid_data = null;
         $bid_status = null; // Initialize bid_status
         $bid_revision = null; // Initialize bid_revision to prevent undefined variable
-        $item_level_payment_notification = null; // Commit 2.3.9.2: Prototype tab — always send when supplier has prototype request
+        $item_level_payment_notification = null; // Commit 2.3.9.2: Prototype tab â€” always send when supplier has prototype request
         if ( ! $is_system_operator ) {
             // Check if meta_json column exists in bids table
             $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
@@ -11217,7 +11278,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $d_m = $d_cm / 100;
                 $h_m = $h_cm / 100;
                 $item_cbm = $w_m * $d_m * $h_m;
-                // Calculate Total CBM (item_cbm × quantity)
+                // Calculate Total CBM (item_cbm Ã— quantity)
                 $total_cbm = round( $item_cbm * $quantity, 3 );
             }
         }
@@ -11474,7 +11535,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $show_dims_qty_warning = false;
         }
         
-        // has_operator_supplier_messages: true when operator has sent any message to this supplier (supplier_operator thread) — auto-expand Operator–Supplier Messages in modal
+        // has_operator_supplier_messages: true when operator has sent any message to this supplier (supplier_operator thread) â€” auto-expand Operatorâ€“Supplier Messages in modal
         $has_operator_supplier_messages = false;
         if ( $is_supplier ) {
             $messages_table = $wpdb->prefix . 'n88_item_messages';
@@ -11577,7 +11638,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
         
-        // Supplier Workflow tab: workflow_milestones and active step for 3-step view (CAD → Approved CAD → Prototype videos)
+        // Supplier Workflow tab: workflow_milestones and active step for 3-step view (CAD â†’ Approved CAD â†’ Prototype videos)
         $workflow_milestones = array(
             'step1' => array( 'cad_requested_at' => null, 'payment_sent_at' => null, 'payment_approved_at' => null ),
             'step2' => array( 'cad_received_at' => null, 'revision_submitted_at' => null, 'revision_sent_at' => null, 'cad_approved_at' => null, 'cad_released_to_supplier_at' => null ),
@@ -11656,13 +11717,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'bid_status' => $bid_status, // Commit 2.3.5 - bid status: 'draft' (Continue Bid), 'submitted' (Bid Submitted), or null (Start Bid)
             'show_dims_qty_warning' => $show_dims_qty_warning, // Commit 2.3.5.1 Addendum: Flag to show warning banner
             'bid_data' => $bid_data, // Bid details when bid is submitted
-            'payment_notification' => $item_level_payment_notification, // Commit 2.3.9.2: Prototype tab — always when supplier has prototype request (item-level so tab shows even without bid_data)
+            'payment_notification' => $item_level_payment_notification, // Commit 2.3.9.2: Prototype tab â€” always when supplier has prototype request (item-level so tab shows even without bid_data)
             'rfq_revision_current' => isset( $item_current_revision ) ? $item_current_revision : null, // G) Current item revision
             'bid_revision' => isset( $bid_revision ) ? $bid_revision : null, // G) Supplier's bid revision (ensure it's always set)
             'has_revision_mismatch' => $has_revision_mismatch, // G) Flag for "Specs Changed" banner
             'latest_stale_bid_data' => $latest_stale_bid_data, // G) Latest stale bid data for pre-filling
             'is_resubmission' => $is_resubmission, // G) Flag to show "Bid Already Resubmitted" instead of "Bid Already Submitted"
-            'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operator–Supplier Messages when any message exists
+            'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operatorâ€“Supplier Messages when any message exists
             'workflow_milestones' => $workflow_milestones, // Supplier Workflow tab: dates per step (step1/2/3)
             'supplier_workflow_active_step' => $supplier_workflow_active_step, // 0|1|2 when to open modal on Workflow tab
             // Commit 3.C.1: Official Quote PDF + awarded bid for commercial gate UI
@@ -13732,8 +13793,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
      * - If prototype was requested and approved, award is allowed
      * 
      * Actions:
-     * - Selected bid → status = 'awarded'
-     * - All other bids → status = 'declined'
+     * - Selected bid â†’ status = 'awarded'
+     * - All other bids â†’ status = 'declined'
      * - Create immutable snapshot of awarded bid
      * - Log bid_awarded and bid_declined events
      * - Update item status to 'Awarded'
@@ -14063,7 +14124,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 28: AJAX — Operator marks deposit received. Production (Step 4) can start only after this.
+     * Commit 28: AJAX â€” Operator marks deposit received. Production (Step 4) can start only after this.
      * Immutable event: deposit_received logged.
      */
     public function ajax_mark_deposit_received() {
@@ -15303,10 +15364,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         foreach ( $items as $index => $item_data ) {
             $item_id = isset( $item_data['item_id'] ) ? intval( $item_data['item_id'] ) : 0;
             $quantity = isset( $item_data['quantity'] ) ? intval( $item_data['quantity'] ) : 0;
+            $measurement_type = isset( $item_data['measurement_type'] ) ? sanitize_text_field( $item_data['measurement_type'] ) : 'dimensions';
+            if ( ! in_array( $measurement_type, array( 'dimensions', 'area', 'linear_length', 'quantity_only', 'custom_specification' ), true ) ) {
+                $measurement_type = 'dimensions';
+            }
             $width = isset( $item_data['width'] ) ? floatval( $item_data['width'] ) : 0;
             $depth = isset( $item_data['depth'] ) ? floatval( $item_data['depth'] ) : 0;
             $height = isset( $item_data['height'] ) ? floatval( $item_data['height'] ) : 0;
             $dimension_unit = isset( $item_data['dimension_unit'] ) ? sanitize_text_field( $item_data['dimension_unit'] ) : 'in';
+            $measurement_area = isset( $item_data['measurement_area'] ) ? floatval( $item_data['measurement_area'] ) : 0;
+            $measurement_area_unit = isset( $item_data['measurement_area_unit'] ) ? sanitize_text_field( $item_data['measurement_area_unit'] ) : 'sq_ft';
+            $measurement_length = isset( $item_data['measurement_length'] ) ? floatval( $item_data['measurement_length'] ) : 0;
+            $measurement_length_unit = isset( $item_data['measurement_length_unit'] ) ? sanitize_text_field( $item_data['measurement_length_unit'] ) : 'ft';
+            $custom_specification = isset( $item_data['custom_specification'] ) ? trim( sanitize_textarea_field( $item_data['custom_specification'] ) ) : '';
             $delivery_country = isset( $item_data['delivery_country'] ) ? strtoupper( trim( sanitize_text_field( $item_data['delivery_country'] ) ) ) : '';
             $delivery_postal = isset( $item_data['delivery_postal'] ) ? trim( sanitize_text_field( $item_data['delivery_postal'] ) ) : '';
 
@@ -15331,9 +15401,23 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $errors[ "item_{$index}_quantity" ] = 'Quantity must be at least 1.';
             }
 
-            // Validate dimensions
-            if ( $width <= 0 || $depth <= 0 || $height <= 0 ) {
-                $errors[ "item_{$index}_dimensions" ] = 'All dimensions (width, depth, height) must be greater than 0.';
+            // Validate measurement-specific required fields
+            if ( $measurement_type === 'dimensions' ) {
+                if ( $width <= 0 || $depth <= 0 || $height <= 0 ) {
+                    $errors[ "item_{$index}_dimensions" ] = 'All dimensions (width, depth, height) must be greater than 0.';
+                }
+            } elseif ( $measurement_type === 'area' ) {
+                if ( $measurement_area <= 0 ) {
+                    $errors[ "item_{$index}_measurement_area" ] = 'Area must be greater than 0.';
+                }
+            } elseif ( $measurement_type === 'linear_length' ) {
+                if ( $measurement_length <= 0 ) {
+                    $errors[ "item_{$index}_measurement_length" ] = 'Linear length must be greater than 0.';
+                }
+            } elseif ( $measurement_type === 'custom_specification' ) {
+                if ( $custom_specification === '' ) {
+                    $errors[ "item_{$index}_custom_specification" ] = 'Specification details are required.';
+                }
             }
 
             // Allow all dimension units (in, cm, mm, m) - validation removed as requested
@@ -15357,10 +15441,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'item_id' => $item_id,
                     'item' => $item,
                     'quantity' => $quantity,
+                    'measurement_type' => $measurement_type,
                     'width' => $width,
                     'depth' => $depth,
                     'height' => $height,
                     'dimension_unit' => $dimension_unit,
+                    'measurement_area' => $measurement_area,
+                    'measurement_area_unit' => $measurement_area_unit,
+                    'measurement_length' => $measurement_length,
+                    'measurement_length_unit' => $measurement_length_unit,
+                    'custom_specification' => $custom_specification,
                     'delivery_country' => $delivery_country,
                     'delivery_postal' => $delivery_postal,
                 );
@@ -15470,7 +15560,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if ( $has_quantity ) {
                     $delivery_data['quantity'] = $item_data['quantity'];
                 }
-                if ( $has_dimensions ) {
+                if ( $has_dimensions && ( ! isset( $item_data['measurement_type'] ) || $item_data['measurement_type'] === 'dimensions' ) ) {
                     $dimensions_data = array(
                         'width' => floatval( $item_data['width'] ),
                         'depth' => floatval( $item_data['depth'] ),
@@ -16256,7 +16346,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Stub Notifications
         // Operator notification
         $operator_message = sprintf(
-            'CAD + Prototype requested — Item %d, Bid %d. Status: requested. Total due: $%.2f',
+            'CAD + Prototype requested â€” Item %d, Bid %d. Status: requested. Total due: $%.2f',
             $item_id,
             $bid_id,
             $total_due_usd
@@ -16698,14 +16788,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             GROUP BY m.item_id, COALESCE(m.bid_id, 0), m.supplier_id, i.owner_user_id, i.title, i.primary_image_id, i.item_type, c.name, b.unit_price, b.prototype_cost, designer.display_name, designer.user_login, supplier.display_name, supplier.user_login, unread_count.unread_messages
         ";
 
-        // Part 3: Items with designer → operator messages (even without prototype payment)
+        // Part 3: Items with designer â†’ operator messages (even without prototype payment)
         $designer_where = array();
         $designer_where[] = "m.thread_type = 'designer_operator'";
         $designer_where[] = "m.sender_role = 'designer'";
         $designer_where[] = "i.id IS NOT NULL AND (i.deleted_at IS NULL OR i.deleted_at = '')";
         $designer_where[] = "EXISTS (SELECT 1 FROM {$board_items_table} bi WHERE bi.item_id = m.item_id AND (bi.removed_at IS NULL OR bi.removed_at = ''))";
 
-        // If supplier filter is active, designer-only threads have no supplier context → exclude
+        // If supplier filter is active, designer-only threads have no supplier context â†’ exclude
         if ( $supplier_filter !== 'all' ) {
             $designer_where[] = "1=0";
         }
@@ -16897,14 +16987,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         <div class="n88-operator-queue">
             <!-- Header: back (left), logo (center), user + logout (right) - same as supplier -->
             <div class="n88-operator-queue-header">
-                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-operator-queue-close" title="Back">×</a>
+                <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="n88-operator-queue-close" title="Back">x</a>
                 <div class="n88-operator-queue-logo">
                     <h1 class="n88-operator-queue-logo-title">WireFrame (OS)</h1>
                     <p class="n88-operator-queue-logo-by">By Neev</p>
                 </div>
                 <div class="n88-operator-queue-user-dropdown">
                     <button type="button" class="n88-operator-queue-user-trigger" aria-expanded="false" aria-haspopup="true">
-                        <?php echo esc_html( $current_user->display_name ); ?> ▼
+                        <?php echo esc_html( $current_user->display_name ); ?> v
                     </button>
                     <div class="n88-operator-queue-user-menu">
                         <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>">Logout</a>
@@ -17086,7 +17176,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     }
                                     
                                     // Format costs for display
-                                    $prototype_estimate_display = $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : '—';
+                                    $prototype_estimate_display = $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : 'â€”';
                                     $cad_fee_display = '$' . number_format( floatval( $request['cad_fee_usd'] ), 2 );
                                     $total_due_display = '$' . number_format( floatval( $request['total_due_usd'] ), 2 );
                                     
@@ -17141,12 +17231,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     // Operator display: use landed prototype and total = CAD + landed (matches designer; fixes legacy wrong total_due_usd)
                                     $prototype_estimate_display = ( $bid_prototype_cost_landed_display !== null )
                                         ? ( '$' . number_format( $bid_prototype_cost_landed_display, 2 ) )
-                                        : ( $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : '—' );
+                                        : ( $request['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $request['prototype_video_cost_estimate_usd'] ), 2 ) : 'â€”' );
                                     $total_due_for_display = floatval( $request['cad_fee_usd'] ) + ( $bid_prototype_cost_landed_display !== null ? $bid_prototype_cost_landed_display : ( $request['prototype_video_cost_estimate_usd'] ? floatval( $request['prototype_video_cost_estimate_usd'] ) : 0 ) );
                                     $total_due_display = '$' . number_format( $total_due_for_display, 2 );
                                     
                                     // Format dates
-                                    $created_date = ! empty( $request['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $request['created_at'] ) ) : '—';
+                                    $created_date = ! empty( $request['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $request['created_at'] ) ) : 'â€”';
                                     
                                     // Map status to user-friendly display (per wireframe)
                                     $status_display = 'Payment Requested';
@@ -17158,17 +17248,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     $cad_status_val = isset( $request['cad_status'] ) ? (string) $request['cad_status'] : '';
                                     $prototype_status_val = isset( $request['prototype_status'] ) ? (string) $request['prototype_status'] : '';
                                     $is_cad_released = ! empty( $request['cad_released_to_supplier_at'] ) && trim( (string) $request['cad_released_to_supplier_at'] ) !== '';
-                                    // When designer has approved CAD: designer "unread" needs no operator response — do NOT show "1 clarification message"
+                                    // When designer has approved CAD: designer "unread" needs no operator response â€” do NOT show "1 clarification message"
                                     $effective_designer_unread = ( $cad_status_val === 'approved' ) ? 0 : $designer_unread_count;
                                     $effective_unread = $unread_messages - $designer_unread_count + $effective_designer_unread;
-                                    // Pending release: designer approved CAD but operator has not yet sent to supplier — Action Required
+                                    // Pending release: designer approved CAD but operator has not yet sent to supplier â€” Action Required
                                     $pending_release_to_supplier = ( $cad_status_val === 'approved' && ! $is_cad_released );
                                     
                                     // Fix #26 (operator half): Action Required only for real pending states:
-                                    // - unread message (supplier/designer; excludes designer when CAD approved — no "1 clarification message")
+                                    // - unread message (supplier/designer; excludes designer when CAD approved â€” no "1 clarification message")
                                     // - payment proof (designer uploaded receipt; operator must verify and mark received)
-                                    // - pending CAD approval (payment received, CAD uploaded/revision — operator may follow up until designer approves)
-                                    // - pending release to supplier (designer approved CAD; operator must send to supplier — hide only after operator sends)
+                                    // - pending CAD approval (payment received, CAD uploaded/revision â€” operator may follow up until designer approves)
+                                    // - pending release to supplier (designer approved CAD; operator must send to supplier â€” hide only after operator sends)
                                     $payment_proof_pending = false;
                                     if ( $payment_id && ( $request['status'] === 'requested' ) ) {
                                         $receipts_tbl = $wpdb->prefix . 'n88_prototype_payment_receipts';
@@ -17255,7 +17345,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                             <span style="padding: 2px 6px; background-color: #ff0000; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px;">Action Required</span>
                                                         <?php endif; ?>
                                                     </div>
-                                                    <div style="font-size: 11px; color: #999;">Project: —</div>
+                                                    <div style="font-size: 11px; color: #999;">Project: â€”</div>
                                                     <div style="font-size: 11px; color: #999;">Category: <?php echo esc_html( $category ); ?></div>
                                                     <?php
                                                     // Show action hint when: (a) messages needing reply, (b) designer approved CAD but operator has not sent to supplier, or (c) operator has released CAD to supplier
@@ -17295,7 +17385,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div><?php echo esc_html( $designer_label ); ?></div>
-                                            <div style="font-size: 11px; color: #999;">Firm: —</div>
+                                            <div style="font-size: 11px; color: #999;">Firm: -</div>
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff; border-right: 1px solid #333;">
                                             <div style="color: #ff8800; font-weight: 600;"><?php echo esc_html( $supplier_label ); ?></div>
@@ -17324,7 +17414,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         </td>
                                         <td style="padding: 12px; font-size: 12px; color: #fff;">
                                             <button class="n88-view-case-btn" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                                View →
+                                                View ->
                                             </button>
                                         </td>
                                     </tr>
@@ -17334,7 +17424,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                             <?php if ( $has_clarification && ! $payment_id ) : ?>
                                                 <!-- Clarification-Only Item Details -->
                                                 <div style="margin-bottom: 16px;">
-                                                    <div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">⚠️ <?php echo ( $designer_unread_count > 0 ) ? 'Designer message' : 'Clarification Request'; ?></div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">âš ï¸ <?php echo ( $designer_unread_count > 0 ) ? 'Designer message' : 'Clarification Request'; ?></div>
                                                     <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
                                                         <li>Item: <?php echo esc_html( $item_label ); ?> (ID: <?php echo esc_html( $item_id ); ?>)</li>
                                                         <?php if ( $bid_id ) : ?>
@@ -17347,7 +17437,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                     </ul>
                                                 </div>
                                                 <div style="margin-bottom: 16px;">
-                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS â–¼</div>
                                                     <div style="padding-left: 20px;">
                                                         <button class="n88-message-threads-btn" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-bid-id="<?php echo esc_attr( $bid_id ?: '0' ); ?>" data-payment-id="0" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             Message Threads
@@ -17363,7 +17453,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                     <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px;">Prototype Request</div>
                                                     <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #fff; line-height: 1.8;">
                                                         <li>Video Direction: <?php echo esc_html( $keyword_count ); ?> keywords selected</li>
-                                                        <li>Note: <?php echo $has_note ? 'Present (✔)' : 'No'; ?></li>
+                                                        <li>Note: <?php echo $has_note ? 'Present (âœ”)' : 'No'; ?></li>
                                                         <li>Requested: <span style="color: #ff8800;"><?php echo esc_html( $created_date ); ?></span></li>
                                                     </ul>
                                                 </div>
@@ -17391,7 +17481,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                     </div>
                                                 </div>
                                                 <div style="margin-bottom: 16px;">
-                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS ▼</div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px;">ACTIONS â–¼</div>
                                                     <div style="padding-left: 20px;">
                                                         <button class="n88-view-case-full-btn" data-payment-id="<?php echo esc_attr( $payment_id ); ?>" style="display: block; padding: 8px 12px; margin-bottom: 8px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; cursor: pointer; text-align: left; width: 100%; max-width: 300px;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
                                                             View Case (Read-Only)
@@ -17406,7 +17496,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                             View Payment Receipt
                                                             </button>
                                                         <?php else : ?>
-                                                            <div style="font-size: 11px; color: #FF0065; padding-left: 0; margin-bottom: 4px; font-weight: 600;">✓ Payment Confirmed</div>
+                                                            <div style="font-size: 11px; color: #FF0065; padding-left: 0; margin-bottom: 4px; font-weight: 600;">âœ“ Payment Confirmed</div>
                                                         <?php endif; ?>
                                                         <?php
                                                             // Commit 2.3.9.2A: Release Approved CAD to Supplier (Operator-only)
@@ -17448,14 +17538,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                             <div class="n88-message-threads-section" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="display: none; margin-top: 20px; padding: 16px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px;">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                                                     <div style="font-size: 14px; font-weight: 600; color: #fff;">Message Threads</div>
-                                                    <button class="n88-close-message-threads" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">×</button>
+                                                    <button class="n88-close-message-threads" data-payment-id="<?php echo esc_attr( $payment_id ?: '0' ); ?>" data-item-id="<?php echo esc_attr( $item_id ); ?>" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">Ã—</button>
                                                 </div>
                                                 
-                                                <!-- Two Column Layout: Designer ⇄ Operator | Supplier ⇄ Operator -->
+                                                <!-- Two Column Layout: Designer <-> Operator | Supplier <-> Operator -->
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-                                                    <!-- Designer ⇄ Operator Thread -->
+                                                    <!-- Designer <-> Operator Thread -->
                                                     <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
-                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Designer ⇄ Operator</div>
+                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Designer <-> Operator</div>
                                                         <div id="n88-designer-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
                                                             <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
@@ -17479,7 +17569,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                             </form>
                                                         <?php elseif ( $payment_id && $request['status'] === 'marked_received' && $cad_status_for_upload === 'approved' ) : ?>
                                                             <div style="font-size: 11px; color: #FF0065; padding: 8px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; margin-bottom: 10px; text-align: center;">
-                                                                ✓ CAD Approved - No further uploads needed
+                                                                âœ“ CAD Approved - No further uploads needed
                                                             </div>
                                                         <?php else : ?>
                                                             <div style="font-size: 10px; color: #666; margin-bottom: 10px;">CAD upload available after payment is marked received.</div>
@@ -17492,9 +17582,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                                         </form>
                                                     </div>
                                                     
-                                                    <!-- Supplier ⇄ Operator Thread -->
+                                                    <!-- Supplier <-> Operator Thread -->
                                                     <div style="border: 1px solid #333; border-radius: 4px; padding: 12px; background-color: #000; display: flex; flex-direction: column; height: 450px;">
-                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Supplier ⇄ Operator</div>
+                                                        <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">Supplier <-> Operator</div>
                                                         <div id="n88-supplier-thread-<?php echo esc_attr( $payment_id ); ?>" style="flex: 1; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 4px; margin-bottom: 12px; border: 1px solid #333; display: flex; flex-direction: column;">
                                                             <div style="text-align: center; color: #666; font-size: 11px; padding: 20px; margin: auto;">Loading messages...</div>
                                                         </div>
@@ -17524,7 +17614,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <?php if ( $page > 1 ) : ?>
                                 <a href="<?php echo esc_url( add_query_arg( 'paged', $page - 1 ) ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; text-decoration: none; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                    ← Previous
+                                    â† Previous
                                 </a>
                             <?php endif; ?>
                             
@@ -17534,7 +17624,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             
                             <?php if ( $page < $total_pages ) : ?>
                                 <a href="<?php echo esc_url( add_query_arg( 'paged', $page + 1 ) ); ?>" style="padding: 6px 12px; background-color: #000; color: #fff; border: 1px solid #fff; font-family: 'Courier New', Courier, monospace; font-size: 12px; text-decoration: none; cursor: pointer;" onmouseover="this.style.backgroundColor='#333';" onmouseout="this.style.backgroundColor='#000';">
-                                    Next →
+                                    Next â†’
                                 </a>
                             <?php endif; ?>
                         </div>
@@ -17548,7 +17638,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             <div style="max-width: 500px; margin: 100px auto; padding: 20px; background-color: #000; border: 2px solid #FF0065; font-family: 'Courier New', Courier, monospace;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #FF0065; padding-bottom: 10px;">
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #FF0065;">Confirm Payment Received</h2>
-                    <button id="n88-close-payment-confirm-modal" style="background: none; border: none; color: #FF0065; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+                    <button id="n88-close-payment-confirm-modal" style="background: none; border: none; color: #FF0065; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">Ã—</button>
                 </div>
                 <div style="color: #fff; font-size: 12px; margin-bottom: 20px;">
                     <div style="margin-bottom: 12px;">
@@ -17563,7 +17653,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <strong>Warning:</strong> This confirms offline payment and unlocks the next CAD drafting step (future commit).
                     </div>
                     <div id="n88-payment-receipts-container" style="margin-top: 14px; padding: 10px; background-color: #0a1a0a; border: 1px solid #FF0065; border-radius: 4px; font-size: 12px; color: #ccc;">
-                        <span style="color: #FF0065;">Payment receipts:</span> <span id="n88-receipts-list">—</span>
+                        <span style="color: #FF0065;">Payment receipts:</span> <span id="n88-receipts-list">â€”</span>
                     </div>
                 </div>
                 <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
@@ -17582,7 +17672,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             <div style="max-width: 650px; margin: 80px auto; padding: 20px; background-color: #000; border: 2px solid #66aaff; font-family: 'Courier New', Courier, monospace;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #66aaff; padding-bottom: 10px;">
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #66aaff;">Release Approved CAD to Supplier</h2>
-                    <button id="n88-close-release-cad-modal" style="background: none; border: none; color: #66aaff; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">×</button>
+                    <button id="n88-close-release-cad-modal" style="background: none; border: none; color: #66aaff; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; line-height: 1;">Ã—</button>
                 </div>
                 <div style="color: #fff; font-size: 12px; margin-bottom: 14px;">
                     <div style="margin-bottom: 10px;">
@@ -17609,7 +17699,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             </div>
         </div>
 
-        <!-- Operator Case Modal — Same as supplier item modal: 20px gap, no page scroll, content scrolls inside -->
+        <!-- Operator Case Modal â€” Same as supplier item modal: 20px gap, no page scroll, content scrolls inside -->
         <div id="n88-operator-case-modal" style="display: none; position: fixed; top: 30px; left: 30px; right: 30px; bottom: 30px;    background: transparent !important;
     backdrop-filter: blur(0.6px) !important; z-index: 10000; overflow: hidden;">
             <div id="n88-operator-case-modal-inner" style="position: fixed; top: 20px; left: 20px; right: 30px; bottom: 20px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); background-color: #000; z-index: 10001; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #555; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);">
@@ -17741,7 +17831,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
             });
 
-            // Fix #13/#26: Mark Resolved — delegated for expanded row and modal
+            // Fix #13/#26: Mark Resolved â€” delegated for expanded row and modal
             document.addEventListener('click', function(e) {
                 var el = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement) || null;
                 var btn = el && el.closest ? el.closest('.n88-mark-resolved-btn') : null;
@@ -17947,10 +18037,41 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         }
                     }
                     
+                    var messageAttachments = [];
+                    var messageTags = [];
+                    try {
+                        if (msg.message_attachments) {
+                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
+                            if (Array.isArray(parsedAttachments)) {
+                                messageAttachments = parsedAttachments.filter(function(att) {
+                                    return att && typeof att === 'object' && att.url;
+                                });
+                            }
+                        }
+                    } catch (attachmentParseError) {
+                        console.warn('Failed to parse message attachments:', attachmentParseError);
+                    }
+                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
+                        String(msg.category).split(',').forEach(function(tagKey) {
+                            var normalizedTagKey = String(tagKey || '').trim();
+                            if (normalizedTagKey === 'clarifying_questions') {
+                                messageTags.push('Clarifying questions');
+                            } else if (normalizedTagKey === 'mse_material') {
+                                messageTags.push('MSE/Material Suggestions');
+                            }
+                        });
+                    }
                     html += '<div style="margin-bottom: 12px; display: flex; justify-content: ' + (isOperator ? 'flex-end' : 'flex-start') + '; width: 100%;">';
                     html += '<div style="max-width: 75%; padding: 10px 14px; background-color: ' + (isOperator ? '#1a1a1a' : '#0a0a0a') + '; border: 1px solid ' + (isOperator ? '#FF0065' : '#333') + '; border-radius: ' + (isOperator ? '12px 12px 4px 12px' : '12px 12px 12px 4px') + '; font-size: 12px; color: #fff; word-wrap: break-word; white-space: pre-wrap;">';
                     html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isOperator ? '#FF0065' : '#00aa00') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
                     html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                    if (messageTags.length > 0) {
+                        html += '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">';
+                        messageTags.forEach(function(tagLabel) {
+                            html += '<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid #333; color: #e5e5e5; font-size: 10px; line-height: 1;">' + tagLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                        });
+                        html += '</div>';
+                    }
                     
                     // Commit 2.3.9.2A: Render CAD file cards (for CAD uploads, revision requests, and CAD released messages)
                     if ((isCadUploadMessage || isRevisionRequestMessage || isCadReleasedMessage) && cadFiles.length > 0) {
@@ -17958,15 +18079,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         cadFiles.forEach(function(file) {
                             var isPdf = file.ext === 'pdf';
                             var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(file.ext) !== -1;
-                            var icon = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+                            var icon = isPdf ? 'ðŸ“„' : (isImage ? 'ðŸ–¼ï¸' : 'ðŸ“Ž');
                             
                             html += '<a href="' + file.url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background-color: #0a0a0a; border: 1px solid #333; border-radius: 4px; text-decoration: none; color: #fff; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#FF0065\';" onmouseout="this.style.backgroundColor=\'#0a0a0a\'; this.style.borderColor=\'#333\';">';
                             html += '<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background-color: #000; border-radius: 4px; flex-shrink: 0;"><span style="font-size: 20px;">' + icon + '</span></div>';
                             html += '<div style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;">' + file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open →</div>';
+                            html += '<div style="font-size: 10px; color: #FF0065; flex-shrink: 0;">Open â†’</div>';
                             html += '</a>';
                         });
                         html += '</div>';
+                    }
+                    
+                    if (!(isCadUploadMessage || isRevisionRequestMessage || isCadReleasedMessage) && messageAttachments.length > 0) {
+                        html += '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; display: flex; flex-wrap: wrap; gap: 8px;">';
+                        messageAttachments.forEach(function(file) {
+                            var safeUrl = String(file.url || '').replace(/"/g, '&quot;');
+                            var safeName = String(file.name || 'Attachment').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            var isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(file.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(file.name || ''));
+                            html += '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" title="' + safeName + '" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background-color: #0a0a0a; border: 1px solid #333; border-radius: 6px; text-decoration: none; color: #FF0065; overflow: hidden;">';
+                            html += isImageFile ? ('<img src="' + safeUrl + '" alt="' + safeName + '" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.style.display=\'none\'; this.nextSibling.style.display=\'flex\';"><span style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:11px;">IMG</span>') : '<span style="font-size: 11px;">FILE</span>';
+                            html += '</a>';
+                        });
                     }
                     
                     html += '<div style="font-size: 9px; color: #666; text-align: right;">' + dateStr + '</div>';
@@ -18103,7 +18236,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             });
 
-            // Commit 2.3.9.2A: CAD Upload (Operator-only) inside Designer ⇄ Operator thread. Re-run for AJAX-loaded modal content.
+            // Commit 2.3.9.2A: CAD Upload (Operator-only) inside Designer â‡„ Operator thread. Re-run for AJAX-loaded modal content.
             window.n88InitCadUploadForms = function(root) {
                 root = root || document;
                 var uploadCadForms = root.querySelectorAll ? root.querySelectorAll('.n88-upload-cad-form') : [];
@@ -18328,7 +18461,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 var itemId = wrap.getAttribute('data-item-id');
                 if (!itemId) return;
                 var nonce = typeof n88OperatorTimelineNonce !== 'undefined' ? n88OperatorTimelineNonce : '';
-                container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timeline…</div>';
+                container.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading timelineâ€¦</div>';
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_timeline');
                 formData.append('item_id', itemId);
@@ -18355,7 +18488,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         wrap._n88StepsWithSupplierEvidence = stepsWithSupplierEvidence;
                         function buildEvidenceBlockHtml() {
                             return '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';"><div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Evidence</div>' +
-                                '<div id="n88-operator-step-evidence-list" style="min-height: 24px; font-size: 11px; color: ' + darkText + '; margin-bottom: 12px;">Loading…</div>' +
+                                '<div id="n88-operator-step-evidence-list" style="min-height: 24px; font-size: 11px; color: ' + darkText + '; margin-bottom: 12px;">Loadingâ€¦</div>' +
                                 '<form id="n88-operator-add-evidence-form" enctype="multipart/form-data" style="font-size: 11px;"><div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">File (image/PDF)</label><input type="file" name="evidence_file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf" style="width:100%; max-width:280px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
                                 '<div style="margin-bottom: 8px;"><label style="display:block; margin-bottom: 4px;">Or YouTube URL</label><input type="url" name="youtube_url" placeholder="https://youtube.com/..." style="width:100%; max-width:280px; padding:4px; background:#111; color:#ccc; border:1px solid ' + darkBorder + ';"></div>' +
                                 '<button type="submit" id="n88-operator-add-evidence-btn" style="padding: 6px 12px; background: ' + green + '; color: #000; border: none; font-weight: 600; cursor: pointer;">Add evidence</button></form></div>';
@@ -18377,7 +18510,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             if (detEl) {
                                 var sl = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
                                 detEl.innerHTML = '<div style="font-size: 13px; font-weight: 600; color: #FF0065; margin-bottom: 12px;">' + (sel.step_number || (idx + 1)) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' +
-                                    '<div style="font-size: 12px; color: #ccc;">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
+                                    '<div style="font-size: 12px; color: #ccc;">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? '#FF0065' : '#ccc') + ';">' + sl + '</span></div>' +
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
@@ -18421,7 +18554,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         var statusLabel = sel.display_status === 'delayed' ? 'Delayed' : sel.display_status === 'in_progress' ? 'In Progress' : sel.display_status === 'completed' ? 'Completed' : 'Pending';
                         var detail = '<div id="n88-operator-timeline-detail" style="padding: 16px; border: 1px solid ' + darkBorder + '; border-radius: 4px; background: rgba(0,0,0,0.2); margin-bottom: 16px;">';
                         detail += '<div style="font-size: 13px; font-weight: 600; color: ' + green + '; margin-bottom: 12px;">' + (sel.step_number || 1) + '. ' + (sel.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-                        detail += '<div style="font-size: 12px; color: ' + darkText + ';">· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
+                        detail += '<div style="font-size: 12px; color: ' + darkText + ';">Â· State: <span style="color: ' + (sel.display_status === 'delayed' ? '#ff6666' : sel.display_status === 'completed' ? green : darkText) + ';">' + statusLabel + '</span></div>';
                         if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                         if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                         if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
@@ -18431,7 +18564,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         if (t.show_prototype_mini) {
                             detail += '<div style="margin-top: 12px; padding: 12px; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px; color: ' + darkText + ';">';
                             detail += '<div style="margin-bottom: 8px; color: ' + green + ';">Prototype Mini-Timeline (visual only)</div>';
-                            detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested → Paid → CAD Approved → Prototype Submitted → Approved</div></div>';
+                            detail += '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Requested â†’ Paid â†’ CAD Approved â†’ Prototype Submitted â†’ Approved</div></div>';
                         }
                         container.innerHTML = row + detail;
                         wrap._n88OpUpdateDetail = updateOperatorStepDetail;
@@ -18441,7 +18574,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         window.n88LoadOperatorStepEvidence = function(itId, stId) {
                             var listEl = document.getElementById('n88-operator-step-evidence-list');
                             if (!listEl) return;
-                            listEl.innerHTML = 'Loading…';
+                            listEl.innerHTML = 'Loadingâ€¦';
                             var fd = new FormData();
                             fd.append('action', 'n88_get_timeline_step_evidence');
                             fd.append('item_id', itId);
@@ -18501,7 +18634,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 alert('Please choose a file or enter a YouTube URL.');
                                 return;
                             }
-                            if (btn) { btn.textContent = 'Uploading…'; btn.disabled = true; }
+                            if (btn) { btn.textContent = 'Uploadingâ€¦'; btn.disabled = true; }
                             fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(data) {
                                 var b = form.querySelector('#n88-operator-add-evidence-btn');
                                 if (b) { b.textContent = 'Add evidence'; b.disabled = false; }
@@ -18526,7 +18659,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var itemIdClick = wrap.getAttribute('data-item-id');
                             var contentEl = document.getElementById('n88-operator-supplier-evidence-content-' + stepId);
                             if (!contentEl || !itemIdClick) return;
-                            contentEl.innerHTML = 'Loading…';
+                            contentEl.innerHTML = 'Loadingâ€¦';
                             var fd = new FormData();
                             fd.append('action', 'n88_get_step_evidence');
                             fd.append('item_id', itemIdClick);
@@ -18556,7 +18689,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     });
             };
 
-            // Commit 3.B.5.A1: Load Step 4–6 Video + Designer Comments for operator case view (dynamic panels)
+            // Commit 3.B.5.A1: Load Step 4â€“6 Video + Designer Comments for operator case view (dynamic panels)
             window.n88LoadOperatorCaseStep456 = function() {
                 var wrap = document.getElementById('n88-operator-workflow-timeline-wrap');
                 if (!wrap) return;
@@ -18571,7 +18704,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 var evNonce = typeof n88OperatorEvidenceNonce !== 'undefined' ? n88OperatorEvidenceNonce : '';
                 var ajaxUrl = '<?php echo esc_url( admin_url( "admin-ajax.php" ) ); ?>';
                 for (var c = 0; c < containers.length; c++) {
-                    if (containers[c]) containers[c].innerHTML = 'Loading…';
+                    if (containers[c]) containers[c].innerHTML = 'Loadingâ€¦';
                 }
                 var fd = new FormData();
                 fd.append('action', 'n88_get_item_timeline');
@@ -18605,7 +18738,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             if (videos.length > 0) {
                                 for (var vi = 0; vi < videos.length; vi++) {
                                     var sub = videos[vi];
-                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:6px;">v' + (sub.version || '') + ' — ' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + '</div>';
+                                    h += '<div style="font-size:11px;color:' + darkText + ';margin-bottom:6px;">v' + (sub.version || '') + ' â€” ' + (sub.source === 'operator' ? 'Operator' : 'Supplier') + '</div>';
                                     if (sub.optional_note) h += '<div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px;">' + (sub.optional_note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                                     if (sub.links && sub.links.length) {
                                         h += '<ul style="margin:0 0 8px 18px;padding:0;font-size:11px;">';
@@ -18673,7 +18806,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 if (urls.length < 1 || urls.length > 3) { alert('Enter 1 to 3 video links (YouTube, Vimeo, Loom).'); return; }
                                 var note = (document.getElementById('n88-op-video-note-' + step) || {}).value || '';
                                 tg.disabled = true;
-                                tg.textContent = 'Submitting…';
+                                tg.textContent = 'Submittingâ€¦';
                                 var f = new FormData();
                                 f.append('action', 'n88_operator_add_step_video');
                                 f.append('item_id', itemId);
@@ -18763,7 +18896,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
             
-            // Mark Payment Received / View Payment — delegated so AJAX-loaded case modal buttons work
+            // Mark Payment Received / View Payment â€” delegated so AJAX-loaded case modal buttons work
             document.addEventListener('click', function(e) {
                 var btn = e.target && e.target.closest ? e.target.closest('.n88-mark-payment-received-btn, .n88-operator-view-payment-btn') : null;
                 if (!btn) return;
@@ -18782,7 +18915,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if (paymentConfirmModal) paymentConfirmModal.style.display = 'block';
                 var listEl = document.getElementById('n88-receipts-list');
                 if (listEl) {
-                    listEl.textContent = 'Loading…';
+                    listEl.textContent = 'Loadingâ€¦';
                     var fd = new FormData();
                     fd.append('action', 'n88_get_payment_receipts');
                     fd.append('payment_id', paymentId);
@@ -18797,7 +18930,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     var isResubmitted = receipts.length > 1 && index < receipts.length - 1;
                                     var tag = isResubmitted ? '<span style="display:inline-block;margin-right:8px;padding:2px 6px;font-size:10px;font-weight:600;background-color:#331100;color:#ff8800;border:1px solid #ff8800;border-radius:2px;">Resubmitted</span>' : '';
                                     var name = (x.file_name || 'file').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                                    var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">— ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
+                                    var msg = (x.message && String(x.message).trim()) ? ' <span style="color:#aaa;font-style:italic;display:block;margin-top:2px;">â€” ' + String(x.message).replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' : '';
                                     return '<div style="margin-bottom:6px;">' + tag + '<a href="' + (x.url || '#') + '" target="_blank" rel="noopener" style="color:#FF0065">' + name + '</a>' + msg + '</div>';
                                 });
                                 listEl.innerHTML = parts.join('');
@@ -18805,7 +18938,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 listEl.textContent = 'None uploaded.';
                             }
                         })
-                        .catch(function() { if (listEl) listEl.textContent = '—'; });
+                        .catch(function() { if (listEl) listEl.textContent = 'â€”'; });
                 }
             });
 
@@ -18834,7 +18967,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 });
             }
 
-            // Release CAD — delegated so AJAX-loaded case modal buttons work
+            // Release CAD â€” delegated so AJAX-loaded case modal buttons work
             document.addEventListener('click', function(e) {
                 var btn = e.target && e.target.closest ? e.target.closest('.n88-release-cad-btn') : null;
                 if (!btn) return;
@@ -18932,7 +19065,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 btn.style.backgroundColor = '#001100';
                                 btn.style.borderColor = '#FF0065';
                                 btn.style.color = '#FF0065';
-                                btn.textContent = '✓ Payment Confirmed';
+                                btn.textContent = 'âœ“ Payment Confirmed';
                                 btn.disabled = true;
                                 var statusCell = btn.closest('tr') && btn.closest('tr').previousElementSibling ? btn.closest('tr').previousElementSibling.querySelector('td:nth-child(4)') : null;
                                 if (statusCell) {
@@ -19159,9 +19292,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if ( $is_img ) {
                     $out .= '<img src="' . $url_attr . '" alt="" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; flex-shrink: 0; background: #000;">';
                 } else {
-                    $out .= '<span style="flex-shrink: 0;">📄</span>';
+                    $out .= '<span style="flex-shrink: 0;">ðŸ“„</span>';
                 }
-                $out .= '<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' . $name_esc . '</span><span style="flex-shrink: 0;">View →</span></a>';
+                $out .= '<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' . $name_esc . '</span><span style="flex-shrink: 0;">View â†’</span></a>';
             }
             $out .= '</div>';
         }
@@ -19247,9 +19380,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $d = isset( $dims['depth'] ) ? $dims['depth'] : ( isset( $dims['d'] ) ? $dims['d'] : '' );
                         $h = isset( $dims['height'] ) ? $dims['height'] : ( isset( $dims['h'] ) ? $dims['h'] : '' );
                         $u = isset( $dims['unit'] ) ? $dims['unit'] : '';
-                        $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d !== '' ? $d : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
-                        if ( $dimensions_summary === '— × — × —' ) {
-                            $dimensions_summary = '—';
+                        $dimensions_summary = trim( ( $w !== '' ? $w : 'â€”' ) . ' Ã— ' . ( $d !== '' ? $d : 'â€”' ) . ' Ã— ' . ( $h !== '' ? $h : 'â€”' ) . ( $u !== '' ? ' ' . $u : '' ), ' Ã—' );
+                        if ( $dimensions_summary === 'â€” Ã— â€” Ã— â€”' ) {
+                            $dimensions_summary = 'â€”';
                         }
                     }
                 }
@@ -19278,15 +19411,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $d2 = isset( $d['depth'] ) ? $d['depth'] : ( isset( $d['d'] ) ? $d['d'] : '' );
                     $h = isset( $d['height'] ) ? $d['height'] : ( isset( $d['h'] ) ? $d['h'] : '' );
                     $u = isset( $d['unit'] ) ? $d['unit'] : '';
-                    $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d2 !== '' ? $d2 : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                    $dimensions_summary = trim( ( $w !== '' ? $w : 'â€”' ) . ' Ã— ' . ( $d2 !== '' ? $d2 : 'â€”' ) . ' Ã— ' . ( $h !== '' ? $h : 'â€”' ) . ( $u !== '' ? ' ' . $u : '' ), ' Ã—' );
                 }
             }
         }
         if ( $dimensions_summary === '' ) {
-            $dimensions_summary = '—';
+            $dimensions_summary = 'â€”';
         }
         if ( $item_quantity === '' ) {
-            $item_quantity = '—';
+            $item_quantity = 'â€”';
         }
 
         // Invited suppliers + bid status (Not submitted when no bid)
@@ -19385,7 +19518,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $wf_green = '#FF0065';
         $wf_text = '#ccc';
         $operator_current_step = 0;
-        $gate_state_clarification = 'Clarification only — no prototype payment yet.';
+        $gate_state_clarification = 'Clarification only â€” no prototype payment yet.';
 
         ob_start();
         ?>
@@ -19400,7 +19533,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 <?php else : ?>
                 <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
                 <?php endif; ?>
-                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $item_id ); ?> · <?php echo esc_html( $category_name ); ?></div>
+                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $item_id ); ?> Â· <?php echo esc_html( $category_name ); ?></div>
             </div>
             <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
                 <div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">
@@ -19409,29 +19542,29 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_style; ?>">The WorkFlow</button>
                 </div>
                 <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
-                    <!-- Tab 1: Item Case — same three boxes as payment case -->
+                    <!-- Tab 1: Item Case â€” same three boxes as payment case -->
                     <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
                         <div style="margin-right: 20px;">
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
                             <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $item_id ); ?><?php echo $bid_id ? ' · Bid #' . esc_html( $bid_id ) : ''; ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Requested:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $item_id ); ?><?php echo $bid_id ? ' - Bid #' . esc_html( $bid_id ) : ''; ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Requested:</strong> <span style="color: #888;">-</span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : 'â€”'; ?></span></div>
                             </div>
                         </div>
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
                             <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Costs Snapshot</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">CAD Fee:</strong> <span style="color: #888;">—</span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">CAD Fee:</strong> <span style="color: #888;">â€”</span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #888;">â€”</span></div>
                                 <?php if ( $delivery_quoting_note !== '' ) : ?>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
                                 <?php endif; ?>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Total Due:</strong> <span style="color: #888;">—</span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Total Due:</strong> <span style="color: #888;">â€”</span></div>
                             </div>
                         </div>
                         <div style="margin-bottom: 0; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
@@ -19442,8 +19575,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         <?php foreach ( $invited_suppliers as $inv ) : ?>
                                             <li style="margin-bottom: 8px;">
                                                 <strong style="color: #C8C8C8;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
-                                                <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
-                                                <span style="color: #FF0065;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                                <span style="color: #888;"> Â· <?php echo esc_html( $inv['route_type'] ); ?></span>
+                                                <span style="color: #FF0065;"> Â· <?php echo esc_html( $inv['bid_status'] ); ?></span>
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
@@ -19458,7 +19591,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         <div style="display: flex; gap: 20px; min-height: 0;">
                             <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                                 <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer ⇄ Operator</div>
+                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer <-> Operator</div>
                                     <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?></div>
                                 </div>
                                 <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -19472,11 +19605,51 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                             $bg_color = $is_designer ? '#0a0a0a' : '#1a1a1a';
                                             $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
                                             $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
+                                            $category_tags = array();
+                                            if ( $is_designer && ! empty( $msg['category'] ) ) {
+                                                foreach ( array_map( 'trim', explode( ',', (string) $msg['category'] ) ) as $tag_key ) {
+                                                    if ( 'clarifying_questions' === $tag_key ) {
+                                                        $category_tags[] = 'Clarifying questions';
+                                                    } elseif ( 'mse_material' === $tag_key ) {
+                                                        $category_tags[] = 'MSE/Material Suggestions';
+                                                    }
+                                                }
+                                            }
+                                            $message_attachments = array();
+                                            if ( ! empty( $msg['message_attachments'] ) ) {
+                                                $decoded_attachments = json_decode( (string) $msg['message_attachments'], true );
+                                                if ( is_array( $decoded_attachments ) ) {
+                                                    foreach ( $decoded_attachments as $attachment ) {
+                                                        if ( is_array( $attachment ) && ! empty( $attachment['url'] ) ) {
+                                                            $message_attachments[] = array(
+                                                                'name' => ! empty( $attachment['name'] ) ? (string) $attachment['name'] : 'Attachment',
+                                                                'url'  => (string) $attachment['url'],
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         ?>
                                             <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                                 <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
                                                     <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo $sender_name; ?></div>
                                                     <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
+                                                    <?php if ( ! empty( $category_tags ) ) : ?>
+                                                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                                                            <?php foreach ( $category_tags as $category_tag ) : ?>
+                                                                <span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid #333; color: #e5e5e5; font-size: 10px; line-height: 1;"><?php echo esc_html( $category_tag ); ?></span>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <?php if ( ! empty( $message_attachments ) ) : ?>
+                                                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; display: flex; flex-wrap: wrap; gap: 8px;">
+                                                            <?php foreach ( $message_attachments as $attachment ) : $is_image_attachment = preg_match( '/\.(jpe?g|png|gif|webp)(\?.*)?$/i', (string) $attachment['url'] ) || preg_match( '/\.(jpe?g|png|gif|webp)$/i', (string) $attachment['name'] ); ?>
+                                                                <a href="<?php echo esc_url( $attachment['url'] ); ?>" target="_blank" rel="noopener noreferrer" title="<?php echo esc_attr( $attachment['name'] ); ?>" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background-color: #0a0a0a; border: 1px solid #333; border-radius: 6px; text-decoration: none; color: #FF0065; overflow: hidden;">
+                                                                    <?php if ( $is_image_attachment ) : ?><img src="<?php echo esc_url( $attachment['url'] ); ?>" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;"><?php else : ?><span style="font-size: 18px;">[file]</span><?php endif; ?>
+                                                                </a>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
                                                     <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                                 </div>
                                             </div>
@@ -19492,8 +19665,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             </div>
                             <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                                 <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier ⇄ Operator</div>
-                                    <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?> · Bid #<?php echo esc_html( $bid_id ?: '—' ); ?></div>
+                                    <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier <-> Operator</div>
+                                    <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $item_id ); ?> - Bid #<?php echo esc_html( $bid_id ?: '-' ); ?></div>
                                 </div>
                                 <div style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
                                     <?php if ( empty( $supplier_messages ) ) : ?>
@@ -19526,7 +19699,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             </div>
                         </div>
                     </div>
-                    <!-- Tab 3: The WorkFlow — same 6-step timeline, empty/placeholder content -->
+                    <!-- Tab 3: The WorkFlow â€” same 6-step timeline, empty/placeholder content -->
                     <div data-n88-op-panel="2" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
                         <div id="n88-operator-workflow-timeline-wrap" data-item-id="<?php echo esc_attr( $item_id ); ?>" data-active-step="0" data-current-step="0" style="font-family: monospace;">
                             <div id="n88-operator-workflow-step-row" style="position: sticky; top: 0; z-index: 10; background: #000; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid <?php echo $wf_border; ?>;">
@@ -19571,7 +19744,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             </div>
                             <div data-n88-op-workflow-step="1" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 2. Key Dates (Facts Panel)</div>
-                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>;">—</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_text; ?>;">â€”</div>
                             </div>
                             <div data-n88-op-workflow-step="2" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3. Mini Workflow State Readout</div>
@@ -19579,15 +19752,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             </div>
                             <div data-n88-op-workflow-step="3" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 4. Production / Fabrication</div>
-                                <div style="font-size: 11px; color: #666;">—</div>
+                                <div style="font-size: 11px; color: #666;">â€”</div>
                             </div>
                             <div data-n88-op-workflow-step="4" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 5. Quality Review & Packing</div>
-                                <div style="font-size: 11px; color: #666;">—</div>
+                                <div style="font-size: 11px; color: #666;">â€”</div>
                             </div>
                             <div data-n88-op-workflow-step="5" class="n88-operator-workflow-step-panel" style="display: none; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 6. Ready for Delivery</div>
-                                <div style="font-size: 11px; color: #666;">—</div>
+                                <div style="font-size: 11px; color: #666;">â€”</div>
                             </div>
                         </div>
                     </div>
@@ -19797,7 +19970,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         // Format dates
-        $created_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
+        $created_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : 'â€”';
 
         // Item Case tab: delivery context, item basics, invited suppliers (operator-only)
         $item_id_for_case = (int) $payment['item_id'];
@@ -19839,9 +20012,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $d = isset( $dims['depth'] ) ? $dims['depth'] : ( isset( $dims['d'] ) ? $dims['d'] : '' );
                         $h = isset( $dims['height'] ) ? $dims['height'] : ( isset( $dims['h'] ) ? $dims['h'] : '' );
                         $u = isset( $dims['unit'] ) ? $dims['unit'] : '';
-                        $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d !== '' ? $d : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
-                        if ( $dimensions_summary === '— × — × —' ) {
-                            $dimensions_summary = '—';
+                        $dimensions_summary = trim( ( $w !== '' ? $w : 'â€”' ) . ' Ã— ' . ( $d !== '' ? $d : 'â€”' ) . ' Ã— ' . ( $h !== '' ? $h : 'â€”' ) . ( $u !== '' ? ' ' . $u : '' ), ' Ã—' );
+                        if ( $dimensions_summary === 'â€” Ã— â€” Ã— â€”' ) {
+                            $dimensions_summary = 'â€”';
                         }
                     }
                 }
@@ -19870,15 +20043,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $d2 = isset( $d['depth'] ) ? $d['depth'] : ( isset( $d['d'] ) ? $d['d'] : '' );
                     $h = isset( $d['height'] ) ? $d['height'] : ( isset( $d['h'] ) ? $d['h'] : '' );
                     $u = isset( $d['unit'] ) ? $d['unit'] : '';
-                    $dimensions_summary = trim( ( $w !== '' ? $w : '—' ) . ' × ' . ( $d2 !== '' ? $d2 : '—' ) . ' × ' . ( $h !== '' ? $h : '—' ) . ( $u !== '' ? ' ' . $u : '' ), ' ×' );
+                    $dimensions_summary = trim( ( $w !== '' ? $w : 'â€”' ) . ' Ã— ' . ( $d2 !== '' ? $d2 : 'â€”' ) . ' Ã— ' . ( $h !== '' ? $h : 'â€”' ) . ( $u !== '' ? ' ' . $u : '' ), ' Ã—' );
                 }
             }
         }
         if ( $dimensions_summary === '' ) {
-            $dimensions_summary = '—';
+            $dimensions_summary = 'â€”';
         }
         if ( $item_quantity === '' ) {
-            $item_quantity = '—';
+            $item_quantity = 'â€”';
         }
 
         // Invited suppliers and current bid statuses (operator-only)
@@ -19928,14 +20101,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $cad_requested_date === '' && ! empty( $payment['created_at'] ) ) {
             $cad_requested_date = date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) );
         }
-        $payment_requested_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : '—';
-        $designer_payment_sent_date = '—';
+        $payment_requested_date = ! empty( $payment['created_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['created_at'] ) ) : 'â€”';
+        $designer_payment_sent_date = 'â€”';
         $pp_cols = $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" );
         if ( is_array( $pp_cols ) && in_array( 'payment_evidence_logged_at', $pp_cols, true ) && ! empty( $payment['payment_evidence_logged_at'] ) ) {
             $designer_payment_sent_date = date( 'M d, Y g:i A', strtotime( $payment['payment_evidence_logged_at'] ) );
         }
-        $operator_payment_marked_date = ! empty( $payment['received_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['received_at'] ) ) : '—';
-        $cad_uploaded_date = '—';
+        $operator_payment_marked_date = ! empty( $payment['received_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['received_at'] ) ) : 'â€”';
+        $cad_uploaded_date = 'â€”';
         $cad_uploaded_row = $wpdb->get_row( $wpdb->prepare(
             "SELECT MIN(created_at) as first_at FROM {$events_table} WHERE object_type = 'prototype_payment' AND object_id = %d AND event_type = 'cad_uploaded'",
             $payment_id
@@ -19943,9 +20116,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! empty( $cad_uploaded_row['first_at'] ) ) {
             $cad_uploaded_date = date( 'M d, Y g:i A', strtotime( $cad_uploaded_row['first_at'] ) );
         }
-        $cad_approved_date = ! empty( $payment['cad_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['cad_approved_at'] ) ) : '—';
-        $cad_released_date = ! empty( $payment['cad_released_to_supplier_at'] ) && trim( $payment['cad_released_to_supplier_at'] ) !== '' ? date( 'M d, Y g:i A', strtotime( $payment['cad_released_to_supplier_at'] ) ) : '—';
-        $prototype_submitted_date = '—';
+        $cad_approved_date = ! empty( $payment['cad_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['cad_approved_at'] ) ) : 'â€”';
+        $cad_released_date = ! empty( $payment['cad_released_to_supplier_at'] ) && trim( $payment['cad_released_to_supplier_at'] ) !== '' ? date( 'M d, Y g:i A', strtotime( $payment['cad_released_to_supplier_at'] ) ) : 'â€”';
+        $prototype_submitted_date = 'â€”';
         $pvs_table = $wpdb->prefix . 'n88_prototype_video_submissions';
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$pvs_table}'" ) === $pvs_table ) {
             $first_sub = $wpdb->get_var( $wpdb->prepare(
@@ -19956,7 +20129,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $prototype_submitted_date = date( 'M d, Y g:i A', strtotime( $first_sub ) );
             }
         }
-        $prototype_approved_date = ! empty( $payment['prototype_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['prototype_approved_at'] ) ) : '—';
+        $prototype_approved_date = ! empty( $payment['prototype_approved_at'] ) ? date( 'M d, Y g:i A', strtotime( $payment['prototype_approved_at'] ) ) : 'â€”';
         $gate_state = 'Awaiting Payment';
         $pay_status = isset( $payment['status'] ) ? $payment['status'] : '';
         $cad_status_val = isset( $payment['cad_status'] ) ? $payment['cad_status'] : '';
@@ -19965,7 +20138,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $pay_status === 'marked_received' && ! $cad_released && $cad_status_val !== 'approved' ) {
             $gate_state = 'CAD In Progress';
         } elseif ( $pay_status === 'marked_received' && $cad_status_val === 'approved' && ! $cad_released ) {
-            $gate_state = 'CAD Approved — Awaiting Release';
+            $gate_state = 'CAD Approved â€” Awaiting Release';
         } elseif ( $cad_released && ! in_array( $prototype_status_val, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
             $gate_state = 'Awaiting Prototype';
         } elseif ( $prototype_status_val === 'submitted' ) {
@@ -19977,7 +20150,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         // Commit 3.B.5B: Project Awarded block for Step 3 (operator)
         $operator_step3_project_awarded = ( $prototype_status_val === 'approved' );
-        $operator_step3_supplier_name = ! empty( $payment['supplier_name'] ) ? $payment['supplier_name'] : 'Supplier #' . ( isset( $payment['supplier_id'] ) ? $payment['supplier_id'] : '—' );
+        $operator_step3_supplier_name = ! empty( $payment['supplier_name'] ) ? $payment['supplier_name'] : 'Supplier #' . ( isset( $payment['supplier_id'] ) ? $payment['supplier_id'] : 'â€”' );
         $operator_step3_designer_name = ! empty( $payment['designer_name'] ) ? $payment['designer_name'] : 'Designer';
         $operator_step3_prototype_approved_date = $prototype_approved_date;
         $operator_step3_award_date = $prototype_approved_date;
@@ -20036,7 +20209,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
             }
         }
-        // Current workflow step for operator: 0=Step 1 (Keywords), 1=Step 2 (Key Dates), 2=Step 3 (State); 4–6 stay at 2 until implemented
+        // Current workflow step for operator: 0=Step 1 (Keywords), 1=Step 2 (Key Dates), 2=Step 3 (State); 4â€“6 stay at 2 until implemented
         $operator_current_step = 0;
         if ( $pay_status === 'marked_received' ) {
             $operator_current_step = 1;
@@ -20068,7 +20241,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $operator_open_tab = 1;
         }
 
-        // Build HTML — COMMIT 3.B.3: 50% images, 50% three tabs (Item Case, Messages, The WorkFlow)
+        // Build HTML â€” COMMIT 3.B.3: 50% images, 50% three tabs (Item Case, Messages, The WorkFlow)
         ob_start();
         ?>
         <?php
@@ -20096,7 +20269,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 <?php else : ?>
                 <div style="min-height: 200px; display: flex; align-items: center; justify-content: center; color: #444; font-family: monospace; font-size: 12px;">[ Main Image ]</div>
                 <?php endif; ?>
-                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $payment['item_id'] ); ?> · <?php echo esc_html( $category_name ); ?></div>
+                <div style="font-size: 12px; color: #888; font-family: monospace;">Item #<?php echo esc_html( $payment['item_id'] ); ?> - <?php echo esc_html( $category_name ); ?></div>
             </div>
             <!-- Right: tabs + panels -->
             <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
@@ -20106,19 +20279,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_2_style; ?>">The WorkFlow</button>
                 </div>
                 <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
-                    <!-- Tab 1: Item Case — Case Summary, Costs Snapshot, Routing/Suppliers (supplier item-detail box style); margin-right 20px -->
+                    <!-- Tab 1: Item Case â€” Case Summary, Costs Snapshot, Routing/Suppliers (supplier item-detail box style); margin-right 20px -->
                     <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="flex: 1; min-height: 0; overflow-y: auto; display: <?php echo $op_panel_0_display; ?>;">
                         <div style="margin-right: 20px;">
                         <!-- 1. Case Summary (same box style as supplier Item Overview) -->
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
                             <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
                             <div style="font-size: 14px; color: #fff; line-height: 1.8;">
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Item:</strong> <span style="color: #fff;">#<?php echo esc_html( $payment['item_id'] ); ?> - Bid #<?php echo esc_html( $payment['bid_id'] ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Requested:</strong> <span style="color: #f59e0b;"><?php echo esc_html( $created_date ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Category:</strong> <span style="color: #fff;"><?php echo esc_html( $category_name ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Quantity:</strong> <span style="color: #fff;"><?php echo esc_html( $item_quantity ); ?></span></div>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Dims:</strong> <span style="color: #fff;"><?php echo esc_html( $dimensions_summary ); ?></span></div>
-                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : '—'; ?></span></div>
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #555;"><strong style="color: #C8C8C8;">Delivery:</strong> <span style="color: #fff;"><?php echo $delivery_country !== '' ? esc_html( $delivery_country ) . ( $delivery_postal !== '' ? ' ' . esc_html( $delivery_postal ) : '' ) : 'â€”'; ?></span></div>
                             </div>
                         </div>
                         <!-- 2. Costs Snapshot (same box style) -->
@@ -20129,7 +20302,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Supplier bid unit price:</strong> <span style="color: #FF0065;">$<?php echo number_format( floatval( $payment['unit_price'] ), 2 ); ?></span></div>
                                 <?php endif; ?>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">CAD Fee:</strong> <span style="color: #fff;">$<?php echo number_format( floatval( $payment['cad_fee_usd'] ), 2 ); ?></span></div>
-                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #fff;"><?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : '—' ); ?></span></div>
+                                <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Prototype:</strong> <span style="color: #fff;"><?php echo $prototype_estimate_for_display !== null ? '$' . number_format( $prototype_estimate_for_display, 2 ) : ( $payment['prototype_video_cost_estimate_usd'] ? '$' . number_format( floatval( $payment['prototype_video_cost_estimate_usd'] ), 2 ) : 'â€”' ); ?></span></div>
                                 <?php if ( $delivery_quoting_note !== '' ) : ?>
                                 <div style="margin-bottom: 8px;"><strong style="color: #C8C8C8;">Shipping:</strong> <span style="color: #fff;"><?php echo esc_html( $delivery_quoting_note ); ?></span></div>
                                 <?php endif; ?>
@@ -20145,8 +20318,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                         <?php foreach ( $invited_suppliers as $inv ) : ?>
                                             <li style="margin-bottom: 8px;">
                                                 <strong style="color: #C8C8C8;">Supplier #<?php echo esc_html( $inv['supplier_id'] ); ?></strong>
-                                                <span style="color: #888;"> · <?php echo esc_html( $inv['route_type'] ); ?></span>
-                                                <span style="color: #FF0065;"> · <?php echo esc_html( $inv['bid_status'] ); ?></span>
+                                                <span style="color: #888;"> Â· <?php echo esc_html( $inv['route_type'] ); ?></span>
+                                                <span style="color: #FF0065;"> Â· <?php echo esc_html( $inv['bid_status'] ); ?></span>
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
@@ -20163,7 +20336,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 <!-- Designer Thread -->
                 <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                     <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer ⇄ Operator</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Designer <-> Operator</div>
                         <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?></div>
                     </div>
                     <div id="n88-operator-designer-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
@@ -20177,10 +20350,34 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 $bg_color = $is_designer ? '#0a0a0a' : '#1a1a1a';
                                 $msg_date = date( 'M d, Y g:i A', strtotime( $msg['created_at'] ) );
                                 $body_html = $this->n88_render_operator_message_body( $msg['message_text'] );
+                                $category_tags = array();
+                                if ( $is_designer && ! empty( $msg['category'] ) ) {
+                                    foreach ( array_map( 'trim', explode( ',', (string) $msg['category'] ) ) as $tag_key ) {
+                                        if ( 'clarifying_questions' === $tag_key ) {
+                                            $category_tags[] = 'Clarifying questions';
+                                        } elseif ( 'mse_material' === $tag_key ) {
+                                            $category_tags[] = 'MSE/Material Suggestions';
+                                        }
+                                    }
+                                }
+                                $message_attachments = array();
+                                if ( ! empty( $msg['message_attachments'] ) ) {
+                                    $decoded_attachments = json_decode( (string) $msg['message_attachments'], true );
+                                    if ( is_array( $decoded_attachments ) ) {
+                                        foreach ( $decoded_attachments as $attachment ) {
+                                            if ( is_array( $attachment ) && ! empty( $attachment['url'] ) ) {
+                                                $message_attachments[] = array(
+                                                    'name' => ! empty( $attachment['name'] ) ? (string) $attachment['name'] : 'Attachment',
+                                                    'url'  => (string) $attachment['url'],
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
                             ?>
                                 <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                     <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' Â· ' . esc_html( $msg['category'] ) : ''; ?></div>
                                         <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                         <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
@@ -20206,7 +20403,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     </div>
                     <?php elseif ( $payment_id && $pay_status === 'marked_received' && $cad_status_val === 'approved' ) : ?>
                     <div style="padding: 8px 12px; border-top: 1px solid #333; background: #0a0a0a;">
-                        <div style="font-size: 11px; color: #FF0065; padding: 6px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; text-align: center;">✓ CAD Approved – No further uploads needed</div>
+                        <div style="font-size: 11px; color: #FF0065; padding: 6px; background-color: #003300; border: 1px solid #FF0065; border-radius: 4px; text-align: center;">âœ“ CAD Approved â€“ No further uploads needed</div>
                     </div>
                     <?php endif; ?>
                     <div style="padding: 10px 12px; border-top: 1px solid #555; background: #141414;">
@@ -20219,8 +20416,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 <!-- Supplier Thread -->
                 <div style="flex: 1; border: 1px solid #555; border-radius: 10px; background: #1a1a1a; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
                     <div style="padding: 10px 14px; border-bottom: 1px solid #555; background: #141414;">
-                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier ⇄ Operator</div>
-                        <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> · Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
+                        <div style="font-size: 12px; font-weight: 600; color: #FF0065;">Supplier <-> Operator</div>
+                        <div style="font-size: 11px; color: #737373; margin-top: 2px;">Item #<?php echo esc_html( $payment['item_id'] ); ?> - Bid #<?php echo esc_html( $payment['bid_id'] ); ?></div>
                     </div>
                     <div id="n88-operator-supplier-messages" style="flex: 1; overflow-y: auto; padding: 12px; max-height: 320px; min-height: 80px;">
                         <?php if ( empty( $supplier_messages ) ) : ?>
@@ -20236,7 +20433,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             ?>
                                 <div style="margin-bottom: 10px; text-align: <?php echo esc_attr( $align_class ); ?>;">
                                     <div style="display: inline-block; max-width: 85%; padding: 8px 12px; background: <?php echo esc_attr( $bg_color ); ?>; border: 1px solid #555; border-radius: 10px; font-size: 12px; color: #e5e5e5;">
-                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' · ' . esc_html( $msg['category'] ) : ''; ?></div>
+                                        <div style="font-weight: 600; color: #FF0065; margin-bottom: 4px; font-size: 11px;"><?php echo esc_html( $sender_name ); ?><?php echo ! empty( $msg['category'] ) ? ' Â· ' . esc_html( $msg['category'] ) : ''; ?></div>
                                         <div style="white-space: pre-wrap; word-wrap: break-word;"><?php echo $body_html; ?></div>
                                         <div style="font-size: 11px; color: #737373; margin-top: 4px;"><?php echo esc_html( $msg_date ); ?></div>
                                     </div>
@@ -20263,7 +20460,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 <span style="font-size: 11px; color: #737373;">Forwards the last message from one thread to the other</span>
             </div>
                     </div>
-                    <!-- Tab 3: The WorkFlow — 6-step timeline (Steps 1–3 content; 4–6 placeholder) -->
+                    <!-- Tab 3: The WorkFlow â€” 6-step timeline (Steps 1â€“3 content; 4â€“6 placeholder) -->
                     <?php
                     $wf_green = '#FF0065';
                     $wf_border = '#555';
@@ -20329,10 +20526,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             <div data-n88-op-workflow-step="1" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_1; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 2. Key Dates (Facts Panel)</div>
                                 <div style="font-size: 12px; color: <?php echo $wf_text; ?>; line-height: 1.9;">
-                                    <div>CAD requested: <?php echo $cad_requested_date !== '' ? esc_html( $cad_requested_date ) : '—'; ?></div>
+                                    <div>CAD requested: <?php echo $cad_requested_date !== '' ? esc_html( $cad_requested_date ) : 'â€”'; ?></div>
                                     <div>Payment requested: <?php echo esc_html( $payment_requested_date ); ?></div>
-                                    <div>Designer “Payment Sent”: <?php echo esc_html( $designer_payment_sent_date ); ?></div>
-                                    <div>Operator “Payment Marked Received”: <?php echo esc_html( $operator_payment_marked_date ); ?></div>
+                                    <div>Designer "Payment Sent": <?php echo esc_html( $designer_payment_sent_date ); ?></div>
+                                    <div>Operator "Payment Marked Received": <?php echo esc_html( $operator_payment_marked_date ); ?></div>
                                     <div>CAD uploaded: <?php echo esc_html( $cad_uploaded_date ); ?></div>
                                     <div>CAD approved: <?php echo esc_html( $cad_approved_date ); ?></div>
                                     <div>CAD released to supplier: <?php echo esc_html( $cad_released_date ); ?></div>
@@ -20340,12 +20537,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                     <div>Prototype approved: <?php echo esc_html( $prototype_approved_date ); ?></div>
                                 </div>
                             </div>
-                            <!-- Step 3 — Commit 3.B.5B: Pre-Production Approval; Project Awarded or Revision Request -->
+                            <!-- Step 3 â€” Commit 3.B.5B: Pre-Production Approval; Project Awarded or Revision Request -->
                             <?php $panel_display_2 = ( $operator_current_step === 2 ) ? 'block' : 'none'; ?>
                             <div data-n88-op-workflow-step="2" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_2; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.2);">
-                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3 — Pre-Production Approval</div>
+                                <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_green; ?>; margin-bottom: 12px;">Step 3 â€” Pre-Production Approval</div>
                                 <?php if ( $operator_step3_project_awarded ) : ?>
-                                <div style="font-size: 12px; color: <?php echo $wf_green; ?>; margin-bottom: 8px;">✔ COMPLETED</div>
+                                <div style="font-size: 12px; color: <?php echo $wf_green; ?>; margin-bottom: 8px;">âœ” COMPLETED</div>
                                 <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600; margin-bottom: 12px;">Project Awarded</div>
                                 <div style="font-size: 12px; color: <?php echo $wf_text; ?>; line-height: 1.8;">
                                     <div>Prototype Approved: <?php echo esc_html( $operator_step3_prototype_approved_date ); ?></div>
@@ -20372,21 +20569,21 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                                 <div style="font-size: 14px; color: <?php echo $wf_green; ?>; font-weight: 600;"><?php echo esc_html( $gate_state ); ?></div>
                                 <?php endif; ?>
                             </div>
-                            <!-- Step 4–6: Commit 3.B.5.A1 — Dynamic Video Evidence + Designer Comments -->
+                            <!-- Step 4â€“6: Commit 3.B.5.A1 â€” Dynamic Video Evidence + Designer Comments -->
                             <?php $panel_display_3 = ( $operator_current_step === 3 ) ? 'block' : 'none'; ?>
                             <div data-n88-op-workflow-step="3" data-step-number="4" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_3; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 4. Production / Fabrication</div>
-                                <div id="n88-op-step456-content-4" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
+                                <div id="n88-op-step456-content-4" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loadingâ€¦</div>
                             </div>
                             <?php $panel_display_4 = ( $operator_current_step === 4 ) ? 'block' : 'none'; ?>
                             <div data-n88-op-workflow-step="4" data-step-number="5" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_4; ?>; margin-bottom: 16px; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 5. Quality Review & Packing</div>
-                                <div id="n88-op-step456-content-5" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
+                                <div id="n88-op-step456-content-5" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loadingâ€¦</div>
                             </div>
                             <?php $panel_display_5 = ( $operator_current_step === 5 ) ? 'block' : 'none'; ?>
                             <div data-n88-op-workflow-step="5" data-step-number="6" class="n88-operator-workflow-step-panel" style="display: <?php echo $panel_display_5; ?>; margin-bottom: 0; padding: 16px; border: 1px solid <?php echo $wf_border; ?>; border-radius: 4px; background: rgba(0,0,0,0.1);">
                                 <div style="font-size: 13px; font-weight: 600; color: <?php echo $wf_text; ?>; margin-bottom: 8px;">Step 6. Ready for Delivery</div>
-                                <div id="n88-op-step456-content-6" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loading…</div>
+                                <div id="n88-op-step456-content-6" class="n88-op-step456-dynamic" data-item-id="<?php echo esc_attr( $payment['item_id'] ); ?>">Loadingâ€¦</div>
                             </div>
                         </div>
                     </div>
@@ -20613,7 +20810,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
         $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
-        // Message tags (designer_operator designer only): required — at least one of clarifying_questions, mse_material
+        // Message tags (designer_operator designer only): required â€” at least one of clarifying_questions, mse_material
         $message_tags = array();
         if ( isset( $_POST['message_tags'] ) && is_array( $_POST['message_tags'] ) ) {
             $message_tags = array_map( 'sanitize_text_field', wp_unslash( $_POST['message_tags'] ) );
@@ -20871,7 +21068,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 2.3.9.2A: Operator uploads versioned CAD files into Designer↔Operator thread.
+     * Commit 2.3.9.2A: Operator uploads versioned CAD files into Designer-Operator thread.
      * Accepts: PDF, JPG, PNG.
      */
     public function ajax_upload_cad_files() {
@@ -21048,7 +21245,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             array( '%d' )
         );
 
-        // Post system message into Designer↔Operator thread
+        // Post system message into Designer-Operator thread
         $message_text = "CAD v{$next_version} uploaded\nFiles:\n" . implode( "\n", $uploaded_files_lines );
         $this->n88_insert_item_message(
             'designer_operator',
@@ -22747,7 +22944,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     /**
-     * Commit 3.A.2S: Supplier submit step evidence (1–3 video links). Supplier must be routed; step in_progress or completed.
+     * Commit 3.A.2S: Supplier submit step evidence (1â€“3 video links). Supplier must be routed; step in_progress or completed.
      */
     public function ajax_supplier_submit_step_evidence() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );

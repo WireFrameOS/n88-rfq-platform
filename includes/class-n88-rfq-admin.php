@@ -5530,12 +5530,12 @@ class N88_RFQ_Admin {
             <div id="n88-board-header">
                 <div class="n88-header-top">
                     <div class="n88-header-title">
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" class="n88-back" aria-label="Back">←</a>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=n88-rfq-items-boards-test' ) ); ?>" class="n88-back" aria-label="Back"><-</a>
                         WireFrame (OS) / Workspace
                     </div>
                     <div style="position: relative;">
                         <div id="n88-profile-dropdown-trigger" class="n88-user-trigger">
-                            <?php echo esc_html( $current_user->display_name ); ?> ▼
+                            <?php echo esc_html( $current_user->display_name ); ?> &#9662;
                         </div>
                         <div id="n88-profile-dropdown" class="n88-profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); min-width: 150px; z-index: 1001;">
                             <a href="<?php echo esc_url( wp_logout_url( home_url( '/login/' ) ) ); ?>" style="display: block; padding: 10px 16px; text-decoration: none; font-size: 14px;">
@@ -5585,7 +5585,7 @@ class N88_RFQ_Admin {
                         <?php endif; ?>
                     </div>
                     <div class="n88-support-wrap">
-                        <button type="button" class="n88-btn-bracket n88-support-btn" id="n88-header-support-widget" title="Message System Operator">🎧 [ Support ]</button>
+                        <button type="button" class="n88-btn-bracket n88-support-btn" id="n88-header-support-widget" title="Message System Operator">[ Support ]</button>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -6368,7 +6368,7 @@ class N88_RFQ_Admin {
                     <form id="n88-add-item-modal-form" class="n88-add-item-body">
                         <div id="n88-add-item-blocks">
                             <div class="n88-add-item-block n88-item-block-expanded" data-index="1">
-                                <div class="n88-item-block-header" tabindex="0" role="button" aria-expanded="true">Item 01 <span class="n88-item-block-toggle">▼</span></div>
+                                <div class="n88-item-block-header" tabindex="0" role="button" aria-expanded="true">Item 01 <span class="n88-item-block-toggle">&#9660;</span></div>
                                 <div class="n88-item-block-content">
                         <div class="n88-field">
                             <label for="n88-modal-item-title">Title <span class="n88-required">*</span></label>
@@ -6406,7 +6406,7 @@ class N88_RFQ_Admin {
                             <label for="n88-modal-item-quantity">Quantity</label>
                             <p class="n88-hint">Total units required for this item.</p>
                             <div class="n88-quantity-wrap">
-                                <button type="button" id="n88-modal-qty-minus" aria-label="Decrease">−</button>
+                                <button type="button" id="n88-modal-qty-minus" aria-label="Decrease">-</button>
                                 <input type="number" id="n88-modal-item-quantity" name="quantity" min="1" value="1">
                                 <button type="button" id="n88-modal-qty-plus" aria-label="Increase">+</button>
                             </div>
@@ -6493,7 +6493,7 @@ class N88_RFQ_Admin {
                             <label>Reference Images / Inspiration</label>
                             <!-- <p class="n88-hint">Upload sketches, inspiration photos, shop drawings, or material references</p> -->
                             <div class="n88-upload-zone" id="n88-modal-upload-zone">
-                                <span class="n88-upload-icon">↑</span>
+                                <span class="n88-upload-icon">&#8593;</span>
                                 <span id="n88-modal-upload-text">Upload sketches, inspiration photos, shop drawings, or material references</span>
                                 <input type="file" id="n88-modal-item-image-file" accept="image/*,.heic,.heif" multiple>
                             </div>
@@ -7354,7 +7354,7 @@ class N88_RFQ_Admin {
                         header.textContent = 'Item ' + (nextIdx < 10 ? '0' + nextIdx : nextIdx) + ' ';
                         var toggle = document.createElement('span');
                         toggle.className = 'n88-item-block-toggle';
-                        toggle.textContent = '\u25BC';
+                        toggle.innerHTML = '&#9660;';
                         header.appendChild(toggle);
                         header.setAttribute('aria-expanded', 'true');
                     }
@@ -7657,6 +7657,57 @@ class N88_RFQ_Admin {
                     }
                     return { formData: formData, ajaxUrl: ajaxUrl, boardId: boardId, projectId: projectId, roomId: roomId };
                 }
+                function blockHasSelectedImage(block) {
+                    if (!block) return false;
+                    var files = (block.n88Files && block.n88Files.length > 0) ? block.n88Files : [];
+                    if (blocksContainer) {
+                        var firstBlock = blocksContainer.querySelector('.n88-add-item-block');
+                        if (firstBlock && firstBlock === block && (!files || files.length === 0) && n88ModalSelectedFiles && n88ModalSelectedFiles.length > 0) {
+                            files = n88ModalSelectedFiles;
+                        }
+                    }
+                    if (files && files.length > 0) return true;
+                    var imgIdEl = block.querySelector('[name="image_id"]');
+                    var imgId = imgIdEl ? parseInt(imgIdEl.value || '0', 10) : 0;
+                    return !!(imgId && imgId > 0);
+                }
+                function blockHasMeaningfulContent(block) {
+                    if (!block) return false;
+                    var titleVal = ((block.querySelector('[name="title"]') || {}).value || '').trim();
+                    var descVal = ((block.querySelector('[name="description"]') || {}).value || '').trim();
+                    var categoryVal = ((block.querySelector('[name="item_type"]') || {}).value || '').trim();
+                    var qtyVal = ((block.querySelector('[name="quantity"]') || {}).value || '').trim();
+                    var widthVal = ((block.querySelector('[name="width"]') || {}).value || '').trim();
+                    var depthVal = ((block.querySelector('[name="depth"]') || {}).value || '').trim();
+                    var heightVal = ((block.querySelector('[name="height"]') || {}).value || '').trim();
+                    var areaVal = ((block.querySelector('[name="measurement_area"]') || {}).value || '').trim();
+                    var lengthVal = ((block.querySelector('[name="measurement_length"]') || {}).value || '').trim();
+                    var customSpecVal = ((block.querySelector('[name="custom_specification"]') || {}).value || '').trim();
+                    var countryVal = ((block.querySelector('[name="delivery_country"]') || {}).value || '').trim();
+                    var postalVal = ((block.querySelector('[name="delivery_postal"]') || {}).value || '').trim();
+                    var notesVal = ((block.querySelector('[name="rfq_overall_notes"]') || {}).value || '').trim();
+                    var fabricNotesVal = ((block.querySelector('[name="rfq_fabric_notes"]') || {}).value || '').trim();
+                    var chipsWrap = block.querySelector('.n88-invite-chips');
+                    var hasInvites = !!(chipsWrap && chipsWrap.querySelector('span[data-supplier]'));
+                    var allowBox = block.querySelector('.n88-allow-system-invites');
+                    var allowSystem = !!(allowBox && allowBox.checked);
+                    return !!(titleVal || descVal || categoryVal || (qtyVal && qtyVal !== '1') || widthVal || depthVal || heightVal || areaVal || lengthVal || customSpecVal || countryVal || postalVal || notesVal || fabricNotesVal || hasInvites || allowSystem || blockHasSelectedImage(block));
+                }
+                function clearAddItemRequiredValidation(block) {
+                    if (!block) return;
+                    var titleEl = block.querySelector('[name="title"]');
+                    var uploadZoneEl = block.querySelector('.n88-upload-zone');
+                    [titleEl, uploadZoneEl].forEach(function(el) {
+                        if (!el) return;
+                        el.style.borderColor = '';
+                        el.style.boxShadow = '';
+                    });
+                }
+                function markAddItemRequiredValidation(el) {
+                    if (!el) return;
+                    el.style.borderColor = '#ff0065';
+                    el.style.boxShadow = '0 0 0 1px rgba(255,0,101,0.35) inset';
+                }
 
                 function resetItemFieldsKeepProjectRoom() {
                     var titleEl = document.getElementById('n88-modal-item-title');
@@ -7710,18 +7761,63 @@ class N88_RFQ_Admin {
                 if (submitBtn && form) {
                     submitBtn.addEventListener('click', function() {
                         var blocks = blocksContainer ? blocksContainer.querySelectorAll('.n88-add-item-block') : [];
+                        var activeBlocks = [];
+                        var firstMissingEl = null;
+                        var firstErrorMessage = '';
+                        for (var bi = 0; bi < blocks.length; bi++) {
+                            clearAddItemRequiredValidation(blocks[bi]);
+                            if (bi === 0 || blockHasMeaningfulContent(blocks[bi])) {
+                                activeBlocks.push(blocks[bi]);
+                            }
+                        }
+                        for (var ai = 0; ai < activeBlocks.length; ai++) {
+                            var activeBlock = activeBlocks[ai];
+                            var activeTitleEl = activeBlock.querySelector('[name="title"]');
+                            var activeUploadZone = activeBlock.querySelector('.n88-upload-zone');
+                            var blockLabel = 'Item ' + String(ai + 1);
+                            if (!activeTitleEl || !activeTitleEl.value || !activeTitleEl.value.trim()) {
+                                markAddItemRequiredValidation(activeTitleEl);
+                                if (!firstMissingEl) firstMissingEl = activeTitleEl;
+                                if (!firstErrorMessage) firstErrorMessage = blockLabel + ': Title is required.';
+                            }
+                            if (!blockHasSelectedImage(activeBlock)) {
+                                markAddItemRequiredValidation(activeUploadZone);
+                                if (!firstMissingEl) firstMissingEl = activeUploadZone;
+                                if (!firstErrorMessage) firstErrorMessage = blockLabel + ': At least one reference image is required.';
+                            }
+                        }
+                        if (firstErrorMessage) {
+                            resultEl.textContent = firstErrorMessage;
+                            resultEl.className = 'n88-result error';
+                            if (firstMissingEl) {
+                                var firstMissingBlock = firstMissingEl.closest('.n88-add-item-block');
+                                if (firstMissingBlock && firstMissingBlock.classList.contains('n88-item-block-collapsed')) {
+                                    firstMissingBlock.classList.remove('n88-item-block-collapsed');
+                                    firstMissingBlock.classList.add('n88-item-block-expanded');
+                                    var firstMissingHeader = firstMissingBlock.querySelector('.n88-item-block-header');
+                                    if (firstMissingHeader) firstMissingHeader.setAttribute('aria-expanded', 'true');
+                                }
+                                setTimeout(function() {
+                                    try {
+                                        if (typeof firstMissingEl.focus === 'function') firstMissingEl.focus();
+                                        firstMissingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    } catch (e) {}
+                                }, 30);
+                            }
+                            return;
+                        }
                         var payloads = [];
                         var payloadTitles = [];
-                        for (var i = 0; i < blocks.length; i++) {
-                            var b = buildItemFormDataForBlock(blocks[i]);
+                        for (var i = 0; i < activeBlocks.length; i++) {
+                            var b = buildItemFormDataForBlock(activeBlocks[i]);
                             if (b) {
                                 payloads.push(b);
-                                var tEl = blocks[i].querySelector('[name="title"]');
+                                var tEl = activeBlocks[i].querySelector('[name="title"]');
                                 payloadTitles.push(tEl && tEl.value ? tEl.value.trim() : 'Untitled Item');
                             }
                         }
                         if (payloads.length === 0) {
-                            resultEl.textContent = 'At least one item with a title is required.';
+                            resultEl.textContent = 'At least one item with a title and image is required.';
                             resultEl.className = 'n88-result error';
                             return;
                         }
@@ -9665,6 +9761,10 @@ class N88_RFQ_Admin {
                     // Calculate item status based on available data (order must match BoardItem.jsx: Action Required, then prototype workflow, then Bid Awarded, then Proposals Received)
                     var truthy = function(v) { return v === true || v === 'true' || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true'); };
                     var getItemStatus = function() {
+                        var rfqReadyColor = '#4caf50';
+                        var standbyColor = '#ff9800';
+                        var rfqSentColor = '#2196f3';
+                        var workflowColor = '#8e44ad';
                         var hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
                         var psRaw = item.prototype_status || '';
                         var ps = (typeof psRaw === 'string' && psRaw) ? psRaw.toLowerCase() : (psRaw || null);
@@ -9694,62 +9794,62 @@ class N88_RFQ_Admin {
                             if (ps === 'approved') {
                                 // After deposit / production start
                                 if (inProduction) {
-                                    return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+                                    return { text: 'In Production', color: workflowColor, dot: workflowColor };
                                 }
                                 // After award but before deposit
                                 if (hasAwardedBid) {
                                     if (item.official_quote_status === 'submitted') {
-                                        return { text: 'Awarded - Quote File Submitted', color: '#00ff00', dot: '#00ff00' };
+                                        return { text: 'Awarded - Quote File Submitted', color: workflowColor, dot: workflowColor };
                                     }
                                     if (item.deposit_status === 'sent_by_designer') {
                                         var isOpStatus = (window.n88BoardData && window.n88BoardData.isOperator) === true;
-                                        return { text: isOpStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: '#ff8800', dot: '#ff8800' };
+                                        return { text: isOpStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: workflowColor, dot: workflowColor };
                                     }
-                                    return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
+                                    return { text: 'Project Awarded \u2014 Awaiting Deposit', color: workflowColor, dot: workflowColor };
                                 }
                                 // Prototype approved, no award yet
-                                return { text: 'Prototype Approved \u2014 Awaiting Award', color: '#00ff00', dot: '#00ff00' };
+                                return { text: 'Prototype Approved \u2014 Awaiting Award', color: workflowColor, dot: workflowColor };
                             }
                             if (ps === 'changes_requested') {
-                                return { text: 'Video Changes Requested', color: '#ff8800', dot: '#ff8800' };
+                                return { text: 'Video Changes Requested', color: workflowColor, dot: workflowColor };
                             }
                             if (cadStatus === 'approved' && ps !== 'approved') {
-                                return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                                return { text: 'Pending Prototype Video', color: workflowColor, dot: workflowColor };
                             }
                             if (prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
-                                return { text: 'Awaiting payment confirmation', color: '#ff8800', dot: '#ff8800' };
+                                return { text: 'Awaiting payment confirmation', color: workflowColor, dot: workflowColor };
                             }
                             if (prototypePaymentStatus === 'requested') {
-                                return { text: 'CAD Requested', color: '#ff9800', dot: '#ff9800' };
+                                return { text: 'CAD Requested', color: workflowColor, dot: workflowColor };
                             }
                             if (prototypePaymentStatus === 'marked_received') {
                                 if (cadStatus === 'approved' && ps !== 'approved') {
-                                    return { text: 'Pending Prototype Video', color: '#2196f3', dot: '#2196f3' };
+                                    return { text: 'Pending Prototype Video', color: workflowColor, dot: workflowColor };
                                 }
                                 var cadVersion = Number(item.cad_current_version) || 0;
                                 var operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
                                 if (operatorSentCad) {
-                                    return { text: 'Review CAD', color: '#2196f3', dot: '#2196f3' };
+                                    return { text: 'Review CAD', color: workflowColor, dot: workflowColor };
                                 }
                                 if (cadStatus && cadStatus !== 'approved') {
-                                    return { text: 'Preparing CAD', color: '#2196f3', dot: '#2196f3' };
+                                    return { text: 'Preparing CAD', color: workflowColor, dot: workflowColor };
                                 }
-                                return { text: 'Payment received', color: '#4caf50', dot: '#4caf50' };
+                                return { text: 'Payment received', color: workflowColor, dot: workflowColor };
                             }
                         }
                         // Priority 3: Bid Awarded
                         if (hasAwardedBid) {
                             if (inProduction) {
-                                return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+                                return { text: 'In Production', color: workflowColor, dot: workflowColor };
                             }
                             if (item.official_quote_status === 'submitted') {
-                                return { text: 'Awarded - Quote File Submitted', color: '#00ff00', dot: '#00ff00' };
+                                return { text: 'Awarded - Quote File Submitted', color: workflowColor, dot: workflowColor };
                             }
                             if (item.deposit_status === 'sent_by_designer') {
                                 var isOperatorStatus = (window.n88BoardData && window.n88BoardData.isOperator) === true;
-                                return { text: isOperatorStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: '#ff8800', dot: '#ff8800' };
+                                return { text: isOperatorStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: workflowColor, dot: workflowColor };
                             }
-                            return { text: 'Project Awarded \u2014 Awaiting Deposit', color: '#00ff00', dot: '#00ff00' };
+                            return { text: 'Project Awarded \u2014 Awaiting Deposit', color: workflowColor, dot: workflowColor };
                         }
                         // Priority 4: Proposals Received
                         var validBidCountEarly = 0;
@@ -9776,7 +9876,7 @@ class N88_RFQ_Admin {
                         // Priority 5+: rest of fallbacks (In Production, Action Required flag, etc.)
                         // Priority 7: Check if item has award_set (In Production) as fallback
                         if (inProduction) {
-                            return { text: 'In Production', color: '#4caf50', dot: '#4caf50' };
+                            return { text: 'In Production', color: workflowColor, dot: workflowColor };
                         }
                         // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Proposals received
                         var actionRequiredFlag = item.action_required === true || item.action_required === 'true' || item.action_required === 1;
@@ -9832,14 +9932,14 @@ class N88_RFQ_Admin {
                         // This means specs changed but supplier hasn't resubmitted yet
                         if (hasStaleBids && isRfqActive) {
                             // No valid bids for current revision but old bids exist - show Standby until supplier resubmits
-                            return { text: 'Standby', color: '#999', dot: '#999' };
+                            return { text: 'Standby', color: standbyColor, dot: standbyColor };
                         }
                         
                         // Priority 4: If RFQ is active but no valid bids yet
                         // E) This handles: All valid bids withdrawn + routes exist + RFQ still open → "RFQ Sent"
                         // Otherwise (no routes or RFQ closed) → falls through to "Standby"
                         if (isRfqActive) {
-                            return { text: 'RFQ Sent', color: '#ff9800', dot: '#ff9800' };
+                            return { text: 'RFQ Sent', color: rfqSentColor, dot: rfqSentColor };
                         }
                         
                         // Priority 5: Check if item has meaningful details filled by designer
@@ -9910,10 +10010,10 @@ class N88_RFQ_Admin {
                             && (invitedSuppliers.length > 0 || allowSystemInvites);
                         if (!isRfqActive) {
                             return isReadyForRfq
-                                ? { text: 'RFQ Ready', color: '#4caf50', dot: '#4caf50' }
-                                : { text: 'MISSING INFO', color: '#ff0065', dot: '#ff0065' };
+                                ? { text: 'RFQ Ready', color: rfqReadyColor, dot: rfqReadyColor }
+                                : { text: 'Standby', color: standbyColor, dot: standbyColor };
                         }
-                        return { text: 'Standby', color: '#999', dot: '#999' };
+                        return { text: 'Standby', color: standbyColor, dot: standbyColor };
                     };
 
                     var itemStatus = getItemStatus();
@@ -14216,9 +14316,9 @@ class N88_RFQ_Admin {
                                     // Process notes - always include, even if empty
                                     var notesValue = smartAlternativesNote || '';
                                     
-                                    var payload = {
-                                        category: category,
-                                        description: description,
+                                        var payload = {
+                                            category: category,
+                                            description: description,
                                         quantity: qtyValue,
                                         measurement_type: measurementType,
                                         dims: measurementType === 'dimensions' ? {
@@ -14240,11 +14340,13 @@ class N88_RFQ_Admin {
                                         smart_alternatives: smartAlternativesEnabled,
                                         smart_alternatives_note: notesValue,
                                         delivery_country: deliveryCountry,
-                                        delivery_postal: deliveryPostal,
-                                        rfq_overall_notes: (rfqOverallNotes || '').slice(0, 100),
-                                        rfq_fabric_supplied_flag: fabricSupplied,
-                                        rfq_fabric_notes: fabricSupplied === 'yes' ? (fabricNotes || '') : '',
-                                    };
+                                            delivery_postal: deliveryPostal,
+                                            rfq_overall_notes: (rfqOverallNotes || '').slice(0, 100),
+                                            rfq_fabric_supplied_flag: fabricSupplied,
+                                            rfq_fabric_notes: fabricSupplied === 'yes' ? (fabricNotes || '') : '',
+                                            rfq_draft_invited_suppliers: Array.isArray(invitedSuppliers) ? invitedSuppliers.slice(0, 5) : [],
+                                            rfq_draft_allow_system_invites: !!allowSystemInvites,
+                                        };
                                     
                                     // Log payload for debugging
                                     console.log('ItemDetailModal (admin.php) - Saving item facts after RFQ:', {
@@ -14335,7 +14437,8 @@ class N88_RFQ_Admin {
                     };
                     
                     // Handle save
-                    var handleSave = function() {
+                    var handleSave = function(closeAfterSave) {
+                        if (typeof closeAfterSave === 'undefined') closeAfterSave = true;
                         // Prevent save if uploads are in progress
                         if (typeof isUploadingInspiration !== 'undefined' && isUploadingInspiration) {
                             alert('Please wait for image uploads to complete before saving.');
@@ -14434,6 +14537,8 @@ class N88_RFQ_Admin {
                                 rfq_overall_notes: (rfqOverallNotes || '').slice(0, 100),
                                 rfq_fabric_supplied_flag: fabricSupplied,
                                 rfq_fabric_notes: fabricSupplied === 'yes' ? (fabricNotes || '') : '',
+                                rfq_draft_invited_suppliers: Array.isArray(invitedSuppliers) ? invitedSuppliers.slice(0, 5) : [],
+                                rfq_draft_allow_system_invites: !!allowSystemInvites,
                             };
                             
                             // Log payload for debugging
@@ -14466,10 +14571,13 @@ class N88_RFQ_Admin {
                                             setShowWarningBanner(false);
                                         }, 10000);
                                     }
-                                    // Commit 2.3.5.3: Close modal after save
                                     setIsSaving(false);
-                                    if (onClose) {
+                                    if (closeAfterSave && onClose) {
                                         onClose();
+                                    } else {
+                                        try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
+                                        if (typeof fetchItemState === 'function') fetchItemState();
+                                        alert('RFQ details updated.');
                                     }
                                 }).catch(function(error) {
                                     console.error('Error saving item facts:', error);
@@ -15014,7 +15122,7 @@ class N88_RFQ_Admin {
                                             disabled: !boardId || Number(boardId) <= 0
                                         },
                                             getSelectedProjectName() ? ('Project: ' + getSelectedProjectName()) : 'Add to Project',
-                                            React.createElement('span', { style: { fontSize: '10px' } }, '▼')
+                                            React.createElement('span', { style: { fontSize: '10px' } }, '\u25BE')
                                         ),
                                         projectMenuOpen ? React.createElement('div', {
                                             style: {
@@ -15049,7 +15157,7 @@ class N88_RFQ_Admin {
                                                     disabled: roomsLoading || assignmentSaving,
                                                     style: { width: '100%', padding: '8px 10px', borderRadius: '4px', backgroundColor: '#111', color: '#fff', border: '1px solid ' + darkBorder, fontFamily: 'monospace', fontSize: '12px' }
                                                 },
-                                                    React.createElement('option', { value: '0' }, '— No room —'),
+                                                    React.createElement('option', { value: '0' }, '- No room -'),
                                                     (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: String(r.id) }, r.name); })
                                                 )
                                             ) : null,
@@ -15400,7 +15508,6 @@ class N88_RFQ_Admin {
                                                         (item.title || item.description) ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Name:'), React.createElement('div', { style: { fontSize: '13px', color: greenAccent, fontWeight: '500' } }, item.title || item.description || 'Untitled Item')) : null,
                                                         description ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Description:'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.6' } }, description)) : null,
                                                         category ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Category:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, category)) : null,
-                                                        (function() { var timelineType = null; if (category) { var categoryLower = category.toLowerCase(); var sixStepCategories = ['indoor furniture', 'sofas & seating (indoor)', 'chairs & armchairs (indoor)', 'dining tables (indoor)', 'cabinetry / millwork (custom)', 'casegoods (beds, nightstands, desks, consoles)', 'outdoor furniture', 'outdoor seating', 'outdoor dining sets', 'outdoor loungers & daybeds', 'pool furniture']; var fourStepCategories = ['lighting']; if (sixStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) { timelineType = 'Production Timeline'; } else if (fourStepCategories.some(function(cat) { return categoryLower.indexOf(cat.toLowerCase()) !== -1; })) { timelineType = '4-Step Timeline'; } else if (categoryLower.indexOf('furniture') !== -1 || categoryLower.indexOf('sofa') !== -1 || categoryLower.indexOf('chair') !== -1 || categoryLower.indexOf('table') !== -1 || categoryLower.indexOf('bed') !== -1 || categoryLower.indexOf('cabinet') !== -1) { timelineType = 'Production Timeline'; } else { timelineType = '4-Step Timeline'; } } return timelineType ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Timeline Type:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, timelineType)) : null; })(),
                                                         quantity ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Quantity:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, quantity)) : null,
                                                         formatDimensions() ? React.createElement('div', { style: { marginBottom: '12px' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Specification:'), React.createElement('div', { style: { fontSize: '12px', color: greenAccent } }, formatDimensions())) : null,
                                                         smartAlternativesNote ? React.createElement('div', { style: { marginBottom: '0' } }, React.createElement('div', { style: { fontSize: '12px', marginBottom: '4px', color: darkText, opacity: 0.7 } }, 'Notes for suppliers:'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: '1.6' } }, smartAlternativesNote)) : null
@@ -15463,10 +15570,24 @@ class N88_RFQ_Admin {
                                                         React.createElement('div', {
                                                             style: { fontSize: '14px', fontWeight: '600', marginBottom: '16px' }
                                                         }, 'Request Quote'),
-                                                        (currentState === 'A' && hasAnyRfqMissing && rfqMissingMap.category) ? React.createElement('div', {
-                                                            id: rfqFieldIdBase + '-category-note',
-                                                            style: { marginBottom: '12px', padding: '8px', backgroundColor: '#330011', border: '1px solid #ff0065', borderRadius: '4px', fontSize: '11px', color: '#ff9dc7' }
-                                                        }, 'Category missing: please set category in item details.') : null,
+                                                        React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px' } }, 'Category'),
+                                                            React.createElement('select', {
+                                                                id: rfqFieldIdBase + '-category-note',
+                                                                value: category || '',
+                                                                onChange: function(e) {
+                                                                    var nextCategory = e.target.value;
+                                                                    setCategory(nextCategory);
+                                                                    setMeasurementType(n88GetCategoryMeasurementType(nextCategory));
+                                                                },
+                                                                style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: (currentState === 'A' && rfqMissingMap.category) ? '1px solid #ff0065' : ('1px solid ' + darkBorder), borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' }
+                                                            },
+                                                                React.createElement('option', { value: '' }, 'Select the closest category for accurate routing and quoting.'),
+                                                                ['UPHOLSTERY','INDOOR FURNITURE (CASEGOODS)','OUTDOOR FURNITURE','LIGHTING','STONE (MARBLE / GRANITE / QUARTZ)','METALWORK','MILLWORK / CABINETRY','FLOORING','DRAPERY / WINDOW TREATMENTS','GLASS / MIRRORS','HARDWARE / ACCESSORIES','RUGS / CARPETS','WALLCOVERINGS / FINISHES','APPLIANCES','OTHER'].map(function(c) {
+                                                                    return React.createElement('option', { key: c, value: c }, c);
+                                                                })
+                                                            )
+                                                        ),
                                                         // RFQ Form Fields
                                                         React.createElement('div', { style: { marginBottom: '12px' } },
                                                             React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px' } }, 'Measurement Type'),
@@ -15793,11 +15914,20 @@ class N88_RFQ_Admin {
                                                             systemInvitesMessage ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: '#999', paddingLeft: '26px' } }, systemInvitesMessage) : null
                                                         ),
                                                         rfqError ? React.createElement('div', { style: { marginBottom: '12px', padding: '8px', backgroundColor: '#330000', border: '1px solid #ff0000', borderRadius: '4px', fontSize: '11px', color: '#ff0000' } }, rfqError) : null,
-                                                        React.createElement('button', {
-                                                            onClick: handleSubmitRfq,
-                                                            disabled: isSubmittingRfq,
-                                                            style: { width: '100%', padding: '12px', backgroundColor: greenAccent, border: 'none', borderRadius: '4px', color: darkBg, fontSize: '14px', fontFamily: 'monospace', cursor: isSubmittingRfq ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: isSubmittingRfq ? 0.6 : 1 }
-                                                        }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
+                                                        React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: function() { handleSave(false); },
+                                                                disabled: isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment,
+                                                                style: { flex: '0 0 140px', padding: '12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: (isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSaving || isUploadingInspiration || isSubmittingRfq || isLockedAwaitingPayment) ? 0.6 : 1 }
+                                                            }, isUploadingInspiration ? 'Uploading...' : (isSaving ? 'Updating...' : 'Update')),
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                onClick: handleSubmitRfq,
+                                                                disabled: isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment,
+                                                                style: { flex: 1, padding: '12px', backgroundColor: greenAccent, border: 'none', borderRadius: '4px', color: darkBg, fontSize: '14px', fontFamily: 'monospace', cursor: (isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: (isSubmittingRfq || isSaving || isUploadingInspiration || isLockedAwaitingPayment) ? 0.6 : 1 }
+                                                            }, isSubmittingRfq ? 'Submitting...' : 'Submit RFQ')
+                                                        )
                                                     )
                                                 ) : null
                                             )
@@ -15815,7 +15945,7 @@ class N88_RFQ_Admin {
                                                         if (msg.category) { var parts = String(msg.category).split(','); if (parts.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (parts.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); }
                                                         var attachments = [];
                                                         try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) attachments = a; } } catch (e) {}
-                                                        return React.createElement('div', { key: idx, style: { marginBottom: '5px', textAlign: isD ? 'right' : 'left' } }, React.createElement('div', { style: { display: 'inline-block', maxWidth: '85%', padding: '5px 9px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '6px', fontSize: '10px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.35 } }, React.createElement('div', { style: { fontSize: '8px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 2 } }, senderName), React.createElement('div', null, (msg.message_text || '').substring(0, 2000)), tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, attachments.length > 0 ? React.createElement('div', { style: { marginTop: 3 } }, attachments.map(function(att, i) { return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', style: { fontSize: '7px', color: greenAccent, marginRight: '6px' } }, att.name || "View"); })) : null, React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')));
+                                                        return React.createElement('div', { key: idx, style: { marginBottom: '5px', textAlign: isD ? 'right' : 'left' } }, React.createElement('div', { style: { display: 'inline-block', maxWidth: '85%', padding: '5px 9px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '6px', fontSize: '10px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.35 } }, React.createElement('div', { style: { fontSize: '8px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 2 } }, senderName), React.createElement('div', null, (msg.message_text || '').substring(0, 2000)), tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null, React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')));
                                                     })
                                                 ),
                                                 React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
@@ -17467,13 +17597,13 @@ class N88_RFQ_Admin {
                                                             );
                                                         })() : null,
                                                         (s.step_number === 1 && itemState.workflow_milestones && itemState.workflow_milestones.step1) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '8px' } },
-                                                            itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '· CAD requested — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at))) : null,
-                                                            itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '· Payment sent — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at))) : null,
-                                                            itemState.workflow_milestones.step1.payment_approved_at ? React.createElement('div', { key: 'approved', style: { marginBottom: '2px' } }, '· Payment approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at))) : null,
-                                                            (!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment) ? React.createElement('div', { style: { fontStyle: 'italic', opacity: 0.8 } }, '· Design & specifications in progress') : null
+                                                            itemState.workflow_milestones.step1.cad_requested_at ? React.createElement('div', { key: 'cad', style: { marginBottom: '2px' } }, '- CAD requested - ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.cad_requested_at))) : null,
+                                                            itemState.workflow_milestones.step1.payment_sent_at ? React.createElement('div', { key: 'sent', style: { marginBottom: '2px' } }, '- Payment sent - ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_sent_at))) : null,
+                                                            itemState.workflow_milestones.step1.payment_approved_at ? React.createElement('div', { key: 'approved', style: { marginBottom: '2px' } }, '- Payment approved - ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step1.payment_approved_at))) : null,
+                                                            (!itemState.workflow_milestones.step1.cad_requested_at && !itemState.workflow_milestones.step1.payment_sent_at && !itemState.workflow_milestones.step1.payment_approved_at && itemState.has_prototype_payment) ? React.createElement('div', { style: { fontStyle: 'italic', opacity: 0.8 } }, '- Design & specifications in progress') : null
                                                         ) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (!itemState.workflow_milestones || !itemState.workflow_milestones.step1 || !itemState.workflow_milestones.step1.payment_sent_at)) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: '1px solid #66aaff', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' } }, 'CAD Requested'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Designer has requested CAD with selected keywords.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
-                                                        (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones && itemState.workflow_milestones.step1 && itemState.workflow_milestones.step1.payment_sent_at) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: '1px solid #ff8800', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' } }, 'Payment Sent — Pending Approval'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Receipt uploaded. CAD drafting will begin once payment is confirmed.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
+                                                        (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones && itemState.workflow_milestones.step1 && itemState.workflow_milestones.step1.payment_sent_at) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: '1px solid #ff8800', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' } }, 'Payment Sent - Pending Approval'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Receipt uploaded. CAD drafting will begin once payment is confirmed.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                             React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
@@ -17491,7 +17621,7 @@ class N88_RFQ_Admin {
                                                                                 React.createElement('div', { style: { fontSize: '8px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '2px' } }, isD ? 'You' : 'Operator'),
                                                                                 React.createElement('div', { style: { fontSize: '11px', lineHeight: '1.35', marginBottom: '2px' } }, msg.message_text || ''),
                                                                                 tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null,
-                                                                                attachments.length > 0 ? React.createElement('div', { style: { marginTop: 3 } }, attachments.map(function(att, i) { return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', style: { fontSize: '7px', color: greenAccent, marginRight: '6px' } }, att.name || "View"); })) : null,
+                                                                                attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null,
                                                                                 React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')
                                                                             )
                                                                         );
@@ -17523,14 +17653,14 @@ class N88_RFQ_Admin {
                                                         s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Expected by: ' + formatWorkflowDateTime(s.expected_by)) : null,
                                                         (s.step_number === 3 && itemState.workflow_milestones && itemState.workflow_milestones.step3) ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginTop: '8px', marginBottom: '8px' } },
                                                             (itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)) ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video submitted — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_submitted_at || (itemState.prototype_submission && itemState.prototype_submission.created_at)))) : null,
-                                                            itemState.workflow_milestones.step3.changes_requested_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Changes requested — ', React.createElement('span', { style: { color: '#ffaa00' } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at))) : null,
-                                                            itemState.workflow_milestones.step3.video_resubmitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Video resubmitted — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at))) : null,
-                                                            itemState.workflow_milestones.step3.video_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '· Approved — ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at))) : null
+                                                            itemState.workflow_milestones.step3.changes_requested_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '- Changes requested - ', React.createElement('span', { style: { color: '#ffaa00' } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.changes_requested_at))) : null,
+                                                            itemState.workflow_milestones.step3.video_resubmitted_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '- Video resubmitted - ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_resubmitted_at))) : null,
+                                                            itemState.workflow_milestones.step3.video_approved_at ? React.createElement('div', { style: { marginBottom: '2px' } }, '- Approved - ', React.createElement('span', { style: { color: greenAccent } }, formatWorkflowDateTime(itemState.workflow_milestones.step3.video_approved_at))) : null
                                                         ) : null,
                                                         (s.step_number === 3 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Prototype Video'),
                                                             itemState.prototype_status ? React.createElement('div', { style: { display: 'inline-block', padding: '6px 10px', marginBottom: '8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', backgroundColor: itemState.prototype_status === 'approved' ? 'rgba(255,0,101,0.15)' : itemState.prototype_status === 'changes_requested' ? '#331100' : '#001133', border: '1px solid ' + (itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff'), color: itemState.prototype_status === 'approved' ? '#FF0065' : itemState.prototype_status === 'changes_requested' ? '#ff8800' : '#66aaff' } }, itemState.prototype_status === 'approved' ? 'Prototype Approved' : itemState.prototype_status === 'changes_requested' ? 'Changes Requested' : itemState.prototype_status === 'submitted' ? ('Submitted (v' + (itemState.prototype_current_version || 0) + ')') : 'Not Submitted') : null,
-                                                            itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' } }, React.createElement('button', { type: 'button', title: 'Play on screen', onClick: function() { setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }, onMouseEnter: function() { setHoverVideoPlayIdx(idx); }, onMouseLeave: function() { setHoverVideoPlayIdx(null); }, style: { padding: '8px 12px', background: 'rgba(0,255,0,0.15)', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '16px', cursor: 'pointer', transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease' } }, '\u25B6'), React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', title: 'Open in new tab', onMouseEnter: function() { setHoverVideoLinkIdx(idx); }, onMouseLeave: function() { setHoverVideoLinkIdx(null); }, style: { color: greenAccent, fontSize: '18px', textDecoration: 'none', transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, (link.provider || 'Video') + ' \u2192')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + formatWorkflowDateTime(itemState.prototype_submission.created_at)) : null) : null,
+                                                            itemState.prototype_submission && itemState.prototype_submission.links && itemState.prototype_submission.links.length > 0 ? React.createElement('div', { style: { marginBottom: '8px' } }, React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: darkText, marginBottom: '4px' } }, 'Video Links (v' + itemState.prototype_submission.version + '):'), itemState.prototype_submission.links.map(function(link, idx) { return React.createElement('div', { key: idx, style: { marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '12px' } }, React.createElement('button', { type: 'button', title: 'Play on screen', onClick: function() { setInlineVideoPlayer({ url: link.url, provider: link.provider || 'Link' }); }, onMouseEnter: function() { setHoverVideoPlayIdx(idx); }, onMouseLeave: function() { setHoverVideoPlayIdx(null); }, style: { padding: '8px 12px', background: 'rgba(0,255,0,0.15)', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '16px', cursor: 'pointer', transform: hoverVideoPlayIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease' } }, 'Play'), React.createElement('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', title: 'Open in new tab', onMouseEnter: function() { setHoverVideoLinkIdx(idx); }, onMouseLeave: function() { setHoverVideoLinkIdx(null); }, style: { color: greenAccent, fontSize: '14px', textDecoration: 'none', transform: hoverVideoLinkIdx === idx ? 'scale(1.2)' : 'scale(1)', transition: 'transform 0.2s ease', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, (link.provider || 'Video') + ' ->')); }), itemState.prototype_submission.created_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText, marginTop: '4px' } }, 'Submitted: ' + formatWorkflowDateTime(itemState.prototype_submission.created_at)) : null) : null,
                                                             itemState.prototype_status === 'submitted' ? React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function() { if (!window.confirm('Approve prototype v' + itemState.prototype_current_version + '?')) return; var fd = new FormData(); fd.append('action', 'n88_approve_prototype'); fd.append('item_id', String(itemId)); fd.append('payment_id', String(itemState.prototype_payment_id)); fd.append('bid_id', String(itemState.prototype_payment_bid_id)); fd.append('version', String(itemState.prototype_current_version)); fd.append('_ajax_nonce', (window.n88BoardNonce && window.n88BoardNonce.nonce_approve_prototype) || ''); fetch((window.n88BoardData && window.n88BoardData.ajaxUrl) || '', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { fetchItemState(); if (d.data && d.data.message) alert(d.data.message); } else alert(d.message || (d.data && d.data.message) || 'Failed'); }); }, style: { padding: '8px 12px', background: 'rgba(255,0,101,0.2)', color: '#FF0065', border: '1px solid #FF0065', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' } }, 'Approve'), React.createElement('button', { type: 'button', onClick: function() {
                                                                 if (itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0) {
                                                                     var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -17654,8 +17784,8 @@ class N88_RFQ_Admin {
                                                                                     for (var i = 0; i < parts.length; i++) {
                                                                                         var p = parts[i];
                                                                                         if (p.t === 'text') children.push(p.v);
-                                                                                        else if (p.t === 'image') children.push(React.createElement('span', { key: 'msg-url-' + idx + '-' + i, style: { display: 'inline-block', marginTop: '6px', marginBottom: '4px' } }, React.createElement('img', { src: p.v, alt: '', style: { maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', borderRadius: '4px', border: '1px solid ' + darkBorder }, onError: function(e) { e.target.style.display = 'none'; var n = e.target.nextSibling; if (n) n.style.display = 'block'; } }), React.createElement('a', { href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', marginTop: '4px', display: 'none' } }, 'View image \u2192')));
-                                                                                        else children.push(React.createElement('a', { key: 'msg-file-' + idx + '-' + i, href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: '4px', marginRight: '8px' } }, 'View file \u2192'));
+                                                                                        else if (p.t === 'image') children.push(React.createElement('span', { key: 'msg-url-' + idx + '-' + i, style: { display: 'inline-block', marginTop: '6px', marginBottom: '4px' } }, React.createElement('img', { src: p.v, alt: '', style: { maxWidth: '120px', maxHeight: '80px', objectFit: 'contain', display: 'block', borderRadius: '4px', border: '1px solid ' + darkBorder }, onError: function(e) { e.target.style.display = 'none'; var n = e.target.nextSibling; if (n) n.style.display = 'block'; } }), React.createElement('a', { href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', marginTop: '4px', display: 'none' } }, 'View image ->')));
+                                                                                        else children.push(React.createElement('a', { key: 'msg-file-' + idx + '-' + i, href: p.v, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', display: 'inline-block', marginTop: '4px', marginRight: '8px' } }, 'View file ->'));
                                                                                     }
                                                                                     if (fileList.length > 0) {
                                                                                         children.push(React.createElement('div', { key: 'msg-files-' + idx, style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder, display: 'flex', flexDirection: 'column', gap: '6px' } }, fileList.map(function(file, fi) {
@@ -17663,12 +17793,12 @@ class N88_RFQ_Admin {
                                                                                             var iconOrThumb = isImageFile
                                                                                                 ? React.createElement('span', { style: { width: '40px', height: '40px', flexShrink: 0, borderRadius: '4px', overflow: 'hidden', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, React.createElement('img', { src: file.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' }, onError: function(e) { e.target.style.display = 'none'; if (e.target.parentNode) { e.target.parentNode.style.fontSize = '18px'; e.target.parentNode.textContent = '\uD83D\uDDE8\uFE0F'; } } }))
                                                                                                 : React.createElement('span', { style: { fontSize: '14px' } }, file.name.toLowerCase().indexOf('.pdf') !== -1 ? '\uD83D\uDCC4' : '\uD83D\uDCCE');
-                                                                                            return React.createElement('a', { key: fi, href: file.url, target: '_blank', rel: 'noopener noreferrer', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px', color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' } }, iconOrThumb, React.createElement('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: file.name }, file.name), React.createElement('span', { style: { color: greenAccent, fontSize: '10px', flexShrink: 0 } }, 'Open in new tab \u2192'));
+                                                                                            return React.createElement('a', { key: fi, href: file.url, target: '_blank', rel: 'noopener noreferrer', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '4px', color: '#fff', textDecoration: 'none', fontSize: '11px', cursor: 'pointer' } }, iconOrThumb, React.createElement('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: file.name }, file.name), React.createElement('span', { style: { color: greenAccent, fontSize: '10px', flexShrink: 0 } }, 'Open in new tab ->'));
                                                                                         })));
                                                                                     }
                                                                                     return children.length ? React.createElement(React.Fragment, null, children) : displayText;
                                                                                 })()),
-                                                                                (function(){ var tags = []; if (msg.category) { var p = String(msg.category).split(','); if (p.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (p.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); } var att = []; try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) att = a; } } catch(e) {} return React.createElement(React.Fragment, null, tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, att.length > 0 ? React.createElement('div', { style: { marginTop: 3 } }, att.map(function(att, i) { return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', style: { fontSize: '7px', color: greenAccent, marginRight: '6px' } }, att.name || "View"); })) : null); })(),
+                                                                                (function(){ var tags = []; if (msg.category) { var p = String(msg.category).split(','); if (p.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (p.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); } var att = []; try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) att = a; } } catch(e) {} return React.createElement(React.Fragment, null, tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, att.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, att.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '5px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '7px', color: greenAccent } }, 'FILE')); })) : null); })(),
                                                                                 React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')
                                                                             )
                                                                         );
@@ -18888,6 +19018,48 @@ class N88_RFQ_Admin {
                                             if (payload.quantity !== undefined) {
                                                 updatedItem.quantity = payload.quantity;
                                             }
+                                            if (payload.category !== undefined) {
+                                                updatedItem.category = payload.category;
+                                                updatedItem.item_type = payload.category;
+                                            }
+                                            if (payload.description !== undefined) {
+                                                updatedItem.description = payload.description;
+                                            }
+                                            if (payload.measurement_type !== undefined) {
+                                                updatedItem.measurement_type = payload.measurement_type;
+                                            }
+                                            if (payload.measurement_area !== undefined) {
+                                                updatedItem.measurement_area = payload.measurement_area;
+                                            }
+                                            if (payload.measurement_area_unit !== undefined) {
+                                                updatedItem.measurement_area_unit = payload.measurement_area_unit;
+                                            }
+                                            if (payload.measurement_length !== undefined) {
+                                                updatedItem.measurement_length = payload.measurement_length;
+                                            }
+                                            if (payload.measurement_length_unit !== undefined) {
+                                                updatedItem.measurement_length_unit = payload.measurement_length_unit;
+                                            }
+                                            if (payload.custom_specification !== undefined) {
+                                                updatedItem.custom_specification = payload.custom_specification;
+                                            }
+                                            if (payload.delivery_country !== undefined) {
+                                                updatedItem.delivery_country = payload.delivery_country;
+                                            }
+                                            if (payload.delivery_postal !== undefined) {
+                                                updatedItem.delivery_postal = payload.delivery_postal;
+                                                updatedItem.delivery_postal_code = payload.delivery_postal;
+                                            }
+                                            if (payload.inspiration !== undefined) {
+                                                updatedItem.inspiration = payload.inspiration;
+                                            }
+                                            updatedItem.meta = Object.assign({}, updatedItem.meta || {}, {
+                                                rfq_overall_notes: payload.rfq_overall_notes !== undefined ? payload.rfq_overall_notes : ((updatedItem.meta || {}).rfq_overall_notes),
+                                                rfq_fabric_supplied_flag: payload.rfq_fabric_supplied_flag !== undefined ? payload.rfq_fabric_supplied_flag : ((updatedItem.meta || {}).rfq_fabric_supplied_flag),
+                                                rfq_fabric_notes: payload.rfq_fabric_notes !== undefined ? payload.rfq_fabric_notes : ((updatedItem.meta || {}).rfq_fabric_notes),
+                                                rfq_draft_invited_suppliers: payload.rfq_draft_invited_suppliers !== undefined ? payload.rfq_draft_invited_suppliers : ((updatedItem.meta || {}).rfq_draft_invited_suppliers),
+                                                rfq_draft_allow_system_invites: payload.rfq_draft_allow_system_invites !== undefined ? payload.rfq_draft_allow_system_invites : ((updatedItem.meta || {}).rfq_draft_allow_system_invites)
+                                            });
                                             
                                             return updatedItem;
                                         }
@@ -21231,6 +21403,9 @@ class N88_RFQ_Admin {
 }
 
 // .....
+
+
+
 
 
 
