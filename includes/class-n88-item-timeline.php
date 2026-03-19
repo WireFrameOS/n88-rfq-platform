@@ -12,9 +12,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class N88_Item_Timeline {
 
     const STEP_LABELS = array(
-        1 => 'Supplier Proposals',
-        2 => 'Evaluation',
-        3 => 'Project Award',
+        1 => 'Proposal Submitted',
+        2 => 'Design Evaluation',
+        3 => 'Award Decision',
         4 => 'Production',
         5 => 'Quality Review & Packing',
         6 => 'Delivery',

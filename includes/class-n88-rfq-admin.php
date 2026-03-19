@@ -12817,6 +12817,30 @@ class N88_RFQ_Admin {
                     var _designerMessageFilesState = React.useState([]);
                     var designerMessageFiles = _designerMessageFilesState[0];
                     var setDesignerMessageFiles = _designerMessageFilesState[1];
+                    var appendDesignerMessageFiles = React.useCallback(function(fileList) {
+                        var incoming = Array.from(fileList || []);
+                        if (!incoming.length) return;
+                        setDesignerMessageFiles(function(prev) {
+                            return prev.concat(incoming).slice(0, 5);
+                        });
+                    }, []);
+                    var removeDesignerMessageFile = React.useCallback(function(fileIndex) {
+                        setDesignerMessageFiles(function(prev) {
+                            return prev.filter(function(_, idx) { return idx !== fileIndex; });
+                        });
+                    }, []);
+                    var renderDesignerMessageFilePreview = React.useCallback(function() {
+                        if (!designerMessageFiles || !designerMessageFiles.length) return null;
+                        return React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center', flex: '0 0 auto', maxWidth: '120px' } },
+                            designerMessageFiles.map(function(file, idx) {
+                                var isImg = /^image\//i.test(file.type || '') || /\.(jpe?g|png|gif|webp)$/i.test(file.name || '');
+                                return React.createElement('div', { key: idx, title: file.name || 'Attachment', style: { position: 'relative', width: '24px', height: '24px', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden', backgroundColor: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' } },
+                                    React.createElement('button', { type: 'button', onClick: function() { removeDesignerMessageFile(idx); }, style: { position: 'absolute', top: 0, right: 0, width: '10px', height: '10px', border: 'none', borderRadius: '999px', background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: '8px', lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, zIndex: 2 } }, 'x'),
+                                    isImg ? React.createElement('img', { src: URL.createObjectURL(file), alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '7px', color: greenAccent, fontFamily: 'monospace' } }, 'FILE')
+                                );
+                            })
+                        );
+                    }, [designerMessageFiles, removeDesignerMessageFile, darkBorder]);
                     
                     var _isSendingDesignerMessageState = React.useState(false);
                     var isSendingDesignerMessage = _isSendingDesignerMessageState[0];
@@ -15208,7 +15232,7 @@ class N88_RFQ_Admin {
                                 // Left Column - Images (30%)
                                 React.createElement('div', {
                                     style: {
-                                        width: '30%',
+                                        width: '25%',
                                         minWidth: 0,
                                         borderRight: '1px solid ' + darkBorder,
                                         padding: '0px 10px',
@@ -15954,10 +15978,11 @@ class N88_RFQ_Admin {
                                                         React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
                                                         React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
                                                     ),
-                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end' } },
-                                                        React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
-                                                        React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) setDesignerMessageFiles(Array.from(files).slice(0, 5)); }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
-                                                    ),
+                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
+                                                                            renderDesignerMessageFilePreview(),
+                                                                            React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
+                                                                            React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
+                                                                        ),
                                                     React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '30px' } },
                                                         React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...' }),
                                                         React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE), style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
@@ -17540,7 +17565,14 @@ class N88_RFQ_Admin {
                                                     var s = timelineData.steps[selectedStepIndex];
                                                     var cadSubmittedStep = (Number(itemState.cad_current_version) || 0) > 0;
                                                     var statusLabel = s.display_status === 'delayed' ? 'Delayed' : s.display_status === 'in_progress' ? 'In Progress' : s.display_status === 'completed' ? 'Completed' : 'Pending';
-                                                    var stepDescriptions = { 1: 'Details are confirmed and the quote is finalized.', 2: 'You review and approve drawings, samples, and technical details.', 3: 'You review the prototype and approve it before production begins.', 4: 'The item is produced and progress is documented.', 5: 'Final quality checks and packing are completed.', 6: 'Shipping details are uploaded and delivery is tracked.' };
+                                                    var stepDescriptions = {
+                                                        1: '• review supplier proposals\n• compare pricing and timelines\n• view supplier media\n• operator clarification thread can live here later',
+                                                        2: '• CAD review\n• spec sheet review\n• samples\n• evaluation videos\n• prototypes\n• operator clarification thread here small box',
+                                                        3: '• select supplier\n• arrange deposit\n• finalize quote / confirm order\n• operator message thread here',
+                                                        4: '• production begins after deposit confirmation\n• shop drawings finalized and approved\n• production progress updates and factory media\n• operator coordination thread for production questions',
+                                                        5: '• factory quality inspection and review\n• final product photos or inspection videos\n• packing confirmation and shipment preparation\n• operator coordination thread for inspection or corrections',
+                                                        6: '• shipping confirmation and tracking details\n• logistics updates and estimated arrival\n• delivery confirmation and installation coordination\n• final operator message thread for closing the project'
+                                                    };
                                                     return React.createElement('div', {
                                                         style: {
                                                             padding: '16px',
@@ -17550,7 +17582,7 @@ class N88_RFQ_Admin {
                                                         }
                                                     },
                                                         React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, s.step_number + '. ' + s.label),
-                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4 } }, stepDescriptions[s.step_number] || ''),
+                                                        React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '12px', lineHeight: 1.4, whiteSpace: 'pre-wrap' } }, stepDescriptions[s.step_number] || ''),
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested') ? React.createElement('div', {
                                                             id: 'n88-step1-payment-required',
                                                             style: { marginBottom: '24px', padding: '20px', backgroundColor: '#331100', border: '2px solid #ff8800', borderRadius: '4px' }
@@ -17632,9 +17664,10 @@ class N88_RFQ_Admin {
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
                                                                         ),
-                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end' } },
+                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
+                                                                            renderDesignerMessageFilePreview(),
                                                                             React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments-timeline'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
-                                                                            React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) setDesignerMessageFiles(Array.from(files).slice(0, 5)); }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
+                                                                            React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
                                                                             React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim() && (msgTagClarifying || msgTagMSE)) sendDesignerMessage(e); } } }),
@@ -17854,9 +17887,10 @@ class N88_RFQ_Admin {
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
                                                                         ),
-                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end' } },
+                                                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
+                                                                            renderDesignerMessageFilePreview(),
                                                                             React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments-timeline2'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
-                                                                            React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline2', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) setDesignerMessageFiles(Array.from(files).slice(0, 5)); }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
+                                                                            React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline2', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
                                                                             React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim() && (msgTagClarifying || msgTagMSE)) sendDesignerMessage(e); } } }),
