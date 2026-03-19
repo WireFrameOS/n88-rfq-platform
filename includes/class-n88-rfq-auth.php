@@ -2679,7 +2679,7 @@ class N88_RFQ_Auth {
                 sortedMessages.forEach(function(msg) {
                     var isSupplier = msg.sender_role === 'supplier';
                     var senderName = isSupplier ? 'You' : 'Operator';
-                    var categoryDisplay = msg.category ? ' [' + msg.category + ']' : '';
+                    var categoryDisplay = (msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -2707,7 +2707,7 @@ class N88_RFQ_Auth {
                     } catch (attachmentParseError) {
                         console.warn('Failed to parse message attachments:', attachmentParseError);
                     }
-                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
+                    if (msg.category) {
                         String(msg.category).split(',').forEach(function(tagKey) {
                             var normalizedTagKey = String(tagKey || '').trim();
                             if (normalizedTagKey === 'clarifying_questions') {
@@ -2716,43 +2716,6 @@ class N88_RFQ_Auth {
                                 messageTags.push('MSE/Material Suggestions');
                             }
                         });
-                    }
-                    var messageAttachments = [];
-                    var messageTags = [];
-                    try {
-                        if (msg.message_attachments) {
-                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
-                            if (Array.isArray(parsedAttachments)) {
-                                messageAttachments = parsedAttachments.filter(function(att) {
-                                    return att && typeof att === 'object' && att.url;
-                                });
-                            }
-                        }
-                    } catch (attachmentParseError) {
-                        console.warn('Failed to parse message attachments:', attachmentParseError);
-                    }
-                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
-                        String(msg.category).split(',').forEach(function(tagKey) {
-                            var normalizedTagKey = String(tagKey || '').trim();
-                            if (normalizedTagKey === 'clarifying_questions') {
-                                messageTags.push('Clarifying questions');
-                            } else if (normalizedTagKey === 'mse_material') {
-                                messageTags.push('MSE/Material Suggestions');
-                            }
-                        });
-                    }
-                    var messageAttachments = [];
-                    try {
-                        if (msg.message_attachments) {
-                            var parsedAttachments = (typeof msg.message_attachments === 'string') ? JSON.parse(msg.message_attachments) : msg.message_attachments;
-                            if (Array.isArray(parsedAttachments)) {
-                                messageAttachments = parsedAttachments.filter(function(att) {
-                                    return att && typeof att === 'object' && att.url;
-                                });
-                            }
-                        }
-                    } catch (attachmentParseError) {
-                        console.warn('Failed to parse message attachments:', attachmentParseError);
                     }
                     
                     if (isCadReleasedMessage) {
@@ -2801,6 +2764,14 @@ class N88_RFQ_Auth {
                     html += '<div style="font-size: 10px; font-weight: 600; color: ' + (isSupplier ? '#FF0065' : '#C8C8C8') + '; margin-bottom: 4px;">' + senderName + categoryDisplay + '</div>';
                     html += '<div style="font-size: 12px; line-height: 1.4; margin-bottom: 4px;">' + renderedText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                     
+                    if (messageTags.length > 0) {
+                        html += '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">';
+                        messageTags.forEach(function(tagLabel) {
+                            html += '<span style="display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid #333; color: #e5e5e5; font-size: 10px; line-height: 1;">' + tagLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                        });
+                        html += '</div>';
+                    }
+                    
                     // Commit 2.3.9.2A: Render CAD file cards for "Approved CAD Released" messages
                     if (isCadReleasedMessage && cadFiles.length > 0) {
                         html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; flex-direction: column; gap: 8px;">';
@@ -2836,9 +2807,22 @@ class N88_RFQ_Auth {
                     } else {
                         var bidIdVal = (opts.bid_id || 0);
                         html += '<button type="button" class="n88-supplier-mark-clarified-btn" data-item-id="' + itemId + '" data-bid-id="' + bidIdVal + '" style="padding: 6px 12px; font-size: 11px; background-color: #1a1a1a; color: #FF0065; border: 1px solid #555; border-radius: 10px; cursor: pointer; font-family: \'Courier New\', Courier, monospace;" onmouseover="this.style.backgroundColor=\'#222\'; this.style.borderColor=\'#666\';" onmouseout="this.style.backgroundColor=\'#1a1a1a\'; this.style.borderColor=\'#555\';">Mark as Clarified</button>';
+                        }
+                        html += '</div>';
                     }
-                    html += '</div>';
-                }
+                    
+                    if (!isCadReleasedMessage && messageAttachments.length > 0) {
+                        html += '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; display: flex; flex-wrap: wrap; gap: 8px;">';
+                        messageAttachments.forEach(function(file) {
+                            var safeUrl = String(file.url || '').replace(/"/g, '&quot;');
+                            var safeName = String(file.name || 'Attachment').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            var isImageFile = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(file.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(file.name || ''));
+                            html += '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" title="' + safeName + '" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; background-color: #0a0a0a; border: 1px solid #333; border-radius: 6px; text-decoration: none; color: #FF0065; overflow: hidden;">';
+                            html += isImageFile ? ('<img src="' + safeUrl + '" alt="' + safeName + '" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="this.style.display=\'none\'; this.nextSibling.style.display=\'flex\';"><span style="display:none; align-items:center; justify-content:center; width:100%; height:100%; font-size:11px;">IMG</span>') : '<span style="font-size: 11px;">FILE</span>';
+                            html += '</a>';
+                        });
+                        html += '</div>';
+                    }
                 
                 messagesContainer.innerHTML = html;
                 setTimeout(function() {
@@ -2897,11 +2881,17 @@ class N88_RFQ_Auth {
                 
                 var messageText = document.getElementById('n88-clarification-message-' + itemId);
                 var category = document.getElementById('n88-clarification-category-' + itemId);
+                var tagClarifying = document.getElementById('n88-supplier-tag-clarifying-' + itemId);
+                var tagMse = document.getElementById('n88-supplier-tag-mse-' + itemId);
+                var fileInput = document.getElementById('n88-supplier-message-attachments-' + itemId);
                 
                 if (!messageText || !messageText.value.trim()) {
                     alert('Please enter a message.');
                     return false;
                 }
+                var selectedTags = [];
+                if (tagClarifying && tagClarifying.checked) selectedTags.push('clarifying_questions');
+                if (tagMse && tagMse.checked) selectedTags.push('mse_material');
                 
                 var formData = new FormData();
                 formData.append('action', 'n88_send_item_message');
@@ -2909,6 +2899,14 @@ class N88_RFQ_Auth {
                 formData.append('thread_type', 'supplier_operator');
                 formData.append('message_text', messageText.value.trim());
                 formData.append('category', category ? category.value : '');
+                if (selectedTags.length > 0) {
+                    formData.append('message_tags', selectedTags.join(','));
+                }
+                if (fileInput && fileInput.files && fileInput.files.length) {
+                    for (var fileIndex = 0; fileIndex < fileInput.files.length && fileIndex < 5; fileIndex++) {
+                        formData.append('message_attachments[]', fileInput.files[fileIndex]);
+                    }
+                }
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_send_item_message' ); ?>');
                 
                 // Disable form
@@ -2929,6 +2927,9 @@ class N88_RFQ_Auth {
                         // Clear form
                         messageText.value = '';
                         if (category) category.value = '';
+                        if (tagClarifying) tagClarifying.checked = false;
+                        if (tagMse) tagMse.checked = false;
+                        if (fileInput) fileInput.value = '';
                         
                         // Reload messages
                         loadSupplierMessagesInline(itemId);
@@ -3422,8 +3423,15 @@ class N88_RFQ_Auth {
                         '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex: 1; min-height: 120px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
+                        '<div style="margin-bottom: 8px; flex-shrink: 0;">' +
+                        '<div style="font-size: 11px; color: #888; margin-bottom: 6px;">Select all that apply</div>' +
+                        '<label style="display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; color: #ccc; font-size: 11px; cursor: pointer;"><input type="checkbox" id="n88-supplier-tag-clarifying-' + itemId + '" value="clarifying_questions" style="width: 14px; height: 14px; cursor: pointer;"> <span>Clarifying questions</span></label>' +
+                        '<label style="display: inline-flex; align-items: center; gap: 6px; color: #ccc; font-size: 11px; cursor: pointer;"><input type="checkbox" id="n88-supplier-tag-mse-' + itemId + '" value="mse_material" style="width: 14px; height: 14px; cursor: pointer;"> <span>MSE/Material Suggestions</span></label>' +
+                        '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your messageâ€¦"></textarea>' +
+                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message..."></textarea>' +
+                        '<button type="button" onclick="var el=document.getElementById(\'n88-supplier-message-attachments-' + itemId + '\'); if(el) el.click();" style="padding: 10px 14px; background-color: #111111; color: #ccc; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Attach files</button>' +
+                        '<input type="file" id="n88-supplier-message-attachments-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;">' +
                         '<button type="submit" style="padding: 10px 20px; background-color: #FF0065; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#cc0052\';" onmouseout="this.style.backgroundColor=\'#FF0065\';">Send</button>' +
                         '</div>' +
                         '</form>' +
@@ -17975,7 +17983,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     var isOperator = msg.sender_role === 'operator';
                     var senderName = isOperator ? 'Operator' : (threadType === 'designer_operator' ? 'Designer' : 'Supplier');
                     // Show category for supplier messages only
-                    var categoryDisplay = (!isOperator && threadType === 'supplier_operator' && msg.category) ? ' [' + msg.category + ']' : '';
+                    var categoryDisplay = (!isOperator && threadType === 'supplier_operator' && msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -18051,7 +18059,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     } catch (attachmentParseError) {
                         console.warn('Failed to parse message attachments:', attachmentParseError);
                     }
-                    if (!isOperator && threadType === 'designer_operator' && msg.category) {
+                    if (!isOperator && msg.category) {
                         String(msg.category).split(',').forEach(function(tagKey) {
                             var normalizedTagKey = String(tagKey || '').trim();
                             if (normalizedTagKey === 'clarifying_questions') {
@@ -20929,20 +20937,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return;
         }
 
+        // Tag normalization for designer/supplier support messages
+        $allowed_tags = array( 'clarifying_questions', 'mse_material' );
+
         // Designer sending to operator: require at least one message tag (Clarifying questions / MSE/Material Suggestions)
         if ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) {
-            $allowed_tags = array( 'clarifying_questions', 'mse_material' );
             $selected = array_intersect( $message_tags, $allowed_tags );
             if ( empty( $selected ) ) {
                 wp_send_json_error( array( 'message' => 'Please select at least one: Clarifying questions or MSE/Material Suggestions.' ) );
                 return;
             }
             $category = implode( ',', array_values( $selected ) );
+        } elseif ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) {
+            $selected = array_intersect( $message_tags, $allowed_tags );
+            if ( ! empty( $selected ) ) {
+                $category = implode( ',', array_values( $selected ) );
+            }
         }
 
-        // Optional file attachments (designer_operator designer only)
+        // Optional file attachments
         $attachment_urls = array();
-        if ( $thread_type === 'designer_operator' && $sender_role === 'designer' && ! empty( $_FILES['message_attachments'] ) ) {
+        if ( ( ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) || ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) ) && ! empty( $_FILES['message_attachments'] ) ) {
             $files = $_FILES['message_attachments'];
             $count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
             if ( $count > 5 ) {
