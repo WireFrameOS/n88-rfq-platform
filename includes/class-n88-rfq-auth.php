@@ -18114,7 +18114,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         return;
                     }
                     // Clarification-only: open modal with item_id + bid_id and go to Messages tab
-                    loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 1 });
+                    loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 0 });
                 });
             });
 
@@ -18686,10 +18686,20 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 for (var i = 0; i < tabs.length; i++) {
                     tabs[i].style.cssText = (i === idx) ? tabActiveStyle : tabStyle;
                 }
+                // Two-tab mapping:
+                // - idx=0: Item Specification tab -> show Item Case(panel 0) + Messages(panel 1)
+                // - idx=1: Workflow tab -> show Workflow(panel 2)
                 for (var j = 0; j < panels.length; j++) {
-                    panels[j].style.display = (j === idx) ? 'block' : 'none';
+                    var panelKey = panels[j].getAttribute('data-n88-op-panel');
+                    var show = false;
+                    if (idx === 0) {
+                        show = (panelKey === '0' || panelKey === '1');
+                    } else if (idx === 1) {
+                        show = (panelKey === '2');
+                    }
+                    panels[j].style.display = show ? 'block' : 'none';
                 }
-                if (idx === 2) {
+                if (idx === 1) {
                     var opWrap = document.getElementById('n88-operator-workflow-timeline-wrap');
                     if (opWrap && opWrap.getAttribute('data-item-id')) {
                         if (typeof window.n88LoadOperatorWorkflowTimeline === 'function') window.n88LoadOperatorWorkflowTimeline();
@@ -19467,7 +19477,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                             var itemId = form.getAttribute('data-item-id');
                             var bidId = form.getAttribute('data-bid-id') || '0';
                             if (itemId) {
-                                loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 1 });
+                                loadCaseDetails(0, { itemId: itemId, bidId: bidId, openTab: 0 });
                             } else {
                                 location.reload();
                             }
@@ -19620,9 +19630,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         return $out;
     }
 
-    /**
-     * Clarification-only case: no payment; load by item_id + bid_id and return modal HTML with open_tab=1 (Messages).
-     */
+        /**
+         * Clarification-only case: no payment; load by item_id + bid_id and return modal HTML with open_tab=0 (Item Specification).
+         */
     private function ajax_get_operator_case_details_clarification_only( $item_id, $bid_id ) {
         global $wpdb;
         $items_table = $wpdb->prefix . 'n88_items';
@@ -19856,13 +19866,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             </div>
             <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
                 <div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">
-                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_style; ?>">Item Case</button>
-                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_active; ?>">Messages</button>
-                    <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_style; ?>">The WorkFlow</button>
+                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_active; ?>">Item Specification</button>
+                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_style; ?>">The Workflow</button>
                 </div>
                 <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
-                    <!-- Tab 1: Item Case  same three boxes as payment case -->
-                    <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="display: none; flex: 1; min-height: 0; overflow-y: auto;">
+                    <!-- Tab 1 (Item Specs): Item Case (summary) + Messages (panel 1) -->
+                    <div data-n88-op-panel="0" class="n88-operator-tab-panel" style="display: block; flex: 1; min-height: 0; overflow-y: auto;">
                         <div style="margin-right: 20px;">
                         <div style="margin-bottom: 16px; padding: 16px; background-color: #1a1a1a; border-radius: 10px; border: 1px solid #555; font-family: monospace; box-sizing: border-box; font-size: 14px;">
                             <div style="font-size: 12px; font-weight: 600; color: #FF0065; margin-bottom: 12px; text-transform: uppercase;">Case Summary</div>
@@ -20088,7 +20097,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         </div>
         <?php
         $html = ob_get_clean();
-        wp_send_json_success( array( 'html' => $html, 'open_tab' => 1 ) );
+        wp_send_json_success( array( 'html' => $html, 'open_tab' => 0 ) );
     }
 
     /**
@@ -20554,13 +20563,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 ) );
             }
         }
-        // Open Messages tab by default when: payment sent (requested), payment proof sent, CAD uploaded/revision, or CAD approved awaiting release
-        $operator_open_tab = 0;
-        if ( $payment_proof_pending || $show_mark_payment || $cad_status_val === 'revision_requested' || $cad_status_val === 'uploaded' || ( $cad_status_val === 'approved' && ! $cad_released ) ) {
-            $operator_open_tab = 1;
-        }
+        // Two-tab mapping:
+        // - open_tab=0 => Item Specification tab (includes Messages panel)
+        // - open_tab=1 => The Workflow tab
+        $requires_messages = ( $payment_proof_pending || $show_mark_payment || $cad_status_val === 'revision_requested' || $cad_status_val === 'uploaded' || ( $cad_status_val === 'approved' && ! $cad_released ) );
+        $operator_open_tab = $requires_messages ? 0 : 1;
 
-        // Build HTML  COMMIT 3.B.3: 50% images, 50% three tabs (Item Case, Messages, The WorkFlow)
+        // Build HTML  COMMIT 3.B.3: 50% images, 50% two tabs (Item Specification, The Workflow)
         ob_start();
         ?>
         <?php
@@ -20568,10 +20577,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $op_tab_active = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
         $op_tab_0_style = $operator_open_tab === 0 ? $op_tab_active : $op_tab_style;
         $op_tab_1_style = $operator_open_tab === 1 ? $op_tab_active : $op_tab_style;
-        $op_tab_2_style = $operator_open_tab === 2 ? $op_tab_active : $op_tab_style;
         $op_panel_0_display = $operator_open_tab === 0 ? 'block' : 'none';
-        $op_panel_1_display = $operator_open_tab === 1 ? 'block' : 'none';
-        $op_panel_2_display = $operator_open_tab === 2 ? 'block' : 'none';
+        // Messages panel should show whenever Item Specification is active.
+        $op_panel_1_display = $operator_open_tab === 0 ? 'block' : 'none';
+        $op_panel_2_display = $operator_open_tab === 1 ? 'block' : 'none';
         ?>
         <!-- Header: Wireframe(OS) + Close only -->
         <div style="padding: 16px 20px; border-bottom: 1px solid #555; background-color: #000; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
@@ -20593,9 +20602,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             <!-- Right: tabs + panels -->
             <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">
                 <div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">
-                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_0_style; ?>">Item Case</button>
-                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_1_style; ?>">Messages</button>
-                    <button type="button" data-n88-op-tab="2" onclick="window.n88OperatorCaseSwitchTab(2);" style="<?php echo $op_tab_2_style; ?>">The WorkFlow</button>
+                    <button type="button" data-n88-op-tab="0" onclick="window.n88OperatorCaseSwitchTab(0);" style="<?php echo $op_tab_0_style; ?>">Item Specification</button>
+                    <button type="button" data-n88-op-tab="1" onclick="window.n88OperatorCaseSwitchTab(1);" style="<?php echo $op_tab_1_style; ?>">The Workflow</button>
                 </div>
                 <div id="n88-operator-tab-content" style="flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px; font-family: monospace; background-color: #000;">
                     <!-- Tab 1: Item Case  Case Summary, Costs Snapshot, Routing/Suppliers (supplier item-detail box style); margin-right 20px -->
