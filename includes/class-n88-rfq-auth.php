@@ -18,6 +18,7 @@ class N88_RFQ_Auth {
      * To change from testing to production, update this constant to 172800
      */
     const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 172800; // 60 minutes for testing (change to 172800 for 48 hours)
+    const N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL = 'wireframestudioos@gmail.com';
 
     public function __construct() {
         // Register shortcodes
@@ -181,6 +182,20 @@ class N88_RFQ_Auth {
         // Route guards (Commit 2.2.1)
         add_action( 'template_redirect', array( $this, 'enforce_route_guards' ) );
         add_action( 'admin_init', array( $this, 'enforce_admin_route_guards' ) );
+    }
+
+    /**
+     * Commit 3.C.13: Resolve the default Wireframe maker account used on every RFQ.
+     *
+     * @return int Supplier user ID, or 0 if the account is unavailable.
+     */
+    private function get_default_wireframe_supplier_id() {
+        $wireframe_user = get_user_by( 'email', self::N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL );
+        if ( ! $wireframe_user || ! in_array( 'n88_supplier_admin', (array) $wireframe_user->roles, true ) ) {
+            return 0;
+        }
+
+        return (int) $wireframe_user->ID;
     }
 
     /**
@@ -9220,14 +9235,24 @@ class N88_RFQ_Auth {
         }
 
         global $wpdb;
+        $this->sync_supplier_onboarding_keyword_library();
         $categories_table = $wpdb->prefix . 'n88_categories';
         $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
         $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
-        
-        // Fetch active categories
-        $categories = $wpdb->get_results(
-            "SELECT category_id, name FROM {$categories_table} WHERE is_active = 1 ORDER BY name"
-        );
+        $onboarding_category_names = array_keys( $this->get_supplier_onboarding_category_keywords() );
+        $categories = array();
+        foreach ( $onboarding_category_names as $category_name ) {
+            $category_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT category_id, name FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                    $category_name
+                )
+            );
+            if ( $category_row ) {
+                $category_row->display_name = $category_name;
+                $categories[] = $category_row;
+            }
+        }
 
         // Check if profile exists and fetch existing data (Commit 2.2.7)
         $existing_profile = $wpdb->get_row( $wpdb->prepare(
@@ -9268,7 +9293,7 @@ class N88_RFQ_Auth {
                         <option value="">Select a category</option>
                         <?php foreach ( $categories as $category ) : ?>
                             <option value="<?php echo esc_attr( $category->category_id ); ?>" <?php selected( $existing_profile && $existing_profile->primary_category_id == $category->category_id ); ?>>
-                                <?php echo esc_html( $category->name ); ?>
+                                <?php echo esc_html( isset( $category->display_name ) ? $category->display_name : $category->name ); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -9480,6 +9505,7 @@ class N88_RFQ_Auth {
         $category_name = isset( $_POST['category_name'] ) ? sanitize_text_field( wp_unslash( $_POST['category_name'] ) ) : '';
 
         global $wpdb;
+        $this->sync_supplier_onboarding_keyword_library();
         $keywords_table = $wpdb->prefix . 'n88_keywords';
         $categories_table = $wpdb->prefix . 'n88_categories';
 
@@ -9676,6 +9702,163 @@ class N88_RFQ_Auth {
         }
 
         wp_send_json_success( array( 'keywords' => $keywords ) );
+    }
+
+    private function get_supplier_onboarding_category_keywords() {
+        return array(
+            'Acoustic Panels' => array( 'Soundproofing', 'NRC Rated', 'PET Felt', 'Wood Slat', 'Fabric Wrapped', 'Ceiling Baffles', 'Sound Diffusers', 'Acoustic Clouds', 'Moss Walls', 'Perforated Timber', 'Basotect', 'Tensioned Fabric' ),
+            'Appliances' => array( 'Integrated', 'Panel-Ready', 'Induction', 'Professional Grade', 'Smart-Tech', 'Dual Fuel', 'Steam Oven', 'Wine Cooler', 'Speed Oven', 'Sub-Zero', 'Built-in', 'Outdoor Kitchen' ),
+            'Architectural Lighting' => array( 'Recessed', 'Track', 'Monorail', 'Cove', 'Linear', 'Step Light', 'Mud-in', 'Trimless', 'Gimbal', 'Wall Wash', 'Downlight', 'Accent Lighting' ),
+            'Artwork' => array( 'Original Paintings', 'Fine Art Prints', 'Sculpture', 'Photography', 'Commissions', 'Murals', 'Framing', 'Mixed Media', 'Textiles', 'Giclee', 'Limited Edition', 'Gallery Wrap' ),
+            'Bathroom Fixtures' => array( 'Dual Flush', 'Bidet', 'Wall-Mounted Toilet', 'Soaking Tub', 'Freestanding Tub', 'Alcove Tub', 'Medicine Cabinet', 'Heated Towel Rail', 'Vanity', 'Mirror', 'Makeup Lighting', 'Ventilation' ),
+            'Cabinetry / Millwork (Custom)' => array( 'Inset', 'Full Overlay', 'Flat Panel', 'Shaker', 'Dovetail', 'Soft-Close', 'Built-in', 'Library', 'Mudroom', 'Custom Closet', 'Wood Veneer', 'High Gloss Lacquer' ),
+            'Casegoods (Beds Nightstands Desks Consoles)' => array( 'Credenza', 'Armoire', 'Dresser', 'Buffet', 'Secretary', 'Canopy Bed', 'Murphy Bed', 'Vanity', 'Media Console', 'Sideboard', 'Hutch', 'Bureau' ),
+            'Chairs & Armchairs (Indoor)' => array( 'Mid-Century', 'Wingback', 'Club Chair', 'Swivel', 'Task Chair', 'Ergonomic', 'Bench', 'Stool', 'Cantilever', 'Slipper Chair', 'Occasional', 'Reclining' ),
+            'Custom Sourcing / Not Listed' => array( 'Specialty Fabrication', 'Historic Restoration', 'Rare Materials', 'Global Sourcing', 'Bespoke Design', 'Prototyping', 'White Label', 'Artisanal', 'One-of-a-kind', 'Salvaged', 'Reclaimed', 'Luxury Imports' ),
+            'Decorative Accessories' => array( 'Vases', "Objects d'Art", 'Trays', 'Books', 'Candles', 'Bowls', 'Styling Props', 'Sculptural', 'Hand-Blown Glass', 'Ceramics', 'Picture Frames', 'Table Linens' ),
+            'Decorative Lighting' => array( 'Chandelier', 'Pendant', 'Sconce', 'Flush Mount', 'Semi-Flush', 'Floor Lamp', 'Table Lamp', 'Lantern', 'Multi-Light', 'Art Lighting', 'Swing Arm', 'Torchere' ),
+            'Dining Tables (Indoor)' => array( 'Pedestal', 'Trestle', 'Gateleg', 'Drop-leaf', 'Live Edge', 'Refectory', 'Parsons', 'Round', 'Oval', 'Rectangular', 'Seating 10+', 'Extensible' ),
+            'Drapery' => array( 'Blackout', 'Sheer', 'Roman Shade', 'Cellular', 'Venetian', 'Motorized', 'Roller Shade', 'Valance', 'Cornice', 'Pleated', 'Pinch Pleat', 'Hardware' ),
+            'Drapery / Window Treatments' => array( 'Motorized', 'Manual', 'Blackout', 'Solar Shade', 'Plantation Shutters', 'Wood Blinds', 'Honeycomb', 'Roman Shades', 'Cornices', 'Valances', 'Sheers', 'UV Protection' ),
+            'Electrical / LED Components' => array( 'Transformer', 'Driver', 'LED Tape', 'Dimmer', 'DMX Control', 'Smart Home Integration', 'Occupancy Sensor', 'Conduit', 'Outlet', 'Switchplate', 'Junction Box', 'RGBW' ),
+            'Fabric Sample' => array( 'Performance', 'Velvet', 'Linen', 'Boucle', 'Cotton', 'Silk', 'Outdoor Fabric', 'Fire-Rated', 'Sustainable', 'Recycled', 'Jacquard', 'Chenille' ),
+            'Facade Materials' => array( 'GFRC', 'Metal Cladding', 'Fiber Cement', 'Brick Veneer', 'Terracotta', 'Stucco', 'Zinc', 'Copper', 'Limestone', 'EIFS', 'Rainscreen', 'Stone Veneer' ),
+            'Faucets / Hardware (Plumbing)' => array( 'PVD Finish', 'Unlacquered Brass', 'Matte Black', 'Bridge Faucet', 'Pull-Down', 'Pot Filler', 'Wall-Mount', 'Sensor', 'Low-Flow', 'Waterfall', 'Thermostatic', 'Deck-Mount' ),
+            'Flooring' => array( 'Engineered Hardwood', 'Solid Oak', 'Wide Plank', 'LVP', 'Cork', 'Bamboo', 'Polished Concrete', 'Reclaimed Wood', 'Parquet', 'Terrazzo', 'Epoxy', 'Underlayment' ),
+            'Glass / Mirrors' => array( 'Tempered', 'Laminated', 'Antiqued', 'Sandblasted', 'Fluted', 'Low-Iron', 'Tinted', 'One-Way', 'Beveled', 'Polished Edge', 'LED Backlit', 'Mirrored Wall' ),
+            'Granite' => array( 'Exotic', 'Polished', 'Honed', 'Leathered', 'Slabs', 'Prefabricated', 'Heat Resistant', 'Outdoor Rated', 'Natural Stone', 'Speckled', 'Solid', 'Veined' ),
+            'Hardware / Accessories' => array( 'Cabinet Knobs', 'Drawer Pulls', 'Door Handles', 'Hinges', 'Backplates', 'Escutcheon', 'Deadbolts', 'Finishes', 'Magnetic Latches', 'Edge Pulls', 'Appliance Pulls', 'Hooks' ),
+            'Indoor Furniture' => array( 'Sectional', 'Modular', 'Chesterfield', 'Lawson', 'Tuxedo', 'Camelback', 'Loveseat', 'Sleeper', 'Chaise Longue', 'Daybed', 'Settee', 'Pit Sofa' ),
+            'Indoor Furniture (Casegoods)' => array( 'Nightstands', 'Desks', 'Credenzas', 'Wardrobes', 'Bookshelves', 'Media Units', 'Buffets', 'Sideboards', 'End Tables', 'Coffee Tables', 'Console Tables', 'Vanities' ),
+            'Kitchen Fixtures' => array( 'Garbage Disposal', 'Filtered Water', 'Instant Hot', 'Air Gap', 'Soap Dispenser', 'Dishwasher Air Gap', 'Bar Sink', 'Utility Sink', 'Drainboard', 'Grid', 'Strainer', 'Pull-out Spray' ),
+            'Lighting' => array( 'Task', 'Ambient', 'Accent', 'Smart Lighting', 'Bluetooth', 'Low Voltage', 'Integrated', 'Decorative', 'High Bay', 'Bollard', 'Path Lighting', 'Emergency' ),
+            'Marble / Stone' => array( 'Calacatta', 'Carrara', 'Travertine', 'Onyx', 'Quartzite', 'Soapstone', 'Bookmatched', 'Honed', 'Polished', 'Leathered', 'Fluted', 'Slabs' ),
+            'Material Sample Kit' => array( 'Swatches', 'Finish Samples', 'Stone Chips', 'Wood Blocks', 'Metal Coupons', 'Fabric Deck', 'Leather Ring', 'Paint Chips', 'Glass Samples', 'Acrylic', 'Resin', 'Veneer' ),
+            'Metalwork' => array( 'Forged Iron', 'Stainless Steel', 'Brass', 'Bronze', 'Powder Coated', 'Laser Cut', 'Railings', 'Gates', 'Custom Hardware', 'Structural Steel', 'Weldments', 'Patina' ),
+            'Millwork / Cabinetry' => array( 'Custom Closets', 'Built-ins', 'Mudrooms', 'Library', 'Coffered Ceilings', 'Wainscoting', 'Crown Molding', 'Baseboards', 'Panel Walls', 'Trim', 'Mantels', 'Stairs' ),
+            'Mirrors' => array( 'Wall-Mounted', 'Floor', 'Leaner', 'Frameless', 'LED', 'Smart Mirror', 'Fog-Free', 'Magnifying', 'Antique', 'Venetian', 'Triptych', 'Custom Shape' ),
+            'Other' => array( 'Installation Services', 'Design Consultation', 'Project Management', 'Shipping/Logistics', 'Warehousing', 'White Glove Delivery', 'Restoration', 'Appraisal', 'Staging', 'Cleaning', 'Maintenance', '3D Rendering' ),
+            'Outdoor Dining Sets' => array( 'Bistro', 'Trestle', 'Bar Height', 'Teak', 'Aluminum', 'Wrought Iron', 'Expandable', 'Umbrella Hole', 'Weatherproof', 'Seating 4', 'Seating 8', 'Bench Seating' ),
+            'Outdoor Furniture' => array( 'Teak', 'All-Weather Wicker', 'Powder Coated', 'Marine Grade', 'Rope', 'Sling', 'Sectional', 'Adirondack', 'Folding', 'Stackable', 'UV Resistant', 'Water-Repellent' ),
+            'Outdoor Loungers & Daybeds' => array( 'Chaise', 'Double Lounger', 'Daybed', 'Cabana', 'Poolside', 'Reclining', 'Stackable', 'Padded', 'Mesh', 'Canopy', 'Outdoor Grade Foam', 'Wheels' ),
+            'Outdoor Seating' => array( 'Club Chairs', 'Loveseats', 'Sofas', 'Sectionals', 'Ottomans', 'Benches', 'Swings', 'Rockers', 'Adirondacks', 'Bar Stools', 'Counter Stools', 'Poufs' ),
+            'Pergola / Shade Components' => array( 'Louvered', 'Retractable', 'Fixed', 'Trellis', 'Gazebo', 'Sail Shade', 'Awning', 'Aluminum', 'Cedar', 'Vinyl', 'Motorized', 'Integrated Lighting' ),
+            'Planters' => array( 'Fiberglass', 'Corten Steel', 'Concrete', 'Terracotta', 'Self-Watering', 'Hanging', 'Trough', 'Square', 'Tall', 'UV Protected', 'Drainage', 'Modular' ),
+            'Pool Furniture' => array( 'Ledge Loungers', 'Baja Shelf', 'UV Resistant', 'Chlorine Resistant', 'Floating', 'Umbrellas', 'Side Tables', 'Heavy Duty', 'In-Water', 'Resilient', 'Marine Grade', 'Non-Slip' ),
+            'Porcelain / Ceramic Slabs' => array( 'Engineered', 'Non-Porous', 'Large Format', 'Heat Resistant', 'Antimicrobial', 'Wood-Look', 'Marble-Look', 'Terrazzo-Look', 'Matte', 'High Gloss', 'UV Resistant', 'Outdoor Rated' ),
+            'Quartz' => array( 'Caesarstone', 'Silestone', 'Cambria', 'Antimicrobial', 'Stain Resistant', 'Scratch Resistant', 'Uniform Pattern', 'Slabs', 'Countertops', 'Backsplash', 'Prefab', 'Mitred Edge' ),
+            'Railings' => array( 'Cable', 'Glass', 'Wrought Iron', 'Stainless Steel', 'Aluminum', 'Wood', 'Indoor', 'Outdoor', 'ADA Compliant', 'Top Rail', 'Post-to-Post', 'Handrail' ),
+            'Rugs / Carpets' => array( 'Hand-Knotted', 'Hand-Tufted', 'Wool', 'Silk', 'Sisal/Jute', 'Wall-to-Wall', 'Custom Shape', 'High Pile', 'Low Pile', 'Outdoor Rugs', 'Runners', 'Area Rugs' ),
+            'Screens / Louvers' => array( 'Privacy Screens', 'Room Dividers', 'Aluminum Louvers', 'Wood Slats', 'Laser Cut Panels', 'Perforated Metal', 'Decorative Screens', 'Fixed', 'Operable', 'Exterior', 'Interior', 'Shading' ),
+            'Sculptural Objects' => array( 'Wall Art', 'Tabletop', 'Floor Standing', 'Abstract', 'Figurine', 'Kinetic', 'Geometric', 'Stone', 'Metal', 'Ceramic', 'Wood', 'Glass' ),
+            'Shower Systems / Accessories' => array( 'Rain Head', 'Body Sprays', 'Steam Shower', 'Handheld', 'Linear Drain', 'Thermostatic Valve', 'Niche', 'Glass Enclosure', 'Bench', 'Curbed', 'Curbless', 'Grab Bars' ),
+            'Sinks / Basins' => array( 'Undermount', 'Vessel', 'Drop-in', 'Farmhouse', 'Integral', 'Concrete', 'Hammered Metal', 'Double Bowl', 'Prep Sink', 'Pedestal', 'Wall-Hung', 'Console' ),
+            'Sofas & Seating (Indoor)' => array( 'Sectional', 'Modular', 'Chesterfield', 'Lawson', 'Tuxedo', 'Camelback', 'Loveseat', 'Sleeper', 'Chaise Longue', 'Daybed', 'Settee', 'Pit Sofa' ),
+            'Stone (Marble / Granite / Quartz)' => array( 'Natural Stone', 'Engineered Stone', 'Exotics', 'Slabs', 'Remnants', 'Semi-Precious', 'Limestone', 'Sandstone', 'Slate', 'Basalt', 'Porphyry', 'Quartzite' ),
+            'Terrazzo' => array( 'Precast', 'Poured-in-Place', 'Recycled Glass', 'Epoxy', 'Cementitious', 'Tiles', 'Slabs', 'Countertops', 'Custom Aggregate', 'Polished', 'Matte', 'Seamless' ),
+            'Tile (Wall / Floor)' => array( 'Mosaic', 'Subway', 'Zellige', 'Encaustic', 'Cement', 'Penny Tile', 'Herringbone', 'Chevron', 'Glass Tile', 'Hexagonal', 'Hand-Painted', 'Field Tile' ),
+            'UPHOLSTERY' => array( 'Performance Fabric', 'Velvet', 'Linen', 'Boucle', 'Top-Grain Leather', 'Faux Leather', 'COM', 'Tufted', 'Welting', 'Nailhead Trim', 'Slipcovered', 'Fire-Rated' ),
+            'Wallcoverings' => array( 'Vinyl', 'Grasscloth', 'Mural', 'Peel & Stick', 'Cork', 'Wood Veneer', 'Fabric Backed', 'Hand-Painted', 'Textured', 'Commercial Grade', 'Removable', 'Grasscloth' ),
+            'Wallcoverings / Finishes' => array( 'Venetian Plaster', 'Roman Clay', 'Limewash', 'Decorative Painting', 'Faux Finish', 'Stuccowork', 'Shiplap', 'Wood Panels', 'Concrete Finish', 'Metallic', 'High Gloss', 'Textured' ),
+            'Window Treatments / Shades' => array( 'Roman Shades', 'Honeycomb', 'Roller Shades', 'Solar Screens', 'Woven Wood', 'Motorized', 'Blackout', 'Sheer', 'Venetian Blinds', 'Vertical', 'Skylight', 'Cordless' ),
+        );
+    }
+
+    private function sync_supplier_onboarding_keyword_library() {
+        global $wpdb;
+
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        $keywords_table   = $wpdb->prefix . 'n88_keywords';
+        $map              = $this->get_supplier_onboarding_category_keywords();
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$categories_table}'" ) !== $categories_table ) {
+            return;
+        }
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$keywords_table}'" ) !== $keywords_table ) {
+            return;
+        }
+
+        foreach ( $map as $category_name => $keywords ) {
+            $category_id = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT category_id FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                    $category_name
+                )
+            );
+
+            if ( ! $category_id ) {
+                $wpdb->insert(
+                    $categories_table,
+                    array(
+                        'name'      => $category_name,
+                        'is_active' => 1,
+                    ),
+                    array( '%s', '%d' )
+                );
+                $category_id = (int) $wpdb->insert_id;
+            } else {
+                $category_id = (int) $category_id;
+                $wpdb->update(
+                    $categories_table,
+                    array( 'is_active' => 1 ),
+                    array( 'category_id' => $category_id ),
+                    array( '%d' ),
+                    array( '%d' )
+                );
+            }
+
+            if ( ! $category_id ) {
+                continue;
+            }
+
+            $wpdb->update(
+                $keywords_table,
+                array( 'is_active' => 0 ),
+                array( 'category_id' => $category_id ),
+                array( '%d' ),
+                array( '%d' )
+            );
+
+            foreach ( $keywords as $keyword ) {
+                $keyword = trim( (string) $keyword );
+                if ( $keyword === '' ) {
+                    continue;
+                }
+
+                $existing_keyword_id = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT keyword_id FROM {$keywords_table} WHERE category_id = %d AND LOWER(keyword) = LOWER(%s) LIMIT 1",
+                        $category_id,
+                        $keyword
+                    )
+                );
+
+                if ( $existing_keyword_id ) {
+                    $wpdb->update(
+                        $keywords_table,
+                        array(
+                            'keyword'      => $keyword,
+                            'is_active'    => 1,
+                            'is_suggested' => 1,
+                        ),
+                        array( 'keyword_id' => (int) $existing_keyword_id ),
+                        array( '%s', '%d', '%d' ),
+                        array( '%d' )
+                    );
+                } else {
+                    $wpdb->insert(
+                        $keywords_table,
+                        array(
+                            'category_id'   => $category_id,
+                            'keyword'       => $keyword,
+                            'is_active'     => 1,
+                            'is_suggested'  => 1,
+                        ),
+                        array( '%d', '%s', '%d', '%d' )
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -15667,9 +15850,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         
         $allow_system_invites = isset( $_POST['allow_system_invites'] ) ? (bool) $_POST['allow_system_invites'] : false;
+        $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
 
-        // Validation: Case D - if no invite and toggle OFF, block
-        if ( empty( $invited_suppliers ) && ! $allow_system_invites ) {
+        // Validation: Case D - if no invite, no default Wireframe supplier, and toggle OFF, block
+        if ( empty( $invited_suppliers ) && ! $default_wireframe_supplier_id && ! $allow_system_invites ) {
             wp_send_json_error( array(
                 'message' => 'Invite at least one maker or allow the system to invite makers.',
                 'errors' => array( 'routing' => 'At least one routing option must be selected.' ),
@@ -15823,6 +16007,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
             }
             
+            // Commit 3.C.13: Wireframe is silently injected on every RFQ.
+            if ( $default_wireframe_supplier_id > 0 ) {
+                $invited_supplier_ids[] = $default_wireframe_supplier_id;
+            }
+
             // Remove duplicates from invited supplier IDs
             $invited_supplier_ids = array_unique( $invited_supplier_ids );
 

@@ -22,6 +22,27 @@ class N88_Items {
         'archived',
     );
 
+    private static function is_valid_item_type( $item_type ) {
+        if ( in_array( $item_type, self::$allowed_item_types, true ) ) {
+            return true;
+        }
+
+        global $wpdb;
+        $categories_table = $wpdb->prefix . 'n88_categories';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$categories_table}'" ) !== $categories_table ) {
+            return false;
+        }
+
+        $existing = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT category_id FROM {$categories_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                $item_type
+            )
+        );
+
+        return ! empty( $existing );
+    }
+
     /**
      * Allowed item types
      * 
@@ -244,8 +265,8 @@ class N88_Items {
             wp_send_json_error( array( 'message' => 'Title exceeds maximum length of 500 characters.' ), 400 );
         }
 
-        // Validate item_type against whitelist
-        if ( ! in_array( $item_type, self::$allowed_item_types, true ) ) {
+        // Validate item_type against whitelist / category library
+        if ( ! self::is_valid_item_type( $item_type ) ) {
             wp_send_json_error( array( 'message' => 'Invalid item type.' ), 400 );
         }
 
@@ -362,6 +383,17 @@ class N88_Items {
         if ( isset( $_POST['rfq_draft_allow_system_invites'] ) ) {
             $flag = wp_unslash( $_POST['rfq_draft_allow_system_invites'] );
             $meta_json['rfq_draft_allow_system_invites'] = ( $flag === '1' || $flag === 1 || $flag === true || $flag === 'true' );
+        }
+        if ( isset( $_POST['selected_keyword_ids'] ) ) {
+            $raw_selected_keyword_ids = wp_unslash( $_POST['selected_keyword_ids'] );
+            if ( is_array( $raw_selected_keyword_ids ) ) {
+                $selected_keyword_ids = $raw_selected_keyword_ids;
+            } else {
+                $decoded_selected_keyword_ids = json_decode( $raw_selected_keyword_ids, true );
+                $selected_keyword_ids = is_array( $decoded_selected_keyword_ids ) ? $decoded_selected_keyword_ids : array();
+            }
+            $selected_keyword_ids = array_values( array_unique( array_filter( array_map( 'absint', $selected_keyword_ids ) ) ) );
+            $meta_json['selected_keyword_ids'] = $selected_keyword_ids;
         }
         if ( $measurement_type !== '' ) {
             $meta_json['measurement_type'] = $measurement_type;
@@ -1672,6 +1704,10 @@ class N88_Items {
         }
         if ( array_key_exists( 'custom_specification', $payload ) ) {
             $meta['custom_specification'] = sanitize_textarea_field( (string) $payload['custom_specification'] );
+        }
+        if ( array_key_exists( 'selected_keyword_ids', $payload ) ) {
+            $selected_keyword_ids = is_array( $payload['selected_keyword_ids'] ) ? $payload['selected_keyword_ids'] : array();
+            $meta['selected_keyword_ids'] = array_values( array_unique( array_filter( array_map( 'absint', $selected_keyword_ids ) ) ) );
         }
         
         if ( isset( $payload['dims_cm'] ) ) {

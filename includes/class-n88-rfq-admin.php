@@ -5689,19 +5689,132 @@ class N88_RFQ_Admin {
                     var cat = String(category || '').trim().toUpperCase();
                     if (!cat) return 'dimensions';
                     if (
-                        cat === 'STONE (MARBLE / GRANITE / QUARTZ)' ||
+                        cat === 'ACOUSTIC PANELS' ||
                         cat === 'FLOORING' ||
+                        cat === 'GRANITE' ||
+                        cat === 'MARBLE / STONE' ||
+                        cat === 'PORCELAIN / CERAMIC SLABS' ||
+                        cat === 'QUARTZ' ||
                         cat === 'RUGS / CARPETS' ||
-                        cat === 'WALLCOVERINGS / FINISHES'
+                        cat === 'STONE (MARBLE / GRANITE / QUARTZ)' ||
+                        cat === 'TERRAZZO' ||
+                        cat === 'TILE (WALL / FLOOR)' ||
+                        cat === 'WALLCOVERINGS' ||
+                        cat === 'WALLCOVERINGS / FINISHES' ||
+                        cat === 'STONE (MARBLE / GRANITE / QUARTZ)' ||
+                        cat === 'RUGS / CARPETS'
                     ) return 'area';
-                    if (cat === 'DRAPERY / WINDOW TREATMENTS') return 'linear_length';
                     if (
-                        cat === 'LIGHTING' ||
+                        cat === 'DRAPERY' ||
+                        cat === 'DRAPERY / WINDOW TREATMENTS' ||
+                        cat === 'WINDOW TREATMENTS / SHADES'
+                    ) return 'linear_length';
+                    if (
                         cat === 'APPLIANCES' ||
+                        cat === 'BATHROOM FIXTURES' ||
+                        cat === 'DECORATIVE ACCESSORIES' ||
+                        cat === 'DECORATIVE LIGHTING' ||
+                        cat === 'ELECTRICAL / LED COMPONENTS' ||
+                        cat === 'FAUCETS / HARDWARE (PLUMBING)' ||
                         cat === 'GLASS / MIRRORS' ||
-                        cat === 'HARDWARE / ACCESSORIES'
+                        cat === 'LIGHTING' ||
+                        cat === 'HARDWARE / ACCESSORIES' ||
+                        cat === 'KITCHEN FIXTURES' ||
+                        cat === 'MIRRORS' ||
+                        cat === 'SINKS / BASINS' ||
+                        cat === 'SHOWER SYSTEMS / ACCESSORIES'
                     ) return 'quantity_only';
                     return 'dimensions';
+                };
+                window.n88DesignerCategoryOptions = [
+                    'Acoustic Panels',
+                    'Appliances',
+                    'Architectural Lighting',
+                    'Artwork',
+                    'Bathroom Fixtures',
+                    'Cabinetry / Millwork (Custom)',
+                    'Casegoods (Beds Nightstands Desks Consoles)',
+                    'Chairs & Armchairs (Indoor)',
+                    'Custom Sourcing / Not Listed',
+                    'Decorative Accessories',
+                    'Decorative Lighting',
+                    'Dining Tables (Indoor)',
+                    'Drapery',
+                    'Drapery / Window Treatments',
+                    'Electrical / LED Components',
+                    'Fabric Sample',
+                    'Facade Materials',
+                    'Faucets / Hardware (Plumbing)',
+                    'Flooring',
+                    'Glass / Mirrors',
+                    'Granite',
+                    'Hardware / Accessories',
+                    'Indoor Furniture',
+                    'Indoor Furniture (Casegoods)',
+                    'Kitchen Fixtures',
+                    'Lighting',
+                    'Marble / Stone',
+                    'Material Sample Kit',
+                    'Metalwork',
+                    'Millwork / Cabinetry',
+                    'Mirrors',
+                    'Other',
+                    'Outdoor Dining Sets',
+                    'Outdoor Furniture',
+                    'Outdoor Loungers & Daybeds',
+                    'Outdoor Seating',
+                    'Pergola / Shade Components',
+                    'Planters',
+                    'Pool Furniture',
+                    'Porcelain / Ceramic Slabs',
+                    'Quartz',
+                    'Railings',
+                    'Rugs / Carpets',
+                    'Screens / Louvers',
+                    'Sculptural Objects',
+                    'Shower Systems / Accessories',
+                    'Sinks / Basins',
+                    'Sofas & Seating (Indoor)',
+                    'Stone (Marble / Granite / Quartz)',
+                    'Terrazzo',
+                    'Tile (Wall / Floor)',
+                    'UPHOLSTERY',
+                    'Wallcoverings',
+                    'Wallcoverings / Finishes',
+                    'Window Treatments / Shades'
+                ];
+                window.n88CategoryKeywordCache = window.n88CategoryKeywordCache || {};
+                window.n88CategoryKeywordPending = window.n88CategoryKeywordPending || {};
+                window.n88LoadCategoryKeywords = function(categoryName) {
+                    var normalizedCategory = String(categoryName || '').trim();
+                    if (!normalizedCategory) return Promise.resolve([]);
+                    if (window.n88CategoryKeywordCache.hasOwnProperty(normalizedCategory)) {
+                        return Promise.resolve(window.n88CategoryKeywordCache[normalizedCategory]);
+                    }
+                    if (window.n88CategoryKeywordPending[normalizedCategory]) {
+                        return window.n88CategoryKeywordPending[normalizedCategory];
+                    }
+                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                    var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_keywords) || (window.n88BoardData && window.n88BoardData.nonce_get_keywords) || '';
+                    if (!nonce) return Promise.resolve([]);
+                    var formData = new FormData();
+                    formData.append('action', 'n88_get_keywords_by_category');
+                    formData.append('category_name', normalizedCategory);
+                    formData.append('_ajax_nonce', nonce);
+                    window.n88CategoryKeywordPending[normalizedCategory] = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+                        .then(function(response) { return response.json(); })
+                        .then(function(data) {
+                            var keywords = (data && data.success && data.data && Array.isArray(data.data.keywords)) ? data.data.keywords : [];
+                            window.n88CategoryKeywordCache[normalizedCategory] = keywords;
+                            delete window.n88CategoryKeywordPending[normalizedCategory];
+                            return keywords;
+                        })
+                        .catch(function() {
+                            window.n88CategoryKeywordCache[normalizedCategory] = [];
+                            delete window.n88CategoryKeywordPending[normalizedCategory];
+                            return [];
+                        });
+                    return window.n88CategoryKeywordPending[normalizedCategory];
                 };
                 window.n88GetEffectiveMeasurementType = function(rawType, category) {
                     return window.n88NormalizeMeasurementType(rawType) || window.n88GetCategoryMeasurementType(category);
@@ -6385,22 +6498,12 @@ class N88_RFQ_Admin {
                             <!-- <p class="n88-hint">Select the closest category for accurate routing and quoting.</p> -->
                             <select id="n88-modal-item-type" name="item_type">
                                 <option value="">Select the closest category for accurate routing and quoting.</option>
-                                <option value="UPHOLSTERY">UPHOLSTERY</option>
-                                <option value="INDOOR FURNITURE (CASEGOODS)">INDOOR FURNITURE (CASEGOODS)</option>
-                                <option value="OUTDOOR FURNITURE">OUTDOOR FURNITURE</option>
-                                <option value="LIGHTING">LIGHTING</option>
-                                <option value="STONE (MARBLE / GRANITE / QUARTZ)">STONE (MARBLE / GRANITE / QUARTZ)</option>
-                                <option value="METALWORK">METALWORK</option>
-                                <option value="MILLWORK / CABINETRY">MILLWORK / CABINETRY</option>
-                                <option value="FLOORING">FLOORING</option>
-                                <option value="DRAPERY / WINDOW TREATMENTS">DRAPERY / WINDOW TREATMENTS</option>
-                                <option value="GLASS / MIRRORS">GLASS / MIRRORS</option>
-                                <option value="HARDWARE / ACCESSORIES">HARDWARE / ACCESSORIES</option>
-                                <option value="RUGS / CARPETS">RUGS / CARPETS</option>
-                                <option value="WALLCOVERINGS / FINISHES">WALLCOVERINGS / FINISHES</option>
-                                <option value="APPLIANCES">APPLIANCES</option>
-                                <option value="OTHER">OTHER</option>
                             </select>
+                        </div>
+                        <div class="n88-field n88-item-keywords-field">
+                            <label>Keywords</label>
+                            <p class="n88-hint">Select keywords that match this item category.</p>
+                            <div class="n88-item-keywords-wrap" style="display:flex;flex-wrap:wrap;gap:8px;min-height:42px;padding:12px;border:1px solid #333;border-radius:4px;background:#111;"></div>
                         </div>
                         <div class="n88-field">
                             <label for="n88-modal-item-quantity">Quantity</label>
@@ -6699,6 +6802,82 @@ class N88_RFQ_Admin {
                 var submitBtn = document.getElementById('n88-modal-add-item-submit');
                 var addAnotherBtn = document.getElementById('n88-modal-add-another-item');
                 var resultEl = document.getElementById('n88-add-item-modal-result');
+                function populateCategorySelect(selectEl, selectedValue) {
+                    if (!selectEl) return;
+                    var currentValue = selectedValue !== undefined ? selectedValue : (selectEl.value || '');
+                    selectEl.innerHTML = '';
+                    var placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = 'Select the closest category for accurate routing and quoting.';
+                    selectEl.appendChild(placeholder);
+                    (window.n88DesignerCategoryOptions || []).forEach(function(categoryName) {
+                        var option = document.createElement('option');
+                        option.value = categoryName;
+                        option.textContent = categoryName;
+                        if (String(currentValue || '') === String(categoryName)) option.selected = true;
+                        selectEl.appendChild(option);
+                    });
+                }
+                function renderKeywordChipsIntoWrap(wrap, keywords, selectedIds, onToggle) {
+                    if (!wrap) return;
+                    wrap.innerHTML = '';
+                    if (!keywords || !keywords.length) {
+                        wrap.innerHTML = '<div style="font-size:11px;color:#888;">No keywords available for this category.</div>';
+                        return;
+                    }
+                    keywords.forEach(function(keyword) {
+                        var keywordId = parseInt(keyword.keyword_id, 10);
+                        var isSelected = selectedIds.indexOf(keywordId) !== -1;
+                        var button = document.createElement('button');
+                        button.type = 'button';
+                        button.textContent = keyword.keyword || '';
+                        button.style.cssText = 'padding:6px 10px;border-radius:999px;border:1px solid ' + (isSelected ? '#FF0065' : '#333') + ';background:' + (isSelected ? 'rgba(255,0,101,0.14)' : '#111') + ';color:' + (isSelected ? '#fff' : '#d3d3d3') + ';font-size:11px;font-family:monospace;cursor:pointer;';
+                        button.onclick = function() { onToggle(keywordId); };
+                        wrap.appendChild(button);
+                    });
+                }
+                function initKeywordControlsForBlock(block) {
+                    if (!block) return;
+                    if (!Array.isArray(block.n88SelectedKeywordIds)) block.n88SelectedKeywordIds = [];
+                    var categoryEl = block.querySelector('[name="item_type"]');
+                    var keywordsWrap = block.querySelector('.n88-item-keywords-wrap');
+                    if (!categoryEl || !keywordsWrap) return;
+                    populateCategorySelect(categoryEl, categoryEl.value || '');
+                    function renderKeywordLoading(message) {
+                        keywordsWrap.innerHTML = '';
+                        var loadingEl = document.createElement('div');
+                        loadingEl.textContent = message || 'Loading keywords...';
+                        loadingEl.style.fontSize = '11px';
+                        loadingEl.style.opacity = '0.75';
+                        loadingEl.style.padding = '4px 0';
+                        keywordsWrap.appendChild(loadingEl);
+                    }
+                    function renderKeywords() {
+                        if (!(categoryEl.value || '').trim()) {
+                            keywordsWrap.innerHTML = '';
+                            return;
+                        }
+                        renderKeywordLoading('Loading keywords...');
+                        window.n88LoadCategoryKeywords(categoryEl.value || '').then(function(keywords) {
+                            renderKeywordChipsIntoWrap(keywordsWrap, keywords, block.n88SelectedKeywordIds, function(keywordId) {
+                                var idx = block.n88SelectedKeywordIds.indexOf(keywordId);
+                                if (idx !== -1) block.n88SelectedKeywordIds.splice(idx, 1);
+                                else block.n88SelectedKeywordIds.push(keywordId);
+                                renderKeywords();
+                            });
+                        }).catch(function() {
+                            renderKeywordLoading('Unable to load keywords.');
+                        });
+                    }
+                    if (!block._n88KeywordsInit) {
+                        block._n88KeywordsInit = true;
+                        categoryEl.addEventListener('change', function() {
+                            block.n88SelectedKeywordIds = [];
+                            renderKeywords();
+                        });
+                    }
+                    renderKeywords();
+                }
                 function applyMeasurementTypeToBlock(block, nextType) {
                     if (!block) return;
                     var categoryEl = block.querySelector('[name="item_type"]');
@@ -6725,6 +6904,7 @@ class N88_RFQ_Admin {
                             applyMeasurementTypeToBlock(block, typeEl.value);
                         });
                     }
+                    initKeywordControlsForBlock(block);
                     applyMeasurementTypeToBlock(block, categoryEl ? categoryEl.value : (typeEl ? typeEl.value : ''));
                 }
                 function getMeasurementPayloadFromBlock(block) {
@@ -6732,6 +6912,7 @@ class N88_RFQ_Admin {
                     var categoryEl = block ? block.querySelector('[name="item_type"]') : null;
                     var type = n88GetEffectiveMeasurementType(typeEl ? typeEl.value : '', categoryEl ? categoryEl.value : '');
                     var payload = { measurement_type: type };
+                    payload.selected_keyword_ids = Array.isArray(block.n88SelectedKeywordIds) ? block.n88SelectedKeywordIds.slice() : [];
                     if (type === 'dimensions') {
                         var w = (block.querySelector('[name="width"]') || {}).value;
                         var d = (block.querySelector('[name="depth"]') || {}).value;
@@ -6902,6 +7083,7 @@ class N88_RFQ_Admin {
                             firstBlock.n88Captions = [];
                             firstBlock.n88PrimaryIndex = 0;
                             firstBlock.n88InvitedSuppliers = [];
+                            firstBlock.n88SelectedKeywordIds = [];
 
                             var chipsWrap = firstBlock.querySelector('.n88-invite-chips');
                             if (chipsWrap) chipsWrap.innerHTML = '';
@@ -7386,6 +7568,7 @@ class N88_RFQ_Admin {
                     renderPreviewsForBlock(clone, []);
                     // Reset invite suppliers state for this block
                     clone.n88InvitedSuppliers = [];
+                    clone.n88SelectedKeywordIds = [];
                     initInviteControlsForBlock(clone);
                     initMeasurementControlsForBlock(clone);
 
@@ -7456,6 +7639,7 @@ class N88_RFQ_Admin {
                     if (qty) formData.append('quantity', qty);
                     var measurementData = getMeasurementPayloadFromBlock(form.querySelector('.n88-add-item-block') || form);
                     formData.append('measurement_type', measurementData.measurement_type || 'dimensions');
+                    formData.append('selected_keyword_ids', JSON.stringify(measurementData.selected_keyword_ids || []));
                     if (measurementData.dims) {
                         formData.append('dims', JSON.stringify(measurementData.dims));
                     }
@@ -7566,6 +7750,7 @@ class N88_RFQ_Admin {
                     if (qty) formData.append('quantity', qty);
                     var measurementData = getMeasurementPayloadFromBlock(block);
                     formData.append('measurement_type', measurementData.measurement_type || 'dimensions');
+                    formData.append('selected_keyword_ids', JSON.stringify(measurementData.selected_keyword_ids || []));
                     if (measurementData.dims) formData.append('dims', JSON.stringify(measurementData.dims));
                     if (measurementData.measurement_area) formData.append('measurement_area', measurementData.measurement_area);
                     if (measurementData.measurement_area_unit) formData.append('measurement_area_unit', measurementData.measurement_area_unit);
@@ -12626,6 +12811,19 @@ class N88_RFQ_Admin {
                     var _categoryState = React.useState(item.item_type || item.category || '');
                     var category = _categoryState[0];
                     var setCategory = _categoryState[1];
+                    var _availableCategoryKeywordsState = React.useState([]);
+                    var availableCategoryKeywords = _availableCategoryKeywordsState[0];
+                    var setAvailableCategoryKeywords = _availableCategoryKeywordsState[1];
+                    var _categoryKeywordsLoadingState = React.useState(false);
+                    var categoryKeywordsLoading = _categoryKeywordsLoadingState[0];
+                    var setCategoryKeywordsLoading = _categoryKeywordsLoadingState[1];
+                    var _selectedCategoryKeywordIdsState = React.useState(
+                        item.meta && Array.isArray(item.meta.selected_keyword_ids)
+                            ? item.meta.selected_keyword_ids.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return id > 0; })
+                            : []
+                    );
+                    var selectedCategoryKeywordIds = _selectedCategoryKeywordIdsState[0];
+                    var setSelectedCategoryKeywordIds = _selectedCategoryKeywordIdsState[1];
                     
                     var _descriptionState = React.useState(item.description || '');
                     var description = _descriptionState[0];
@@ -13913,6 +14111,12 @@ class N88_RFQ_Admin {
                     // COMMIT 3.C.3: Sync RFQ overall notes, fabric supplied, fabric notes from item.meta
                     React.useEffect(function() {
                         var meta = item.meta || {};
+                        setCategory(item.item_type || item.category || '');
+                        setSelectedCategoryKeywordIds(
+                            Array.isArray(meta.selected_keyword_ids)
+                                ? meta.selected_keyword_ids.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return id > 0; })
+                                : []
+                        );
                         if (meta.rfq_overall_notes !== undefined) setRfqOverallNotes(meta.rfq_overall_notes || '');
                         if (meta.rfq_fabric_supplied_flag === 'yes' || meta.rfq_fabric_supplied_flag === 'no') setFabricSupplied(meta.rfq_fabric_supplied_flag);
                         if (meta.rfq_fabric_notes !== undefined) setFabricNotes(meta.rfq_fabric_notes || '');
@@ -13926,7 +14130,40 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         setMeasurementType(n88GetCategoryMeasurementType(category));
                     }, [category]);
-                    
+                    React.useEffect(function() {
+                        if (!category) {
+                            setCategoryKeywordsLoading(false);
+                            setAvailableCategoryKeywords([]);
+                            return;
+                        }
+                        var cancelled = false;
+                        setCategoryKeywordsLoading(true);
+                        window.n88LoadCategoryKeywords(category).then(function(keywords) {
+                            if (cancelled) return;
+                            setCategoryKeywordsLoading(false);
+                            setAvailableCategoryKeywords(Array.isArray(keywords) ? keywords : []);
+                        }).catch(function() {
+                            if (!cancelled) {
+                                setCategoryKeywordsLoading(false);
+                                setAvailableCategoryKeywords([]);
+                            }
+                        });
+                        return function() {
+                            cancelled = true;
+                        };
+                    }, [category]);
+                    var toggleSelectedCategoryKeywordId = function(keywordId) {
+                        setSelectedCategoryKeywordIds(function(prev) {
+                            var list = Array.isArray(prev) ? prev.slice() : [];
+                            var numericKeywordId = parseInt(keywordId, 10);
+                            if (!(numericKeywordId > 0)) return list;
+                            var existingIndex = list.indexOf(numericKeywordId);
+                            if (existingIndex !== -1) list.splice(existingIndex, 1);
+                            else list.push(numericKeywordId);
+                            return list;
+                        });
+                    };
+                     
                     // Computed values (read-only) - initialize from saved item data
                     var _computedState = React.useState({
                         dimsCm: item.dims_cm || null,
@@ -14281,6 +14518,7 @@ class N88_RFQ_Admin {
                             measurement_length: measurementType === 'linear_length' ? parseFloat(measurementLength) : 0,
                             measurement_length_unit: measurementLengthUnit,
                             custom_specification: measurementType === 'custom_specification' ? customSpecification : '',
+                            selected_keyword_ids: Array.isArray(selectedCategoryKeywordIds) ? selectedCategoryKeywordIds.slice() : [],
                             delivery_country: deliveryCountry.toUpperCase().trim(),
                             delivery_postal: deliveryPostal.trim(),
                         }];
@@ -14358,6 +14596,7 @@ class N88_RFQ_Admin {
                                         measurement_length: measurementType === 'linear_length' ? (measurementLength ? parseFloat(measurementLength) : null) : null,
                                         measurement_length_unit: measurementLengthUnit,
                                         custom_specification: measurementType === 'custom_specification' ? customSpecification : '',
+                                        selected_keyword_ids: Array.isArray(selectedCategoryKeywordIds) ? selectedCategoryKeywordIds.slice() : [],
                                         sourcing_type: computedValues.sourcingType,
                                         timeline_type: computedValues.timelineType,
                                         inspiration: validInspiration,
@@ -14551,6 +14790,7 @@ class N88_RFQ_Admin {
                                 measurement_length: measurementType === 'linear_length' ? (measurementLength ? parseFloat(measurementLength) : null) : null,
                                 measurement_length_unit: measurementLengthUnit,
                                 custom_specification: measurementType === 'custom_specification' ? customSpecification : '',
+                                selected_keyword_ids: Array.isArray(selectedCategoryKeywordIds) ? selectedCategoryKeywordIds.slice() : [],
                                 sourcing_type: computedValues.sourcingType,
                                 timeline_type: computedValues.timelineType,
                                 inspiration: validInspiration,
@@ -15602,16 +15842,41 @@ class N88_RFQ_Admin {
                                                                 onChange: function(e) {
                                                                     var nextCategory = e.target.value;
                                                                     setCategory(nextCategory);
+                                                                    setSelectedCategoryKeywordIds([]);
                                                                     setMeasurementType(n88GetCategoryMeasurementType(nextCategory));
                                                                 },
                                                                 style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: (currentState === 'A' && rfqMissingMap.category) ? '1px solid #ff0065' : ('1px solid ' + darkBorder), borderRadius: '4px', color: darkText, fontSize: '12px', fontFamily: 'monospace' }
                                                             },
                                                                 React.createElement('option', { value: '' }, 'Select the closest category for accurate routing and quoting.'),
-                                                                ['UPHOLSTERY','INDOOR FURNITURE (CASEGOODS)','OUTDOOR FURNITURE','LIGHTING','STONE (MARBLE / GRANITE / QUARTZ)','METALWORK','MILLWORK / CABINETRY','FLOORING','DRAPERY / WINDOW TREATMENTS','GLASS / MIRRORS','HARDWARE / ACCESSORIES','RUGS / CARPETS','WALLCOVERINGS / FINISHES','APPLIANCES','OTHER'].map(function(c) {
+                                                                (window.n88DesignerCategoryOptions || []).map(function(c) {
                                                                     return React.createElement('option', { key: c, value: c }, c);
                                                                 })
                                                             )
                                                         ),
+                                                        category ? React.createElement('div', { style: { marginBottom: '12px' } },
+                                                            React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '6px' } }, 'Keywords'),
+                                                            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                                categoryKeywordsLoading ? React.createElement('div', { style: { fontSize: '11px', opacity: 0.75, color: darkText } }, 'Loading keywords...') : ((availableCategoryKeywords || []).length ? availableCategoryKeywords.map(function(keyword) {
+                                                                    var keywordId = parseInt(keyword.keyword_id, 10);
+                                                                    var isSelected = selectedCategoryKeywordIds.indexOf(keywordId) !== -1;
+                                                                    return React.createElement('button', {
+                                                                        key: keywordId,
+                                                                        type: 'button',
+                                                                        onClick: function() { toggleSelectedCategoryKeywordId(keywordId); },
+                                                                        style: {
+                                                                            padding: '6px 10px',
+                                                                            borderRadius: '999px',
+                                                                            border: isSelected ? '1px solid #ff0065' : ('1px solid ' + darkBorder),
+                                                                            backgroundColor: isSelected ? 'rgba(255,0,101,0.16)' : darkBg,
+                                                                            color: darkText,
+                                                                            fontSize: '11px',
+                                                                            fontFamily: 'monospace',
+                                                                            cursor: 'pointer'
+                                                                        }
+                                                                    }, keyword.keyword);
+                                                                }) : React.createElement('div', { style: { fontSize: '11px', opacity: 0.7, color: darkText } }, 'No keywords available for this category.'))
+                                                            )
+                                                        ) : null,
                                                         // RFQ Form Fields
                                                         React.createElement('div', { style: { marginBottom: '12px' } },
                                                             React.createElement('label', { style: { display: 'block', fontSize: '12px', marginBottom: '4px' } }, 'Measurement Type'),
@@ -19445,9 +19710,15 @@ class N88_RFQ_Admin {
                         return {
                             item_id: toNumericItemId(item.id),
                             title: item.title || ('Item ' + toNumericItemId(item.id)),
-                            category: item.item_type || '',
+                            category: item.item_type || item.category || meta.category || '',
+                            selected_keyword_ids: Array.isArray(meta.selected_keyword_ids)
+                                ? meta.selected_keyword_ids.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return id > 0; })
+                                : [],
+                            available_keywords: [],
+                            available_keywords_loading: false,
+                            available_keywords_category: '',
                             quantity: item.quantity || meta.quantity || '',
-                            measurement_type: n88GetEffectiveMeasurementType(item.measurement_type || meta.measurement_type || '', item.item_type || ''),
+                            measurement_type: n88GetEffectiveMeasurementType(item.measurement_type || meta.measurement_type || '', item.item_type || item.category || meta.category || ''),
                             width: dims && dims.w ? dims.w : '',
                             depth: dims && dims.d ? dims.d : '',
                             height: dims && dims.h ? dims.h : '',
@@ -19612,6 +19883,46 @@ class N88_RFQ_Admin {
                         else document.body.classList.remove('n88-modal-open');
                         return function() { document.body.classList.remove('n88-modal-open'); };
                     }, [batchModalOpen]);
+                    React.useEffect(function() {
+                        if (!batchModalOpen) return;
+                        (batchRows || []).forEach(function(row) {
+                            if (!row || !row.category) return;
+                            if (row.available_keywords_loading) return;
+                            if (row.available_keywords_category === row.category && Array.isArray(row.available_keywords)) return;
+                            setBatchRows(function(prev) {
+                                return (prev || []).map(function(currentRow) {
+                                    if (!currentRow || currentRow.item_id !== row.item_id) return currentRow;
+                                    if (currentRow.category !== row.category) return currentRow;
+                                    return Object.assign({}, currentRow, { available_keywords_loading: true });
+                                });
+                            });
+                            window.n88LoadCategoryKeywords(row.category).then(function(keywords) {
+                                setBatchRows(function(prev) {
+                                    return (prev || []).map(function(currentRow) {
+                                        if (!currentRow || currentRow.item_id !== row.item_id) return currentRow;
+                                        if (currentRow.category !== row.category) return currentRow;
+                                        return Object.assign({}, currentRow, {
+                                            available_keywords: Array.isArray(keywords) ? keywords : [],
+                                            available_keywords_loading: false,
+                                            available_keywords_category: row.category
+                                        });
+                                    });
+                                });
+                            }).catch(function() {
+                                setBatchRows(function(prev) {
+                                    return (prev || []).map(function(currentRow) {
+                                        if (!currentRow || currentRow.item_id !== row.item_id) return currentRow;
+                                        if (currentRow.category !== row.category) return currentRow;
+                                        return Object.assign({}, currentRow, {
+                                            available_keywords: [],
+                                            available_keywords_loading: false,
+                                            available_keywords_category: row.category
+                                        });
+                                    });
+                                });
+                            });
+                        });
+                    }, [batchModalOpen, batchRows]);
                     
                     // Handle layout changes - trigger debounced save
                     var handleLayoutChanged = function(data) {
@@ -19677,6 +19988,20 @@ class N88_RFQ_Admin {
                             return (prev || []).map(function(r) {
                                 if (r.item_id !== itemId) return r;
                                 return Object.assign({}, r, patch || {});
+                            });
+                        });
+                    };
+                    var toggleBatchRowKeyword = function(itemId, keywordId) {
+                        var numericKeywordId = parseInt(keywordId, 10);
+                        if (!(numericKeywordId > 0)) return;
+                        setBatchRows(function(prev) {
+                            return (prev || []).map(function(r) {
+                                if (r.item_id !== itemId) return r;
+                                var currentIds = Array.isArray(r.selected_keyword_ids) ? r.selected_keyword_ids.slice() : [];
+                                var existingIndex = currentIds.indexOf(numericKeywordId);
+                                if (existingIndex !== -1) currentIds.splice(existingIndex, 1);
+                                else currentIds.push(numericKeywordId);
+                                return Object.assign({}, r, { selected_keyword_ids: currentIds });
                             });
                         });
                     };
@@ -19798,6 +20123,7 @@ class N88_RFQ_Admin {
                                 measurement_length: row.measurement_length ? parseFloat(row.measurement_length) : null,
                                 measurement_length_unit: row.measurement_length_unit || 'ft',
                                 custom_specification: row.custom_specification || '',
+                                selected_keyword_ids: Array.isArray(row.selected_keyword_ids) ? row.selected_keyword_ids.slice() : [],
                                 delivery_country: row.delivery_country || '',
                                 delivery_postal: row.delivery_postal || '',
                                 rfq_overall_notes: row.rfq_overall_notes || '',
@@ -20026,11 +20352,35 @@ class N88_RFQ_Admin {
                                     row.expanded ? React.createElement('div', { style: { padding: '12px 14px 14px', background: '#323232' } },
                                         React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
                                             React.createElement('div', { className: 'n88-field' }, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Category'),
-                                                React.createElement('select', { value: row.category || '', onChange: function(e) { var nextCategory = e.target.value; updateBatchRow(row.item_id, { category: nextCategory, measurement_type: n88GetCategoryMeasurementType(nextCategory) }); }, style: Object.assign({}, selectBase, { width: '100%', display: 'block' }, missing.indexOf('Category') !== -1 ? missingStyle : {}) },
+                                                React.createElement('select', { value: row.category || '', onChange: function(e) { var nextCategory = e.target.value; updateBatchRow(row.item_id, { category: nextCategory, measurement_type: n88GetCategoryMeasurementType(nextCategory), selected_keyword_ids: [], available_keywords: [], available_keywords_loading: !!nextCategory, available_keywords_category: '' }); }, style: Object.assign({}, selectBase, { width: '100%', display: 'block' }, missing.indexOf('Category') !== -1 ? missingStyle : {}) },
                                                     React.createElement('option', { value: '' }, 'Select the closest category for accurate routing and quoting.'),
-                                                    ['UPHOLSTERY','INDOOR FURNITURE (CASEGOODS)','OUTDOOR FURNITURE','LIGHTING','STONE (MARBLE / GRANITE / QUARTZ)','METALWORK','MILLWORK / CABINETRY','FLOORING','DRAPERY / WINDOW TREATMENTS','GLASS / MIRRORS','HARDWARE / ACCESSORIES','RUGS / CARPETS','WALLCOVERINGS / FINISHES','APPLIANCES','OTHER'].map(function(c) { return React.createElement('option', { key: c, value: c }, c); })
+                                                    (window.n88DesignerCategoryOptions || []).map(function(c) { return React.createElement('option', { key: c, value: c }, c); })
                                                 )
                                             ),
+                                            row.category ? React.createElement('div', { className: 'n88-field' },
+                                                React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Keywords'),
+                                                React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+                                                    row.available_keywords_loading ? React.createElement('div', { style: { fontSize: '11px', opacity: 0.75 } }, 'Loading keywords...') : (Array.isArray(row.available_keywords) && row.available_keywords.length ? row.available_keywords.map(function(keyword) {
+                                                        var keywordId = parseInt(keyword.keyword_id, 10);
+                                                        var isSelected = Array.isArray(row.selected_keyword_ids) && row.selected_keyword_ids.indexOf(keywordId) !== -1;
+                                                        return React.createElement('button', {
+                                                            key: row.item_id + '-keyword-' + keywordId,
+                                                            type: 'button',
+                                                            onClick: function() { toggleBatchRowKeyword(row.item_id, keywordId); },
+                                                            style: {
+                                                                padding: '6px 10px',
+                                                                borderRadius: '999px',
+                                                                border: isSelected ? '1px solid #ff0065' : '1px solid rgba(255,255,255,0.2)',
+                                                                background: isSelected ? 'rgba(255,0,101,0.16)' : '#2d2d2d',
+                                                                color: '#fff',
+                                                                fontSize: '11px',
+                                                                fontFamily: 'monospace',
+                                                                cursor: 'pointer'
+                                                            }
+                                                        }, keyword.keyword);
+                                                    }) : React.createElement('div', { style: { fontSize: '11px', opacity: 0.7 } }, 'No keywords available for this category.'))
+                                                )
+                                            ) : null,
                                             React.createElement('div', { className: 'n88-field' }, React.createElement('label', { style: { fontSize: '13px', opacity: 0.95, display: 'block', marginBottom: '6px' } }, 'Quantity'),
                                                 React.createElement('div', { style: { width: '100%', display: 'flex', alignItems: 'center', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', overflow: 'hidden', background: '#2d2d2d' } },
                                                     React.createElement('button', { type: 'button', onClick: function() { var q = parseInt(row.quantity || '1', 10) || 1; updateBatchRow(row.item_id, { quantity: Math.max(1, q - 1) }); }, style: { width: '34px', height: '34px', border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '18px' } }, '-'),
@@ -21437,9 +21787,3 @@ class N88_RFQ_Admin {
 }
 
 // .....
-
-
-
-
-
-
