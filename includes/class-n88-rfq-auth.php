@@ -202,6 +202,103 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Resolve the supplier context for a direct designer <-> supplier thread on an item.
+     *
+     * Priority:
+     * 1. Awarded bid supplier
+     * 2. Latest prototype payment supplier
+     * 3. Single active routed supplier
+     * 4. Single submitted/awarded bid supplier
+     * 5. Latest existing designer_supplier thread supplier
+     *
+     * @param int $item_id Item ID.
+     * @return int Supplier ID or 0 when ambiguous/unavailable.
+     */
+    private function resolve_designer_supplier_thread_supplier_id( $item_id ) {
+        global $wpdb;
+
+        $item_id = absint( $item_id );
+        if ( ! $item_id ) {
+            return 0;
+        }
+
+        $item_bids_table         = $wpdb->prefix . 'n88_item_bids';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $rfq_routes_table        = $wpdb->prefix . 'n88_rfq_routes';
+        $messages_table          = $wpdb->prefix . 'n88_item_messages';
+
+        $awarded_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT supplier_id
+            FROM {$item_bids_table}
+            WHERE item_id = %d AND status = 'awarded'
+            ORDER BY bid_id DESC
+            LIMIT 1",
+            $item_id
+        ) );
+        if ( $awarded_supplier_id > 0 ) {
+            return $awarded_supplier_id;
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+            $prototype_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT supplier_id
+                FROM {$prototype_payments_table}
+                WHERE item_id = %d AND supplier_id IS NOT NULL
+                ORDER BY id DESC
+                LIMIT 1",
+                $item_id
+            ) );
+            if ( $prototype_supplier_id > 0 ) {
+                return $prototype_supplier_id;
+            }
+        }
+
+        $active_route_suppliers = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT supplier_id
+            FROM {$rfq_routes_table}
+            WHERE item_id = %d
+            AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')
+            AND supplier_id IS NOT NULL",
+            $item_id
+        ) );
+        $active_route_suppliers = array_values( array_filter( array_map( 'absint', (array) $active_route_suppliers ) ) );
+        if ( count( $active_route_suppliers ) === 1 ) {
+            return (int) $active_route_suppliers[0];
+        }
+
+        $bid_suppliers = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT supplier_id
+            FROM {$item_bids_table}
+            WHERE item_id = %d
+            AND status IN ('submitted', 'awarded')
+            AND supplier_id IS NOT NULL",
+            $item_id
+        ) );
+        $bid_suppliers = array_values( array_filter( array_map( 'absint', (array) $bid_suppliers ) ) );
+        if ( count( $bid_suppliers ) === 1 ) {
+            return (int) $bid_suppliers[0];
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $message_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT supplier_id
+                FROM {$messages_table}
+                WHERE item_id = %d
+                AND thread_type = 'designer_supplier'
+                AND supplier_id IS NOT NULL
+                ORDER BY message_id DESC
+                LIMIT 1",
+                $item_id
+            ) );
+            if ( $message_supplier_id > 0 ) {
+                return $message_supplier_id;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Commit 3.C.14: Ensure additive tables/columns needed by the unified supplier proposal workspace.
      */
     private function ensure_supplier_proposal_workspace_support() {
@@ -2323,6 +2420,8 @@ class N88_RFQ_Auth {
             $messages_table = $wpdb->prefix . 'n88_item_messages';
             $unread_operator_messages = 0;
             $has_unread_operator_messages = false;
+            $unread_designer_messages = 0;
+            $has_unread_designer_messages = false;
             
             // Check if messages table exists
             $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
@@ -2349,6 +2448,28 @@ class N88_RFQ_Auth {
                     $current_user->ID
                 ) ) );
                 $has_unread_operator_messages = $unread_operator_messages > 0;
+
+                $unread_designer_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(DISTINCT m.message_id)
+                    FROM {$messages_table} m
+                    WHERE m.item_id = %d
+                    AND m.thread_type = 'designer_supplier'
+                    AND m.sender_role = 'designer'
+                    AND m.supplier_id = %d
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} m2
+                        WHERE m2.item_id = m.item_id
+                        AND m2.thread_type = 'designer_supplier'
+                        AND m2.sender_role = 'supplier'
+                        AND m2.supplier_id = %d
+                        AND m2.created_at > m.created_at
+                    )",
+                    $item_id,
+                    $current_user->ID,
+                    $current_user->ID
+                ) ) );
+                $has_unread_designer_messages = $unread_designer_messages > 0;
+
                 // Fix #13/#26: If operator marked resolved for any of this supplier's bids on this item, clear Action Required
                 if ( $has_unread_operator_messages ) {
                     $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
@@ -2387,6 +2508,8 @@ class N88_RFQ_Auth {
             
             $item_data['has_unread_operator_messages'] = $has_unread_operator_messages;
             $item_data['unread_operator_messages'] = $unread_operator_messages;
+            $item_data['has_unread_designer_messages'] = $has_unread_designer_messages;
+            $item_data['unread_designer_messages'] = $unread_designer_messages;
             
             // E) Fix #22, #25: Clear Action Required when CAD approved or prototype approved (supplier has no pending task)
             // F) Fix #28: Never show Action Required when awarded
@@ -2430,7 +2553,7 @@ class N88_RFQ_Auth {
                 $item_data['action_badge'] = 'changes_received';
                 $action_badge = 'changes_received';
             }
-            $show_action_required = $has_unread_operator_messages;
+            $show_action_required = $has_unread_operator_messages || $has_unread_designer_messages;
             if ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Show Action Required when supplier must submit Official Quote PDF
                 $meta_award = array();
@@ -2507,6 +2630,15 @@ class N88_RFQ_Auth {
             } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
                 // CAD files sent to supplier; supplier must submit prototype video (any state except already submitted/approved/changes_requested)
                 $status_label = __( 'Action Required  CAD Files approved', 'n88-rfq-platform' );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $show_action_required && $has_unread_designer_messages ) {
+                $status_label = sprintf(
+                    /* translators: %d: unread direct messages from designer */
+                    __( 'Action Required  %d message%s from designer', 'n88-rfq-platform' ),
+                    $unread_designer_messages,
+                    $unread_designer_messages === 1 ? '' : 's'
+                );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $show_action_required && $has_unread_operator_messages ) {
@@ -2997,7 +3129,8 @@ class N88_RFQ_Auth {
                 sharedUploads: [],
                 detailPromises: {},
                 detailCache: {},
-                formLoaded: {}
+                formLoaded: {},
+                formLoadPromises: {}
             };
 
             function fetchSupplierItemDetails(itemId) {
@@ -3146,29 +3279,172 @@ class N88_RFQ_Auth {
             function setBatchItemState(itemId, state) {
                 var normalized = state || 'not_ready';
                 window.n88SupplierBatchState.itemStates[itemId] = normalized;
-                var chip = document.getElementById('n88-batch-item-state-' + itemId);
-                if (chip) {
-                    var label = 'Not Ready';
-                    var bg = '#2a2a2a';
-                    var color = '#bbb';
-                    if (normalized === 'quoted') {
-                        label = 'Quoted';
-                        bg = '#032b17';
-                        color = '#7dffb1';
-                    } else if (normalized === 'not_quoted') {
-                        label = 'Not Quoted';
-                        bg = '#2a1608';
-                        color = '#ffb37d';
-                    } else if (normalized === 'ready') {
-                        label = 'Ready to Send';
-                        bg = '#1a1f00';
-                        color = '#f0ff7d';
+                var chips = [
+                    document.getElementById('n88-batch-item-state-' + itemId),
+                    document.getElementById('n88-batch-item-header-state-' + itemId)
+                ];
+                chips.forEach(function(chip) {
+                    if (chip) {
+                        var label = 'Not Ready';
+                        var bg = '#2a2a2a';
+                        var color = '#bbb';
+                        if (normalized === 'quoted') {
+                            label = 'Quoted';
+                            bg = '#032b17';
+                            color = '#7dffb1';
+                        } else if (normalized === 'not_quoted') {
+                            label = 'Not Quoted';
+                            bg = '#2a1608';
+                            color = '#ffb37d';
+                        } else if (normalized === 'ready') {
+                            label = 'Ready to Send';
+                            bg = '#1a1f00';
+                            color = '#f0ff7d';
+                        }
+                        chip.textContent = label;
+                        chip.style.backgroundColor = bg;
+                        chip.style.color = color;
+                        chip.style.borderColor = color;
                     }
-                    chip.textContent = label;
-                    chip.style.backgroundColor = bg;
-                    chip.style.color = color;
-                    chip.style.borderColor = color;
+                });
+            }
+
+            function isBatchEmbeddedForm(itemId) {
+                return !!document.getElementById('n88-batch-form-host-' + itemId);
+            }
+
+            function clearEmbeddedBidValidationSummary(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    return;
                 }
+                var boxes = form.querySelectorAll('.n88-validation-errors');
+                boxes.forEach(function(box) {
+                    box.remove();
+                });
+            }
+
+            function clearBatchFieldHighlights(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    return;
+                }
+                form.querySelectorAll('.n88-batch-field-highlight').forEach(function(el) {
+                    el.classList.remove('n88-batch-field-highlight');
+                    el.style.boxShadow = '';
+                    el.style.borderColor = '';
+                });
+            }
+
+            function markBatchFieldHighlight(element) {
+                if (!element) {
+                    return;
+                }
+                element.classList.add('n88-batch-field-highlight');
+                element.style.borderColor = '#ff8a8a';
+                element.style.boxShadow = '0 0 0 2px rgba(255, 138, 138, 0.25)';
+            }
+
+            function collectEmbeddedBidFieldIssues(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    return [{ field: 'form', label: 'Proposal form did not load yet.', element: null }];
+                }
+
+                clearBatchFieldHighlights(itemId);
+
+                var issues = [];
+                var addIssue = function(field, label, element) {
+                    issues.push({
+                        field: field,
+                        label: label,
+                        element: element || null
+                    });
+                    if (element) {
+                        markBatchFieldHighlight(element);
+                    }
+                };
+
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var validVideoLinks = 0;
+                var firstVideoField = videoLinks.length ? videoLinks[0] : document.getElementById('n88-video-links-container-embedded-' + itemId);
+                var allowedDomains = [ 'youtube.com', 'youtu.be', 'vimeo.com', 'loom.com' ];
+                videoLinks.forEach(function(input) {
+                    var url = (input.value || '').trim();
+                    if (!url) {
+                        return;
+                    }
+                    try {
+                        var urlObj = new URL(url);
+                        var hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                        var isAllowed = allowedDomains.some(function(domain) {
+                            return hostname === domain || hostname.endsWith('.' + domain);
+                        });
+                        if (isAllowed) {
+                            validVideoLinks++;
+                        }
+                    } catch (err) {}
+                });
+                if (validVideoLinks < 1) {
+                    addIssue('video_links', 'Add at least 1 valid YouTube, Vimeo, or Loom video link.', firstVideoField);
+                } else if (validVideoLinks > 3) {
+                    addIssue('video_links', 'Use at most 3 valid video links.', firstVideoField);
+                }
+
+                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
+                var bidPhotosCount = 0;
+                photoIdInputs.forEach(function(input) {
+                    var photoId = parseInt(input.value, 10);
+                    if (!isNaN(photoId) && photoId > 0) {
+                        bidPhotosCount++;
+                    }
+                });
+                var photoTarget = document.getElementById('n88-bid-photos-preview-embedded-' + itemId) || document.getElementById('n88-bid-photos-input-embedded-' + itemId);
+                if (bidPhotosCount < 2) {
+                    addIssue('bid_photos', 'Upload at least 2 photos.', photoTarget);
+                } else if (bidPhotosCount > 5) {
+                    addIssue('bid_photos', 'Use at most 5 photos.', photoTarget);
+                }
+
+                var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
+                var isPrototypeYes = prototypeYes && prototypeYes.checked;
+                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
+                if (isPrototypeYes && (!timeline || !timeline.value)) {
+                    addIssue('prototype_timeline_option', 'Select a prototype timeline.', timeline);
+                }
+
+                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
+                if (isPrototypeYes) {
+                    if (!prototypeCost || !prototypeCost.value) {
+                        addIssue('prototype_cost', 'Enter prototype cost.', prototypeCost);
+                    } else {
+                        var costValue = parseFloat(prototypeCost.value);
+                        if (isNaN(costValue) || costValue < 0) {
+                            addIssue('prototype_cost', 'Prototype cost must be 0 or more.', prototypeCost);
+                        }
+                    }
+                }
+
+                var leadTime = form.querySelector('select[name="production_lead_time_text"]');
+                if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
+                    addIssue('production_lead_time_text', 'Select production lead time.', leadTime);
+                }
+
+                var unitPrice = form.querySelector('input[name="unit_price"]');
+                if (!unitPrice || !unitPrice.value) {
+                    addIssue('unit_price', 'Enter unit price.', unitPrice);
+                } else {
+                    var priceValue = parseFloat(unitPrice.value);
+                    if (isNaN(priceValue) || priceValue <= 0) {
+                        addIssue('unit_price', 'Unit price must be greater than 0.', unitPrice);
+                    }
+                }
+
+                return issues;
+            }
+
+            function isEmbeddedBidFormReady(itemId) {
+                return collectEmbeddedBidFieldIssues(itemId).length === 0;
             }
 
             function detectBatchItemState(itemId) {
@@ -3181,8 +3457,7 @@ class N88_RFQ_Auth {
                 if (item.bid_status === 'submitted' || item.bid_status === 'awarded') {
                     return 'quoted';
                 }
-                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
-                if (submitBtn && submitBtn.style.display !== 'none' && !submitBtn.disabled) {
+                if (document.getElementById('n88-bid-form-embedded-' + itemId) && isEmbeddedBidFormReady(itemId)) {
                     return 'ready';
                 }
                 return 'not_ready';
@@ -3214,18 +3489,26 @@ class N88_RFQ_Auth {
                 refreshBatchSharedUploads();
             }
 
-            function switchBatchProposalTab(itemId) {
+            function toggleBatchProposalAccordion(itemId, forceOpen) {
                 window.n88SupplierBatchState.activeItemId = itemId;
-                var tabs = document.querySelectorAll('.n88-batch-tab-btn');
-                var panels = document.querySelectorAll('.n88-batch-item-panel');
-                tabs.forEach(function(tab) {
-                    var isActive = tab.getAttribute('data-item-id') === String(itemId);
-                    tab.style.backgroundColor = isActive ? '#1a1a1a' : '#000';
-                    tab.style.borderColor = isActive ? '#FF0065' : '#333';
-                    tab.style.color = isActive ? '#FF0065' : '#aaa';
-                });
-                panels.forEach(function(panel) {
-                    panel.style.display = panel.getAttribute('data-item-id') === String(itemId) ? 'block' : 'none';
+                var sections = document.querySelectorAll('.n88-batch-accordion-section');
+                sections.forEach(function(section) {
+                    var sectionItemId = section.getAttribute('data-item-id');
+                    var panel = section.querySelector('.n88-batch-item-panel');
+                    var toggle = section.querySelector('.n88-batch-accordion-toggle');
+                    var indicator = section.querySelector('.n88-batch-accordion-indicator');
+                    var shouldOpen = sectionItemId === String(itemId) ? !!forceOpen || panel.style.display === 'none' || panel.style.display === '' : false;
+                    if (panel) {
+                        panel.style.display = shouldOpen ? 'block' : 'none';
+                    }
+                    if (toggle) {
+                        toggle.style.borderColor = shouldOpen ? '#FF0065' : '#333';
+                        toggle.style.color = shouldOpen ? '#FF0065' : '#ddd';
+                        toggle.style.backgroundColor = shouldOpen ? '#111' : '#0a0a0a';
+                    }
+                    if (indicator) {
+                        indicator.textContent = shouldOpen ? '[-]' : '[+]';
+                    }
                 });
                 ensureBatchFormLoaded(itemId);
             }
@@ -3233,14 +3516,234 @@ class N88_RFQ_Auth {
             function ensureBatchFormLoaded(itemId) {
                 var state = window.n88SupplierBatchState;
                 if (state.formLoaded && state.formLoaded[itemId]) {
-                    return;
+                    return Promise.resolve();
+                }
+                if (state.formLoadPromises && state.formLoadPromises[itemId]) {
+                    return state.formLoadPromises[itemId];
                 }
                 var host = document.getElementById('n88-batch-form-host-' + itemId);
                 if (!host) {
+                    return Promise.resolve();
+                }
+                state.formLoadPromises[itemId] = new Promise(function(resolve) {
+                    loadBidFormContent(itemId, host, function() {
+                        state.formLoaded[itemId] = true;
+                        delete state.formLoadPromises[itemId];
+                        resolve();
+                    });
+                });
+                return state.formLoadPromises[itemId];
+            }
+
+            function configureBatchEmbeddedForm(itemId, container) {
+                if (!container || !container.id || container.id.indexOf('n88-batch-form-host-') !== 0) {
                     return;
                 }
-                state.formLoaded[itemId] = true;
-                loadBidFormContent(itemId, host);
+                var form = container.querySelector('#n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    return;
+                }
+                var footerButtons = form.querySelectorAll('button[onclick*="validateAndSubmitBidEmbedded"], button[onclick*="submitBidEmbedded"], button[onclick*="toggleBidForm"], button[onclick*="saveBidDraftEmbedded"]');
+                footerButtons.forEach(function(button) {
+                    button.style.display = 'none';
+                });
+                var footerRow = footerButtons.length ? footerButtons[0].parentElement : null;
+                if (footerRow) {
+                    footerRow.style.display = 'none';
+                }
+            }
+
+            function getBatchQuotedItemIds() {
+                return Object.keys(window.n88SupplierBatchState.itemData || {}).filter(function(itemId) {
+                    var choice = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"]:checked');
+                    return !choice || choice.value !== 'skip';
+                });
+            }
+
+            function updateBatchActionStatus(message, isError) {
+                var status = document.getElementById('n88-batch-action-status');
+                if (!status) {
+                    return;
+                }
+                status.textContent = message || '';
+                status.style.color = isError ? '#ff8a8a' : '#aaa';
+            }
+
+            function renderBatchActionReport(action, report) {
+                var status = document.getElementById('n88-batch-action-status');
+                if (!status) {
+                    return;
+                }
+                report = report || {};
+                var invalidItems = report.invalidItems || [];
+                var failedItems = report.failedItems || [];
+                var successItems = report.successItems || [];
+                var actionLabel = action === 'validate' ? 'validation' : (action === 'save' ? 'draft save' : 'submission');
+                var html = '';
+
+                if (invalidItems.length) {
+                    html += '<div style="margin-bottom:10px; padding:12px; border:1px solid #ff8a8a; border-radius:8px; background:#2a1010; color:#ffb1b1;">';
+                    html += '<div style="font-weight:600; margin-bottom:8px;">Complete missing fields or mark these items as Skip.</div>';
+                    invalidItems.forEach(function(item) {
+                        html += '<div style="margin-bottom:8px;"><strong>' + escapeBatchText(item.title) + '</strong>: ' + escapeBatchText(item.missing.join(', ')) + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                if (failedItems.length) {
+                    html += '<div style="margin-bottom:10px; padding:12px; border:1px solid #ffb37d; border-radius:8px; background:#2a1608; color:#ffd3ad;">';
+                    html += '<div style="font-weight:600; margin-bottom:8px;">Some items failed during ' + escapeBatchText(actionLabel) + '.</div>';
+                    failedItems.forEach(function(item) {
+                        html += '<div style="margin-bottom:8px;"><strong>' + escapeBatchText(item.title) + '</strong>: ' + escapeBatchText(item.message || 'Request failed.') + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                if (successItems.length) {
+                    html += '<div style="padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1;">';
+                    html += '<div style="font-weight:600; margin-bottom:8px;">' + successItems.length + ' item(s) completed ' + escapeBatchText(actionLabel) + '.</div>';
+                    successItems.forEach(function(item) {
+                        html += '<div style="margin-bottom:6px;"><strong>' + escapeBatchText(item.title) + '</strong>: ' + escapeBatchText(item.message || 'Done.') + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                if (!html) {
+                    html = '<div style="color:#aaa;">No changes were made.</div>';
+                }
+
+                status.innerHTML = html;
+                status.style.color = '#aaa';
+            }
+
+            function revealBatchIssues(invalidItems) {
+                if (!invalidItems || !invalidItems.length) {
+                    return;
+                }
+                toggleBatchProposalAccordion(invalidItems[0].itemId, true);
+                invalidItems.forEach(function(item, index) {
+                    if (index > 0) {
+                        var sectionWrap = document.querySelector('.n88-batch-accordion-section[data-item-id="' + item.itemId + '"]');
+                        var section = sectionWrap ? sectionWrap.querySelector('.n88-batch-item-panel') : null;
+                        var toggle = sectionWrap ? sectionWrap.querySelector('.n88-batch-accordion-toggle') : null;
+                        var indicator = sectionWrap ? sectionWrap.querySelector('.n88-batch-accordion-indicator') : null;
+                        if (section) {
+                            section.style.display = 'block';
+                        }
+                        if (toggle) {
+                            toggle.style.borderColor = '#FF0065';
+                            toggle.style.color = '#FF0065';
+                            toggle.style.backgroundColor = '#111';
+                        }
+                        if (indicator) {
+                            indicator.textContent = '[-]';
+                        }
+                    }
+                    item.elements.forEach(function(element, elementIndex) {
+                        markBatchFieldHighlight(element);
+                        if (index === 0 && elementIndex === 0 && element && typeof element.scrollIntoView === 'function') {
+                            setTimeout(function() {
+                                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                if (typeof element.focus === 'function') {
+                                    element.focus({ preventScroll: true });
+                                }
+                            }, 60);
+                        }
+                    });
+                });
+            }
+
+            function collectBatchActionInvalidItems(itemIds) {
+                var invalidItems = [];
+                (itemIds || []).forEach(function(itemId) {
+                    var issues = collectEmbeddedBidFieldIssues(itemId);
+                    if (!issues.length) {
+                        return;
+                    }
+                    var item = window.n88SupplierBatchState.itemData[itemId] || {};
+                    invalidItems.push({
+                        itemId: String(itemId),
+                        title: item.title || ('Item #' + itemId),
+                        missing: issues.map(function(issue) { return issue.label; }),
+                        elements: issues.map(function(issue) { return issue.element; }).filter(Boolean)
+                    });
+                });
+                return invalidItems;
+            }
+
+            function collectBatchResponseError(result, fallbackMessage) {
+                if (!result) {
+                    return fallbackMessage;
+                }
+                if (result.data && result.data.errors) {
+                    var messages = [];
+                    Object.keys(result.data.errors).forEach(function(key) {
+                        messages.push(result.data.errors[key]);
+                    });
+                    if (messages.length) {
+                        return messages.join(', ');
+                    }
+                }
+                return (result.data && result.data.message) || result.message || fallbackMessage;
+            }
+
+            function runBatchProposalAction(action) {
+                var quotedItemIds = getBatchQuotedItemIds();
+                if (!quotedItemIds.length) {
+                    updateBatchActionStatus('No quoted items selected in this workspace.', true);
+                    return;
+                }
+                updateBatchActionStatus('Preparing ' + quotedItemIds.length + ' quoted item(s)...', false);
+                Promise.all(quotedItemIds.map(function(itemId) {
+                    return ensureBatchFormLoaded(itemId);
+                })).then(function() {
+                    var invalidItems = (action === 'validate' || action === 'submit') ? collectBatchActionInvalidItems(quotedItemIds) : [];
+                    if (invalidItems.length) {
+                        revealBatchIssues(invalidItems);
+                        renderBatchActionReport(action, { invalidItems: invalidItems });
+                        return;
+                    }
+
+                    var requestPromises = quotedItemIds.map(function(itemId) {
+                        if (action === 'validate') {
+                            return validateAndSubmitBidEmbedded(null, itemId, { silent: true, returnPromise: true, batchMode: true });
+                        }
+                        if (action === 'save') {
+                            return saveBidDraftEmbedded(itemId, { silent: true, returnPromise: true, batchMode: true });
+                        }
+                        return submitBidEmbedded(null, itemId, { silent: true, returnPromise: true, batchMode: true });
+                    });
+
+                    Promise.all(requestPromises).then(function(results) {
+                        var report = {
+                            invalidItems: [],
+                            failedItems: [],
+                            successItems: []
+                        };
+
+                        results.forEach(function(result, index) {
+                            var itemId = quotedItemIds[index];
+                            var item = window.n88SupplierBatchState.itemData[itemId] || {};
+                            if (result && result.success) {
+                                report.successItems.push({
+                                    itemId: String(itemId),
+                                    title: item.title || ('Item #' + itemId),
+                                    message: result.message || ((result.data && result.data.message) ? result.data.message : 'Done.')
+                                });
+                            } else {
+                                report.failedItems.push({
+                                    itemId: String(itemId),
+                                    title: item.title || ('Item #' + itemId),
+                                    message: collectBatchResponseError(result, 'Request failed.')
+                                });
+                            }
+                        });
+
+                        renderBatchActionReport(action, report);
+                    });
+                }).catch(function(error) {
+                    updateBatchActionStatus(error && error.message ? error.message : 'Failed to prepare batch action.', true);
+                });
             }
 
             function renderBatchItemPanel(item) {
@@ -3278,6 +3781,15 @@ class N88_RFQ_Auth {
                     return '<img src="' + escapeBatchText(url) + '" alt="" style="width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid #333;" />';
                 }).join('') + '</div>' : '<div style="margin-top:12px; font-size:11px; color:#777; font-family:monospace;">No reference images attached.</div>';
                 return '' +
+                    '<div class="n88-batch-accordion-section" data-item-id="' + itemId + '" style="margin:0 20px 14px; border:1px solid #333; border-radius:12px; overflow:hidden; background:#0b0b0b;">' +
+                    '<button type="button" class="n88-batch-accordion-toggle" data-item-id="' + itemId + '" style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#0a0a0a; color:#ddd; border:none; border-bottom:1px solid #222; text-align:left; cursor:pointer;">' +
+                        '<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; min-width:0;">' +
+                            '<span class="n88-batch-accordion-indicator" style="color:#FF0065; font-family:monospace; font-size:11px;">[+]</span>' +
+                            '<span style="font-size:14px; color:#fff; font-family:monospace;">' + escapeBatchText(item.title || ('Item #' + itemId)) + '</span>' +
+                            '<span style="font-size:11px; color:#999; font-family:monospace;">' + escapeBatchText(item.category || '-') + ' | Qty: ' + escapeBatchText(item.quantity || '-') + '</span>' +
+                        '</div>' +
+                        '<div id="n88-batch-item-header-state-' + itemId + '" style="padding:6px 10px; border:1px solid #999; border-radius:999px; font-size:11px; font-family:monospace; flex-shrink:0;">Not Ready</div>' +
+                    '</button>' +
                     '<div class="n88-batch-item-panel" data-item-id="' + itemId + '" style="display:none; padding:20px;">' +
                         '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; margin-bottom:16px;">' +
                             '<div>' +
@@ -3317,6 +3829,7 @@ class N88_RFQ_Auth {
                             '</div>' +
                             '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>' +
                         '</div>' +
+                    '</div>' +
                     '</div>';
             }
 
@@ -3327,10 +3840,8 @@ class N88_RFQ_Auth {
                 if (!modal || !content) {
                     return;
                 }
-                var tabsHtml = '';
                 var panelsHtml = '';
                 items.forEach(function(item) {
-                    tabsHtml += '<button type="button" class="n88-batch-tab-btn" data-item-id="' + item.item_id + '" style="padding:10px 14px; background:#000; color:#aaa; border:1px solid #333; border-radius:10px; font-size:11px; font-family:monospace; cursor:pointer; white-space:nowrap;">' + escapeBatchText(item.title || ('Item #' + item.item_id)) + '</button>';
                     panelsHtml += renderBatchItemPanel(item);
                 });
                 content.innerHTML = '' +
@@ -3348,25 +3859,27 @@ class N88_RFQ_Auth {
                         '<div style="margin-bottom:8px;">RFQ Summary</div>' +
                         '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>RFQ: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Workspace Items: ' + items.length + '</span></div>' +
                     '</div>' +
-                    '<div style="padding:16px 20px; border-bottom:1px solid #333; background:#101010;">' +
-                        '<div style="padding:14px; border:1px solid #333; border-radius:10px; background:#111;">' +
-                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Shared Uploads</div>' +
-                            '<div style="font-size:11px; color:#999; line-height:1.6; font-family:monospace; margin-bottom:12px;">Upload shared references, similar projects, materials, or factory capability files for this whole proposal group.</div>' +
-                            '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
-                                '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
-                                '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload Shared Files ]</button>' +
-                            '</div>' +
-                            '<div id="n88-batch-shared-upload-list" style="margin-top:12px;"></div>' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Expand an item to fill its proposal form. Batch actions are available at the bottom.</div>' +
+                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
+                    '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
+                        '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch Actions</div>' +
+                        '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
+                            '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
+                            '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload Shared Files ]</button>' +
+                            '<button type="button" id="n88-batch-validate-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Validate All Quoted ]</button>' +
+                            '<button type="button" id="n88-batch-save-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Save Draft For All ]</button>' +
+                            '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit All Quoted ]</button>' +
                         '</div>' +
-                    '</div>' +
-                    '<div id="n88-batch-tabs-row" style="display:flex; gap:10px; padding:14px 20px; border-bottom:1px solid #333; background:#151515; overflow:auto;">' + tabsHtml + '</div>' +
-                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding-bottom:20px;">' + panelsHtml + '</div>';
+                        '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
+                        '<div id="n88-batch-shared-upload-list"></div>' +
+                    '</div>';
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
 
                 window.n88SupplierBatchState.itemData = {};
                 window.n88SupplierBatchState.itemStates = {};
                 window.n88SupplierBatchState.formLoaded = {};
+                window.n88SupplierBatchState.formLoadPromises = {};
                 items.forEach(function(item) {
                     window.n88SupplierBatchState.itemData[item.item_id] = item;
                     var host = document.getElementById('n88-batch-form-host-' + item.item_id);
@@ -3378,7 +3891,7 @@ class N88_RFQ_Auth {
                 });
                 refreshBatchSummary();
                 refreshBatchSharedUploads();
-                switchBatchProposalTab(items[0].item_id);
+                toggleBatchProposalAccordion(items[0].item_id, true);
             }
 
             function closeBatchProposalModal() {
@@ -3559,7 +4072,7 @@ class N88_RFQ_Auth {
                 var formData = new FormData();
                 formData.append('action', 'n88_get_item_messages');
                 formData.append('item_id', itemId);
-                formData.append('thread_type', 'supplier_operator');
+                formData.append('thread_type', 'designer_supplier');
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_item_messages' ); ?>');
                 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
@@ -3606,7 +4119,7 @@ class N88_RFQ_Auth {
                 var html = '';
                 sortedMessages.forEach(function(msg) {
                     var isSupplier = msg.sender_role === 'supplier';
-                    var senderName = isSupplier ? 'You' : 'Operator';
+                    var senderName = isSupplier ? 'You' : 'Designer';
                     var categoryDisplay = (msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
@@ -3846,7 +4359,7 @@ class N88_RFQ_Auth {
                 var formData = new FormData();
                 formData.append('action', 'n88_send_item_message');
                 formData.append('item_id', itemId);
-                formData.append('thread_type', 'supplier_operator');
+                formData.append('thread_type', 'designer_supplier');
                 formData.append('message_text', messageText.value.trim());
                 formData.append('category', category ? category.value : '');
                 if (selectedTags.length > 0) {
@@ -4392,11 +4905,11 @@ class N88_RFQ_Auth {
                             '<div style="margin-top: 4px; color: #fff; white-space: pre-wrap; font-size: 13px;">' + itemDesignerNotesText.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>' : ''
                         ) +
                         '</div></div>';
-                    // Support section: always open, taller box, 10px radius on input + Send
+                    // Direct designer <-> supplier support section
                     var supportSectionHTML = '<div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">' +
                         '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: flex; flex: 1; min-height: 560px; padding: 16px; background-color: #111111; border: 1px solid #555; border-radius: 10px; flex-direction: column; overflow: hidden;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-shrink: 0; flex-wrap: wrap;">' +
-                        '<div style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Support</div>' +
+                        '<div style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Designer Messages</div>' +
                         '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 170px; max-width: 100%; padding: 7px 10px; background-color: #000; color: #ccc; border: 1px solid #555; font-family: \'Courier New\', Courier, monospace; font-size: 10px; border-radius: 10px; margin-left: auto;">' +
                         '<option value="">Category</option>' +
                         '<option value="Specs">Specs</option>' +
@@ -5676,12 +6189,15 @@ class N88_RFQ_Auth {
             }
             
             // Load bid form content into the embedded section
-            function loadBidFormContent(itemId, container) {
+            function loadBidFormContent(itemId, container, onReady) {
                 container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff; font-family: monospace;">Loading bid form...</div>';
                 fetchSupplierItemDetails(itemId)
                 .then(function(data) {
                     if (!data || !data.success) {
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details: ' + (data && data.data && data.data.message ? data.data.message : 'Unknown error') + '</div>';
+                        if (typeof onReady === 'function') {
+                            onReady();
+                        }
                         return;
                     }
                     
@@ -5691,6 +6207,7 @@ class N88_RFQ_Auth {
                     container.style.width = '100%';
                     container.style.overflow = 'visible';
                     container.innerHTML = bidFormHTML;
+                    configureBatchEmbeddedForm(itemId, container);
                     
                     // Initialize form validation first
                     setTimeout(function() {
@@ -5718,6 +6235,9 @@ class N88_RFQ_Auth {
                                 window.n88BatchProposalRefreshItemState(itemId);
                             }, 250);
                         }
+                        if (typeof onReady === 'function') {
+                            onReady();
+                        }
                     }, 200);
                 })
                 .catch(function(error) {
@@ -5727,6 +6247,9 @@ class N88_RFQ_Auth {
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Server timeout. Please refresh and try again.</div>';
                     } else {
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Network error. Please try again.</div>';
+                    }
+                    if (typeof onReady === 'function') {
+                        onReady();
                     }
                 });
             }
@@ -7755,6 +8278,7 @@ class N88_RFQ_Auth {
                 
                 var isValid = true;
                 var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                clearBatchFieldHighlights(itemId);
                 
                 // 1. Video links: required min 1, max 3
                 var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
@@ -7787,6 +8311,23 @@ class N88_RFQ_Auth {
                 if (validVideoLinks < 1 || validVideoLinks > 3) {
                     isValid = false;
                 }
+                var videoError = document.getElementById('n88-video-links-error-embedded-' + itemId);
+                var videoTarget = videoLinks.length ? videoLinks[0] : document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (validVideoLinks < 1) {
+                    if (videoError) {
+                        videoError.textContent = 'At least 1 valid video link is required.';
+                        videoError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(videoTarget);
+                } else if (validVideoLinks > 3) {
+                    if (videoError) {
+                        videoError.textContent = 'Maximum 3 valid video links allowed.';
+                        videoError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(videoTarget);
+                } else if (videoError) {
+                    videoError.style.display = 'none';
+                }
                 
                 // 1.5. Bid Photos: required, min 1, max 5
                 var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
@@ -7805,12 +8346,14 @@ class N88_RFQ_Auth {
                         photosError.textContent = 'At least 2 photos are required.';
                         photosError.style.display = 'block';
                     }
+                    markBatchFieldHighlight(document.getElementById('n88-bid-photos-preview-embedded-' + itemId) || document.getElementById('n88-bid-photos-input-embedded-' + itemId));
                 } else if (bidPhotosCount > 5) {
                     isValid = false;
                     if (photosError) {
                         photosError.textContent = 'Maximum 5 photos allowed.';
                         photosError.style.display = 'block';
                     }
+                    markBatchFieldHighlight(document.getElementById('n88-bid-photos-preview-embedded-' + itemId) || document.getElementById('n88-bid-photos-input-embedded-' + itemId));
                 } else {
                     if (photosError) {
                         photosError.style.display = 'none';
@@ -7820,11 +8363,20 @@ class N88_RFQ_Auth {
                 // 2. Prototype video (optional - YES or NO)
                 var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
                 var isPrototypeYes = prototypeYes && prototypeYes.checked;
+                var timelineError = document.getElementById('n88-prototype-timeline-error-embedded-' + itemId);
+                var costError = document.getElementById('n88-prototype-cost-error-embedded-' + itemId);
                 
                 // 3. Prototype timeline required ONLY if prototype is YES
                 var timeline = form.querySelector('select[name="prototype_timeline_option"]');
                 if (isPrototypeYes && (!timeline || !timeline.value)) {
                     isValid = false;
+                    if (timelineError) {
+                        timelineError.textContent = 'Prototype timeline is required.';
+                        timelineError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(timeline);
+                } else if (timelineError) {
+                    timelineError.style.display = 'none';
                 }
                 
                 // 4. Prototype cost required ONLY if prototype is YES
@@ -7834,27 +8386,64 @@ class N88_RFQ_Auth {
                         var costValue = parseFloat(prototypeCost.value);
                         if (isNaN(costValue) || costValue < 0) {
                             isValid = false;
+                            if (costError) {
+                                costError.textContent = 'Prototype cost must be 0 or more.';
+                                costError.style.display = 'block';
+                            }
+                            markBatchFieldHighlight(prototypeCost);
                         }
                     } else {
                         isValid = false;
+                        if (costError) {
+                            costError.textContent = 'Prototype cost is required.';
+                            costError.style.display = 'block';
+                        }
+                        markBatchFieldHighlight(prototypeCost);
                     }
+                } else if (costError) {
+                    costError.style.display = 'none';
                 }
                 
                 // 5. Production lead time: non-empty
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
+                var leadTimeError = document.getElementById('n88-lead-time-error-embedded-' + itemId);
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
                     isValid = false;
+                    if (leadTimeError) {
+                        leadTimeError.textContent = 'Production lead time is required.';
+                        leadTimeError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(leadTime);
+                } else if (leadTimeError) {
+                    leadTimeError.style.display = 'none';
                 }
                 
                 // 6. Unit price: numeric > 0
                 var unitPrice = form.querySelector('input[name="unit_price"]');
+                var priceError = document.getElementById('n88-unit-price-error-embedded-' + itemId);
                 if (unitPrice && unitPrice.value) {
                     var priceValue = parseFloat(unitPrice.value);
                     if (isNaN(priceValue) || priceValue <= 0) {
                         isValid = false;
+                        if (priceError) {
+                            priceError.textContent = 'Unit price must be greater than 0.';
+                            priceError.style.display = 'block';
+                        }
+                        markBatchFieldHighlight(unitPrice);
                     }
                 } else {
                     isValid = false;
+                    if (priceError) {
+                        priceError.textContent = 'Unit price is required.';
+                        priceError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(unitPrice);
+                }
+                if (unitPrice && unitPrice.value) {
+                    var unitPriceValue = parseFloat(unitPrice.value);
+                    if (!isNaN(unitPriceValue) && unitPriceValue > 0 && priceError) {
+                        priceError.style.display = 'none';
+                    }
                 }
                 
                 // Enable/disable validate button
@@ -7867,6 +8456,15 @@ class N88_RFQ_Auth {
                         validateBtn.disabled = true;
                         validateBtn.style.opacity = '0.5';
                         validateBtn.style.cursor = 'not-allowed';
+                    }
+                }
+
+                if (isBatchEmbeddedForm(itemId)) {
+                    var item = window.n88SupplierBatchState.itemData[itemId] || {};
+                    if (item.bid_status === 'submitted' || item.bid_status === 'awarded') {
+                        setBatchItemState(itemId, 'quoted');
+                    } else {
+                        setBatchItemState(itemId, isValid ? 'ready' : 'not_ready');
                     }
                 }
                 
@@ -7979,19 +8577,21 @@ class N88_RFQ_Auth {
             }
             
             // Save bid draft function - stores draft in user meta
-            function saveBidDraftEmbedded(itemId) {
+            function saveBidDraftEmbedded(itemId, options) {
+                options = options || {};
+                var silent = !!options.silent;
                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
                 if (!form) {
-                    alert('Bid form not found.');
-                    return;
+                    if (!silent) {
+                        alert('Bid form not found.');
+                    }
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Bid form not found.' });
                 }
                 
-                // Collect form data
                 var formData = new FormData();
                 formData.append('action', 'n88_save_bid_draft');
                 formData.append('item_id', itemId);
                 
-                // Video links
                 var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
                 var videoLinksArray = [];
                 videoLinks.forEach(function(input) {
@@ -8002,18 +8602,16 @@ class N88_RFQ_Auth {
                 });
                 formData.append('video_links', JSON.stringify(videoLinksArray));
                 
-                // Bid photos (photo IDs)
                 var bidPhotoIds = [];
                 var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
                 photoIdInputs.forEach(function(input) {
-                    var photoId = parseInt(input.value);
+                    var photoId = parseInt(input.value, 10);
                     if (!isNaN(photoId) && photoId > 0) {
                         bidPhotoIds.push(photoId);
                     }
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                // Other fields
                 var prototypeVideoYes = form.querySelector('input[name="prototype_video_yes"]:checked');
                 formData.append('prototype_video_yes', prototypeVideoYes ? prototypeVideoYes.value : '');
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
@@ -8026,7 +8624,6 @@ class N88_RFQ_Auth {
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
                 appendBatchFormContext(formData, itemId);
                 
-                // Smart Alternatives (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
                 var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
                 var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
@@ -8038,7 +8635,6 @@ class N88_RFQ_Auth {
                     comparisonValues.push(cb.value);
                 });
                 
-                // Check if ANY Smart Alternatives field has a value
                 var hasCategory = smartAltCategory && smartAltCategory.value;
                 var hasFrom = smartAltFrom && smartAltFrom.value;
                 var hasTo = smartAltTo && smartAltTo.value;
@@ -8047,20 +8643,18 @@ class N88_RFQ_Auth {
                 var hasComparisons = comparisonValues.length > 0;
                 
                 if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
-                    var smartAltData = {
+                    formData.append('smart_alternatives_suggestion', JSON.stringify({
                         category: hasCategory ? smartAltCategory.value : '',
                         from: hasFrom ? smartAltFrom.value : '',
                         to: hasTo ? smartAltTo.value : '',
                         price_impact: hasPrice ? smartAltPrice.value : '',
                         lead_time_impact: hasLeadTime ? smartAltLeadTime.value : '',
                         comparison_points: hasComparisons ? comparisonValues : []
-                    };
-                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                    }));
                 }
                 
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_save_bid_draft' ); ?>');
                 
-                // Show saving indicator
                 var saveBtn = form.querySelector('button[onclick*="saveBidDraftEmbedded"]');
                 var originalText = saveBtn ? saveBtn.textContent : '';
                 if (saveBtn) {
@@ -8068,8 +8662,7 @@ class N88_RFQ_Auth {
                     saveBtn.textContent = 'Saving...';
                 }
                 
-                // Save draft via AJAX
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData,
                     credentials: 'same-origin'
@@ -8084,35 +8677,44 @@ class N88_RFQ_Auth {
                     }
                     
                     if (data.success) {
-                        // Show success message
-                        var successMsg = document.createElement('div');
-                        successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
-                        successMsg.textContent = ' Draft saved successfully';
-                        document.body.appendChild(successMsg);
-                        
-                        // Remove message after 3 seconds
-                        setTimeout(function() {
-                            if (successMsg.parentNode) {
-                                successMsg.parentNode.removeChild(successMsg);
-                            }
-                        }, 3000);
-                        
-                        // Update button text from "[ Start Bid ]" to "[ Continue Bid ]" after saving draft
+                        if (!silent) {
+                            var successMsg = document.createElement('div');
+                            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background-color: #FF0065; color: #000; border-radius: 4px; font-family: monospace; font-size: 12px; z-index: 100000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);';
+                            successMsg.textContent = ' Draft saved successfully';
+                            document.body.appendChild(successMsg);
+                            setTimeout(function() {
+                                if (successMsg.parentNode) {
+                                    successMsg.parentNode.removeChild(successMsg);
+                                }
+                            }, 3000);
+                        }
                         var toggleBtn = document.getElementById('n88-toggle-bid-form-btn-' + itemId);
                         if (toggleBtn) {
                             toggleBtn.textContent = '[ Continue Bid ]';
                         }
-                        
-                        // Update window.currentItemData to reflect draft status for button text logic
                         if (window.currentItemData && window.currentItemData.item_id == itemId) {
                             window.currentItemData.bid_status = 'draft';
                         }
                         if (typeof window.n88BatchProposalRefreshItemState === 'function') {
                             window.n88BatchProposalRefreshItemState(itemId);
                         }
-                    } else {
+                        return {
+                            success: true,
+                            itemId: itemId,
+                            data: data.data || {},
+                            message: data.data && data.data.message ? data.data.message : 'Draft saved successfully.'
+                        };
+                    }
+                    
+                    if (!silent) {
                         alert('Failed to save draft: ' + (data.data && data.data.message ? data.data.message : 'Unknown error'));
                     }
+                    return {
+                        success: false,
+                        itemId: itemId,
+                        data: data.data || {},
+                        message: data.data && data.data.message ? data.data.message : 'Failed to save draft.'
+                    };
                 })
                 .catch(function(error) {
                     if (saveBtn) {
@@ -8120,36 +8722,48 @@ class N88_RFQ_Auth {
                         saveBtn.textContent = originalText;
                     }
                     console.error('Error saving draft:', error);
-                    alert('Error saving draft. Please try again.');
+                    if (!silent) {
+                        alert('Error saving draft. Please try again.');
+                    }
+                    return {
+                        success: false,
+                        itemId: itemId,
+                        message: error && error.message ? error.message : 'Error saving draft. Please try again.'
+                    };
                 });
             }
             
-            function validateAndSubmitBidEmbedded(event, itemId) {
+            function validateAndSubmitBidEmbedded(event, itemId, options) {
+                options = options || {};
+                var silent = !!options.silent;
                 if (event) {
                     event.preventDefault();
                 }
                 
                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
-                if (!form) return false;
+                if (!form) {
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Bid form not found.' });
+                }
                 
-                // Client-side validation
                 if (!validateBidFormEmbedded(itemId)) {
-                    alert('Please complete all required fields correctly.');
-                    return false;
+                    if (!silent) {
+                        alert('Please complete all required fields correctly.');
+                    }
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Please complete all required fields correctly.' });
                 }
                 
                 if (!itemId) {
-                    alert('Item ID not found.');
-                    return false;
+                    if (!silent) {
+                        alert('Item ID not found.');
+                    }
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Item ID not found.' });
                 }
                 
-                // Collect form data
                 var formData = new FormData();
                 formData.append('action', 'n88_validate_supplier_bid');
                 formData.append('item_id', itemId);
                 
-                // Video links
-                var videoLinks = form.querySelectorAll('.n88-video-link-input');
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
                 var videoLinksArray = [];
                 videoLinks.forEach(function(input) {
                     var url = input.value.trim();
@@ -8159,18 +8773,16 @@ class N88_RFQ_Auth {
                 });
                 formData.append('video_links', JSON.stringify(videoLinksArray));
                 
-                // Bid photos
                 var bidPhotoIds = [];
                 var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
                 photoIdInputs.forEach(function(input) {
-                    var photoId = parseInt(input.value);
+                    var photoId = parseInt(input.value, 10);
                     if (!isNaN(photoId) && photoId > 0) {
                         bidPhotoIds.push(photoId);
                     }
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                // Other fields
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
@@ -8180,17 +8792,16 @@ class N88_RFQ_Auth {
                 var sampleRequiredSubmitField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredSubmitField ? sampleRequiredSubmitField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                appendBatchFormContext(formData, itemId);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
                 
-                // Disable submit button during validation
                 var submitBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
                 if (submitBtn) {
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Validating...';
                 }
                 
-                // Submit to server for validation
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData
                 })
@@ -8211,75 +8822,86 @@ class N88_RFQ_Auth {
                                 errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
                             }
                             errorHtml += '</ul></div>';
-                            
-                            if (form) {
-                                var existingError = form.querySelector('.n88-validation-errors');
-                                if (existingError) {
-                                    existingError.remove();
-                                }
-                                form.insertAdjacentHTML('afterbegin', errorHtml);
-                                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }
-                        } else {
-                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
-                        }
-                    } else {
-                        // Validation passed - show Submit Bid button
-                        var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
-                        var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
-                        
-                        if (validateBtn && submitBtn) {
-                            validateBtn.style.display = 'none';
-                            submitBtn.style.display = 'inline-block';
-                            submitBtn.disabled = false;
-                        }
-                        
-                        // Show success message
-                        if (form) {
                             var existingError = form.querySelector('.n88-validation-errors');
                             if (existingError) {
                                 existingError.remove();
                             }
-                            var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong> Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
-                                '</div>';
-                            form.insertAdjacentHTML('afterbegin', successHtml);
+                            form.insertAdjacentHTML('afterbegin', errorHtml);
                             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else if (!silent) {
+                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
                         }
-                        persistBatchItemState(itemId, 'quote', 'ready', (window.n88SupplierBatchState.itemData[itemId] || {}).bid_id || null);
+                        return {
+                            success: false,
+                            itemId: itemId,
+                            data: data.data || {},
+                            message: data.data && data.data.message ? data.data.message : 'Validation failed.'
+                        };
                     }
+                    
+                    var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                    var submitActionBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                    if (validateBtn && submitActionBtn) {
+                        validateBtn.style.display = 'none';
+                        submitActionBtn.style.display = 'inline-block';
+                        submitActionBtn.disabled = false;
+                    }
+                    
+                    var existingSummary = form.querySelector('.n88-validation-errors');
+                    if (existingSummary) {
+                        existingSummary.remove();
+                    }
+                    form.insertAdjacentHTML('afterbegin', '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;"><strong> Validation successful!</strong> Click \"Submit Proposal\" to save your bid.</div>');
+                    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    clearBatchFieldHighlights(itemId);
+                    persistBatchItemState(itemId, 'quote', 'ready', (window.n88SupplierBatchState.itemData[itemId] || {}).bid_id || null);
+                    return {
+                        success: true,
+                        itemId: itemId,
+                        data: data.data || {},
+                        message: data.data && data.data.message ? data.data.message : 'Validation successful.'
+                    };
                 })
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.textContent = 'Validate Bid';
                     }
-                    alert('Error validating bid. Please try again.');
+                    if (!silent) {
+                        alert('Error validating bid. Please try again.');
+                    }
                     console.error('Validation error:', error);
+                    return {
+                        success: false,
+                        itemId: itemId,
+                        message: error && error.message ? error.message : 'Error validating bid. Please try again.'
+                    };
                 });
-                
-                return false;
             }
             
-            function submitBidEmbedded(event, itemId) {
+            function submitBidEmbedded(event, itemId, options) {
+                options = options || {};
+                var silent = !!options.silent;
                 if (event) {
                     event.preventDefault();
                 }
                 
                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
-                if (!form) return false;
-                
-                if (!itemId) {
-                    alert('Item ID not found.');
-                    return false;
+                if (!form) {
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Bid form not found.' });
                 }
                 
-                // Collect form data
+                if (!itemId) {
+                    if (!silent) {
+                        alert('Item ID not found.');
+                    }
+                    return Promise.resolve({ success: false, itemId: itemId, message: 'Item ID not found.' });
+                }
+                
                 var formData = new FormData();
                 formData.append('action', 'n88_submit_supplier_bid');
                 formData.append('item_id', itemId);
                 
-                // Video links (use embedded class)
                 var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
                 var videoLinksArray = [];
                 videoLinks.forEach(function(input) {
@@ -8290,33 +8912,32 @@ class N88_RFQ_Auth {
                 });
                 formData.append('video_links', JSON.stringify(videoLinksArray));
                 
-                // Bid photos
                 var bidPhotoIds = [];
                 var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
                 photoIdInputs.forEach(function(input) {
-                    var photoId = parseInt(input.value);
+                    var photoId = parseInt(input.value, 10);
                     if (!isNaN(photoId) && photoId > 0) {
                         bidPhotoIds.push(photoId);
                     }
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                // Other fields
                 formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
+                formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
+                var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
+                formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
+                formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
                 
-                // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
                 var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
                 var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
                 var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
                 var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
                 var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
-                
-                // Check if ANY Smart Alternatives field has a value
                 var hasCategory = smartAltCategory && smartAltCategory.value;
                 var hasFrom = smartAltFrom && smartAltFrom.value;
                 var hasTo = smartAltTo && smartAltTo.value;
@@ -8325,28 +8946,25 @@ class N88_RFQ_Auth {
                 var hasComparisons = smartAltComparisons && smartAltComparisons.length > 0;
                 
                 if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
-                    var smartAltData = {
+                    formData.append('smart_alternatives_suggestion', JSON.stringify({
                         category: hasCategory ? smartAltCategory.value : '',
                         from: hasFrom ? smartAltFrom.value : '',
                         to: hasTo ? smartAltTo.value : '',
                         comparison_points: hasComparisons ? Array.from(smartAltComparisons).map(function(cb) { return cb.value; }) : [],
                         price_impact: hasPrice ? smartAltPrice.value : '',
                         lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
-                    };
-                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
+                    }));
                 }
-                
+                appendBatchFormContext(formData, itemId);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_submit_supplier_bid' ); ?>');
                 
-                // Disable submit button
                 var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
                 if (submitBtn) {
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Submitting...';
                 }
                 
-                // Submit to server
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData
                 })
@@ -8361,71 +8979,87 @@ class N88_RFQ_Auth {
                     
                     if (!data.success) {
                         if (data.data && data.data.errors) {
-                            var errorHtml = '<div style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
-                                '<strong style="color: #d32f2f;">Submission Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
+                            var errorHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;"><strong style="color: #d32f2f;">Submission Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
                             for (var field in data.data.errors) {
                                 errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
                             }
                             errorHtml += '</ul></div>';
-                            
-                            if (form) {
-                                var existingError = form.querySelector('.n88-validation-errors');
-                                if (existingError) {
-                                    existingError.remove();
-                                }
-                                errorHtml = errorHtml.replace('<div style="', '<div class="n88-validation-errors" style="');
-                                form.insertAdjacentHTML('afterbegin', errorHtml);
-                                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            var existingError = form.querySelector('.n88-validation-errors');
+                            if (existingError) {
+                                existingError.remove();
                             }
-                        } else {
+                            form.insertAdjacentHTML('afterbegin', errorHtml);
+                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else if (!silent) {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
                         }
-                    } else {
-                        var batchModal = document.getElementById('n88-supplier-batch-proposal-modal');
-                        var isBatchMode = batchModal && batchModal.style.display === 'block' && document.getElementById('n88-batch-form-host-' + itemId);
-                        if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData[itemId]) {
-                            window.n88SupplierBatchState.itemData[itemId].bid_status = 'submitted';
-                            if (data.data && data.data.bid_id) {
-                                window.n88SupplierBatchState.itemData[itemId].bid_id = data.data.bid_id;
-                            }
-                        }
-                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
-                            window.n88BatchProposalRefreshItemState(itemId);
-                            setTimeout(function() {
-                                window.n88BatchProposalRefreshItemState(itemId);
-                            }, 150);
-                        }
-                        if (isBatchMode) {
-                            persistBatchItemState(itemId, 'quote', 'quoted', data.data && data.data.bid_id ? data.data.bid_id : null);
-                            var host = document.getElementById('n88-batch-form-host-' + itemId);
-                            if (host) {
-                                var successBox = host.querySelector('.n88-batch-submit-success');
-                                if (!successBox) {
-                                    successBox = document.createElement('div');
-                                    successBox.className = 'n88-batch-submit-success';
-                                    successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
-                                    host.insertBefore(successBox, host.firstChild);
-                                }
-                                successBox.textContent = data.data && data.data.message ? data.data.message : 'Proposal submitted successfully.';
-                            }
-                            alert(data.data && data.data.message || 'Proposal submitted successfully!');
-                        } else {
-                            alert(data.data && data.data.message || 'Bid submitted successfully!');
-                            toggleBidForm(itemId);
-                            openBidModal(itemId, 'overview');
+                        return {
+                            success: false,
+                            itemId: itemId,
+                            data: data.data || {},
+                            message: data.data && data.data.message ? data.data.message : 'Failed to submit bid.'
+                        };
+                    }
+                    
+                    var batchModal = document.getElementById('n88-supplier-batch-proposal-modal');
+                    var isBatchMode = batchModal && batchModal.style.display === 'block' && document.getElementById('n88-batch-form-host-' + itemId);
+                    if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData[itemId]) {
+                        window.n88SupplierBatchState.itemData[itemId].bid_status = 'submitted';
+                        if (data.data && data.data.bid_id) {
+                            window.n88SupplierBatchState.itemData[itemId].bid_id = data.data.bid_id;
                         }
                     }
+                    if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                        window.n88BatchProposalRefreshItemState(itemId);
+                        setTimeout(function() {
+                            window.n88BatchProposalRefreshItemState(itemId);
+                        }, 150);
+                    }
+                    if (isBatchMode) {
+                        persistBatchItemState(itemId, 'quote', 'quoted', data.data && data.data.bid_id ? data.data.bid_id : null);
+                        var host = document.getElementById('n88-batch-form-host-' + itemId);
+                        if (host) {
+                            var successBox = host.querySelector('.n88-batch-submit-success');
+                            if (!successBox) {
+                                successBox = document.createElement('div');
+                                successBox.className = 'n88-batch-submit-success';
+                                successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
+                                host.insertBefore(successBox, host.firstChild);
+                            }
+                            successBox.textContent = data.data && data.data.message ? data.data.message : 'Proposal submitted successfully.';
+                        }
+                        if (!silent) {
+                            alert(data.data && data.data.message || 'Proposal submitted successfully!');
+                        }
+                    } else if (!silent) {
+                        alert(data.data && data.data.message || 'Bid submitted successfully!');
+                        if (typeof closeBidModal === 'function') {
+                            closeBidModal();
+                        }
+                        window.location.href = '<?php echo esc_url( home_url( '/supplier/queue' ) ); ?>';
+                    }
+                    return {
+                        success: true,
+                        itemId: itemId,
+                        data: data.data || {},
+                        message: data.data && data.data.message ? data.data.message : 'Proposal submitted successfully.'
+                    };
                 })
                 .catch(function(error) {
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.textContent = 'Submit Proposal';
                     }
-                    alert('Error submitting bid. Please try again.');
+                    if (!silent) {
+                        alert('Error submitting bid. Please try again.');
+                    }
                     console.error('Submission error:', error);
+                    return {
+                        success: false,
+                        itemId: itemId,
+                        message: error && error.message ? error.message : 'Error submitting bid. Please try again.'
+                    };
                 });
-                
-                return false;
             }
             
             // Load bid draft from user meta
@@ -9334,9 +9968,9 @@ class N88_RFQ_Auth {
                 }
 
                 document.addEventListener('click', function(e) {
-                    var tabBtn = e.target && e.target.closest ? e.target.closest('.n88-batch-tab-btn') : null;
-                    if (tabBtn) {
-                        switchBatchProposalTab(tabBtn.getAttribute('data-item-id'));
+                    var accordionBtn = e.target && e.target.closest ? e.target.closest('.n88-batch-accordion-toggle') : null;
+                    if (accordionBtn) {
+                        toggleBatchProposalAccordion(accordionBtn.getAttribute('data-item-id'));
                         return;
                     }
                     var closeBtn = e.target && e.target.closest ? e.target.closest('#n88-close-batch-proposal-modal') : null;
@@ -9349,6 +9983,21 @@ class N88_RFQ_Auth {
                         var singleItemId = openSingleBtn.getAttribute('data-item-id');
                         closeBatchProposalModal();
                         openBidModal(singleItemId, 'overview');
+                        return;
+                    }
+                    var validateAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-validate-all-btn') : null;
+                    if (validateAllBtn) {
+                        runBatchProposalAction('validate');
+                        return;
+                    }
+                    var saveAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-save-all-btn') : null;
+                    if (saveAllBtn) {
+                        runBatchProposalAction('save');
+                        return;
+                    }
+                    var submitAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-submit-all-btn') : null;
+                    if (submitAllBtn) {
+                        runBatchProposalAction('submit');
                     }
                 });
 
@@ -14007,10 +14656,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $messages_table = $wpdb->prefix . 'n88_item_messages';
         $unread_operator_messages = 0;
         $has_unread_operator_messages = false;
+        $unread_supplier_messages = 0;
+        $has_unread_supplier_messages = false;
+        $direct_supplier_id = 0;
         
         // Check if messages table exists
         $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
         if ( $messages_table_exists ) {
+            $direct_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
             // Count unread operator messages (operator messages with no designer reply after them)
                 $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
@@ -14028,6 +14681,29 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     $item_id
                 ) ) );
             $has_unread_operator_messages = $unread_operator_messages > 0;
+
+            if ( $direct_supplier_id > 0 ) {
+                $unread_supplier_messages = intval( $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(DISTINCT m.message_id)
+                    FROM {$messages_table} m
+                    WHERE m.item_id = %d
+                    AND m.thread_type = 'designer_supplier'
+                    AND m.sender_role = 'supplier'
+                    AND m.supplier_id = %d
+                    AND NOT EXISTS (
+                        SELECT 1 FROM {$messages_table} m2
+                        WHERE m2.item_id = m.item_id
+                        AND m2.thread_type = 'designer_supplier'
+                        AND m2.sender_role = 'designer'
+                        AND m2.supplier_id = m.supplier_id
+                        AND m2.created_at > m.created_at
+                    )",
+                    $item_id,
+                    $direct_supplier_id
+                ) ) );
+                $has_unread_supplier_messages = $unread_supplier_messages > 0;
+            }
+
             // Fix #13/#26: If operator marked resolved (designer thread = item_id, bid_id NULL), clear Action Required
             if ( $has_unread_operator_messages ) {
                 $resolutions_table = $wpdb->prefix . 'n88_rfq_case_resolutions';
@@ -14406,6 +15082,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
             'has_unread_operator_messages' => $has_unread_operator_messages, // Action Required: Unread operator messages
             'unread_operator_messages' => $unread_operator_messages, // Count of unread messages
+            'has_unread_supplier_messages' => $has_unread_supplier_messages,
+            'unread_supplier_messages' => $unread_supplier_messages,
+            'direct_supplier_id' => $direct_supplier_id,
             'has_prototype_payment' => $has_prototype_payment, // Commit 2.3.9.1C: Has prototype payment request
             'prototype_payment_id' => $prototype_payment_id, // Commit 2.3.9.2A: Payment record id for CAD actions
             'prototype_payment_bid_id' => $prototype_payment_bid_id, // Commit 2.3.9.2A
@@ -14439,7 +15118,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'deposit_sent_note'   => isset( $meta['deposit_sent_note'] ) ? $meta['deposit_sent_note'] : '',
             'deposit_sent_at'     => isset( $meta['deposit_sent_at'] ) ? $meta['deposit_sent_at'] : null,
             // Action Required: so card updates when operator opens modal (e.g. review payment proof)
-            'action_required' => $has_unread_operator_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
+            'action_required' => $has_unread_operator_messages || $has_unread_supplier_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
         ) );
     }
 
@@ -14655,7 +15334,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         // Validation passed (but NO database writes in 2.3.3)
         wp_send_json_success( array(
-            'message' => 'Bid validation successful. (Note: Bid is not saved yet - this will be implemented in Commit 2.3.5)',
+            'message' => 'Bid validation successful. (Note: Bid is not saved yet)',
         ) );
     }
 
@@ -16913,8 +17592,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $meta_value = wp_json_encode( $draft_data );
         
         $updated = update_user_meta( $current_user->ID, $meta_key, $meta_value );
+        $existing_meta_value = get_user_meta( $current_user->ID, $meta_key, true );
 
-        if ( $updated === false ) {
+        if ( $updated === false && $existing_meta_value !== $meta_value ) {
             wp_send_json_error( array( 'message' => 'Failed to save draft. Please try again.' ) );
         }
 
@@ -22436,6 +23116,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
+        $requested_supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
         if ( $thread_type === 'designer_supplier' ) {
             $this->ensure_supplier_proposal_workspace_support();
         }
@@ -22507,7 +23188,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     wp_send_json_error( array( 'message' => 'Access denied. You can only view messages for your own RFQ items.' ), 403 );
                     return;
                 }
+                if ( ! $requested_supplier_id ) {
+                    $requested_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
+                }
+                if ( ! $requested_supplier_id ) {
+                    wp_send_json_error( array( 'message' => 'No supplier is linked to this item yet for direct messaging.' ), 404 );
+                    return;
+                }
                 $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', $current_user->ID );
+                $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $requested_supplier_id );
             } else {
                 wp_send_json_error( array( 'message' => 'Access denied. Designer or Supplier only.' ) );
                 return;
@@ -22527,6 +23216,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         );
 
         $response = array( 'messages' => $messages );
+        if ( $thread_type === 'designer_supplier' ) {
+            if ( $is_supplier ) {
+                $response['supplier_id'] = (int) $current_user->ID;
+            } elseif ( $requested_supplier_id ) {
+                $response['supplier_id'] = (int) $requested_supplier_id;
+            }
+        }
 
         // Supplier thread: add flags for "Mark as clarified" button
         if ( $thread_type === 'supplier_operator' && $is_supplier && ! empty( $messages ) ) {
@@ -22781,10 +23477,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $designer_id = $current_user->ID;
                 $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
                 if ( ! $supplier_id ) {
-                    $supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
-                        "SELECT supplier_id FROM {$messages_table} WHERE item_id = %d AND thread_type = 'designer_supplier' ORDER BY created_at DESC LIMIT 1",
-                        $item_id
-                    ) );
+                    $supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
+                }
+                if ( $supplier_id && ! $this->supplier_has_route_to_item( $item_id, $supplier_id ) ) {
+                    $supplier_id = 0;
                 }
             }
         }
