@@ -57,6 +57,9 @@ class N88_RFQ_Auth {
         
         // Commit 2.3.2: Supplier RFQ detail view (read-only)
         add_action( 'wp_ajax_n88_get_supplier_item_details', array( $this, 'ajax_get_supplier_item_details' ) );
+        add_action( 'wp_ajax_n88_get_supplier_batch_workspace', array( $this, 'ajax_get_supplier_batch_workspace' ) );
+        add_action( 'wp_ajax_n88_save_supplier_batch_state', array( $this, 'ajax_save_supplier_batch_state' ) );
+        add_action( 'wp_ajax_n88_upload_supplier_batch_shared_assets', array( $this, 'ajax_upload_supplier_batch_shared_assets' ) );
         add_action( 'wp_ajax_n88_get_item_rfq_state', array( $this, 'ajax_get_item_rfq_state' ) );
         
         // Commit 2.3.3: Supplier bid validation (no persistence)
@@ -196,6 +199,380 @@ class N88_RFQ_Auth {
         }
 
         return (int) $wireframe_user->ID;
+    }
+
+    /**
+     * Commit 3.C.14: Ensure additive tables/columns needed by the unified supplier proposal workspace.
+     */
+    private function ensure_supplier_proposal_workspace_support() {
+        global $wpdb;
+
+        static $workspace_support_ready = false;
+        if ( $workspace_support_ready ) {
+            return;
+        }
+
+        $charset_collate     = $wpdb->get_charset_collate();
+        $groups_table        = $wpdb->prefix . 'n88_supplier_proposal_groups';
+        $group_items_table   = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        $group_uploads_table = $wpdb->prefix . 'n88_supplier_proposal_group_uploads';
+        $messages_table      = $wpdb->prefix . 'n88_item_messages';
+
+        $groups_table_exists        = $wpdb->get_var( "SHOW TABLES LIKE '{$groups_table}'" ) === $groups_table;
+        $group_items_table_exists   = $wpdb->get_var( "SHOW TABLES LIKE '{$group_items_table}'" ) === $group_items_table;
+        $group_uploads_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$group_uploads_table}'" ) === $group_uploads_table;
+
+        if ( ! $groups_table_exists || ! $group_items_table_exists || ! $group_uploads_table_exists ) {
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+            dbDelta(
+                "CREATE TABLE {$groups_table} (
+                    proposal_group_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    supplier_id BIGINT UNSIGNED NOT NULL,
+                    workspace_key VARCHAR(190) NOT NULL,
+                    workspace_label VARCHAR(255) NULL,
+                    rfq_reference VARCHAR(64) NULL,
+                    designer_id BIGINT UNSIGNED NULL,
+                    project_id BIGINT UNSIGNED NULL,
+                    item_count INT UNSIGNED NOT NULL DEFAULT 0,
+                    status VARCHAR(30) NOT NULL DEFAULT 'draft',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY  (proposal_group_id),
+                    UNIQUE KEY uq_supplier_workspace (supplier_id, workspace_key),
+                    KEY idx_supplier_status (supplier_id, status),
+                    KEY idx_designer_project (designer_id, project_id)
+                ) {$charset_collate};"
+            );
+
+            dbDelta(
+                "CREATE TABLE {$group_items_table} (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    proposal_group_id BIGINT UNSIGNED NOT NULL,
+                    item_id BIGINT UNSIGNED NOT NULL,
+                    supplier_id BIGINT UNSIGNED NOT NULL,
+                    quote_decision VARCHAR(20) NOT NULL DEFAULT 'quote',
+                    item_state VARCHAR(20) NOT NULL DEFAULT 'not_ready',
+                    linked_bid_id BIGINT UNSIGNED NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY  (id),
+                    UNIQUE KEY uq_group_item_supplier (proposal_group_id, item_id, supplier_id),
+                    KEY idx_group_state (proposal_group_id, item_state),
+                    KEY idx_supplier_item (supplier_id, item_id)
+                ) {$charset_collate};"
+            );
+
+            dbDelta(
+                "CREATE TABLE {$group_uploads_table} (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    proposal_group_id BIGINT UNSIGNED NOT NULL,
+                    supplier_id BIGINT UNSIGNED NOT NULL,
+                    attachment_id BIGINT UNSIGNED NULL,
+                    file_url VARCHAR(500) NOT NULL,
+                    file_name VARCHAR(255) NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY  (id),
+                    KEY idx_group_supplier (proposal_group_id, supplier_id),
+                    KEY idx_attachment (attachment_id)
+                ) {$charset_collate};"
+            );
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $thread_type_col = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'thread_type'",
+                DB_NAME,
+                $messages_table
+            ) );
+
+            if ( $thread_type_col && strpos( $thread_type_col, 'designer_supplier' ) === false ) {
+                $wpdb->query( "ALTER TABLE {$messages_table} MODIFY COLUMN thread_type ENUM('supplier_operator','designer_operator','designer_supplier') NOT NULL" );
+            }
+        }
+
+        $workspace_support_ready = true;
+    }
+
+    /**
+     * Commit 3.C.14: Normalize incoming item IDs from AJAX.
+     *
+     * @param mixed $raw_ids Raw POST value.
+     * @return array
+     */
+    private function normalize_supplier_batch_item_ids( $raw_ids ) {
+        if ( is_string( $raw_ids ) ) {
+            $decoded = json_decode( wp_unslash( $raw_ids ), true );
+            if ( is_array( $decoded ) ) {
+                $raw_ids = $decoded;
+            } else {
+                $raw_ids = array_filter( array_map( 'trim', explode( ',', $raw_ids ) ) );
+            }
+        }
+
+        if ( ! is_array( $raw_ids ) ) {
+            return array();
+        }
+
+        $item_ids = array_values( array_unique( array_filter( array_map( 'absint', $raw_ids ) ) ) );
+        sort( $item_ids );
+        return $item_ids;
+    }
+
+    /**
+     * Commit 3.C.14: Build or fetch a proposal-group workspace for the supplier.
+     *
+     * @param int   $supplier_id Supplier user ID.
+     * @param array $item_ids    Selected item IDs.
+     * @return array|WP_Error
+     */
+    private function get_or_create_supplier_batch_workspace( $supplier_id, $item_ids ) {
+        global $wpdb;
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        $supplier_id        = absint( $supplier_id );
+        $item_ids           = $this->normalize_supplier_batch_item_ids( $item_ids );
+        $items_table        = $wpdb->prefix . 'n88_items';
+        $projects_table     = $wpdb->prefix . 'n88_projects';
+        $groups_table       = $wpdb->prefix . 'n88_supplier_proposal_groups';
+        $group_items_table  = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        $group_uploads_table = $wpdb->prefix . 'n88_supplier_proposal_group_uploads';
+
+        if ( ! $supplier_id || empty( $item_ids ) ) {
+            return new WP_Error( 'invalid_batch_workspace', 'No valid RFQ items were provided.' );
+        }
+
+        $accessible_items = array();
+        foreach ( $item_ids as $item_id ) {
+            if ( ! $this->supplier_has_route_to_item( $item_id, $supplier_id ) ) {
+                continue;
+            }
+
+            $item_row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id, title, owner_user_id, project_id FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+                $item_id
+            ), ARRAY_A );
+
+            if ( $item_row ) {
+                $accessible_items[] = $item_row;
+            }
+        }
+
+        if ( empty( $accessible_items ) ) {
+            return new WP_Error( 'no_accessible_items', 'No accessible RFQ items were found for this workspace.' );
+        }
+
+        $normalized_ids = array_map( 'intval', wp_list_pluck( $accessible_items, 'id' ) );
+        sort( $normalized_ids );
+        $workspace_key = md5( implode( ':', $normalized_ids ) );
+
+        $group = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$groups_table} WHERE supplier_id = %d AND workspace_key = %s LIMIT 1",
+            $supplier_id,
+            $workspace_key
+        ), ARRAY_A );
+
+        $designer_ids = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $accessible_items, 'owner_user_id' ) ) ) ) );
+        $project_ids  = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $accessible_items, 'project_id' ) ) ) ) );
+        $designer_id  = count( $designer_ids ) === 1 ? $designer_ids[0] : 0;
+        $project_id   = count( $project_ids ) === 1 ? $project_ids[0] : 0;
+
+        $designer_label = 'Multiple Designers';
+        if ( count( $designer_ids ) === 1 ) {
+            $designer = get_userdata( $designer_ids[0] );
+            $designer_label = $designer ? $designer->display_name : 'Designer #' . $designer_ids[0];
+        }
+
+        $project_label = 'Multiple Projects';
+        if ( count( $project_ids ) === 1 ) {
+            $project_label = $wpdb->get_var( $wpdb->prepare(
+                "SELECT name FROM {$projects_table} WHERE id = %d LIMIT 1",
+                $project_ids[0]
+            ) );
+            if ( ! $project_label ) {
+                $project_label = 'Project #' . $project_ids[0];
+            }
+        }
+
+        $workspace_label = count( $normalized_ids ) === 1 ? 'Single Item Proposal Workspace' : 'Multi-Item Proposal Workspace';
+        $now             = current_time( 'mysql' );
+
+        if ( ! $group ) {
+            $wpdb->insert(
+                $groups_table,
+                array(
+                    'supplier_id'     => $supplier_id,
+                    'workspace_key'   => $workspace_key,
+                    'workspace_label' => $workspace_label,
+                    'designer_id'     => $designer_id ? $designer_id : null,
+                    'project_id'      => $project_id ? $project_id : null,
+                    'item_count'      => count( $normalized_ids ),
+                    'status'          => 'draft',
+                    'created_at'      => $now,
+                    'updated_at'      => $now,
+                ),
+                array( '%d', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s' )
+            );
+
+            $proposal_group_id = (int) $wpdb->insert_id;
+            $rfq_reference     = 'RFQ-GROUP-' . $proposal_group_id;
+
+            $wpdb->update(
+                $groups_table,
+                array(
+                    'rfq_reference'   => $rfq_reference,
+                    'workspace_label' => $workspace_label,
+                    'designer_id'     => $designer_id ? $designer_id : null,
+                    'project_id'      => $project_id ? $project_id : null,
+                    'item_count'      => count( $normalized_ids ),
+                    'updated_at'      => $now,
+                ),
+                array( 'proposal_group_id' => $proposal_group_id ),
+                array( '%s', '%s', '%d', '%d', '%d', '%s' ),
+                array( '%d' )
+            );
+
+            $group = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$groups_table} WHERE proposal_group_id = %d LIMIT 1",
+                $proposal_group_id
+            ), ARRAY_A );
+        } else {
+            $proposal_group_id = (int) $group['proposal_group_id'];
+            $rfq_reference     = ! empty( $group['rfq_reference'] ) ? $group['rfq_reference'] : 'RFQ-GROUP-' . $proposal_group_id;
+
+            $wpdb->update(
+                $groups_table,
+                array(
+                    'workspace_label' => $workspace_label,
+                    'rfq_reference'   => $rfq_reference,
+                    'designer_id'     => $designer_id ? $designer_id : null,
+                    'project_id'      => $project_id ? $project_id : null,
+                    'item_count'      => count( $normalized_ids ),
+                    'updated_at'      => $now,
+                ),
+                array( 'proposal_group_id' => $proposal_group_id ),
+                array( '%s', '%s', '%d', '%d', '%d', '%s' ),
+                array( '%d' )
+            );
+        }
+
+        $group_items_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT item_id, quote_decision, item_state, linked_bid_id FROM {$group_items_table} WHERE proposal_group_id = %d AND supplier_id = %d",
+            $proposal_group_id,
+            $supplier_id
+        ), ARRAY_A );
+
+        $existing_item_ids = array();
+        foreach ( $group_items_rows as $row ) {
+            $existing_item_ids[] = (int) $row['item_id'];
+        }
+        foreach ( $normalized_ids as $item_id ) {
+            if ( ! in_array( (int) $item_id, $existing_item_ids, true ) ) {
+                $this->upsert_supplier_batch_item_state( $proposal_group_id, $supplier_id, $item_id, 'quote', 'not_ready', null );
+            }
+        }
+        if ( count( $existing_item_ids ) !== count( $normalized_ids ) ) {
+            $group_items_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT item_id, quote_decision, item_state, linked_bid_id FROM {$group_items_table} WHERE proposal_group_id = %d AND supplier_id = %d",
+                $proposal_group_id,
+                $supplier_id
+            ), ARRAY_A );
+        }
+
+        $group_items = array();
+        foreach ( $group_items_rows as $row ) {
+            $group_items[ (int) $row['item_id'] ] = array(
+                'quote_decision' => ! empty( $row['quote_decision'] ) ? $row['quote_decision'] : 'quote',
+                'item_state'     => ! empty( $row['item_state'] ) ? $row['item_state'] : 'not_ready',
+                'linked_bid_id'  => ! empty( $row['linked_bid_id'] ) ? (int) $row['linked_bid_id'] : null,
+            );
+        }
+
+        $shared_uploads_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, attachment_id, file_url, file_name, created_at FROM {$group_uploads_table} WHERE proposal_group_id = %d AND supplier_id = %d ORDER BY created_at ASC",
+            $proposal_group_id,
+            $supplier_id
+        ), ARRAY_A );
+
+        $shared_uploads = array();
+        foreach ( $shared_uploads_rows as $upload ) {
+            $shared_uploads[] = array(
+                'id'            => (int) $upload['id'],
+                'attachment_id' => ! empty( $upload['attachment_id'] ) ? (int) $upload['attachment_id'] : null,
+                'file_url'      => esc_url_raw( $upload['file_url'] ),
+                'file_name'     => sanitize_file_name( $upload['file_name'] ),
+                'created_at'    => $upload['created_at'],
+            );
+        }
+
+        return array(
+            'proposal_group_id' => (int) $proposal_group_id,
+            'rfq_reference'     => $rfq_reference,
+            'workspace_label'   => $workspace_label,
+            'designer_name'     => $designer_label,
+            'project_name'      => $project_label,
+            'item_ids'          => $normalized_ids,
+            'item_count'        => count( $normalized_ids ),
+            'item_states'       => $group_items,
+            'shared_uploads'    => $shared_uploads,
+        );
+    }
+
+    /**
+     * Commit 3.C.14: Upsert supplier decision/state for an item in a proposal workspace.
+     */
+    private function upsert_supplier_batch_item_state( $proposal_group_id, $supplier_id, $item_id, $quote_decision = 'quote', $item_state = 'not_ready', $linked_bid_id = null ) {
+        global $wpdb;
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        $proposal_group_id = absint( $proposal_group_id );
+        $supplier_id       = absint( $supplier_id );
+        $item_id           = absint( $item_id );
+        $linked_bid_id     = $linked_bid_id ? absint( $linked_bid_id ) : null;
+        $quote_decision    = in_array( $quote_decision, array( 'quote', 'skip' ), true ) ? $quote_decision : 'quote';
+        $allowed_states    = array( 'quoted', 'ready', 'not_ready', 'not_quoted' );
+        $item_state        = in_array( $item_state, $allowed_states, true ) ? $item_state : 'not_ready';
+
+        if ( ! $proposal_group_id || ! $supplier_id || ! $item_id ) {
+            return false;
+        }
+
+        $group_items_table = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        $existing          = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$group_items_table} WHERE proposal_group_id = %d AND supplier_id = %d AND item_id = %d LIMIT 1",
+            $proposal_group_id,
+            $supplier_id,
+            $item_id
+        ) );
+
+        $payload = array(
+            'proposal_group_id' => $proposal_group_id,
+            'item_id'           => $item_id,
+            'supplier_id'       => $supplier_id,
+            'quote_decision'    => $quote_decision,
+            'item_state'        => $item_state,
+            'linked_bid_id'     => $linked_bid_id,
+            'updated_at'        => current_time( 'mysql' ),
+        );
+
+        if ( $existing ) {
+            return false !== $wpdb->update(
+                $group_items_table,
+                $payload,
+                array( 'id' => (int) $existing ),
+                array( '%d', '%d', '%d', '%s', '%s', '%d', '%s' ),
+                array( '%d' )
+            );
+        }
+
+        $payload['created_at'] = current_time( 'mysql' );
+        return false !== $wpdb->insert(
+            $group_items_table,
+            $payload,
+            array( '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%s' )
+        );
     }
 
     /**
@@ -2337,12 +2714,23 @@ class N88_RFQ_Auth {
                 <h2 class="n88-supplier-queue-section-title">Routed Items (Anonymous RFQs)</h2>
                 <p class="n88-supplier-queue-items-desc">Supplier sees ONLY items routed to them</p>
                 <p class="n88-supplier-queue-items-desc">No designer identity shown anywhere</p>
-            
+                <div id="n88-supplier-batch-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:16px 0; padding:14px 16px; border:1px solid #555; border-radius:10px; background:#111;">
+                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                        <label style="display:inline-flex; align-items:center; gap:8px; color:#fff; font-size:12px; font-family:monospace; cursor:pointer;">
+                            <input type="checkbox" id="n88-supplier-select-all-batch" style="accent-color:#FF0065; width:16px; height:16px;" />
+                            <span>Select visible items for batch proposal</span>
+                        </label>
+                        <span id="n88-supplier-batch-selection-count" style="font-size:11px; color:#aaa; font-family:monospace;">0 selected</span>
+                    </div>
+                    <button type="button" id="n88-open-batch-proposal-modal" disabled style="padding:10px 18px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:10px; font-size:12px; font-weight:600; cursor:not-allowed; font-family:monospace; opacity:.5;">[ Batch Proposal ]</button>
+                </div>
+             
             <!-- Items Table -->
             <div style="border: 1px solid #fff; overflow-x: auto;">
                 <table class="n88-supplier-queue-table">
                     <thead>
                         <tr>
+                            <th style="width:52px;">Pick</th>
                             <th>Item</th>
                             <th>Category</th>
                             <th>Action</th>
@@ -2351,7 +2739,7 @@ class N88_RFQ_Auth {
                     <tbody>
                         <?php if ( empty( $paginated_items ) ) : ?>
                             <tr>
-                                <td colspan="3" class="n88-supplier-queue-empty">No items found matching the selected filters.</td>
+                                <td colspan="4" class="n88-supplier-queue-empty">No items found matching the selected filters.</td>
                             </tr>
                         <?php else : ?>
                             <?php foreach ( $paginated_items as $item_id => $item_data ) : 
@@ -2397,6 +2785,22 @@ class N88_RFQ_Auth {
                                 }
                             ?>
                                 <tr>
+                                    <td style="text-align:center;">
+                                        <?php if ( ! $is_expired ) : ?>
+                                            <input
+                                                type="checkbox"
+                                                class="n88-supplier-batch-item-checkbox"
+                                                value="<?php echo esc_attr( $item_id ); ?>"
+                                                data-item-id="<?php echo esc_attr( $item_id ); ?>"
+                                                data-item-title="<?php echo esc_attr( $item_title ); ?>"
+                                                data-category="<?php echo esc_attr( $category ); ?>"
+                                                data-action-badge="<?php echo esc_attr( $item_data['action_badge'] ); ?>"
+                                                style="accent-color:#FF0065; width:16px; height:16px; cursor:pointer;"
+                                            />
+                                        <?php else : ?>
+                                            <span style="color:#666;">-</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <div style="display: flex; align-items: center; gap: 12px;">
                                             <?php if ( $thumbnail_url ) : ?>
@@ -2565,6 +2969,12 @@ class N88_RFQ_Auth {
                 <!-- Modal content will be populated by JavaScript -->
             </div>
         </div>
+
+        <div id="n88-supplier-batch-proposal-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:10006; overflow:hidden;">
+            <div id="n88-supplier-batch-proposal-modal-content" style="position:fixed; top:20px; left:40px; right:40px; bottom:20px; background:#3C3C3C; border:1px solid #555; border-radius:12px; box-shadow:0 8px 30px rgba(255,0,101,.18); overflow-x:hidden; overflow-y:auto;">
+                <!-- Batch proposal modal content injected by JavaScript -->
+            </div>
+        </div>
         
         <!-- Supplier Image Lightbox (Commit 2.3.5.1) -->
         <div id="n88-supplier-image-lightbox" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.9); z-index: 10004; overflow: hidden; cursor: pointer;" onclick="closeSupplierImageLightbox(event);">
@@ -2578,6 +2988,463 @@ class N88_RFQ_Auth {
         
         <script>
         (function() {
+            window.n88SupplierBatchState = {
+                selectedItems: {},
+                itemData: {},
+                itemStates: {},
+                activeItemId: null,
+                workspace: {},
+                sharedUploads: [],
+                detailPromises: {},
+                detailCache: {},
+                formLoaded: {}
+            };
+
+            function fetchSupplierItemDetails(itemId) {
+                var state = window.n88SupplierBatchState;
+                if (state.detailCache && state.detailCache[itemId]) {
+                    return Promise.resolve({
+                        success: true,
+                        data: state.detailCache[itemId]
+                    });
+                }
+                if (state.detailPromises && state.detailPromises[itemId]) {
+                    return state.detailPromises[itemId];
+                }
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_item_details');
+                formData.append('item_id', itemId);
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
+                state.detailPromises[itemId] = fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                }).then(function(result) {
+                    if (result && result.success && result.data) {
+                        state.detailCache[itemId] = result.data;
+                    }
+                    return result;
+                }).finally(function() {
+                    delete state.detailPromises[itemId];
+                });
+                return state.detailPromises[itemId];
+            }
+
+            function escapeBatchText(value) {
+                return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function fetchBatchWorkspace(itemIds) {
+                var formData = new FormData();
+                formData.append('action', 'n88_get_supplier_batch_workspace');
+                formData.append('item_ids', JSON.stringify(itemIds || []));
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_batch_workspace' ); ?>');
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function persistBatchItemState(itemId, quoteDecision, itemState, linkedBidId) {
+                var workspace = window.n88SupplierBatchState.workspace || {};
+                if (!workspace.proposal_group_id) {
+                    return Promise.resolve();
+                }
+                var formData = new FormData();
+                formData.append('action', 'n88_save_supplier_batch_state');
+                formData.append('proposal_group_id', workspace.proposal_group_id);
+                formData.append('item_id', itemId);
+                formData.append('quote_decision', quoteDecision || 'quote');
+                formData.append('item_state', itemState || 'not_ready');
+                if (linkedBidId) {
+                    formData.append('linked_bid_id', linkedBidId);
+                }
+                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_save_supplier_batch_state' ); ?>');
+                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function(response) {
+                    return response.json();
+                }).then(function(result) {
+                    if (result && result.success) {
+                        if (!window.n88SupplierBatchState.workspace.item_states) {
+                            window.n88SupplierBatchState.workspace.item_states = {};
+                        }
+                        window.n88SupplierBatchState.workspace.item_states[itemId] = {
+                            quote_decision: quoteDecision || 'quote',
+                            item_state: itemState || 'not_ready',
+                            linked_bid_id: linkedBidId || null
+                        };
+                    }
+                    return result;
+                });
+            }
+
+            function appendBatchFormContext(formData, itemId) {
+                var workspace = window.n88SupplierBatchState.workspace || {};
+                if (!workspace.proposal_group_id) {
+                    return;
+                }
+                var quoteChoice = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"]:checked');
+                formData.append('proposal_group_id', workspace.proposal_group_id);
+                formData.append('batch_quote_decision', quoteChoice ? quoteChoice.value : 'quote');
+                formData.append('batch_item_state', detectBatchItemState(itemId));
+            }
+
+            function refreshBatchSharedUploads() {
+                var target = document.getElementById('n88-batch-shared-upload-list');
+                if (!target) {
+                    return;
+                }
+                var uploads = window.n88SupplierBatchState.sharedUploads || [];
+                if (!uploads.length) {
+                    target.innerHTML = '<div style="color:#777; font-size:11px; font-family:monospace;">No shared references uploaded yet.</div>';
+                    return;
+                }
+                target.innerHTML = uploads.map(function(upload) {
+                    return '<a href="' + escapeBatchText(upload.file_url) + '" target="_blank" rel="noopener" style="display:block; color:#7dc3ff; font-size:11px; text-decoration:none; font-family:monospace; margin-bottom:6px;">' + escapeBatchText(upload.file_name || 'Attachment') + '</a>';
+                }).join('');
+            }
+
+            function getBatchSelectionCount() {
+                return Object.keys(window.n88SupplierBatchState.selectedItems || {}).length;
+            }
+
+            function refreshBatchSelectionUI() {
+                var count = getBatchSelectionCount();
+                var countEl = document.getElementById('n88-supplier-batch-selection-count');
+                var openBtn = document.getElementById('n88-open-batch-proposal-modal');
+                var checkboxes = document.querySelectorAll('.n88-supplier-batch-item-checkbox');
+                var selectAll = document.getElementById('n88-supplier-select-all-batch');
+                if (countEl) {
+                    countEl.textContent = count + ' selected';
+                }
+                if (openBtn) {
+                    openBtn.disabled = count === 0;
+                    openBtn.style.opacity = count === 0 ? '0.5' : '1';
+                    openBtn.style.cursor = count === 0 ? 'not-allowed' : 'pointer';
+                    openBtn.style.borderColor = count === 0 ? '#555' : '#FF0065';
+                }
+                if (selectAll && checkboxes.length) {
+                    var checkedCount = 0;
+                    checkboxes.forEach(function(cb) {
+                        if (cb.checked) {
+                            checkedCount++;
+                        }
+                    });
+                    selectAll.checked = checkedCount > 0 && checkedCount === checkboxes.length;
+                    selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+                }
+            }
+
+            function setBatchItemState(itemId, state) {
+                var normalized = state || 'not_ready';
+                window.n88SupplierBatchState.itemStates[itemId] = normalized;
+                var chip = document.getElementById('n88-batch-item-state-' + itemId);
+                if (chip) {
+                    var label = 'Not Ready';
+                    var bg = '#2a2a2a';
+                    var color = '#bbb';
+                    if (normalized === 'quoted') {
+                        label = 'Quoted';
+                        bg = '#032b17';
+                        color = '#7dffb1';
+                    } else if (normalized === 'not_quoted') {
+                        label = 'Not Quoted';
+                        bg = '#2a1608';
+                        color = '#ffb37d';
+                    } else if (normalized === 'ready') {
+                        label = 'Ready to Send';
+                        bg = '#1a1f00';
+                        color = '#f0ff7d';
+                    }
+                    chip.textContent = label;
+                    chip.style.backgroundColor = bg;
+                    chip.style.color = color;
+                    chip.style.borderColor = color;
+                }
+            }
+
+            function detectBatchItemState(itemId) {
+                var quoteYes = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"][value="quote"]');
+                var quoteNo = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"][value="skip"]');
+                if (quoteNo && quoteNo.checked) {
+                    return 'not_quoted';
+                }
+                var item = window.n88SupplierBatchState.itemData[itemId] || {};
+                if (item.bid_status === 'submitted' || item.bid_status === 'awarded') {
+                    return 'quoted';
+                }
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
+                if (submitBtn && submitBtn.style.display !== 'none' && !submitBtn.disabled) {
+                    return 'ready';
+                }
+                return 'not_ready';
+            }
+
+            function refreshSingleBatchItemState(itemId) {
+                var detected = detectBatchItemState(itemId);
+                setBatchItemState(itemId, detected);
+                refreshBatchSummary();
+            }
+
+            function refreshBatchSummary() {
+                var states = window.n88SupplierBatchState.itemStates || {};
+                var counts = { quoted: 0, ready: 0, not_ready: 0, not_quoted: 0 };
+                Object.keys(states).forEach(function(itemId) {
+                    var state = states[itemId] || 'not_ready';
+                    if (counts[state] !== undefined) {
+                        counts[state]++;
+                    }
+                });
+                var summary = document.getElementById('n88-batch-summary-counts');
+                if (summary) {
+                    summary.innerHTML =
+                        '<span style="padding:4px 8px; border:1px solid #7dffb1; border-radius:999px; color:#7dffb1;">Quoted: ' + counts.quoted + '</span>' +
+                        '<span style="padding:4px 8px; border:1px solid #f0ff7d; border-radius:999px; color:#f0ff7d;">Ready: ' + counts.ready + '</span>' +
+                        '<span style="padding:4px 8px; border:1px solid #aaa; border-radius:999px; color:#aaa;">Not Ready: ' + counts.not_ready + '</span>' +
+                        '<span style="padding:4px 8px; border:1px solid #ffb37d; border-radius:999px; color:#ffb37d;">Not Quoted: ' + counts.not_quoted + '</span>';
+                }
+                refreshBatchSharedUploads();
+            }
+
+            function switchBatchProposalTab(itemId) {
+                window.n88SupplierBatchState.activeItemId = itemId;
+                var tabs = document.querySelectorAll('.n88-batch-tab-btn');
+                var panels = document.querySelectorAll('.n88-batch-item-panel');
+                tabs.forEach(function(tab) {
+                    var isActive = tab.getAttribute('data-item-id') === String(itemId);
+                    tab.style.backgroundColor = isActive ? '#1a1a1a' : '#000';
+                    tab.style.borderColor = isActive ? '#FF0065' : '#333';
+                    tab.style.color = isActive ? '#FF0065' : '#aaa';
+                });
+                panels.forEach(function(panel) {
+                    panel.style.display = panel.getAttribute('data-item-id') === String(itemId) ? 'block' : 'none';
+                });
+                ensureBatchFormLoaded(itemId);
+            }
+
+            function ensureBatchFormLoaded(itemId) {
+                var state = window.n88SupplierBatchState;
+                if (state.formLoaded && state.formLoaded[itemId]) {
+                    return;
+                }
+                var host = document.getElementById('n88-batch-form-host-' + itemId);
+                if (!host) {
+                    return;
+                }
+                state.formLoaded[itemId] = true;
+                loadBidFormContent(itemId, host);
+            }
+
+            function renderBatchItemPanel(item) {
+                var itemId = item.item_id;
+                var dimsText = '-';
+                if (item.dimensions) {
+                    var w = item.dimensions.width || item.dimensions.w || '-';
+                    var d = item.dimensions.depth || item.dimensions.d || '-';
+                    var h = item.dimensions.height || item.dimensions.h || '-';
+                    var unit = item.dimensions.unit || '';
+                    if (w !== '-' && d !== '-' && h !== '-') {
+                        var unitStr = unit === 'in' ? '"' : unit;
+                        dimsText = w + unitStr + 'W x ' + d + unitStr + 'D x ' + h + unitStr + 'H';
+                    }
+                }
+                var keywordsText = item.keywords && item.keywords.length ? item.keywords.join(', ') : 'None';
+                var quoteDecision = item.batch_quote_decision === 'skip' ? 'skip' : 'quote';
+                var images = [];
+                if (item.primary_image_url) {
+                    images.push(item.primary_image_url);
+                }
+                if (item.inspiration_images && item.inspiration_images.length) {
+                    item.inspiration_images.forEach(function(image) {
+                        if (image && image.full_url) {
+                            images.push(image.full_url);
+                        } else if (image && image.thumb_url) {
+                            images.push(image.thumb_url);
+                        }
+                    });
+                }
+                images = images.filter(function(url, index, arr) {
+                    return !!url && arr.indexOf(url) === index;
+                }).slice(0, 4);
+                var galleryHtml = images.length ? '<div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:12px;">' + images.map(function(url) {
+                    return '<img src="' + escapeBatchText(url) + '" alt="" style="width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid #333;" />';
+                }).join('') + '</div>' : '<div style="margin-top:12px; font-size:11px; color:#777; font-family:monospace;">No reference images attached.</div>';
+                return '' +
+                    '<div class="n88-batch-item-panel" data-item-id="' + itemId + '" style="display:none; padding:20px;">' +
+                        '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; margin-bottom:16px;">' +
+                            '<div>' +
+                                '<div style="font-size:18px; color:#fff; font-family:monospace; margin-bottom:6px;">' + escapeBatchText(item.title || ('Item #' + itemId)) + '</div>' +
+                                '<div style="font-size:12px; color:#ccc; font-family:monospace;">Category: ' + escapeBatchText(item.category || '-') + ' | Qty: ' + escapeBatchText(item.quantity || '-') + ' | Dims: ' + escapeBatchText(dimsText) + '</div>' +
+                                '<div style="font-size:11px; color:#999; font-family:monospace; margin-top:6px;">Keywords: ' + escapeBatchText(keywordsText) + '</div>' +
+                            '</div>' +
+                            '<div id="n88-batch-item-state-' + itemId + '" style="padding:6px 10px; border:1px solid #999; border-radius:999px; font-size:11px; font-family:monospace;">Not Ready</div>' +
+                        '</div>' +
+                        '<div style="margin-bottom:16px; padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Item Decision</div>' +
+                            '<div style="display:flex; gap:18px; flex-wrap:wrap;">' +
+                                '<label style="display:inline-flex; gap:8px; align-items:center; color:#fff; font-family:monospace; cursor:pointer;">' +
+                                    '<input type="radio" name="n88_batch_quote_choice_' + itemId + '" value="quote" ' + (quoteDecision === 'quote' ? 'checked' : '') + ' style="accent-color:#FF0065;" />' +
+                                    '<span>Quote this item</span>' +
+                                '</label>' +
+                                '<label style="display:inline-flex; gap:8px; align-items:center; color:#fff; font-family:monospace; cursor:pointer;">' +
+                                    '<input type="radio" name="n88_batch_quote_choice_' + itemId + '" value="skip" ' + (quoteDecision === 'skip' ? 'checked' : '') + ' style="accent-color:#FF0065;" />' +
+                                    '<span>Skip this item</span>' +
+                                '</label>' +
+                            '</div>' +
+                            '<div id="n88-batch-skip-note-' + itemId + '" style="display:' + (quoteDecision === 'skip' ? 'block' : 'none') + '; margin-top:10px; color:#ffb37d; font-size:11px; font-family:monospace;">This item will be recorded as Not Quoted for this supplier.</div>' +
+                        '</div>' +
+                        '<div style="display:grid; grid-template-columns:minmax(280px, 340px) minmax(0, 1fr); gap:18px; align-items:start;">' +
+                            '<div style="padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
+                                '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">RFQ Item Summary</div>' +
+                                '<div style="font-size:12px; color:#ddd; line-height:1.7; font-family:monospace;">' +
+                                    '<div><strong style="color:#fff;">RFQ ID:</strong> ' + escapeBatchText(item.rfq_reference || ('ITEM-' + itemId)) + '</div>' +
+                                    '<div><strong style="color:#fff;">Project:</strong> ' + escapeBatchText(item.project_name || 'Unassigned') + '</div>' +
+                                    '<div><strong style="color:#fff;">Designer:</strong> ' + escapeBatchText(item.designer_name || 'Designer') + '</div>' +
+                                    '<div><strong style="color:#fff;">Route:</strong> ' + escapeBatchText(item.route_label || 'RFQ') + '</div>' +
+                                    '<div><strong style="color:#fff;">Delivery:</strong> ' + escapeBatchText((item.delivery_country || '-') + (item.delivery_postal_code ? (' ' + item.delivery_postal_code) : '')) + '</div>' +
+                                '</div>' +
+                                '<div style="margin-top:14px; font-size:11px; color:#aaa; line-height:1.6; white-space:pre-wrap;">' + escapeBatchText(item.description || 'No additional specs provided.') + '</div>' +
+                                galleryHtml +
+                                '<div style="margin-top:12px;"><button type="button" class="n88-batch-open-single-modal" data-item-id="' + itemId + '" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Open Full Item Modal ]</button></div>' +
+                            '</div>' +
+                            '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>' +
+                        '</div>' +
+                    '</div>';
+            }
+
+            function renderBatchProposalModal(items) {
+                var modal = document.getElementById('n88-supplier-batch-proposal-modal');
+                var content = document.getElementById('n88-supplier-batch-proposal-modal-content');
+                var workspace = window.n88SupplierBatchState.workspace || {};
+                if (!modal || !content) {
+                    return;
+                }
+                var tabsHtml = '';
+                var panelsHtml = '';
+                items.forEach(function(item) {
+                    tabsHtml += '<button type="button" class="n88-batch-tab-btn" data-item-id="' + item.item_id + '" style="padding:10px 14px; background:#000; color:#aaa; border:1px solid #333; border-radius:10px; font-size:11px; font-family:monospace; cursor:pointer; white-space:nowrap;">' + escapeBatchText(item.title || ('Item #' + item.item_id)) + '</button>';
+                    panelsHtml += renderBatchItemPanel(item);
+                });
+                content.innerHTML = '' +
+                    '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px 20px; border-bottom:1px solid #555; background:#111; flex-wrap:wrap;">' +
+                        '<div>' +
+                            '<div style="font-size:20px; color:#fff; font-family:monospace; margin-bottom:8px;">Unified Proposal Workspace</div>' +
+                            '<div style="font-size:12px; color:#bbb; font-family:monospace;">One supplier response workspace for single-item, multi-item, and multi-category RFQs.</div>' +
+                        '</div>' +
+                        '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
+                            '<div id="n88-batch-summary-counts" style="display:flex; gap:8px; flex-wrap:wrap; font-size:11px; font-family:monospace;"></div>' +
+                            '<button type="button" id="n88-close-batch-proposal-modal" style="padding:9px 14px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:10px; font-size:11px; font-family:monospace; cursor:pointer;">[ Close ]</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#0d0d0d; font-size:11px; color:#aaa; font-family:monospace;">' +
+                        '<div style="margin-bottom:8px;">RFQ Summary</div>' +
+                        '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>RFQ: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Workspace Items: ' + items.length + '</span></div>' +
+                    '</div>' +
+                    '<div style="padding:16px 20px; border-bottom:1px solid #333; background:#101010;">' +
+                        '<div style="padding:14px; border:1px solid #333; border-radius:10px; background:#111;">' +
+                            '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Shared Uploads</div>' +
+                            '<div style="font-size:11px; color:#999; line-height:1.6; font-family:monospace; margin-bottom:12px;">Upload shared references, similar projects, materials, or factory capability files for this whole proposal group.</div>' +
+                            '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
+                                '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
+                                '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload Shared Files ]</button>' +
+                            '</div>' +
+                            '<div id="n88-batch-shared-upload-list" style="margin-top:12px;"></div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div id="n88-batch-tabs-row" style="display:flex; gap:10px; padding:14px 20px; border-bottom:1px solid #333; background:#151515; overflow:auto;">' + tabsHtml + '</div>' +
+                    '<div id="n88-batch-panels-wrap" style="overflow:visible; padding-bottom:20px;">' + panelsHtml + '</div>';
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+
+                window.n88SupplierBatchState.itemData = {};
+                window.n88SupplierBatchState.itemStates = {};
+                window.n88SupplierBatchState.formLoaded = {};
+                items.forEach(function(item) {
+                    window.n88SupplierBatchState.itemData[item.item_id] = item;
+                    var host = document.getElementById('n88-batch-form-host-' + item.item_id);
+                    if (item.batch_quote_decision === 'skip' && host) {
+                        host.style.opacity = '0.45';
+                        host.style.pointerEvents = 'none';
+                    }
+                    setBatchItemState(item.item_id, item.batch_item_state || ((item.bid_status === 'submitted' || item.bid_status === 'awarded') ? 'quoted' : 'not_ready'));
+                });
+                refreshBatchSummary();
+                refreshBatchSharedUploads();
+                switchBatchProposalTab(items[0].item_id);
+            }
+
+            function closeBatchProposalModal() {
+                var modal = document.getElementById('n88-supplier-batch-proposal-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            }
+
+            function openBatchProposalModal() {
+                var selected = Object.keys(window.n88SupplierBatchState.selectedItems || {});
+                if (!selected.length) {
+                    alert('Select at least one item first.');
+                    return;
+                }
+                var content = document.getElementById('n88-supplier-batch-proposal-modal-content');
+                var modal = document.getElementById('n88-supplier-batch-proposal-modal');
+                if (content && modal) {
+                    content.innerHTML = '<div style="padding:40px; text-align:center; color:#bbb; font-family:monospace;">Loading unified proposal workspace...</div>';
+                    modal.style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                }
+                var workspacePromise = fetchBatchWorkspace(selected);
+                var itemDetailsPromise = Promise.all(selected.map(function(itemId) {
+                    return fetchSupplierItemDetails(itemId).then(function(res) {
+                        if (!res.success || !res.data) {
+                            throw new Error((res.data && res.data.message) || ('Failed to load item #' + itemId));
+                        }
+                        return {
+                            itemId: itemId,
+                            item: res.data
+                        };
+                    });
+                }));
+                Promise.all([workspacePromise, itemDetailsPromise]).then(function(results) {
+                    var workspaceResult = results[0];
+                    var itemResults = results[1];
+                    if (!workspaceResult.success || !workspaceResult.data) {
+                        throw new Error((workspaceResult.data && workspaceResult.data.message) || 'Failed to prepare grouped proposal workspace.');
+                    }
+                    window.n88SupplierBatchState.workspace = workspaceResult.data;
+                    window.n88SupplierBatchState.sharedUploads = workspaceResult.data.shared_uploads || [];
+                    var items = itemResults.map(function(entry) {
+                        var itemId = entry.itemId;
+                        var item = entry.item;
+                        var savedState = (workspaceResult.data.item_states && (workspaceResult.data.item_states[itemId] || workspaceResult.data.item_states[String(itemId)])) || {};
+                        item.batch_quote_decision = savedState.quote_decision || 'quote';
+                        item.batch_item_state = savedState.item_state || ((item.bid_status === 'submitted' || item.bid_status === 'awarded') ? 'quoted' : 'not_ready');
+                        item.rfq_reference = workspaceResult.data.rfq_reference || item.rfq_reference;
+                        if (!item.project_name && workspaceResult.data.project_name) {
+                            item.project_name = workspaceResult.data.project_name;
+                        }
+                        if (!item.designer_name && workspaceResult.data.designer_name) {
+                            item.designer_name = workspaceResult.data.designer_name;
+                        }
+                        return item;
+                    });
+                    renderBatchProposalModal(items);
+                }).catch(function(error) {
+                    if (content) {
+                        content.innerHTML = '<div style="padding:40px; text-align:center; color:#ff8a8a; font-family:monospace;">' + escapeBatchText(error.message || error) + '</div>';
+                    }
+                });
+            }
+
             // Filter persistence via URL query parameters (M5)
             var searchTimeout;
             function updateSupplierQueueURL() {
@@ -4811,42 +5678,7 @@ class N88_RFQ_Auth {
             // Load bid form content into the embedded section
             function loadBidFormContent(itemId, container) {
                 container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff; font-family: monospace;">Loading bid form...</div>';
-                
-                // Fetch item details
-                var formData = new FormData();
-                formData.append('action', 'n88_get_supplier_item_details');
-                formData.append('item_id', itemId);
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
-                
-                // Add timeout to prevent hanging
-                var timeoutPromise = new Promise(function(resolve, reject) {
-                    setTimeout(function() {
-                        reject(new Error('Request timeout'));
-                    }, 30000); // 30 second timeout
-                });
-                
-                Promise.race([
-                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                        method: 'POST',
-                        body: formData,
-                        credentials: 'same-origin'
-                    }),
-                    timeoutPromise
-                ])
-                .then(function(response) {
-                    if (!response.ok) {
-                        throw new Error('HTTP error! status: ' + response.status);
-                    }
-                    // Check if response is JSON
-                    var contentType = response.headers.get('content-type');
-                    if (!contentType || !contentType.includes('application/json')) {
-                        // If not JSON, try to get text to see what we got
-                        return response.text().then(function(text) {
-                            throw new Error('Response is not JSON. Got: ' + text.substring(0, 100));
-                        });
-                    }
-                    return response.json();
-                })
+                fetchSupplierItemDetails(itemId)
                 .then(function(data) {
                     if (!data || !data.success) {
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ff0000; font-family: monospace;">Error loading item details: ' + (data && data.data && data.data.message ? data.data.message : 'Unknown error') + '</div>';
@@ -4863,6 +5695,9 @@ class N88_RFQ_Auth {
                     // Initialize form validation first
                     setTimeout(function() {
                         validateBidFormEmbedded(itemId);
+                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                            window.n88BatchProposalRefreshItemState(itemId);
+                        }
                     }, 100);
                     
                     // Load draft or stale bid data if available (for resubmission when specs changed)
@@ -4877,6 +5712,11 @@ class N88_RFQ_Auth {
                         } else {
                             // Otherwise load from draft
                             loadBidDraft(itemId);
+                        }
+                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                            setTimeout(function() {
+                                window.n88BatchProposalRefreshItemState(itemId);
+                            }, 250);
                         }
                     }, 200);
                 })
@@ -6443,6 +7283,7 @@ class N88_RFQ_Auth {
                 var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                appendBatchFormContext(formData, itemId);
                 
                 // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
@@ -6529,6 +7370,9 @@ class N88_RFQ_Auth {
                             submitBtn.style.display = 'inline-block';
                             submitBtn.disabled = false;
                         }
+                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                            window.n88BatchProposalRefreshItemState(itemId);
+                        }
                         
                         // Show success message
                         var form = document.getElementById('n88-bid-form');
@@ -6611,6 +7455,7 @@ class N88_RFQ_Auth {
                 var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                appendBatchFormContext(formData, itemId);
                 
                 // Smart Alternatives suggestion (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
@@ -7179,6 +8024,7 @@ class N88_RFQ_Auth {
                 var sampleRequiredDraftField = form.querySelector('input[name="sample_required"]:checked');
                 formData.append('sample_required', sampleRequiredDraftField ? sampleRequiredDraftField.value : '');
                 formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
+                appendBatchFormContext(formData, itemId);
                 
                 // Smart Alternatives (if enabled and ANY field is filled)
                 var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
@@ -7260,6 +8106,9 @@ class N88_RFQ_Auth {
                         // Update window.currentItemData to reflect draft status for button text logic
                         if (window.currentItemData && window.currentItemData.item_id == itemId) {
                             window.currentItemData.bid_status = 'draft';
+                        }
+                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                            window.n88BatchProposalRefreshItemState(itemId);
                         }
                     } else {
                         alert('Failed to save draft: ' + (data.data && data.data.message ? data.data.message : 'Unknown error'));
@@ -7397,6 +8246,7 @@ class N88_RFQ_Auth {
                             form.insertAdjacentHTML('afterbegin', successHtml);
                             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
+                        persistBatchItemState(itemId, 'quote', 'ready', (window.n88SupplierBatchState.itemData[itemId] || {}).bid_id || null);
                     }
                 })
                 .catch(function(error) {
@@ -7531,10 +8381,39 @@ class N88_RFQ_Auth {
                             alert(data.data && data.data.message ? data.data.message : 'Failed to submit bid. Please try again.');
                         }
                     } else {
-                        // Success - close bid form section and reopen modal on Proposal tab
-                        alert(data.data && data.data.message || 'Bid submitted successfully!');
-                        toggleBidForm(itemId);
-                        openBidModal(itemId, 'overview');
+                        var batchModal = document.getElementById('n88-supplier-batch-proposal-modal');
+                        var isBatchMode = batchModal && batchModal.style.display === 'block' && document.getElementById('n88-batch-form-host-' + itemId);
+                        if (window.n88SupplierBatchState && window.n88SupplierBatchState.itemData[itemId]) {
+                            window.n88SupplierBatchState.itemData[itemId].bid_status = 'submitted';
+                            if (data.data && data.data.bid_id) {
+                                window.n88SupplierBatchState.itemData[itemId].bid_id = data.data.bid_id;
+                            }
+                        }
+                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
+                            window.n88BatchProposalRefreshItemState(itemId);
+                            setTimeout(function() {
+                                window.n88BatchProposalRefreshItemState(itemId);
+                            }, 150);
+                        }
+                        if (isBatchMode) {
+                            persistBatchItemState(itemId, 'quote', 'quoted', data.data && data.data.bid_id ? data.data.bid_id : null);
+                            var host = document.getElementById('n88-batch-form-host-' + itemId);
+                            if (host) {
+                                var successBox = host.querySelector('.n88-batch-submit-success');
+                                if (!successBox) {
+                                    successBox = document.createElement('div');
+                                    successBox.className = 'n88-batch-submit-success';
+                                    successBox.style.cssText = 'margin-bottom:14px; padding:12px; border:1px solid #7dffb1; border-radius:8px; background:#032b17; color:#7dffb1; font-family:monospace; font-size:11px;';
+                                    host.insertBefore(successBox, host.firstChild);
+                                }
+                                successBox.textContent = data.data && data.data.message ? data.data.message : 'Proposal submitted successfully.';
+                            }
+                            alert(data.data && data.data.message || 'Proposal submitted successfully!');
+                        } else {
+                            alert(data.data && data.data.message || 'Bid submitted successfully!');
+                            toggleBidForm(itemId);
+                            openBidModal(itemId, 'overview');
+                        }
                     }
                 })
                 .catch(function(error) {
@@ -8380,7 +9259,51 @@ class N88_RFQ_Auth {
                         openBidModal(itemId);
                     });
                 });
-                
+
+                document.querySelectorAll('.n88-supplier-batch-item-checkbox').forEach(function(checkbox) {
+                    checkbox.addEventListener('change', function() {
+                        var itemId = this.getAttribute('data-item-id');
+                        if (this.checked) {
+                            window.n88SupplierBatchState.selectedItems[itemId] = {
+                                item_id: itemId,
+                                title: this.getAttribute('data-item-title') || ('Item #' + itemId),
+                                category: this.getAttribute('data-category') || ''
+                            };
+                        } else {
+                            delete window.n88SupplierBatchState.selectedItems[itemId];
+                        }
+                        refreshBatchSelectionUI();
+                    });
+                });
+
+                var selectAllBatch = document.getElementById('n88-supplier-select-all-batch');
+                if (selectAllBatch) {
+                    selectAllBatch.addEventListener('change', function() {
+                        var checked = !!this.checked;
+                        document.querySelectorAll('.n88-supplier-batch-item-checkbox').forEach(function(checkbox) {
+                            checkbox.checked = checked;
+                            var itemId = checkbox.getAttribute('data-item-id');
+                            if (checked) {
+                                window.n88SupplierBatchState.selectedItems[itemId] = {
+                                    item_id: itemId,
+                                    title: checkbox.getAttribute('data-item-title') || ('Item #' + itemId),
+                                    category: checkbox.getAttribute('data-category') || ''
+                                };
+                            } else {
+                                delete window.n88SupplierBatchState.selectedItems[itemId];
+                            }
+                        });
+                        refreshBatchSelectionUI();
+                    });
+                }
+
+                var openBatchBtn = document.getElementById('n88-open-batch-proposal-modal');
+                if (openBatchBtn) {
+                    openBatchBtn.addEventListener('click', function() {
+                        openBatchProposalModal();
+                    });
+                }
+                 
                 // Close modal on backdrop click (edge panels or wrapper)
                 var modal = document.getElementById('n88-supplier-bid-modal');
                 if (modal) {
@@ -8400,11 +9323,128 @@ class N88_RFQ_Auth {
                         }
                     });
                 }
+
+                var batchModal = document.getElementById('n88-supplier-batch-proposal-modal');
+                if (batchModal) {
+                    batchModal.addEventListener('click', function(e) {
+                        if (e.target === batchModal) {
+                            closeBatchProposalModal();
+                        }
+                    });
+                }
+
+                document.addEventListener('click', function(e) {
+                    var tabBtn = e.target && e.target.closest ? e.target.closest('.n88-batch-tab-btn') : null;
+                    if (tabBtn) {
+                        switchBatchProposalTab(tabBtn.getAttribute('data-item-id'));
+                        return;
+                    }
+                    var closeBtn = e.target && e.target.closest ? e.target.closest('#n88-close-batch-proposal-modal') : null;
+                    if (closeBtn) {
+                        closeBatchProposalModal();
+                        return;
+                    }
+                    var openSingleBtn = e.target && e.target.closest ? e.target.closest('.n88-batch-open-single-modal') : null;
+                    if (openSingleBtn) {
+                        var singleItemId = openSingleBtn.getAttribute('data-item-id');
+                        closeBatchProposalModal();
+                        openBidModal(singleItemId, 'overview');
+                    }
+                });
+
+                document.addEventListener('change', function(e) {
+                    var quoteChoice = e.target && e.target.matches ? e.target.matches('input[name^="n88_batch_quote_choice_"]') : false;
+                    if (!quoteChoice) {
+                        return;
+                    }
+                    var name = e.target.getAttribute('name') || '';
+                    var itemId = name.replace('n88_batch_quote_choice_', '');
+                    var skipNote = document.getElementById('n88-batch-skip-note-' + itemId);
+                    var formHost = document.getElementById('n88-batch-form-host-' + itemId);
+                    if (e.target.value === 'skip') {
+                        if (skipNote) {
+                            skipNote.style.display = 'block';
+                        }
+                        if (formHost) {
+                            formHost.style.opacity = '0.45';
+                            formHost.style.pointerEvents = 'none';
+                        }
+                        setBatchItemState(itemId, 'not_quoted');
+                        persistBatchItemState(itemId, 'skip', 'not_quoted', null);
+                    } else {
+                        if (skipNote) {
+                            skipNote.style.display = 'none';
+                        }
+                        if (formHost) {
+                            formHost.style.opacity = '1';
+                            formHost.style.pointerEvents = 'auto';
+                        }
+                        persistBatchItemState(itemId, 'quote', detectBatchItemState(itemId), (window.n88SupplierBatchState.itemData[itemId] || {}).bid_id || null);
+                        refreshSingleBatchItemState(itemId);
+                    }
+                });
+
+                document.addEventListener('click', function(e) {
+                    var uploadBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-shared-upload-btn') : null;
+                    if (!uploadBtn) {
+                        return;
+                    }
+                    var workspace = window.n88SupplierBatchState.workspace || {};
+                    var fileInput = document.getElementById('n88-batch-shared-files');
+                    if (!workspace.proposal_group_id) {
+                        alert('Batch workspace is not ready yet.');
+                        return;
+                    }
+                    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+                        alert('Select shared files first.');
+                        return;
+                    }
+                    var formData = new FormData();
+                    formData.append('action', 'n88_upload_supplier_batch_shared_assets');
+                    formData.append('proposal_group_id', workspace.proposal_group_id);
+                    Array.prototype.forEach.call(fileInput.files, function(file) {
+                        formData.append('shared_attachments[]', file);
+                    });
+                    formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_upload_supplier_batch_shared_assets' ); ?>');
+                    uploadBtn.disabled = true;
+                    uploadBtn.textContent = '[ Uploading... ]';
+                    fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin'
+                    }).then(function(response) {
+                        return response.json();
+                    }).then(function(result) {
+                        if (!result.success || !result.data) {
+                            throw new Error((result.data && result.data.message) || 'Shared upload failed.');
+                        }
+                        window.n88SupplierBatchState.sharedUploads = (window.n88SupplierBatchState.sharedUploads || []).concat(result.data.uploads || []);
+                        refreshBatchSharedUploads();
+                        fileInput.value = '';
+                    }).catch(function(error) {
+                        alert(error.message || 'Shared upload failed.');
+                    }).finally(function() {
+                        uploadBtn.disabled = false;
+                        uploadBtn.textContent = '[ Upload Shared Files ]';
+                    });
+                });
+
+                document.addEventListener('input', function(e) {
+                    var panel = e.target && e.target.closest ? e.target.closest('.n88-batch-item-panel') : null;
+                    if (panel) {
+                        refreshSingleBatchItemState(panel.getAttribute('data-item-id'));
+                    }
+                });
+
+                refreshBatchSelectionUI();
             });
-            
+             
             // Expose to global scope
             window.openBidModal = openBidModal;
             window.closeBidModal = closeBidModal;
+            window.openBatchProposalModal = openBatchProposalModal;
+            window.closeBatchProposalModal = closeBatchProposalModal;
+            window.n88BatchProposalRefreshItemState = refreshSingleBatchItemState;
             window.submitOfficialQuotePDF = function(form, itemId, bidId) {
                 try {
                     if (!bidId) {
@@ -10543,7 +11583,7 @@ class N88_RFQ_Auth {
         $has_meta_json = in_array( 'meta_json', $items_columns, true );
         
         // Build SELECT query - include owner_user_id and meta_json if column exists
-        $select_fields = "id, title, description, item_type, primary_image_id, deleted_at, owner_user_id";
+        $select_fields = "id, title, description, item_type, primary_image_id, deleted_at, owner_user_id, project_id";
         if ( $has_meta_json ) {
             $select_fields .= ", meta_json";
         }
@@ -10609,6 +11649,23 @@ class N88_RFQ_Auth {
                 }
                 $primary_image_url = $image_url;
             }
+        }
+
+        $designer_name = '';
+        if ( ! empty( $item['owner_user_id'] ) ) {
+            $designer_user = get_userdata( (int) $item['owner_user_id'] );
+            if ( $designer_user ) {
+                $designer_name = $designer_user->display_name;
+            }
+        }
+
+        $project_name = '';
+        if ( ! empty( $item['project_id'] ) ) {
+            $projects_table = $wpdb->prefix . 'n88_projects';
+            $project_name = $wpdb->get_var( $wpdb->prepare(
+                "SELECT name FROM {$projects_table} WHERE id = %d LIMIT 1",
+                (int) $item['project_id']
+            ) );
         }
 
         // Get category name
@@ -12186,9 +13243,218 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
             'official_quote_version' => isset( $meta['official_quote_version'] ) ? intval( $meta['official_quote_version'] ) : null,
             'awarded_bid_id' => $response_awarded_bid_id,
+            'designer_id' => ! empty( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : null,
+            'designer_name' => $designer_name ? sanitize_text_field( $designer_name ) : '',
+            'project_id' => ! empty( $item['project_id'] ) ? (int) $item['project_id'] : null,
+            'project_name' => $project_name ? sanitize_text_field( $project_name ) : '',
+            'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
         );
 
         wp_send_json_success( $response );
+    }
+
+    /**
+     * Commit 3.C.14: Fetch/create grouped supplier workspace metadata for selected RFQ items.
+     */
+    public function ajax_get_supplier_batch_workspace() {
+        check_ajax_referer( 'n88_get_supplier_batch_workspace', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $item_ids  = isset( $_POST['item_ids'] ) ? $_POST['item_ids'] : array();
+        $workspace = $this->get_or_create_supplier_batch_workspace( $current_user->ID, $item_ids );
+
+        if ( is_wp_error( $workspace ) ) {
+            wp_send_json_error( array( 'message' => $workspace->get_error_message() ) );
+        }
+
+        wp_send_json_success( $workspace );
+    }
+
+    /**
+     * Commit 3.C.14: Persist per-item quote/skip state inside a grouped proposal workspace.
+     */
+    public function ajax_save_supplier_batch_state() {
+        check_ajax_referer( 'n88_save_supplier_batch_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $item_id           = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+        $quote_decision    = isset( $_POST['quote_decision'] ) ? sanitize_text_field( wp_unslash( $_POST['quote_decision'] ) ) : 'quote';
+        $item_state        = isset( $_POST['item_state'] ) ? sanitize_text_field( wp_unslash( $_POST['item_state'] ) ) : 'not_ready';
+        $linked_bid_id     = isset( $_POST['linked_bid_id'] ) ? absint( $_POST['linked_bid_id'] ) : 0;
+
+        if ( ! $proposal_group_id || ! $item_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid batch state payload.' ) );
+        }
+
+        if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied for the selected item.' ), 403 );
+        }
+
+        global $wpdb;
+        $groups_table = $wpdb->prefix . 'n88_supplier_proposal_groups';
+        $group_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM {$groups_table} WHERE proposal_group_id = %d AND supplier_id = %d LIMIT 1",
+            $proposal_group_id,
+            $current_user->ID
+        ) );
+        if ( ! $group_exists ) {
+            wp_send_json_error( array( 'message' => 'Proposal workspace not found.' ), 404 );
+        }
+
+        $saved = $this->upsert_supplier_batch_item_state(
+            $proposal_group_id,
+            $current_user->ID,
+            $item_id,
+            $quote_decision,
+            $item_state,
+            $linked_bid_id ? $linked_bid_id : null
+        );
+
+        if ( ! $saved ) {
+            wp_send_json_error( array( 'message' => 'Failed to save batch item state.' ) );
+        }
+
+        wp_send_json_success(
+            array(
+                'proposal_group_id' => $proposal_group_id,
+                'item_id'           => $item_id,
+                'quote_decision'    => $quote_decision,
+                'item_state'        => $item_state,
+                'linked_bid_id'     => $linked_bid_id ? $linked_bid_id : null,
+            )
+        );
+    }
+
+    /**
+     * Commit 3.C.14: Upload shared reference files tied to the grouped proposal workspace.
+     */
+    public function ajax_upload_supplier_batch_shared_assets() {
+        check_ajax_referer( 'n88_upload_supplier_batch_shared_assets', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+        }
+
+        $current_user = wp_get_current_user();
+        if ( ! in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Maker account required.' ) );
+        }
+
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        if ( ! $proposal_group_id ) {
+            wp_send_json_error( array( 'message' => 'Proposal group is required.' ) );
+        }
+
+        if ( empty( $_FILES['shared_attachments'] ) ) {
+            wp_send_json_error( array( 'message' => 'No shared files were uploaded.' ) );
+        }
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        global $wpdb;
+        $groups_table        = $wpdb->prefix . 'n88_supplier_proposal_groups';
+        $group_uploads_table = $wpdb->prefix . 'n88_supplier_proposal_group_uploads';
+        $group               = $wpdb->get_row( $wpdb->prepare(
+            "SELECT proposal_group_id FROM {$groups_table} WHERE proposal_group_id = %d AND supplier_id = %d LIMIT 1",
+            $proposal_group_id,
+            $current_user->ID
+        ), ARRAY_A );
+
+        if ( ! $group ) {
+            wp_send_json_error( array( 'message' => 'Proposal workspace not found.' ), 404 );
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $files    = $_FILES['shared_attachments'];
+        $is_multi = is_array( $files['name'] );
+        $total    = $is_multi ? count( $files['name'] ) : 1;
+        $uploads  = array();
+
+        for ( $i = 0; $i < $total; $i++ ) {
+            $file = array(
+                'name'     => $is_multi ? $files['name'][ $i ] : $files['name'],
+                'type'     => $is_multi ? $files['type'][ $i ] : $files['type'],
+                'tmp_name' => $is_multi ? $files['tmp_name'][ $i ] : $files['tmp_name'],
+                'error'    => $is_multi ? $files['error'][ $i ] : $files['error'],
+                'size'     => $is_multi ? $files['size'][ $i ] : $files['size'],
+            );
+
+            if ( ! empty( $file['error'] ) || empty( $file['tmp_name'] ) ) {
+                continue;
+            }
+
+            $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+            if ( empty( $upload['file'] ) || empty( $upload['url'] ) ) {
+                continue;
+            }
+
+            $attachment = array(
+                'post_mime_type' => $upload['type'],
+                'post_title'     => sanitize_file_name( wp_basename( $upload['file'] ) ),
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            );
+            $attachment_id = wp_insert_attachment( $attachment, $upload['file'] );
+            if ( $attachment_id ) {
+                $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
+                if ( ! is_wp_error( $attach_data ) ) {
+                    wp_update_attachment_metadata( $attachment_id, $attach_data );
+                }
+            } else {
+                $attachment_id = null;
+            }
+
+            $wpdb->insert(
+                $group_uploads_table,
+                array(
+                    'proposal_group_id' => $proposal_group_id,
+                    'supplier_id'       => $current_user->ID,
+                    'attachment_id'     => $attachment_id,
+                    'file_url'          => $upload['url'],
+                    'file_name'         => sanitize_file_name( $file['name'] ),
+                    'created_at'        => current_time( 'mysql' ),
+                ),
+                array( '%d', '%d', '%d', '%s', '%s', '%s' )
+            );
+
+            $uploads[] = array(
+                'id'            => (int) $wpdb->insert_id,
+                'attachment_id' => $attachment_id ? (int) $attachment_id : null,
+                'file_url'      => esc_url_raw( $upload['url'] ),
+                'file_name'     => sanitize_file_name( $file['name'] ),
+            );
+        }
+
+        if ( empty( $uploads ) ) {
+            wp_send_json_error( array( 'message' => 'No shared files could be uploaded.' ) );
+        }
+
+        wp_send_json_success(
+            array(
+                'proposal_group_id' => $proposal_group_id,
+                'uploads'           => $uploads,
+            )
+        );
     }
 
     /**
@@ -13413,6 +14679,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $batch_quote_decision = isset( $_POST['batch_quote_decision'] ) ? sanitize_text_field( wp_unslash( $_POST['batch_quote_decision'] ) ) : 'quote';
         
         if ( ! $item_id ) {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
@@ -13764,6 +15032,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             if ( $proposal_notes !== '' ) {
                 $meta_payload['proposal_notes'] = $proposal_notes;
             }
+            if ( $proposal_group_id ) {
+                $meta_payload['proposal_group_id'] = $proposal_group_id;
+            }
 
             if ( ! empty( $meta_payload ) ) {
                 $meta_json = wp_json_encode( $meta_payload );
@@ -14114,6 +15385,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 array( '%d', '%d' )
             );
 
+            if ( $proposal_group_id ) {
+                $this->upsert_supplier_batch_item_state(
+                    $proposal_group_id,
+                    $current_user->ID,
+                    $item_id,
+                    $batch_quote_decision,
+                    'quoted',
+                    $bid_id
+                );
+            }
+
             $wpdb->query( 'COMMIT' );
 
             // Clear draft from user meta after successful submission
@@ -14134,6 +15416,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_success( array(
                 'message' => 'Bid submitted successfully!',
                 'bid_id' => $bid_id,
+                'proposal_group_id' => $proposal_group_id ? $proposal_group_id : null,
             ) );
 
         } catch ( Exception $e ) {
@@ -15529,6 +16812,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
+        $proposal_group_id = isset( $_POST['proposal_group_id'] ) ? absint( $_POST['proposal_group_id'] ) : 0;
+        $batch_quote_decision = isset( $_POST['batch_quote_decision'] ) ? sanitize_text_field( wp_unslash( $_POST['batch_quote_decision'] ) ) : 'quote';
+        $batch_item_state = isset( $_POST['batch_item_state'] ) ? sanitize_text_field( wp_unslash( $_POST['batch_item_state'] ) ) : 'not_ready';
         
         if ( ! $item_id ) {
             wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
@@ -15566,6 +16852,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'item_id' => $item_id,
             'saved_at' => current_time( 'mysql' ),
         );
+        if ( $proposal_group_id ) {
+            $draft_data['proposal_group_id'] = $proposal_group_id;
+        }
 
         // Video links
         $video_links_json = isset( $_POST['video_links'] ) ? wp_unslash( $_POST['video_links'] ) : '[]';
@@ -15629,9 +16918,21 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_error( array( 'message' => 'Failed to save draft. Please try again.' ) );
         }
 
+        if ( $proposal_group_id ) {
+            $this->upsert_supplier_batch_item_state(
+                $proposal_group_id,
+                $current_user->ID,
+                $item_id,
+                $batch_quote_decision,
+                $batch_item_state,
+                null
+            );
+        }
+
         wp_send_json_success( array(
             'message' => 'Draft saved successfully.',
             'saved_at' => $draft_data['saved_at'],
+            'proposal_group_id' => $proposal_group_id ? $proposal_group_id : null,
         ) );
     }
 
@@ -21135,8 +22436,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
+        if ( $thread_type === 'designer_supplier' ) {
+            $this->ensure_supplier_proposal_workspace_support();
+        }
         
-        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator' ), true ) ) {
+        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator', 'designer_supplier' ), true ) ) {
             wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
             return;
         }
@@ -21181,6 +22485,31 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 // No additional restriction needed
             } else {
                 wp_send_json_error( array( 'message' => 'Access denied. Designer or Operator only.' ) );
+                return;
+            }
+        } elseif ( $thread_type === 'designer_supplier' ) {
+            $item_owner = $wpdb->get_var( $wpdb->prepare(
+                "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
+                $item_id
+            ) );
+
+            if ( $is_supplier ) {
+                if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You do not have access to this RFQ item.' ), 403 );
+                    return;
+                }
+                $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $current_user->ID );
+                if ( $item_owner ) {
+                    $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', (int) $item_owner );
+                }
+            } elseif ( $is_designer ) {
+                if ( ! $item_owner || (int) $item_owner !== (int) $current_user->ID ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You can only view messages for your own RFQ items.' ), 403 );
+                    return;
+                }
+                $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', $current_user->ID );
+            } else {
+                wp_send_json_error( array( 'message' => 'Access denied. Designer or Supplier only.' ) );
                 return;
             }
         }
@@ -21325,6 +22654,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
+        if ( $thread_type === 'designer_supplier' ) {
+            $this->ensure_supplier_proposal_workspace_support();
+        }
         $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
         // Message tags (designer_operator designer only): required  at least one of clarifying_questions, mse_material
         $message_tags = array();
@@ -21334,7 +22666,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $message_tags = array_map( 'trim', explode( ',', sanitize_text_field( wp_unslash( $_POST['message_tags'] ) ) ) );
         }
         
-        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator' ), true ) || empty( trim( $message_text ) ) ) {
+        if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator', 'designer_supplier' ), true ) || empty( trim( $message_text ) ) ) {
             wp_send_json_error( array( 'message' => 'Invalid parameters. Message text is required.' ) );
             return;
         }
@@ -21433,6 +22765,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 // Operator can specify designer_id when replying
                 $designer_id = isset( $_POST['designer_id'] ) ? absint( $_POST['designer_id'] ) : intval( $item['owner_user_id'] );
             }
+        } elseif ( $thread_type === 'designer_supplier' ) {
+            if ( $is_supplier ) {
+                if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You do not have access to this RFQ item.' ), 403 );
+                    return;
+                }
+                $supplier_id = $current_user->ID;
+                $designer_id = intval( $item['owner_user_id'] );
+            } elseif ( $is_designer ) {
+                if ( intval( $item['owner_user_id'] ) !== $current_user->ID ) {
+                    wp_send_json_error( array( 'message' => 'Access denied. You can only send messages for your own items.' ) );
+                    return;
+                }
+                $designer_id = $current_user->ID;
+                $supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+                if ( ! $supplier_id ) {
+                    $supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT supplier_id FROM {$messages_table} WHERE item_id = %d AND thread_type = 'designer_supplier' ORDER BY created_at DESC LIMIT 1",
+                        $item_id
+                    ) );
+                }
+            }
         }
 
         // Validate required fields for thread type
@@ -21442,6 +22796,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
         if ( $thread_type === 'designer_operator' && ! $designer_id ) {
             wp_send_json_error( array( 'message' => 'Designer ID is required for designer_operator thread.' ) );
+            return;
+        }
+        if ( $thread_type === 'designer_supplier' && ( ! $supplier_id || ! $designer_id ) ) {
+            wp_send_json_error( array( 'message' => 'Designer and supplier context are required for this thread.' ) );
             return;
         }
 
@@ -21465,7 +22823,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         // Optional file attachments
         $attachment_urls = array();
-        if ( ( ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) || ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) ) && ! empty( $_FILES['message_attachments'] ) ) {
+        if ( ( ( $thread_type === 'designer_operator' && $sender_role === 'designer' ) || ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) || ( $thread_type === 'designer_supplier' && in_array( $sender_role, array( 'designer', 'supplier' ), true ) ) ) && ! empty( $_FILES['message_attachments'] ) ) {
             $files = $_FILES['message_attachments'];
             $count = is_array( $files['name'] ) ? count( $files['name'] ) : 1;
             if ( $count > 5 ) {
@@ -21508,7 +22866,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'message_attachments' => $message_attachments_json,
                 'created_at' => current_time( 'mysql' ),
             ),
-            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s' )
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s' )
         );
 
         if ( ! $insert_result ) {
