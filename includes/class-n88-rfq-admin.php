@@ -4239,6 +4239,8 @@ class N88_RFQ_Admin {
                             'official_quote_status' => isset( $item_meta['official_quote_status'] ) ? $item_meta['official_quote_status'] : '',
                             // Action Required: Unread operator messages; or prototype_status=submitted; or (operator) review payment proof
                             'has_unread_operator_messages' => $has_unread_operator_messages,
+                'has_unread_supplier_messages' => $has_unread_supplier_messages,
+                'unread_supplier_messages' => $unread_supplier_messages,
                             'unread_operator_messages' => $unread_operator_messages,
                             'has_prototype_video_submitted' => $has_prototype_video_submitted,
                             'prototype_status' => $prototype_status,
@@ -5577,6 +5579,7 @@ class N88_RFQ_Admin {
                         <button type="button" id="n88-invite-team-member-btn" class="n88-btn-bracket n88-invite-btn">[ + Invite Team Member ]</button>
                         <?php if ( isset( $_GET['project_id'] ) && absint( $_GET['project_id'] ) > 0 ) : ?>
                         <button type="button" id="n88-create-batch-rfq-btn" class="n88-btn-bracket">[ Create Batch RFQ ]</button>
+                        <button type="button" id="n88-open-batch-proposal-review-btn" class="n88-btn-bracket">[ Batch Proposal View ]</button>
                         <button type="button" id="n88-cancel-batch-rfq-btn" class="n88-btn-bracket" style="display:none;">[ Cancel Selection ]</button>
                         <?php endif; ?>
                         <?php if ( isset( $_GET['project_id'] ) && absint( $_GET['project_id'] ) > 0 ) : ?>
@@ -6687,7 +6690,7 @@ class N88_RFQ_Admin {
                                 <button type="button" class="n88-invite-add-btn">Add</button>
                             </div>
                             <div class="n88-invite-chips"></div>
-                            <div class="n88-field" style="margin-top:8px;">
+                            <div class="n88-field" style="margin-top:8px; display:none;">
                                 <label>
                                     <input
                                         type="checkbox"
@@ -8644,7 +8647,7 @@ class N88_RFQ_Admin {
                 '<input type="hidden" id="n88-invited-suppliers-json" name="invited_suppliers" value="[]" />' +
                 '<div id="n88-invite-supplier-error" style="font-size: 12px; color: #d32f2f; margin-top: 4px; display: none;"></div>' +
                 '</div>' +
-                '<div style="margin-top: 24px;">' +
+                '<div style="margin-top: 24px; display: none;">' +
                 '<label style="display: flex; align-items: center; cursor: pointer;">' +
                 '<input type="checkbox" id="n88-allow-system-invites" name="allow_system_invites" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;" onchange="updateSystemInvitesMessage()" />' +
                 '<span style="font-size: 14px; font-weight: 500; color: #333;">Let WireFrame (OS) source makers for this request</span>' +
@@ -9784,14 +9787,16 @@ class N88_RFQ_Admin {
                     var _modalHandlers = props._modalHandlers; // Modal handlers from wrapper
                     var _batchSelection = props._batchSelection || null;
                     var batchSelectionMode = !!(_batchSelection && _batchSelection.enabled);
+                    var batchSelectionIntent = (_batchSelection && _batchSelection.intent) ? _batchSelection.intent : 'rfq';
                     var batchSelected = !!(_batchSelection && _batchSelection.selected);
                     var hasRfqAlready = item && (item.has_rfq === true || item.has_rfq === 1 || item.has_rfq === '1' || item.has_rfq === 'true');
+                    var batchSelectionBlocked = batchSelectionIntent === 'rfq' && hasRfqAlready;
                     var toggleBatchSelect = function(e) {
                         if (e) {
                             if (e.preventDefault) e.preventDefault();
                             if (e.stopPropagation) e.stopPropagation();
                         }
-                        if (hasRfqAlready) return;
+                        if (batchSelectionBlocked) return;
                         if (_batchSelection && typeof _batchSelection.onToggle === 'function') {
                             _batchSelection.onToggle(item);
                         }
@@ -9951,6 +9956,7 @@ class N88_RFQ_Admin {
                         var rfqSentColor = '#2196f3';
                         var workflowColor = '#8e44ad';
                         var hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
+                        var hasUnreadSupplierMessages = truthy(item.has_unread_supplier_messages) || (parseInt(item.unread_supplier_messages || 0, 10) > 0);
                         var psRaw = item.prototype_status || '';
                         var ps = (typeof psRaw === 'string' && psRaw) ? psRaw.toLowerCase() : (psRaw || null);
                         var hasPrototypeVideoSubmitted = truthy(item.has_prototype_video_submitted);
@@ -9968,7 +9974,7 @@ class N88_RFQ_Admin {
                         var inProduction = truthy(item.award_set);
 
                         // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video — show View Prototype video
-                        if (hasUnreadOperatorMessages) {
+                        if (hasUnreadOperatorMessages || hasUnreadSupplierMessages) {
                             return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
                         }
                         if (ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
@@ -10513,7 +10519,7 @@ class N88_RFQ_Admin {
 
                     return React.createElement(motion.div, {
                         layoutId: 'board-item-' + item.id,
-                        style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: batchSelectionMode ? (hasRfqAlready ? 'not-allowed' : 'pointer') : 'grab', overflow: 'visible' },
+                        style: { position: 'absolute', x: x, y: y, width: item.width, height: item.height, zIndex: calculatedZIndex, cursor: batchSelectionMode ? (batchSelectionBlocked ? 'not-allowed' : 'pointer') : 'grab', overflow: 'visible' },
                         drag: !batchSelectionMode,
                         dragMomentum: false,
                         onPointerDown: batchSelectionMode ? undefined : handlePointerDown,
@@ -10549,7 +10555,7 @@ class N88_RFQ_Admin {
                             display: 'flex',
                             flexDirection: 'column',
                             boxSizing: 'border-box',
-                            cursor: batchSelectionMode && hasRfqAlready ? 'not-allowed' : 'pointer'
+                            cursor: batchSelectionMode && batchSelectionBlocked ? 'not-allowed' : 'pointer'
                         }
                     }, 
                     // Photo Section - 75% of card
@@ -10573,8 +10579,8 @@ class N88_RFQ_Admin {
                         }
                     }, 
                     !item.imageUrl ? React.createElement('div', { style: { textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: '4px' } }, item.title || ('Item ' + item.id)) : null,
-                    batchSelectionMode && !hasRfqAlready ? React.createElement('button', { type: 'button', title: batchSelected ? 'Deselect item' : 'Select item', 'aria-label': batchSelected ? 'Deselect item' : 'Select item', onClick: toggleBatchSelect, style: { position: 'absolute', top: '8px', left: '8px', width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #fff', backgroundColor: batchSelected ? 'rgb(255, 0, 101)' : 'rgba(0,0,0,0.55)', color: '#fff', fontSize: '14px', lineHeight: '22px', textAlign: 'center', cursor: 'pointer', zIndex: 21 } }, batchSelected ? '✓' : '') : null,
-                    batchSelectionMode && hasRfqAlready ? React.createElement('div', { style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,152,0,0.95)', color: '#111', fontSize: '10px', fontWeight: 600, zIndex: 21 } }, 'RFQ already sent') : null,
+                    batchSelectionMode && !batchSelectionBlocked ? React.createElement('button', { type: 'button', title: batchSelected ? 'Deselect item' : 'Select item', 'aria-label': batchSelected ? 'Deselect item' : 'Select item', onClick: toggleBatchSelect, style: { position: 'absolute', top: '8px', left: '8px', width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #fff', backgroundColor: batchSelected ? 'rgb(255, 0, 101)' : 'rgba(0,0,0,0.55)', color: '#fff', fontSize: '14px', lineHeight: '22px', textAlign: 'center', cursor: 'pointer', zIndex: 21 } }, batchSelected ? '✓' : '') : null,
+                    batchSelectionMode && batchSelectionBlocked ? React.createElement('div', { style: { position: 'absolute', top: '8px', right: '8px', padding: '3px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,152,0,0.95)', color: '#111', fontSize: '10px', fontWeight: 600, zIndex: 21 } }, 'RFQ already sent') : null,
                     !batchSelectionMode ? React.createElement('button', { type: 'button', title: 'Options', 'aria-label': 'Open menu', onClick: function(e) { e.stopPropagation(); e.preventDefault(); setContextMenuOpen(function(v) { return !v; }); }, style: { position: 'absolute', top: '8px', right: '8px', width: '28px', height: '28px', padding: 0, margin: 0, fontSize: '16px', lineHeight: '28px', textAlign: 'center', cursor: 'pointer', backgroundColor: contextMenuOpen ? '#000' : '#E5E5E5', color: 'rgb(255, 0, 101)', border: '1px solid rgb(255, 0, 101)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', zIndex: 20, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' } }, '\u22EE') : null,
                     !batchSelectionMode && contextMenuOpen ? React.createElement('div', { style: { position: 'absolute', left: '100%', top: '0', marginLeft: '8px', minWidth: '220px', padding: '12px 14px', backgroundColor: '#3a3a3a', borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', zIndex: 25, fontSize: '13px', color: '#fff' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '8px' } }, 'Card size:'), React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } }, ['S', 'D', 'L', 'XL'].map(function(sz) { return React.createElement('button', { key: sz, type: 'button', onClick: function(ev) { ev.stopPropagation(); handleSizeChange(sz, ev); setContextMenuOpen(false); }, style: { padding: '4px 10px', fontSize: '12px', cursor: 'pointer', backgroundColor: 'transparent', color: currentSize === sz ? 'rgb(255, 0, 101)' : '#fff', border: 'none', borderRadius: '2px', fontWeight: currentSize === sz ? 600 : 400 } }, '[' + sz + ']'); })), React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '8px' } }, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(function(v) { return !v; }); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px' } }, 'Move to project / room'), movePanelOpen ? React.createElement('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.2)' }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); } }, React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a project'), React.createElement('select', { value: selectedProjectId || '', onChange: function(e) { setSelectedProjectId(Number(e.target.value) || 0); setSelectedRoomId(0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No project'), (boardProjects || []).map(function(p) { return React.createElement('option', { key: p.id, value: p.id }, p.name || (p.project_name || '')); })), React.createElement('div', { style: { marginBottom: '4px', fontSize: '12px', color: '#ccc' } }, 'Select a room (optional)'), React.createElement('select', { value: selectedRoomId || '', onChange: function(e) { setSelectedRoomId(Number(e.target.value) || 0); }, onClick: function(ev) { ev.stopPropagation(); }, onMouseDown: function(ev) { ev.stopPropagation(); }, style: { width: '100%', padding: '6px', marginBottom: '8px', backgroundColor: '#2d2d2d', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '12px' } }, React.createElement('option', { value: '' }, 'No room'), (projectRooms || []).map(function(r) { return React.createElement('option', { key: r.id, value: r.id }, r.name || ''); })), React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, React.createElement('button', { type: 'button', disabled: moveUpdateLoading, onClick: function(ev) { ev.preventDefault(); ev.stopPropagation(); if (!moveUpdateLoading) handleMoveUpdate(); }, style: { flex: 1, padding: '6px 10px', backgroundColor: moveUpdateLoading ? '#999' : 'rgb(255, 0, 101)', color: '#fff', border: 'none', borderRadius: '4px', cursor: moveUpdateLoading ? 'wait' : 'pointer', fontSize: '12px' } }, moveUpdateLoading ? 'Updating...' : 'Update'), React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); setMovePanelOpen(false); }, style: { padding: '6px 10px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } }, 'Close'))) : null, React.createElement('button', { type: 'button', onClick: function(ev) { ev.stopPropagation(); handleDeleteItem(); }, style: { display: 'block', width: '100%', padding: '6px 0', textAlign: 'left', background: 'none', border: 'none', color: 'rgb(255, 0, 101)', cursor: 'pointer', fontSize: '13px', marginTop: '4px' } }, 'Delete'))) : null
                     )
@@ -10859,6 +10865,10 @@ class N88_RFQ_Admin {
                     var itemQuantity = matrixProps.itemQuantity != null ? matrixProps.itemQuantity : null;
                     var itemCbm = matrixProps.itemCbm != null ? matrixProps.itemCbm : null;
                     var itemDimsCm = matrixProps.itemDimsCm || null;
+                    var singleBidHeading = matrixProps.singleBidHeading || null;
+                    var hideAwardActions = !!matrixProps.hideAwardActions;
+                    var showGenericCtaButtons = !!matrixProps.showGenericCtaButtons;
+                    var genericCtaLabels = Array.isArray(matrixProps.genericCtaLabels) && matrixProps.genericCtaLabels.length === 3 ? matrixProps.genericCtaLabels : ['REQUEST SAMPLES', 'REQUEST PROTOTYPE', 'SELECT THIS SUPPLIER'];
                     var prototypeHelperText = 'For your convenience and to save time and money we offer you the option to have a prototype video of the piece you are asking about. If you still need to see a physical product you can choose to do so after the video of the prototype.';
                     
                     // Per-unit CBM for Prototype Delivery (1 unit). From itemCbm or computed from itemDimsCm; when only itemCbm and qty>1 treat as total and divide.
@@ -11160,7 +11170,7 @@ class N88_RFQ_Admin {
                             style: { border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', overflow: 'hidden' }
                         },
                             React.createElement('div', { style: { padding: '12px', borderBottom: '1px solid ' + darkBorder } },
-                                React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: darkText } }, 'Supplier A'),
+                                React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: darkText } }, singleBidHeading || 'Supplier 1'),
                                 React.createElement('div', { style: { fontSize: '11px', color: '#FF0065', lineHeight: 1.4 } }, prototypeHelperText)
                             ),
                             React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } },
@@ -11168,7 +11178,7 @@ class N88_RFQ_Admin {
                                 React.createElement('tbody', null, tableRows)
                             ),
                             // Commit 2.4.1: Award Bid Button
-                                bid.can_award && !bid.is_awarded && !bid.is_declined ? React.createElement('div', {
+                                !hideAwardActions && bid.can_award && !bid.is_awarded && !bid.is_declined ? React.createElement('div', {
                                     style: { marginTop: '12px', marginBottom: '8px' }
                                 },
                                     React.createElement('button', {
@@ -11237,6 +11247,38 @@ class N88_RFQ_Admin {
                                             e.target.style.backgroundColor = '#FF0065';
                                         }
                                     }, '[ Award Bid ]')
+                                ) : null,
+                                showGenericCtaButtons ? React.createElement('div', {
+                                    style: {
+                                        display: 'flex',
+                                        gap: '10px',
+                                        flexWrap: 'wrap',
+                                        padding: '14px 12px 12px',
+                                        borderTop: '1px solid ' + darkBorder,
+                                        backgroundColor: '#111111'
+                                    }
+                                },
+                                    genericCtaLabels.map(function(label, idx) {
+                                        var isPrimary = idx === 2;
+                                        return React.createElement('button', {
+                                            key: 'generic-cta-' + idx,
+                                            type: 'button',
+                                            style: {
+                                                flex: '1 1 180px',
+                                                minHeight: '38px',
+                                                padding: '10px 14px',
+                                                backgroundColor: isPrimary ? '#FF0065' : '#000000',
+                                                color: '#ffffff',
+                                                border: isPrimary ? '1px solid #FF0065' : '1px solid ' + darkBorder,
+                                                borderRadius: '0',
+                                                fontSize: '12px',
+                                                fontWeight: '700',
+                                                letterSpacing: '0.4px',
+                                                textTransform: 'uppercase',
+                                                cursor: 'default'
+                                            }
+                                        }, label);
+                                    })
                                 ) : null,
                                 // Commit 2.4.1: Awarded Status Badge
                                 bid.is_awarded ? React.createElement('div', {
@@ -12694,6 +12736,10 @@ class N88_RFQ_Admin {
                         loading: true,
                         has_unread_operator_messages: false,
                         unread_operator_messages: 0,
+                        has_unread_supplier_messages: false,
+                        unread_supplier_messages: 0,
+                        direct_supplier_id: null,
+                        direct_supplier_options: [],
                         has_prototype_payment: false,
                         prototype_payment_id: null,
                         prototype_payment_bid_id: null,
@@ -12721,6 +12767,10 @@ class N88_RFQ_Admin {
                     });
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
+                    var _selectedDirectSupplierIdState = React.useState(null);
+                    var selectedDirectSupplierId = _selectedDirectSupplierIdState[0];
+                    var setSelectedDirectSupplierId = _selectedDirectSupplierIdState[1];
+                    var directSupplierSelectRef = React.useRef(null);
                     
                     // Payment Instructions Modal State
                     var _showPaymentInstructionsState = React.useState(false);
@@ -13375,10 +13425,64 @@ class N88_RFQ_Admin {
                         loadKeywordsForCategory();
                     }, [showCadPrototypeForm, selectedBidId, category]);
                     
+                    var isDirectSupplierConversation = !!itemState.has_rfq;
+                    var availableDirectSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                    var normalizeDirectSupplierId = React.useCallback(function(preferredSupplierId) {
+                        if (!isDirectSupplierConversation) {
+                            return null;
+                        }
+                        var options = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                        var optionIds = options.map(function(opt) { return String(opt.supplier_id); });
+                        var refValue = '';
+                        try {
+                            if (directSupplierSelectRef && directSupplierSelectRef.current && directSupplierSelectRef.current.value) {
+                                refValue = String(directSupplierSelectRef.current.value);
+                            }
+                        } catch (e) {}
+                        var candidates = [
+                            preferredSupplierId,
+                            refValue,
+                            selectedDirectSupplierId,
+                            itemState.direct_supplier_id
+                        ];
+                        for (var ci = 0; ci < candidates.length; ci++) {
+                            var candidate = candidates[ci];
+                            if (!candidate && candidate !== 0) {
+                                continue;
+                            }
+                            var normalizedCandidate = String(candidate);
+                            if (!normalizedCandidate) {
+                                continue;
+                            }
+                            if (optionIds.indexOf(normalizedCandidate) !== -1) {
+                                return normalizedCandidate;
+                            }
+                        }
+                        if (optionIds.length === 1) {
+                            return optionIds[0];
+                        }
+                        return null;
+                    }, [isDirectSupplierConversation, itemState.direct_supplier_options, itemState.direct_supplier_id, selectedDirectSupplierId]);
+                    var getDesignerConversationContext = React.useCallback(function(preferredSupplierId) {
+                        var useDirectSupplier = !!itemState.has_rfq;
+                        return {
+                            threadType: useDirectSupplier ? 'designer_supplier' : 'designer_operator',
+                            supplierId: useDirectSupplier ? normalizeDirectSupplierId(preferredSupplierId) : null
+                        };
+                    }, [itemState.has_rfq, normalizeDirectSupplierId]);
+                    var requiresMessageTags = !isDirectSupplierConversation;
+                    var canSendDesignerMessage = !!designerMessageText.trim() && (!requiresMessageTags || msgTagClarifying || msgTagMSE) && (!isDirectSupplierConversation || !!normalizeDirectSupplierId());
+
                     // Commit 2.3.9.1C-a: Load Designer Messages
-                    var loadDesignerMessages = React.useCallback(function() {
+                    var loadDesignerMessages = React.useCallback(function(preferredSupplierId) {
                         if (!itemId) return;
-                        
+                        var conversationContext = getDesignerConversationContext(preferredSupplierId);
+                        if (conversationContext.threadType === 'designer_supplier' && !conversationContext.supplierId) {
+                            setDesignerMessages([]);
+                            setIsLoadingDesignerMessages(false);
+                            return;
+                        }
+
                         setIsLoadingDesignerMessages(true);
                         try {
                             var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -13393,16 +13497,29 @@ class N88_RFQ_Admin {
                             var formData = new FormData();
                             formData.append('action', 'n88_get_item_messages');
                             formData.append('item_id', String(itemId));
-                            formData.append('thread_type', 'designer_operator');
+                            formData.append('thread_type', conversationContext.threadType);
+                            if (conversationContext.supplierId) {
+                                formData.append('supplier_id', String(conversationContext.supplierId));
+                            }
                             formData.append('_ajax_nonce', nonce);
                             
                             fetch(ajaxUrl, {
                                 method: 'POST',
                                 body: formData,
                             })
-                            .then(function(response) { return response.json(); })
+                            .then(function(response) { return response.text(); })
+                            .then(function(responseText) {
+                                try {
+                                    return JSON.parse(responseText);
+                                } catch (parseError) {
+                                    throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                                }
+                            })
                             .then(function(data) {
                                 if (data.success && data.data && data.data.messages) {
+                                    if (conversationContext.threadType === 'designer_supplier' && data.data.supplier_id && String(data.data.supplier_id) !== String(selectedDirectSupplierId || '')) {
+                                        setSelectedDirectSupplierId(String(data.data.supplier_id));
+                                    }
                                     setDesignerMessages(data.data.messages);
                                 } else {
                                     setDesignerMessages([]);
@@ -13420,7 +13537,7 @@ class N88_RFQ_Admin {
                             setDesignerMessages([]);
                             setIsLoadingDesignerMessages(false);
                         }
-                    }, [itemId]);
+                    }, [itemId, getDesignerConversationContext, selectedDirectSupplierId]);
                     
                     // Ensure message history loads every time modal opens/reopens
                     React.useEffect(function() {
@@ -13430,15 +13547,55 @@ class N88_RFQ_Admin {
                         }
                     }, [isOpen, itemId, loadDesignerMessages]);
                     
+                    React.useEffect(function() {
+                        var options = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                        if (!itemState.has_rfq) {
+                            setSelectedDirectSupplierId(null);
+                            return;
+                        }
+                        if (selectedDirectSupplierId && options.some(function(opt) { return String(opt.supplier_id) === String(selectedDirectSupplierId); })) {
+                            return;
+                        }
+                        if (itemState.direct_supplier_id) {
+                            setSelectedDirectSupplierId(itemState.direct_supplier_id);
+                            return;
+                        }
+                        if (options.length === 1) {
+                            setSelectedDirectSupplierId(options[0].supplier_id);
+                        }
+                    }, [itemState.has_rfq, itemState.direct_supplier_id, itemState.direct_supplier_options, selectedDirectSupplierId]);
+
                     // Commit 2.3.9.1C-a: Send Designer Message (with required tags + optional attachments)
                     var sendDesignerMessage = React.useCallback(function(e) {
                         e.preventDefault();
-                        
+                        var conversationContext = getDesignerConversationContext();
+                        if (conversationContext.threadType === 'designer_supplier' && conversationContext.supplierId) {
+                            setSelectedDirectSupplierId(String(conversationContext.supplierId));
+                        }
                         if (!itemId || !designerMessageText.trim()) {
                             alert('Please enter a message.');
                             return;
                         }
-                        if (!msgTagClarifying && !msgTagMSE) {
+                        if (conversationContext.threadType === 'designer_supplier' && !conversationContext.supplierId) {
+                            var availableSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                            if (availableSuppliers.length > 1) {
+                                var selectionText = availableSuppliers.map(function(opt, index) {
+                                    return (index + 1) + '. ' + (opt.display_name || ('Supplier #' + opt.supplier_id));
+                                }).join('\n');
+                                var picked = window.prompt('Select supplier for this message:\n' + selectionText, '1');
+                                var pickedIndex = parseInt(picked, 10);
+                                if (!pickedIndex || pickedIndex < 1 || pickedIndex > availableSuppliers.length) {
+                                    alert('Message was not sent. Select a valid supplier.');
+                                    return;
+                                }
+                                conversationContext.supplierId = availableSuppliers[pickedIndex - 1].supplier_id;
+                                setSelectedDirectSupplierId(conversationContext.supplierId);
+                            } else {
+                                alert('Select a supplier first.');
+                                return;
+                            }
+                        }
+                        if (conversationContext.threadType === 'designer_operator' && !msgTagClarifying && !msgTagMSE) {
                             alert('Please select at least one: Clarifying questions or MSE/Material Suggestions.');
                             return;
                         }
@@ -13457,10 +13614,13 @@ class N88_RFQ_Admin {
                             var formData = new FormData();
                             formData.append('action', 'n88_send_item_message');
                             formData.append('item_id', String(itemId));
-                            formData.append('thread_type', 'designer_operator');
+                            formData.append('thread_type', conversationContext.threadType);
                             formData.append('message_text', designerMessageText.trim());
+                            if (conversationContext.supplierId) formData.append('supplier_id', String(conversationContext.supplierId));
                             if (msgTagClarifying) formData.append('message_tags[]', 'clarifying_questions');
                             if (msgTagMSE) formData.append('message_tags[]', 'mse_material');
+                            if (conversationContext.threadType === 'designer_operator') {
+                            }
                             formData.append('_ajax_nonce', nonce);
                             if (designerMessageFiles && designerMessageFiles.length > 0) {
                                 for (var fi = 0; fi < designerMessageFiles.length; fi++) {
@@ -13472,9 +13632,36 @@ class N88_RFQ_Admin {
                                 method: 'POST',
                                 body: formData,
                             })
-                            .then(function(response) { return response.json(); })
+                            .then(function(response) { return response.text(); })
+                            .then(function(responseText) {
+                                try {
+                                    return JSON.parse(responseText);
+                                } catch (parseError) {
+                                    throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                                }
+                            })
                             .then(function(data) {
                                 if (data.success) {
+                                    var optimisticMessage = {
+                                        message_id: data.data && data.data.message_id ? data.data.message_id : ('tmp-' + Date.now()),
+                                        item_id: itemId,
+                                        supplier_id: conversationContext.supplierId || null,
+                                        sender_role: 'designer',
+                                        sender_user_id: (window.n88BoardData && window.n88BoardData.currentUserId) ? window.n88BoardData.currentUserId : 0,
+                                        sender_name: 'You',
+                                        message_text: designerMessageText.trim(),
+                                        category: (msgTagClarifying || msgTagMSE) ? [msgTagClarifying ? 'clarifying_questions' : null, msgTagMSE ? 'mse_material' : null].filter(Boolean).join(',') : (designerMessageCategory || ''),
+                                        created_at: new Date().toISOString(),
+                                        message_attachments: []
+                                    };
+                                    setDesignerMessages(function(prev) {
+                                        return (prev || []).concat([optimisticMessage]);
+                                    });
+                                    var resolvedSupplierId = conversationContext.supplierId;
+                                    if (data.data && data.data.supplier_id) {
+                                        resolvedSupplierId = String(data.data.supplier_id);
+                                        setSelectedDirectSupplierId(resolvedSupplierId);
+                                    }
                                     setDesignerMessageText('');
                                     setMsgTagClarifying(false);
                                     setMsgTagMSE(false);
@@ -13485,7 +13672,7 @@ class N88_RFQ_Admin {
                                     if (fileInputT1) fileInputT1.value = '';
                                     var fileInputT2 = document.getElementById('n88-designer-message-attachments-timeline2');
                                     if (fileInputT2) fileInputT2.value = '';
-                                    loadDesignerMessages();
+                                    loadDesignerMessages(resolvedSupplierId);
                                     fetchItemState();
                                 } else {
                                     alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to send message. Please try again.'));
@@ -13493,7 +13680,7 @@ class N88_RFQ_Admin {
                             })
                             .catch(function(error) {
                                 console.error('Error sending designer message:', error);
-                                alert('An error occurred. Please try again.');
+                                alert('An error occurred while sending the message. ' + (error && error.message ? error.message : 'Please try again.'));
                             })
                             .finally(function() {
                                 setIsSendingDesignerMessage(false);
@@ -13503,7 +13690,7 @@ class N88_RFQ_Admin {
                             alert('An error occurred. Please try again.');
                             setIsSendingDesignerMessage(false);
                         }
-                    }, [itemId, designerMessageText, msgTagClarifying, msgTagMSE, designerMessageFiles, loadDesignerMessages]);
+                    }, [itemId, designerMessageText, msgTagClarifying, msgTagMSE, designerMessageFiles, loadDesignerMessages, getDesignerConversationContext, designerMessageCategory]);
                     
                     // Auto-scroll to bottom when messages load or new message is sent
                     React.useEffect(function() {
@@ -13589,7 +13776,7 @@ class N88_RFQ_Admin {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                             });
                             return;
                         }
@@ -13614,7 +13801,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                             });
                             return;
                         }
@@ -13642,6 +13829,10 @@ class N88_RFQ_Admin {
                                     revision_changed: data.data.revision_changed || false,
                                     has_unread_operator_messages: data.data.has_unread_operator_messages || false,
                                     unread_operator_messages: data.data.unread_operator_messages || 0,
+                                    has_unread_supplier_messages: data.data.has_unread_supplier_messages || false,
+                                    unread_supplier_messages: data.data.unread_supplier_messages || 0,
+                                    direct_supplier_id: data.data.direct_supplier_id || null,
+                                    direct_supplier_options: data.data.direct_supplier_options || [],
                                     has_prototype_payment: data.data.has_prototype_payment || false,
                                     prototype_payment_id: data.data.prototype_payment_id || null,
                                     prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
@@ -13690,14 +13881,14 @@ class N88_RFQ_Admin {
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null };
                             });
                         });
                     };
@@ -15757,14 +15948,6 @@ class N88_RFQ_Admin {
                                                 React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff0000', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' } }, React.createElement('span', null, '\u26A0\uFE0F'), React.createElement('span', null, 'Action Required')),
                                                 React.createElement('div', { style: { fontSize: '12px', color: '#ff6666', lineHeight: '1.5' } }, 'You have ' + (itemState.unread_operator_messages || 0) + ' unread message' + (itemState.unread_operator_messages !== 1 ? 's' : '') + ' from the operator. Please review and respond.')
                                             ) : null,
-                                            (itemState.has_rfq || itemState.has_prototype_payment) ? React.createElement('div', { style: { marginBottom: '24px' } },
-                                                React.createElement('button', {
-                                                    onClick: function() { var cadDone = (Number(itemState.cad_current_version) || 0) > 0; setActiveTab('timeline'); setSelectedStepIndex(cadDone ? 1 : 0); setShowDesignerMessageForm(true); if (typeof loadDesignerMessages === 'function') loadDesignerMessages(); },
-                                                    style: { width: '100%', padding: '12px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '14px', fontFamily: 'monospace', cursor: 'pointer', fontWeight: '600' },
-                                                    onMouseOver: function(e) { e.target.style.backgroundColor = '#1a1a1a'; },
-                                                    onMouseOut: function(e) { e.target.style.backgroundColor = '#111111'; }
-                                                }, 'Open Workflow \u2192 ' + ((Number(itemState.cad_current_version) || 0) > 0 ? 'Step 2 (Review and Message)' : 'Step 1 (Clarifications)'))
-                                            ) : null,
                                             (currentState === 'A' || currentState === 'B' || currentState === 'C') ? React.createElement(React.Fragment, null,
                                                 React.createElement(React.Fragment, null,
                                                     React.createElement('div', { style: { marginBottom: '24px', padding: '16px', backgroundColor: '#111111', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
@@ -16189,7 +16372,7 @@ class N88_RFQ_Admin {
                                                             ),
                                                             rfqError && invitedSuppliers.length === 0 ? React.createElement('div', { style: { fontSize: '11px', color: '#ff0000', marginTop: '4px' } }, rfqError) : null
                                                         ),
-                                                        React.createElement('div', { style: { marginBottom: '12px' } },
+                                                        React.createElement('div', { style: { marginBottom: '12px', display: 'none' } },
                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } },
                                                                 React.createElement('input', {
                                                                     type: 'checkbox',
@@ -16229,7 +16412,7 @@ class N88_RFQ_Admin {
                                                 React.createElement('div', { id: 'n88-designer-messages-container-details-admin', style: { height: '200px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
                                                     isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation\u2026') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px' } }, 'No messages yet.') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
                                                         var isD = msg.sender_role === 'designer';
-                                                        var senderName = isD ? 'You' : 'Operator';
+                                                        var senderName = isD ? 'You' : (itemState.has_rfq ? 'Supplier' : 'Operator');
                                                         var tags = [];
                                                         if (msg.category) { var parts = String(msg.category).split(','); if (parts.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (parts.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); }
                                                         var attachments = [];
@@ -16238,6 +16421,21 @@ class N88_RFQ_Admin {
                                                     })
                                                 ),
                                                 React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                                                    isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                        React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                        React.createElement('select', {
+                                                            ref: directSupplierSelectRef,
+                                                            className: 'n88-direct-supplier-select',
+                                                            value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                            onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                            style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                        },
+                                                            React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
+                                                            availableDirectSuppliers.map(function(opt) {
+                                                                return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                            })
+                                                        )
+                                                    ) : null,
                                                     React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
                                                     React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
                                                         React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
@@ -16250,7 +16448,7 @@ class N88_RFQ_Admin {
                                                                         ),
                                                     React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '30px' } },
                                                         React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...' }),
-                                                        React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE), style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
+                                                        React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                     )
                                                 )
                                             )
@@ -17915,7 +18113,7 @@ class N88_RFQ_Admin {
                                                                         var attachments = []; try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) attachments = a; } } catch (e) {}
                                                                         return React.createElement('div', { key: idx, style: { marginBottom: '6px', display: 'flex', justifyContent: isD ? 'flex-end' : 'flex-start', width: '100%' } },
                                                                             React.createElement('div', { style: { maxWidth: '75%', padding: '6px 10px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: isD ? '10px 10px 4px 10px' : '10px 10px 10px 4px', fontSize: '11px', color: '#fff', wordWrap: 'break-word', whiteSpace: 'pre-wrap', lineHeight: 1.35 } },
-                                                                                React.createElement('div', { style: { fontSize: '8px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '2px' } }, isD ? 'You' : 'Operator'),
+                                                                                React.createElement('div', { style: { fontSize: '8px', fontWeight: '600', color: isD ? greenAccent : '#00aa00', marginBottom: '2px' } }, isD ? 'You' : (itemState.has_rfq ? 'Supplier' : 'Operator')),
                                                                                 React.createElement('div', { style: { fontSize: '11px', lineHeight: '1.35', marginBottom: '2px' } }, msg.message_text || ''),
                                                                                 tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null,
                                                                                 attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null,
@@ -17924,6 +18122,21 @@ class N88_RFQ_Admin {
                                                                         );
                                                                     }),
                                                                     React.createElement('form', { onSubmit: function(e) { e.preventDefault(); sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                                                                        isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                                            React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                                            React.createElement('select', {
+                                                                                ref: directSupplierSelectRef,
+                                                                                className: 'n88-direct-supplier-select',
+                                                                                value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                                                onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                                                style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                                            },
+                                                                                React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
+                                                                                availableDirectSuppliers.map(function(opt) {
+                                                                                    return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                                                })
+                                                                            )
+                                                                        ) : null,
                                                                         React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
@@ -17935,8 +18148,8 @@ class N88_RFQ_Admin {
                                                                             React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
-                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim() && (msgTagClarifying || msgTagMSE)) sendDesignerMessage(e); } } }),
-                                                                            React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE), style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
+                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSendDesignerMessage) sendDesignerMessage(e); } } }),
+                                                                            React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                                         )
                                                                     )
                                                                 )
@@ -18147,6 +18360,21 @@ class N88_RFQ_Admin {
                                                                         ) : null
                                                                     ) : null,
                                                                     React.createElement('form', { onSubmit: function(e) { e.preventDefault(); sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                                                                        isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                                            React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                                            React.createElement('select', {
+                                                                                ref: directSupplierSelectRef,
+                                                                                className: 'n88-direct-supplier-select',
+                                                                                value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                                                onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                                                style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                                            },
+                                                                                React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
+                                                                                availableDirectSuppliers.map(function(opt) {
+                                                                                    return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                                                })
+                                                                            )
+                                                                        ) : null,
                                                                         React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
                                                                             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
@@ -18158,8 +18386,8 @@ class N88_RFQ_Admin {
                                                                             React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-timeline2', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
                                                                         ),
                                                                         React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '44px' } },
-                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (designerMessageText.trim() && (msgTagClarifying || msgTagMSE)) sendDesignerMessage(e); } } }),
-                                                                            React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE), style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !designerMessageText.trim() || (!msgTagClarifying && !msgTagMSE)) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
+                                                                            React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...', onKeyDown: function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSendDesignerMessage) sendDesignerMessage(e); } } }),
+                                                                            React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                                         )
                                                                     )
                                                                 )
@@ -19641,24 +19869,51 @@ class N88_RFQ_Admin {
                     var _unsyncedState = React.useState(saveHook ? saveHook.unsynced : false);
                     var unsyncedState = _unsyncedState[0];
                     var setUnsyncedState = _unsyncedState[1];
-                    var _batchModeState = React.useState(false);
-                    var batchMode = _batchModeState[0];
-                    var setBatchMode = _batchModeState[1];
+                    var _selectionModeState = React.useState(null);
+                    var selectionMode = _selectionModeState[0];
+                    var setSelectionMode = _selectionModeState[1];
                     var _batchSelectedState = React.useState({});
                     var batchSelected = _batchSelectedState[0];
                     var setBatchSelected = _batchSelectedState[1];
                     var _batchModalState = React.useState(false);
                     var batchModalOpen = _batchModalState[0];
                     var setBatchModalOpen = _batchModalState[1];
+                    var _proposalModalState = React.useState(false);
+                    var proposalModalOpen = _proposalModalState[0];
+                    var setProposalModalOpen = _proposalModalState[1];
                     var _batchRowsState = React.useState([]);
                     var batchRows = _batchRowsState[0];
                     var setBatchRows = _batchRowsState[1];
+                    var _proposalItemsState = React.useState([]);
+                    var proposalItems = _proposalItemsState[0];
+                    var setProposalItems = _proposalItemsState[1];
                     var _batchErrorState = React.useState('');
                     var batchError = _batchErrorState[0];
                     var setBatchError = _batchErrorState[1];
+                    var _proposalErrorState = React.useState('');
+                    var proposalError = _proposalErrorState[0];
+                    var setProposalError = _proposalErrorState[1];
+                    var _expandedProposalSuppliersState = React.useState({});
+                    var expandedProposalSuppliers = _expandedProposalSuppliersState[0];
+                    var setExpandedProposalSuppliers = _expandedProposalSuppliersState[1];
                     var _batchSubmittingState = React.useState(false);
                     var batchSubmitting = _batchSubmittingState[0];
                     var setBatchSubmitting = _batchSubmittingState[1];
+                    var _proposalLoadingState = React.useState(false);
+                    var proposalLoading = _proposalLoadingState[0];
+                    var setProposalLoading = _proposalLoadingState[1];
+                    var boardCanvasDarkBg = '#000000';
+                    var boardCanvasDarkText = '#d3d3d3';
+                    var boardCanvasGreenAccent = '#FF0065';
+                    var boardCanvasDarkBorder = '#333333';
+                    var boardCanvasSmartAlternativesEnabled = false;
+                    var boardCanvasHandleImageClick = function(url) {
+                        if (url) {
+                            try {
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                            } catch (e) {}
+                        }
+                    };
 
                     var toNumericItemId = function(raw) {
                         if (raw && typeof raw === 'object' && raw.id !== undefined) raw = raw.id;
@@ -19670,6 +19925,21 @@ class N88_RFQ_Admin {
                     var isRfqAlreadySentItem = function(itemLike) {
                         if (!itemLike) return false;
                         return itemLike.has_rfq === true || itemLike.has_rfq === 1 || itemLike.has_rfq === '1' || itemLike.has_rfq === 'true';
+                    };
+                    var isRfqSelectionMode = selectionMode === 'rfq';
+                    var isProposalSelectionMode = selectionMode === 'proposal';
+                    var getDefaultProposalState = function() {
+                        return {
+                            has_rfq: false,
+                            has_bids: false,
+                            has_awarded_bid: false,
+                            bids: [],
+                            has_prototype_payment: false,
+                            prototype_payment_status: null,
+                            prototype_payment_bid_id: null,
+                            prototype_payment_supplier_id: null,
+                            prototype_status: null
+                        };
                     };
                     var getItemMeta = function(item) {
                         return item && item.meta && typeof item.meta === 'object' ? item.meta : {};
@@ -19836,53 +20106,77 @@ class N88_RFQ_Admin {
 
                     React.useEffect(function() {
                         var createBtn = document.getElementById('n88-create-batch-rfq-btn');
+                        var proposalBtn = document.getElementById('n88-open-batch-proposal-review-btn');
                         var cancelBtn = document.getElementById('n88-cancel-batch-rfq-btn');
                         if (!createBtn || !cancelBtn) return;
-                        createBtn.style.display = batchMode ? 'none' : '';
-                        cancelBtn.style.display = batchMode ? '' : 'none';
-                    }, [batchMode]);
+                        createBtn.style.display = selectionMode ? 'none' : '';
+                        if (proposalBtn) proposalBtn.style.display = selectionMode ? 'none' : '';
+                        cancelBtn.style.display = selectionMode ? '' : 'none';
+                    }, [selectionMode]);
 
                     React.useEffect(function() {
                         var createBtn = document.getElementById('n88-create-batch-rfq-btn');
+                        var proposalBtn = document.getElementById('n88-open-batch-proposal-review-btn');
                         var cancelBtn = document.getElementById('n88-cancel-batch-rfq-btn');
                         if (!createBtn || !cancelBtn) return;
                         var onCreate = function() {
-                            setBatchMode(true);
+                            setSelectionMode('rfq');
                             setBatchSelected({});
                             setBatchModalOpen(false);
+                            setProposalModalOpen(false);
+                            setBatchRows([]);
+                            setProposalItems([]);
                             setBatchError('');
+                            setProposalError('');
+                        };
+                        var onProposal = function() {
+                            setSelectionMode('proposal');
+                            setBatchSelected({});
+                            setBatchModalOpen(false);
+                            setProposalModalOpen(false);
+                            setBatchRows([]);
+                            setProposalItems([]);
+                            setBatchError('');
+                            setProposalError('');
                         };
                         var onCancel = function() {
-                            setBatchMode(false);
+                            setSelectionMode(null);
                             setBatchSelected({});
                             setBatchModalOpen(false);
+                            setProposalModalOpen(false);
                             setBatchRows([]);
+                            setProposalItems([]);
                             setBatchError('');
+                            setProposalError('');
                         };
                         createBtn.addEventListener('click', onCreate);
+                        if (proposalBtn) proposalBtn.addEventListener('click', onProposal);
                         cancelBtn.addEventListener('click', onCancel);
                         return function() {
                             createBtn.removeEventListener('click', onCreate);
+                            if (proposalBtn) proposalBtn.removeEventListener('click', onProposal);
                             cancelBtn.removeEventListener('click', onCancel);
                         };
                     }, []);
 
                     React.useEffect(function() {
-                        if (!batchMode) return;
+                        if (!selectionMode) return;
                         var valid = {};
                         (items || []).forEach(function(it) {
                             var id = toNumericItemId(it.id);
-                            if (id > 0 && batchSelected[id] && !isRfqAlreadySentItem(it)) valid[id] = true;
+                            if (!(id > 0) || !batchSelected[id]) return;
+                            if (isRfqSelectionMode && isRfqAlreadySentItem(it)) return;
+                            valid[id] = true;
                         });
                         if (Object.keys(valid).length !== Object.keys(batchSelected || {}).length) {
                             setBatchSelected(valid);
                         }
-                    }, [items, batchMode, batchSelected]);
+                    }, [items, selectionMode, batchSelected, isRfqSelectionMode]);
                     React.useEffect(function() {
-                        if (batchModalOpen) document.body.classList.add('n88-modal-open');
+                        if (batchModalOpen || proposalModalOpen) document.body.classList.add('n88-modal-open');
                         else document.body.classList.remove('n88-modal-open');
                         return function() { document.body.classList.remove('n88-modal-open'); };
-                    }, [batchModalOpen]);
+                    }, [batchModalOpen, proposalModalOpen]);
                     React.useEffect(function() {
                         if (!batchModalOpen) return;
                         (batchRows || []).forEach(function(row) {
@@ -19958,7 +20252,7 @@ class N88_RFQ_Admin {
                     };
 
                     var toggleBatchSelection = function(item) {
-                        if (isRfqAlreadySentItem(item)) return;
+                        if (isRfqSelectionMode && isRfqAlreadySentItem(item)) return;
                         var id = toNumericItemId(item);
                         if (!id) return;
                         setBatchSelected(function(prev) {
@@ -19981,6 +20275,115 @@ class N88_RFQ_Admin {
                         setBatchRows(rows);
                         setBatchError('');
                         setBatchModalOpen(true);
+                    };
+                    var fetchItemProposalState = function(itemId) {
+                        return new Promise(function(resolve, reject) {
+                            var numericItemId = parseInt(itemId, 10) || 0;
+                            if (!(numericItemId > 0)) {
+                                resolve(getDefaultProposalState());
+                                return;
+                            }
+                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
+                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                            if (!ajaxUrl || !nonce) {
+                                reject(new Error('Missing proposal review credentials.'));
+                                return;
+                            }
+                            var formData = new FormData();
+                            formData.append('action', 'n88_get_item_rfq_state');
+                            formData.append('item_id', String(numericItemId));
+                            formData.append('_ajax_nonce', nonce);
+                            fetch(ajaxUrl, {
+                                method: 'POST',
+                                body: formData,
+                                credentials: 'same-origin'
+                            })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (data && data.success && data.data) {
+                                    resolve(Object.assign({}, getDefaultProposalState(), data.data));
+                                    return;
+                                }
+                                reject(new Error((data && data.data && data.data.message) ? data.data.message : ('Failed to load proposal state for item #' + numericItemId)));
+                            })
+                            .catch(reject);
+                        });
+                    };
+                    var openProposalModal = function() {
+                        if (!selectedCount || proposalLoading) return;
+                        var selectedSet = batchSelected || {};
+                        var selectedItems = (items || []).filter(function(it) {
+                            return !!selectedSet[toNumericItemId(it.id)];
+                        });
+                        if (!selectedItems.length) return;
+                        setProposalLoading(true);
+                        setProposalError('');
+                        setProposalItems([]);
+                        setProposalModalOpen(true);
+                        Promise.all(selectedItems.map(function(it) {
+                            return fetchItemProposalState(toNumericItemId(it.id)).then(function(state) {
+                                return { item: it, state: state, error: '' };
+                            }).catch(function(err) {
+                                return { item: it, state: getDefaultProposalState(), error: err && err.message ? err.message : 'Failed to load proposal state.' };
+                            });
+                        })).then(function(results) {
+                            var errors = results.filter(function(entry) { return !!entry.error; }).map(function(entry) {
+                                return (entry.item && entry.item.title ? entry.item.title : ('Item ' + toNumericItemId(entry.item && entry.item.id))) + ': ' + entry.error;
+                            });
+                            setProposalItems(results);
+                            setProposalError(errors.length ? ('Some items could not be loaded completely:\n' + errors.join('\n')) : '');
+                        }).catch(function(err) {
+                            setProposalError(err && err.message ? err.message : 'Failed to load selected proposals.');
+                        }).finally(function() {
+                            setProposalLoading(false);
+                        });
+                    };
+                    var proposalReviewData = React.useMemo(function() {
+                        var supplierOrderMap = {};
+                        var globalSupplierCounter = 0;
+                        var itemGroups = (proposalItems || []).map(function(entry) {
+                            var state = entry && entry.state ? entry.state : getDefaultProposalState();
+                            var bids = Array.isArray(state.bids) ? state.bids : [];
+                            var supplierEntries = bids.map(function(bid, bidIndex) {
+                                if (!bid) return null;
+                                var supplierId = parseInt(bid.supplier_id, 10) || 0;
+                                var supplierKey = supplierId > 0 ? ('supplier-' + supplierId) : ('unknown-' + (bid.bid_id || (toNumericItemId(entry.item && entry.item.id) + '-' + bidIndex)));
+                                if (!supplierOrderMap[supplierKey]) {
+                                    globalSupplierCounter += 1;
+                                    supplierOrderMap[supplierKey] = globalSupplierCounter;
+                                }
+                                var supplierOrdinal = supplierOrderMap[supplierKey];
+                                var supplierNameRaw = bid.supplier_name ? String(bid.supplier_name).trim() : '';
+                                return {
+                                    supplierKey: supplierKey,
+                                    supplierId: supplierId || null,
+                                    supplierOrdinal: supplierOrdinal,
+                                    supplierName: supplierNameRaw,
+                                    supplierDisplayLabel: supplierNameRaw ? ('Supplier ' + supplierOrdinal + ' - ' + supplierNameRaw) : ('Supplier ' + supplierOrdinal),
+                                    bid: bid
+                                };
+                            }).filter(Boolean).sort(function(a, b) {
+                                return a.supplierOrdinal - b.supplierOrdinal;
+                            });
+                            return {
+                                item: entry.item,
+                                state: state,
+                                suppliers: supplierEntries
+                            };
+                        });
+                        return {
+                            supplierCount: globalSupplierCounter,
+                            itemGroups: itemGroups
+                        };
+                    }, [proposalItems]);
+                    var proposalItemGroups = proposalReviewData.itemGroups;
+                    var proposalSupplierCount = proposalReviewData.supplierCount;
+                    var toggleProposalSupplierPanel = function(panelKey) {
+                        setExpandedProposalSuppliers(function(prev) {
+                            var next = Object.assign({}, prev || {});
+                            next[panelKey] = !next[panelKey];
+                            return next;
+                        });
                     };
 
                     var updateBatchRow = function(itemId, patch) {
@@ -20215,7 +20618,7 @@ class N88_RFQ_Admin {
                             alert('Batch RFQ submitted successfully for ' + rows.length + ' item(s).');
                             setBatchSubmitting(false);
                             setBatchModalOpen(false);
-                            setBatchMode(false);
+                            setSelectionMode(null);
                             setBatchSelected({});
                             window.location.reload();
                         }).catch(function(err) {
@@ -20257,13 +20660,14 @@ class N88_RFQ_Admin {
                                 onSizeChange: saveHook && saveHook.saveNow ? saveHook.saveNow : undefined,
                                 boardId: testBoardId,
                                 _batchSelection: {
-                                    enabled: batchMode,
+                                    enabled: !!selectionMode,
+                                    intent: selectionMode,
                                     selected: !!batchSelected[toNumericItemId(item.id)],
                                     onToggle: toggleBatchSelection
                                 }
                             });
                         }) : React.createElement('div', { style: { padding: '20px', color: '#888', fontSize: '16px', fontFamily: 'ui-monospace, monospace' } }, 'No items on board. Items count: ' + (items ? items.length : 0))),
-                        batchMode && selectedCount > 0 && !batchModalOpen ? React.createElement('button', {
+                        isRfqSelectionMode && selectedCount > 0 && !batchModalOpen ? React.createElement('button', {
                             type: 'button',
                             onClick: openBatchModal,
                             style: {
@@ -20281,6 +20685,24 @@ class N88_RFQ_Admin {
                                 fontWeight: 600
                             }
                         }, '[ Send RFQ Request (' + selectedCount + ') ]') : null,
+                        isProposalSelectionMode && selectedCount > 0 && !proposalModalOpen ? React.createElement('button', {
+                            type: 'button',
+                            onClick: openProposalModal,
+                            style: {
+                                position: 'fixed',
+                                right: '24px',
+                                bottom: '24px',
+                                zIndex: 9999,
+                                padding: '10px 16px',
+                                backgroundColor: '#111111',
+                                color: '#fff',
+                                border: '1px solid rgb(255, 0, 101)',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 600
+                            }
+                        }, '[ Open Proposal Review (' + selectedCount + ') ]') : null,
                         batchModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
                             className: 'n88-board-modal-backdrop n88-modal-open',
                             style: {
@@ -20519,7 +20941,7 @@ class N88_RFQ_Admin {
                                                         );
                                                     })
                                                 ),
-                                                React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '12px', opacity: 0.9 } },
+                                                React.createElement('label', { style: { display: 'none', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '12px', opacity: 0.9 } },
                                                     React.createElement('input', { type: 'checkbox', checked: !!row.allow_system_invites, onChange: function(e) { updateBatchRow(row.item_id, { allow_system_invites: !!e.target.checked }); } }),
                                                     'Let WireFrame (OS) source makers for this request'
                                                 )
@@ -20533,6 +20955,93 @@ class N88_RFQ_Admin {
                                 React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: function() { if (!batchSubmitting) setBatchModalOpen(false); }, style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'not-allowed' : 'pointer', fontSize: '13px' } }, 'Cancel'),
                                 React.createElement('button', { type: 'button', disabled: batchSubmitting, onClick: submitBatchRfq, style: { padding: '10px 16px', borderRadius: '4px', border: '1px solid rgb(255, 0, 101)', background: 'transparent', color: '#fff', cursor: batchSubmitting ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px' } }, batchSubmitting ? 'Sending...' : 'Submit Batch RFQ')
                             )
+                        ))), document.body) : null,
+                        proposalModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
+                            className: 'n88-board-modal-backdrop n88-modal-open',
+                            style: {
+                                position: 'fixed',
+                                inset: 0,
+                                backgroundColor: 'rgb(17 43 74 / 0%)',
+                                backdropFilter: 'blur(3px)',
+                                zIndex: 10000003,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '20px'
+                            },
+                            onClick: function(e) {
+                                if (e.target === e.currentTarget && !proposalLoading) setProposalModalOpen(false);
+                            }
+                        }, React.createElement('div', {
+                            className: 'n88-board-modal-box',
+                            style: {
+                                width: 'min(1180px, 96vw)',
+                                maxHeight: '90vh',
+                                overflow: 'auto',
+                                background: '#323232',
+                                color: '#fff',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                borderRadius: '8px',
+                                boxShadow: '0 12px 40px rgba(0,0,0,0.45)'
+                            },
+                            onClick: function(e) { e.stopPropagation(); }
+                        }, React.createElement('div', {
+                            className: 'n88-add-item-header',
+                            style: { padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
+                        }, React.createElement('div', null,
+                            React.createElement('div', { style: { fontSize: '18px', fontWeight: 600 } }, 'Batch Proposal Review'),
+                            React.createElement('div', { style: { fontSize: '12px', opacity: 0.85, marginTop: '2px' } }, 'Selected Items: ' + selectedCount + ' | Suppliers: ' + proposalSupplierGroups.length)
+                        ), React.createElement('button', {
+                            type: 'button',
+                            disabled: proposalLoading,
+                            onClick: function() { if (!proposalLoading) setProposalModalOpen(false); },
+                            style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: proposalLoading ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
+                        }, 'x')),
+                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px' } },
+                            proposalError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.45)', borderRadius: '6px', color: '#ffd8a8', fontSize: '13px' } }, proposalError) : null,
+                            proposalLoading ? React.createElement('div', { style: { padding: '28px 0', textAlign: 'center', fontSize: '14px', color: '#ddd' } }, 'Loading selected proposals...') : null,
+                            !proposalLoading && proposalSupplierGroups.length === 0 ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, 'No proposals received for the selected items yet.') : null,
+                            !proposalLoading ? proposalSupplierGroups.map(function(group) {
+                                return React.createElement('div', { key: group.supplierKey, style: { marginBottom: '18px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: '#2a2a2a' } },
+                                    React.createElement('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', background: '#2f2f2f' } },
+                                        React.createElement('div', null,
+                                            React.createElement('div', { style: { fontSize: '16px', fontWeight: 600 } }, group.supplierName),
+                                            React.createElement('div', { style: { fontSize: '12px', opacity: 0.78, marginTop: '3px' } }, 'Quoted ' + group.quotedCount + ' of ' + selectedCount + ' selected items')
+                                        ),
+                                        React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: 'rgba(255,0,101,0.16)', border: '1px solid rgba(255,0,101,0.4)', color: '#ffd7e8' } }, group.supplierId ? ('Supplier #' + group.supplierId) : 'Grouped View')
+                                    ),
+                                    React.createElement('div', { style: { padding: '16px' } },
+                                        group.itemEntries.map(function(entry) {
+                                            var currentItem = entry.item || {};
+                                            var currentItemId = toNumericItemId(currentItem.id);
+                                            var itemLabel = currentItem.title || ('Item ' + currentItemId);
+                                            return React.createElement('div', { key: group.supplierKey + '-item-' + currentItemId, style: { marginBottom: '16px', padding: '14px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', background: '#323232' } },
+                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' } },
+                                                    React.createElement('div', null,
+                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: 600, color: '#fff' } }, itemLabel),
+                                                        React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + currentItemId + (currentItem.quantity ? (' | Qty: ' + currentItem.quantity) : ''))
+                                                    ),
+                                                    entry.bid ? React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: 'rgba(76,175,80,0.18)', border: '1px solid rgba(76,175,80,0.4)', color: '#9cffb2' } }, 'Quoted') : React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: 'rgba(255,152,0,0.18)', border: '1px solid rgba(255,152,0,0.4)', color: '#ffd8a8' } }, 'Not Quoted')
+                                                ),
+                                                entry.bid ? React.createElement(BidComparisonMatrixInline, {
+                                                    bids: [entry.bid],
+                                                    darkBorder: boardCanvasDarkBorder,
+                                                    greenAccent: boardCanvasGreenAccent,
+                                                    darkText: boardCanvasDarkText,
+                                                    darkBg: boardCanvasDarkBg,
+                                                    onImageClick: boardCanvasHandleImageClick,
+                                                    smartAlternativesEnabled: boardCanvasSmartAlternativesEnabled,
+                                                    itemId: currentItemId,
+                                                    itemQuantity: currentItem && (currentItem.quantity != null ? currentItem.quantity : (currentItem.meta && currentItem.meta.quantity)),
+                                                    itemCbm: currentItem && currentItem.cbm,
+                                                    itemDimsCm: currentItem && currentItem.dims_cm,
+                                                    singleBidHeading: group.supplierName
+                                                }) : React.createElement('div', { style: { padding: '16px', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.2)', background: '#2b2b2b', color: '#ddd', fontSize: '13px' } }, 'Not Quoted')
+                                            );
+                                        })
+                                    )
+                                );
+                            }) : null
                         ))), document.body) : null,
                         // Welcome Modal - shown once per user
                         React.createElement(WelcomeModal, { userId: currentUserId }),
@@ -20711,6 +21220,8 @@ class N88_RFQ_Admin {
                 $item_id
             ) ) > 0;
             $unread_operator_messages = 0;
+            $unread_supplier_messages = 0;
+            $has_unread_supplier_messages = false;
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
                 $unread_operator_messages = (int) $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
@@ -20735,11 +21246,107 @@ class N88_RFQ_Admin {
                         $unread_operator_messages = 0;
                     }
                 }
+
+                $direct_supplier_id = 0;
+                $awarded_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT supplier_id
+                    FROM {$item_bids_table}
+                    WHERE item_id = %d AND status = 'awarded'
+                    ORDER BY bid_id DESC
+                    LIMIT 1",
+                    $item_id
+                ) );
+                if ( $awarded_supplier_id > 0 ) {
+                    $direct_supplier_id = $awarded_supplier_id;
+                }
+
+                if ( ! $direct_supplier_id && $pp_table_exists ) {
+                    $prototype_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT supplier_id
+                        FROM {$prototype_payments_table}
+                        WHERE item_id = %d AND supplier_id IS NOT NULL
+                        ORDER BY id DESC
+                        LIMIT 1",
+                        $item_id
+                    ) );
+                    if ( $prototype_supplier_id > 0 ) {
+                        $direct_supplier_id = $prototype_supplier_id;
+                    }
+                }
+
+                if ( ! $direct_supplier_id ) {
+                    $rfq_routes_table = $wpdb->prefix . 'n88_rfq_routes';
+                    $active_route_suppliers = $wpdb->get_col( $wpdb->prepare(
+                        "SELECT DISTINCT supplier_id
+                        FROM {$rfq_routes_table}
+                        WHERE item_id = %d
+                        AND (status IS NULL OR status != 'expired')
+                        AND supplier_id IS NOT NULL",
+                        $item_id
+                    ) );
+                    $active_route_suppliers = array_values( array_filter( array_map( 'absint', (array) $active_route_suppliers ) ) );
+                    if ( count( $active_route_suppliers ) === 1 ) {
+                        $direct_supplier_id = (int) $active_route_suppliers[0];
+                    }
+                }
+
+                if ( ! $direct_supplier_id ) {
+                    $bid_suppliers = $wpdb->get_col( $wpdb->prepare(
+                        "SELECT DISTINCT supplier_id
+                        FROM {$item_bids_table}
+                        WHERE item_id = %d
+                        AND status IN ('submitted', 'awarded')
+                        AND supplier_id IS NOT NULL",
+                        $item_id
+                    ) );
+                    $bid_suppliers = array_values( array_filter( array_map( 'absint', (array) $bid_suppliers ) ) );
+                    if ( count( $bid_suppliers ) === 1 ) {
+                        $direct_supplier_id = (int) $bid_suppliers[0];
+                    }
+                }
+
+                if ( ! $direct_supplier_id ) {
+                    $message_supplier_id = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT supplier_id
+                        FROM {$messages_table}
+                        WHERE item_id = %d
+                        AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                        AND supplier_id IS NOT NULL
+                        ORDER BY message_id DESC
+                        LIMIT 1",
+                        $item_id
+                    ) );
+                    if ( $message_supplier_id > 0 ) {
+                        $direct_supplier_id = $message_supplier_id;
+                    }
+                }
+
+                if ( $direct_supplier_id > 0 ) {
+                    $unread_supplier_messages = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COUNT(DISTINCT m.message_id)
+                        FROM {$messages_table} m
+                        WHERE m.item_id = %d
+                        AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
+                        AND m.sender_role = 'supplier'
+                        AND m.supplier_id = %d
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} m2
+                            WHERE m2.item_id = m.item_id
+                            AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
+                            AND m2.sender_role = 'designer'
+                            AND m2.supplier_id = m.supplier_id
+                            AND m2.created_at > m.created_at
+                        )",
+                        $item_id,
+                        $direct_supplier_id
+                    ) );
+                    $has_unread_supplier_messages = $unread_supplier_messages > 0;
+                }
             }
             $has_unread_operator_messages = $unread_operator_messages > 0;
             $is_operator_ajax = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
             $deposit_sent_by_designer = isset( $item_meta_for_deposit['deposit_status'] ) && $item_meta_for_deposit['deposit_status'] === 'sent_by_designer';
-            $action_required = $has_unread_operator_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator_ajax && $deposit_sent_by_designer );
+            $action_required = $has_unread_operator_messages || $has_unread_supplier_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator_ajax && $deposit_sent_by_designer );
             // Commit 3.B.5.A1: Step 4–6 status for designer/operator cards (when prototype approved = in production)
             $step456_status_text = null;
             $step456_status_color = null;
@@ -20821,6 +21428,8 @@ class N88_RFQ_Admin {
                 'has_payment_receipt_uploaded' => $has_payment_receipt_uploaded,
                 'has_awarded_bid' => $has_awarded_bid,
                 'has_unread_operator_messages' => $has_unread_operator_messages,
+                'has_unread_supplier_messages' => $has_unread_supplier_messages,
+                'unread_supplier_messages' => $unread_supplier_messages,
                 'action_required' => $action_required,
                 'step456_status_text' => $step456_status_text,
                 'step456_status_color' => $step456_status_color,
@@ -21309,7 +21918,7 @@ class N88_RFQ_Admin {
                     '</div>' +
                     
                     // System Invites toggle
-                    '<div style="margin-top: 24px;">' +
+                    '<div style="margin-top: 24px; display: none;">' +
                     '<label style="display: flex; align-items: center; cursor: pointer;">' +
                     '<input type="checkbox" id="n88-allow-system-invites" name="allow_system_invites" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;" onchange="updateSystemInvitesMessage()" />' +
                     '<span style="font-size: 14px; font-weight: 500; color: #333;">Let WireFrame (OS) source makers for this request</span>' +
@@ -21787,3 +22396,4 @@ class N88_RFQ_Admin {
 }
 
 // .....
+

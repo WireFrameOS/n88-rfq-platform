@@ -257,7 +257,7 @@ class N88_RFQ_Auth {
             "SELECT DISTINCT supplier_id
             FROM {$rfq_routes_table}
             WHERE item_id = %d
-            AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')
+            AND (status IS NULL OR status != 'expired')
             AND supplier_id IS NOT NULL",
             $item_id
         ) );
@@ -296,6 +296,98 @@ class N88_RFQ_Auth {
         }
 
         return 0;
+    }
+
+    /**
+     * Resolve supplier IDs that should be available for direct designer <-> supplier messaging.
+     *
+     * Sources:
+     * 1. RFQ routes (any non-expired route state)
+     * 2. Item bids
+     * 3. Prototype payments
+     * 4. Existing designer_supplier messages
+     *
+     * @param int $item_id Item ID.
+     * @return array<int>
+     */
+    private function get_designer_supplier_thread_supplier_ids( $item_id ) {
+        global $wpdb;
+
+        $item_id = absint( $item_id );
+        if ( ! $item_id ) {
+            return array();
+        }
+
+        $rfq_routes_table         = $wpdb->prefix . 'n88_rfq_routes';
+        $item_bids_table          = $wpdb->prefix . 'n88_item_bids';
+        $prototype_payments_table = $wpdb->prefix . 'n88_prototype_payments';
+        $messages_table           = $wpdb->prefix . 'n88_item_messages';
+
+        $supplier_ids = array();
+
+        $route_supplier_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT supplier_id
+            FROM {$rfq_routes_table}
+            WHERE item_id = %d
+            AND supplier_id IS NOT NULL
+            AND (status IS NULL OR status != 'expired')",
+            $item_id
+        ) );
+        $supplier_ids = array_merge( $supplier_ids, (array) $route_supplier_ids );
+
+        $bid_supplier_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT supplier_id
+            FROM {$item_bids_table}
+            WHERE item_id = %d
+            AND supplier_id IS NOT NULL",
+            $item_id
+        ) );
+        $supplier_ids = array_merge( $supplier_ids, (array) $bid_supplier_ids );
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table ) {
+            $prototype_supplier_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT supplier_id
+                FROM {$prototype_payments_table}
+                WHERE item_id = %d
+                AND supplier_id IS NOT NULL",
+                $item_id
+            ) );
+            $supplier_ids = array_merge( $supplier_ids, (array) $prototype_supplier_ids );
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $message_supplier_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT supplier_id
+                FROM {$messages_table}
+                WHERE item_id = %d
+                AND thread_type = 'designer_supplier'
+                AND supplier_id IS NOT NULL",
+                $item_id
+            ) );
+            $supplier_ids = array_merge( $supplier_ids, (array) $message_supplier_ids );
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'absint', $supplier_ids ) ) ) );
+    }
+
+    /**
+     * Check whether supplier has direct designer-thread access for an item.
+     *
+     * This is intentionally broader than active RFQ routing so post-RFQ commercial
+     * messaging still works after bid/payment/award workflow transitions.
+     *
+     * @param int $item_id Item ID.
+     * @param int $supplier_id Supplier user ID.
+     * @return bool
+     */
+    private function supplier_has_designer_supplier_thread_access( $item_id, $supplier_id ) {
+        $supplier_id = absint( $supplier_id );
+        if ( ! $supplier_id ) {
+            return false;
+        }
+
+        $supplier_ids = $this->get_designer_supplier_thread_supplier_ids( $item_id );
+        return in_array( $supplier_id, $supplier_ids, true );
     }
 
     /**
@@ -383,12 +475,100 @@ class N88_RFQ_Auth {
                 $messages_table
             ) );
 
-            if ( $thread_type_col && strpos( $thread_type_col, 'designer_supplier' ) === false ) {
-                $wpdb->query( "ALTER TABLE {$messages_table} MODIFY COLUMN thread_type ENUM('supplier_operator','designer_operator','designer_supplier') NOT NULL" );
+            if ( $thread_type_col && ( stripos( $thread_type_col, 'varchar' ) === false || strpos( $thread_type_col, 'designer_supplier' ) === false ) ) {
+                $alter_result = $wpdb->query( "ALTER TABLE {$messages_table} MODIFY COLUMN thread_type VARCHAR(50) NOT NULL" );
+                if ( false === $alter_result && ! empty( $wpdb->last_error ) ) {
+                    error_log( 'N88 message thread_type migration failed: ' . $wpdb->last_error );
+                }
             }
         }
 
         $workspace_support_ready = true;
+    }
+
+    /**
+     * Repair or normalize direct designer <-> supplier messages so retrieval stays stable.
+     *
+     * Older installs could save blank thread_type or missing designer/supplier context before
+     * the messaging schema was expanded. This method force-normalizes those rows.
+     *
+     * @param int $item_id Item ID.
+     * @param int $supplier_id Supplier user ID.
+     * @param int $designer_id Designer user ID.
+     * @param int $message_id Optional specific message ID to normalize.
+     * @return void
+     */
+    private function repair_designer_supplier_thread_messages( $item_id, $supplier_id, $designer_id, $message_id = 0 ) {
+        global $wpdb;
+
+        $item_id     = absint( $item_id );
+        $supplier_id = absint( $supplier_id );
+        $designer_id = absint( $designer_id );
+        $message_id  = absint( $message_id );
+
+        if ( ! $item_id || ! $supplier_id || ! $designer_id ) {
+            return;
+        }
+
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+
+        if ( $message_id ) {
+            $wpdb->update(
+                $messages_table,
+                array(
+                    'thread_type' => 'designer_supplier',
+                    'supplier_id' => $supplier_id,
+                    'designer_id' => $designer_id,
+                ),
+                array( 'message_id' => $message_id ),
+                array( '%s', '%d', '%d' ),
+                array( '%d' )
+            );
+        }
+
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$messages_table}
+                SET thread_type = 'designer_supplier',
+                    supplier_id = %d,
+                    designer_id = %d
+                WHERE item_id = %d
+                AND sender_role = 'designer'
+                AND sender_user_id = %d
+                AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                AND (
+                    supplier_id IS NULL OR supplier_id = 0
+                    OR designer_id IS NULL OR designer_id = 0
+                    OR thread_type = '' OR thread_type IS NULL
+                )",
+                $supplier_id,
+                $designer_id,
+                $item_id,
+                $designer_id
+            )
+        );
+
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$messages_table}
+                SET thread_type = 'designer_supplier',
+                    supplier_id = %d,
+                    designer_id = %d
+                WHERE item_id = %d
+                AND sender_role = 'supplier'
+                AND sender_user_id = %d
+                AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                AND (
+                    supplier_id IS NULL OR supplier_id = 0
+                    OR designer_id IS NULL OR designer_id = 0
+                    OR thread_type = '' OR thread_type IS NULL
+                )",
+                $supplier_id,
+                $designer_id,
+                $item_id,
+                $supplier_id
+            )
+        );
     }
 
     /**
@@ -1819,6 +1999,7 @@ class N88_RFQ_Auth {
     private function designer_has_items( $user_id ) {
         global $wpdb;
         $items_table = $wpdb->prefix . 'n88_items';
+        $users_table = $wpdb->prefix . 'users';
         $count = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$items_table} WHERE owner_user_id = %d AND deleted_at IS NULL",
@@ -2337,6 +2518,7 @@ class N88_RFQ_Auth {
                                 i.status as item_status,
                                 i.meta_json,
                 i.primary_image_id,
+                                i.owner_user_id,
                                 c.name as category_name
                             FROM {$rfq_routes_table} r
                             INNER JOIN {$items_table} i ON r.item_id = i.id
@@ -2403,6 +2585,7 @@ class N88_RFQ_Auth {
                 'eligible_after' => $item['eligible_after'],
                                     'meta_json' => $item['meta_json'],
                 'primary_image_id' => $item['primary_image_id'],
+                'owner_user_id' => isset( $item['owner_user_id'] ) ? (int) $item['owner_user_id'] : 0,
                                     'bids' => $bids_formatted,
                 'item_current_revision' => $item_current_revision,
             );
@@ -2449,17 +2632,20 @@ class N88_RFQ_Auth {
                 ) ) );
                 $has_unread_operator_messages = $unread_operator_messages > 0;
 
+                if ( ! empty( $item['owner_user_id'] ) ) {
+                    $this->repair_designer_supplier_thread_messages( $item_id, $current_user->ID, (int) $item['owner_user_id'] );
+                }
                 $unread_designer_messages = intval( $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
                     FROM {$messages_table} m
                     WHERE m.item_id = %d
-                    AND m.thread_type = 'designer_supplier'
+                    AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
                     AND m.sender_role = 'designer'
                     AND m.supplier_id = %d
                     AND NOT EXISTS (
                         SELECT 1 FROM {$messages_table} m2
                         WHERE m2.item_id = m.item_id
-                        AND m2.thread_type = 'designer_supplier'
+                        AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
                         AND m2.sender_role = 'supplier'
                         AND m2.supplier_id = %d
                         AND m2.created_at > m.created_at
@@ -2553,7 +2739,8 @@ class N88_RFQ_Auth {
                 $item_data['action_badge'] = 'changes_received';
                 $action_badge = 'changes_received';
             }
-            $show_action_required = $has_unread_operator_messages || $has_unread_designer_messages;
+            $has_message_action_required = $has_unread_operator_messages || $has_unread_designer_messages;
+            $show_action_required = $has_message_action_required;
             if ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Show Action Required when supplier must submit Official Quote PDF
                 $meta_award = array();
@@ -2567,18 +2754,18 @@ class N88_RFQ_Auth {
                 if ( $oq_status !== 'submitted' ) {
                     $show_action_required = true; // Awarded  Quote PDF Required = action required
                 } else {
-                    $show_action_required = false;
+                    $show_action_required = $has_message_action_required;
                 }
             }
             if ( $prototype_status === 'approved' ) {
-                $show_action_required = false;
+                $show_action_required = $has_message_action_required;
             }
             if ( $cad_status === 'approved' && ( $prototype_status === null || $prototype_status === '' || $prototype_status === 'approved' ) ) {
-                $show_action_required = false;
+                $show_action_required = $has_message_action_required;
             }
             // When operator sent CAD and supplier has submitted prototype video: no reply needed  clear Action Required (unread)
             if ( $cad_released_to_supplier_at && $prototype_status === 'submitted' ) {
-                $show_action_required = false;
+                $show_action_required = $has_message_action_required;
             }
             $item_data['show_action_required'] = $show_action_required;
             $item_data['cad_released_to_supplier_at'] = $cad_released_to_supplier_at;
@@ -2589,11 +2776,31 @@ class N88_RFQ_Auth {
             // Compute single status label and color for supplier (each step clearly worded)
             $status_label = '';
             $status_color = '#fff';
+            $status_note = '';
+            $status_note_color = '#ff9800';
             $is_action_required = false;
             $cad_released = ! empty( $cad_released_to_supplier_at ) && trim( (string) $cad_released_to_supplier_at ) !== '';
             $has_prototype_payment = $prototype_payment_status !== null && $prototype_payment_status !== '';
 
-            if ( $action_badge === 'awarded' ) {
+            if ( $has_unread_designer_messages ) {
+                $status_note = sprintf(
+                    /* translators: %d: unread direct messages from designer */
+                    __( 'New message%s from designer', 'n88-rfq-platform' ),
+                    $unread_designer_messages === 1 ? '' : 's'
+                );
+                $status_note_color = '#ff4500';
+            }
+
+            if ( $show_action_required && $has_unread_designer_messages ) {
+                $status_label = sprintf(
+                    /* translators: %d: unread direct messages from designer */
+                    __( 'Action Required - %d message%s from designer', 'n88-rfq-platform' ),
+                    $unread_designer_messages,
+                    $unread_designer_messages === 1 ? '' : 's'
+                );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Commercial gate states for supplier queue
                 $meta_for_status = array();
                 if ( ! empty( $item_data['meta_json'] ) ) {
@@ -2630,15 +2837,6 @@ class N88_RFQ_Auth {
             } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
                 // CAD files sent to supplier; supplier must submit prototype video (any state except already submitted/approved/changes_requested)
                 $status_label = __( 'Action Required  CAD Files approved', 'n88-rfq-platform' );
-                $status_color = '#ff4500';
-                $is_action_required = true;
-            } elseif ( $show_action_required && $has_unread_designer_messages ) {
-                $status_label = sprintf(
-                    /* translators: %d: unread direct messages from designer */
-                    __( 'Action Required  %d message%s from designer', 'n88-rfq-platform' ),
-                    $unread_designer_messages,
-                    $unread_designer_messages === 1 ? '' : 's'
-                );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $show_action_required && $has_unread_operator_messages ) {
@@ -2705,6 +2903,8 @@ class N88_RFQ_Auth {
             }
             $item_data['supplier_status_label'] = $status_label;
             $item_data['supplier_status_color'] = $status_color;
+            $item_data['supplier_status_note'] = $status_note;
+            $item_data['supplier_status_note_color'] = $status_note_color;
             $item_data['supplier_is_action_required'] = $is_action_required;
 
             $items_by_id[ $item_id ] = $item_data;
@@ -2966,8 +3166,13 @@ class N88_RFQ_Auth {
                                         <?php
                                         $status_label = isset( $item_data['supplier_status_label'] ) ? $item_data['supplier_status_label'] : ucfirst( str_replace( '_', ' ', $item_data['action_badge'] ) );
                                         $status_color = isset( $item_data['supplier_status_color'] ) ? $item_data['supplier_status_color'] : '#fff';
+                                        $status_note = isset( $item_data['supplier_status_note'] ) ? $item_data['supplier_status_note'] : '';
+                                        $status_note_color = isset( $item_data['supplier_status_note_color'] ) ? $item_data['supplier_status_note_color'] : '#ff9800';
                                         ?>
                                         <div style="margin-top: 4px;"><span style="color: <?php echo esc_attr( $status_color ); ?>; font-size: 11px;"><?php echo esc_html( $status_label ); ?></span></div>
+                                        <?php if ( ! empty( $status_note ) ) : ?>
+                                            <div style="margin-top: 3px;"><span style="color: <?php echo esc_attr( $status_note_color ); ?>; font-size: 10px;"><?php echo esc_html( $status_note ); ?></span></div>
+                                        <?php endif; ?>
                                         <?php if ( $item_data['time_remaining'] ) : ?>
                                             <div style="font-size: 11px; margin-top: 4px;">Expires in: <?php echo esc_html( $item_data['time_remaining'] ); ?></div>
                                         <?php endif; ?>
@@ -4063,6 +4268,8 @@ class N88_RFQ_Auth {
             }
             
             // Commit 2.3.9.1C-a: Load Supplier Messages (Inline)
+            window.n88SupplierDirectThreadContext = window.n88SupplierDirectThreadContext || {};
+            var n88CurrentSupplierThreadUserId = '<?php echo (int) $current_user->ID; ?>';
             function loadSupplierMessagesInline(itemId) {
                 var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
                 if (!messagesContainer) return;
@@ -4073,15 +4280,24 @@ class N88_RFQ_Auth {
                 formData.append('action', 'n88_get_item_messages');
                 formData.append('item_id', itemId);
                 formData.append('thread_type', 'designer_supplier');
+                formData.append('supplier_id', n88CurrentSupplierThreadUserId);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_item_messages' ); ?>');
                 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
                     method: 'POST',
                     body: formData
                 })
-                .then(function(response) { return response.json(); })
+                .then(function(response) { return response.text(); })
+                .then(function(responseText) {
+                    try {
+                        return JSON.parse(responseText);
+                    } catch (parseError) {
+                        throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                    }
+                })
                 .then(function(data) {
                     if (data.success && data.data && data.data.messages) {
+                        window.n88SupplierDirectThreadContext[String(itemId || '')] = String(data.data && data.data.supplier_id ? data.data.supplier_id : n88CurrentSupplierThreadUserId);
                         var opts = {
                             has_operator_reply: !!(data.data.has_operator_reply),
                             supplier_confirmed_clarification: !!(data.data.supplier_confirmed_clarification),
@@ -4096,7 +4312,7 @@ class N88_RFQ_Auth {
                 })
                 .catch(function(error) {
                     console.error('Error loading messages:', error);
-                    messagesContainer.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading messages. Please try again.</div>';
+                    messagesContainer.innerHTML = '<div style="text-align: center; color: #ff0000; font-size: 12px; padding: 20px;">Error loading messages: ' + String((error && error.message) ? error.message : 'Please try again.').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                 });
             }
             
@@ -4362,6 +4578,7 @@ class N88_RFQ_Auth {
                 formData.append('thread_type', 'designer_supplier');
                 formData.append('message_text', messageText.value.trim());
                 formData.append('category', category ? category.value : '');
+                formData.append('supplier_id', n88CurrentSupplierThreadUserId);
                 if (selectedTags.length > 0) {
                     formData.append('message_tags', selectedTags.join(','));
                 }
@@ -4384,9 +4601,19 @@ class N88_RFQ_Auth {
                     method: 'POST',
                     body: formData
                 })
-                .then(function(response) { return response.json(); })
+                .then(function(response) { return response.text(); })
+                .then(function(responseText) {
+                    try {
+                        return JSON.parse(responseText);
+                    } catch (parseError) {
+                        throw new Error('Invalid JSON response: ' + responseText.slice(0, 300));
+                    }
+                })
                 .then(function(data) {
                     if (data.success) {
+                        if (data.data && data.data.supplier_id) {
+                            window.n88SupplierDirectThreadContext[String(itemId || '')] = String(data.data.supplier_id);
+                        }
                         // Clear form
                         messageText.value = '';
                         if (category) category.value = '';
@@ -4399,7 +4626,7 @@ class N88_RFQ_Auth {
                         // Reload messages
                         loadSupplierMessagesInline(itemId);
                     } else {
-                        alert('Error: ' + (data.data?.message || 'Failed to send message. Please try again.'));
+                        alert('Error: ' + ((data.data && data.data.message) ? data.data.message : 'Failed to send message. Please try again.'));
                     }
                     
                     // Re-enable form
@@ -4410,7 +4637,7 @@ class N88_RFQ_Auth {
                 })
                 .catch(function(error) {
                     console.error('Error sending message:', error);
-                    alert('An error occurred. Please try again.');
+                    alert('An error occurred while sending the message. ' + (error && error.message ? error.message : 'Please try again.'));
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.textContent = originalText;
@@ -14281,6 +14508,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
         $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
         $items_table = $wpdb->prefix . 'n88_items';
+        $users_table = $wpdb->users;
 
         // Check if item exists and user owns it (unless system operator)
         if ( ! $is_system_operator ) {
@@ -14336,13 +14564,46 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        // Check if RFQ exists (has any routes for this item)
+        // Check if RFQ exists (has any non-expired routes for this item)
         $has_rfq = $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM {$rfq_routes_table} 
             WHERE item_id = %d 
-            AND status IN ('queued', 'sent', 'viewed', 'bid_submitted')",
+            AND (status IS NULL OR status != 'expired')",
             $item_id
         ) ) > 0;
+
+        $direct_supplier_id = 0;
+        $direct_supplier_options = array();
+        if ( $has_rfq ) {
+            $direct_supplier_ids = $this->get_designer_supplier_thread_supplier_ids( $item_id );
+
+            if ( ! empty( $direct_supplier_ids ) ) {
+                $placeholders = implode( ',', array_fill( 0, count( $direct_supplier_ids ), '%d' ) );
+                $route_supplier_rows = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT ID AS supplier_id, display_name
+                    FROM {$users_table}
+                    WHERE ID IN ({$placeholders})
+                    ORDER BY display_name ASC, ID ASC",
+                    ...$direct_supplier_ids
+                ), ARRAY_A );
+
+                foreach ( (array) $route_supplier_rows as $supplier_row ) {
+                    $supplier_id_row = isset( $supplier_row['supplier_id'] ) ? absint( $supplier_row['supplier_id'] ) : 0;
+                    if ( ! $supplier_id_row ) {
+                        continue;
+                    }
+                    $direct_supplier_options[] = array(
+                        'supplier_id'   => $supplier_id_row,
+                        'display_name'  => ! empty( $supplier_row['display_name'] ) ? sanitize_text_field( $supplier_row['display_name'] ) : 'Supplier #' . $supplier_id_row,
+                    );
+                }
+            }
+
+            $direct_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
+            if ( ! $direct_supplier_id && count( $direct_supplier_options ) === 1 ) {
+                $direct_supplier_id = (int) $direct_supplier_options[0]['supplier_id'];
+            }
+        }
 
         // Check if bids exist (submitted, awarded, or declined)
         $has_bids = $wpdb->get_var( $wpdb->prepare(
@@ -14658,12 +14919,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $has_unread_operator_messages = false;
         $unread_supplier_messages = 0;
         $has_unread_supplier_messages = false;
-        $direct_supplier_id = 0;
         
         // Check if messages table exists
         $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
         if ( $messages_table_exists ) {
-            $direct_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
             // Count unread operator messages (operator messages with no designer reply after them)
                 $unread_operator_messages = intval( $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
@@ -14683,17 +14942,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $has_unread_operator_messages = $unread_operator_messages > 0;
 
             if ( $direct_supplier_id > 0 ) {
+                $this->repair_designer_supplier_thread_messages( $item_id, $direct_supplier_id, $current_user->ID );
                 $unread_supplier_messages = intval( $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
                     FROM {$messages_table} m
                     WHERE m.item_id = %d
-                    AND m.thread_type = 'designer_supplier'
+                    AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
                     AND m.sender_role = 'supplier'
                     AND m.supplier_id = %d
                     AND NOT EXISTS (
                         SELECT 1 FROM {$messages_table} m2
                         WHERE m2.item_id = m.item_id
-                        AND m2.thread_type = 'designer_supplier'
+                        AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
                         AND m2.sender_role = 'designer'
                         AND m2.supplier_id = m.supplier_id
                         AND m2.created_at > m.created_at
@@ -15085,6 +15345,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'has_unread_supplier_messages' => $has_unread_supplier_messages,
             'unread_supplier_messages' => $unread_supplier_messages,
             'direct_supplier_id' => $direct_supplier_id,
+            'direct_supplier_options' => $direct_supplier_options,
             'has_prototype_payment' => $has_prototype_payment, // Commit 2.3.9.1C: Has prototype payment request
             'prototype_payment_id' => $prototype_payment_id, // Commit 2.3.9.2A: Payment record id for CAD actions
             'prototype_payment_bid_id' => $prototype_payment_bid_id, // Commit 2.3.9.2A
@@ -23132,10 +23393,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $item_bids_table = $wpdb->prefix . 'n88_item_bids';
         $users_table = $wpdb->prefix . 'users';
 
-        // Build WHERE clause based on thread type and user role
+        // Build WHERE clause based on thread type and user role.
+        // For direct designer<->supplier threads, keep a compatibility fallback for
+        // legacy rows that may have been inserted before the thread_type schema was updated.
         $where_clauses = array();
         $where_clauses[] = $wpdb->prepare( 'm.item_id = %d', $item_id );
-        $where_clauses[] = $wpdb->prepare( "m.thread_type = %s", $thread_type );
+        if ( $thread_type === 'designer_supplier' ) {
+            $where_clauses[] = "(m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)";
+        } else {
+            $where_clauses[] = $wpdb->prepare( 'm.thread_type = %s', $thread_type );
+        }
+
+        $thread_supplier_id = 0;
+        $thread_designer_id = 0;
 
         // Access control: Users can only see their own thread
         if ( $thread_type === 'supplier_operator' ) {
@@ -23175,13 +23445,19 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ) );
 
             if ( $is_supplier ) {
-                if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                if ( ! $this->supplier_has_designer_supplier_thread_access( $item_id, $current_user->ID ) ) {
                     wp_send_json_error( array( 'message' => 'Access denied. You do not have access to this RFQ item.' ), 403 );
                     return;
                 }
+                $thread_supplier_id = (int) $current_user->ID;
+                $thread_designer_id = $item_owner ? (int) $item_owner : 0;
                 $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $current_user->ID );
                 if ( $item_owner ) {
-                    $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', (int) $item_owner );
+                    $where_clauses[] = $wpdb->prepare(
+                        "(m.designer_id = %d OR (m.designer_id IS NULL AND (m.sender_role != 'designer' OR m.sender_user_id = %d)))",
+                        (int) $item_owner,
+                        (int) $item_owner
+                    );
                 }
             } elseif ( $is_designer ) {
                 if ( ! $item_owner || (int) $item_owner !== (int) $current_user->ID ) {
@@ -23191,16 +23467,29 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if ( ! $requested_supplier_id ) {
                     $requested_supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
                 }
+                if ( $requested_supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $requested_supplier_id ) ) {
+                    $requested_supplier_id = 0;
+                }
                 if ( ! $requested_supplier_id ) {
                     wp_send_json_error( array( 'message' => 'No supplier is linked to this item yet for direct messaging.' ), 404 );
                     return;
                 }
-                $where_clauses[] = $wpdb->prepare( 'm.designer_id = %d', $current_user->ID );
+                $thread_supplier_id = (int) $requested_supplier_id;
+                $thread_designer_id = (int) $current_user->ID;
+                $where_clauses[] = $wpdb->prepare(
+                    "(m.designer_id = %d OR (m.designer_id IS NULL AND (m.sender_role != 'designer' OR m.sender_user_id = %d)))",
+                    $current_user->ID,
+                    $current_user->ID
+                );
                 $where_clauses[] = $wpdb->prepare( 'm.supplier_id = %d', $requested_supplier_id );
             } else {
                 wp_send_json_error( array( 'message' => 'Access denied. Designer or Supplier only.' ) );
                 return;
             }
+        }
+
+        if ( $thread_type === 'designer_supplier' && $thread_supplier_id && $thread_designer_id ) {
+            $this->repair_designer_supplier_thread_messages( $item_id, $thread_supplier_id, $thread_designer_id );
         }
 
         $where_sql = implode( ' AND ', $where_clauses );
@@ -23463,7 +23752,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         } elseif ( $thread_type === 'designer_supplier' ) {
             if ( $is_supplier ) {
-                if ( ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+                if ( ! $this->supplier_has_designer_supplier_thread_access( $item_id, $current_user->ID ) ) {
                     wp_send_json_error( array( 'message' => 'Access denied. You do not have access to this RFQ item.' ), 403 );
                     return;
                 }
@@ -23479,7 +23768,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 if ( ! $supplier_id ) {
                     $supplier_id = $this->resolve_designer_supplier_thread_supplier_id( $item_id );
                 }
-                if ( $supplier_id && ! $this->supplier_has_route_to_item( $item_id, $supplier_id ) ) {
+                if ( $supplier_id && ! $this->supplier_has_designer_supplier_thread_access( $item_id, $supplier_id ) ) {
                     $supplier_id = 0;
                 }
             }
@@ -23510,6 +23799,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 return;
             }
             $category = implode( ',', array_values( $selected ) );
+        } elseif ( $thread_type === 'designer_supplier' && $sender_role === 'designer' ) {
+            $selected = array_intersect( $message_tags, $allowed_tags );
+            if ( ! empty( $selected ) ) {
+                $category = implode( ',', array_values( $selected ) );
+            }
         } elseif ( $thread_type === 'supplier_operator' && $sender_role === 'supplier' ) {
             $selected = array_intersect( $message_tags, $allowed_tags );
             if ( ! empty( $selected ) ) {
@@ -23566,11 +23860,27 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         );
 
         if ( ! $insert_result ) {
-            wp_send_json_error( array( 'message' => 'Failed to save message.' ) );
+            $db_error = $wpdb->last_error ? $wpdb->last_error : 'Unknown database error';
+            error_log(
+                sprintf(
+                    'N88 item message insert failed. item_id=%d thread_type=%s sender_user_id=%d supplier_id=%s designer_id=%s error=%s',
+                    (int) $item_id,
+                    (string) $thread_type,
+                    (int) $current_user->ID,
+                    null === $supplier_id ? 'null' : (string) (int) $supplier_id,
+                    null === $designer_id ? 'null' : (string) (int) $designer_id,
+                    $db_error
+                )
+            );
+            wp_send_json_error( array( 'message' => 'Failed to save message. ' . $db_error ) );
             return;
         }
 
         $message_id = $wpdb->insert_id;
+
+        if ( $thread_type === 'designer_supplier' && $supplier_id && $designer_id ) {
+            $this->repair_designer_supplier_thread_messages( $item_id, $supplier_id, $designer_id, $message_id );
+        }
 
         // Queue Surfacing Fix: When supplier sends clarification, mark item for operator attention
         // This ensures items with clarification requests appear in operator queue even if no prototype payment exists
@@ -23608,7 +23918,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ),
         ) );
 
-        wp_send_json_success( array( 'message_id' => $message_id ) );
+        $response = array( 'message_id' => $message_id );
+        if ( $thread_type === 'designer_supplier' && $supplier_id ) {
+            $response['supplier_id'] = (int) $supplier_id;
+        }
+
+        wp_send_json_success( $response );
     }
 
     /**
