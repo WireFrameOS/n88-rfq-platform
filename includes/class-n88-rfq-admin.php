@@ -20306,11 +20306,15 @@ class N88_RFQ_Admin {
                         };
                         var onProposal = function() {
                             setSelectionMode(null);
-                            setBatchSelected({});
                             setBatchModalOpen(false);
-                            setProposalItems([]);
                             setBatchError('');
                             setProposalError('');
+                            if (selectedCount > 0) {
+                                openProposalModal();
+                                return;
+                            }
+                            setBatchSelected({});
+                            setProposalItems([]);
                             openGroupedProposalModal({ source: 'board' });
                         };
                         var onCancel = function() {
@@ -20331,7 +20335,7 @@ class N88_RFQ_Admin {
                             if (proposalBtn) proposalBtn.removeEventListener('click', onProposal);
                             cancelBtn.removeEventListener('click', onCancel);
                         };
-                    }, []);
+                    });
                     React.useEffect(function() {
                         window.n88TryOpenBatchProposalFromBoardItem = function(rawItem) {
                             if (!rawItem || !isTruthyValue(rawItem.has_batch_proposals)) {
@@ -20540,6 +20544,16 @@ class N88_RFQ_Admin {
                             return !!isTruthyValue(it.has_batch_proposals);
                         });
                         if (!candidateItems.length) {
+                            setProposalLoading(false);
+                            setProposalItems([]);
+                            setExpandedProposalSuppliers({});
+                            setProposalContext({
+                                mode: 'grouped',
+                                source: options.source || (anchorItemId ? 'item' : 'board'),
+                                anchorItemId: anchorItemId,
+                                groupId: requestedGroupId
+                            });
+                            setProposalModalOpen(true);
                             setProposalError('No batch proposals were found on this board yet.');
                             return false;
                         }
