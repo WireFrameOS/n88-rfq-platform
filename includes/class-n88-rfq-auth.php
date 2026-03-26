@@ -853,6 +853,70 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Fetch shared uploads saved against a grouped supplier proposal workspace.
+     *
+     * @param int $proposal_group_id Proposal group ID.
+     * @param int $supplier_id       Optional supplier user ID.
+     * @return array<int, array<string, mixed>>
+     */
+    private function get_supplier_proposal_group_uploads( $proposal_group_id, $supplier_id = 0 ) {
+        global $wpdb;
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        $proposal_group_id = absint( $proposal_group_id );
+        $supplier_id       = absint( $supplier_id );
+
+        if ( ! $proposal_group_id ) {
+            return array();
+        }
+
+        $group_uploads_table = $wpdb->prefix . 'n88_supplier_proposal_group_uploads';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$group_uploads_table}'" ) !== $group_uploads_table ) {
+            return array();
+        }
+
+        if ( $supplier_id ) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, attachment_id, file_url, file_name, created_at
+                    FROM {$group_uploads_table}
+                    WHERE proposal_group_id = %d
+                    AND supplier_id = %d
+                    ORDER BY created_at ASC, id ASC",
+                    $proposal_group_id,
+                    $supplier_id
+                ),
+                ARRAY_A
+            );
+        } else {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, attachment_id, file_url, file_name, created_at
+                    FROM {$group_uploads_table}
+                    WHERE proposal_group_id = %d
+                    ORDER BY created_at ASC, id ASC",
+                    $proposal_group_id
+                ),
+                ARRAY_A
+            );
+        }
+
+        $uploads = array();
+        foreach ( (array) $rows as $row ) {
+            $uploads[] = array(
+                'id'            => isset( $row['id'] ) ? (int) $row['id'] : 0,
+                'attachment_id' => ! empty( $row['attachment_id'] ) ? (int) $row['attachment_id'] : null,
+                'file_url'      => ! empty( $row['file_url'] ) ? esc_url_raw( $row['file_url'] ) : '',
+                'file_name'     => ! empty( $row['file_name'] ) ? sanitize_file_name( $row['file_name'] ) : 'Attachment',
+                'created_at'    => ! empty( $row['created_at'] ) ? $row['created_at'] : null,
+            );
+        }
+
+        return $uploads;
+    }
+
+    /**
      * Create custom roles with appropriate capabilities (Commit 2.2.1)
      */
     public function create_custom_roles() {
@@ -2799,6 +2863,7 @@ class N88_RFQ_Auth {
                     $unread_designer_messages === 1 ? '' : 's'
                 );
                 $status_color = '#ff4500';
+                $status_note = '';
                 $is_action_required = true;
             } elseif ( $action_badge === 'awarded' ) {
                 // Commit 3.C.1: Commercial gate states for supplier queue
@@ -3550,7 +3615,7 @@ class N88_RFQ_Auth {
                 element.style.boxShadow = '0 0 0 2px rgba(255, 138, 138, 0.25)';
             }
 
-            function collectEmbeddedBidFieldIssues(itemId) {
+            function collectEmbeddedBidFieldIssuesLegacy(itemId) {
                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
                 if (!form) {
                     return [{ field: 'form', label: 'Proposal form did not load yet.', element: null }];
@@ -3652,6 +3717,81 @@ class N88_RFQ_Auth {
                 return collectEmbeddedBidFieldIssues(itemId).length === 0;
             }
 
+            function collectEmbeddedBidFieldIssues(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) {
+                    return [{ field: 'form', label: 'Proposal form did not load yet.', element: null }];
+                }
+
+                clearBatchFieldHighlights(itemId);
+
+                var issues = [];
+                var addIssue = function(field, label, element) {
+                    issues.push({
+                        field: field,
+                        label: label,
+                        element: element || null
+                    });
+                    if (element) {
+                        markBatchFieldHighlight(element);
+                    }
+                };
+
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var firstVideoField = videoLinks.length ? videoLinks[0] : document.getElementById('n88-video-links-container-embedded-' + itemId);
+                var allowedDomains = [ 'youtube.com', 'youtu.be', 'vimeo.com', 'loom.com' ];
+                videoLinks.forEach(function(input) {
+                    var url = (input.value || '').trim();
+                    if (!url) {
+                        return;
+                    }
+                    try {
+                        var urlObj = new URL(url);
+                        var hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                        var isAllowed = allowedDomains.some(function(domain) {
+                            return hostname === domain || hostname.endsWith('.' + domain);
+                        });
+                        if (!isAllowed) {
+                            addIssue('video_links', 'Use only YouTube, Vimeo, or Loom links.', firstVideoField);
+                        }
+                    } catch (err) {
+                        addIssue('video_links', 'Enter valid video URLs.', firstVideoField);
+                    }
+                });
+
+                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
+                if (!timeline || !timeline.value) {
+                    addIssue('prototype_timeline_option', 'Select a prototype timeline.', timeline);
+                }
+
+                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
+                if (!prototypeCost || !prototypeCost.value) {
+                    addIssue('prototype_cost', 'Enter prototype cost.', prototypeCost);
+                } else {
+                    var costValue = parseFloat(prototypeCost.value);
+                    if (isNaN(costValue) || costValue < 0) {
+                        addIssue('prototype_cost', 'Prototype cost must be 0 or more.', prototypeCost);
+                    }
+                }
+
+                var leadTime = form.querySelector('select[name="production_lead_time_text"]');
+                if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
+                    addIssue('production_lead_time_text', 'Select production lead time.', leadTime);
+                }
+
+                var unitPrice = form.querySelector('input[name="unit_price"]');
+                if (!unitPrice || !unitPrice.value) {
+                    addIssue('unit_price', 'Enter unit price.', unitPrice);
+                } else {
+                    var priceValue = parseFloat(unitPrice.value);
+                    if (isNaN(priceValue) || priceValue <= 0) {
+                        addIssue('unit_price', 'Unit price must be greater than 0.', unitPrice);
+                    }
+                }
+
+                return issues;
+            }
+
             function detectBatchItemState(itemId) {
                 var quoteYes = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"][value="quote"]');
                 var quoteNo = document.querySelector('input[name="n88_batch_quote_choice_' + itemId + '"][value="skip"]');
@@ -3716,6 +3856,7 @@ class N88_RFQ_Auth {
                     }
                 });
                 ensureBatchFormLoaded(itemId);
+                loadSupplierMessagesInline(itemId);
             }
 
             function ensureBatchFormLoaded(itemId) {
@@ -3961,10 +4102,22 @@ class N88_RFQ_Auth {
                     var unit = item.dimensions.unit || '';
                     if (w !== '-' && d !== '-' && h !== '-') {
                         var unitStr = unit === 'in' ? '"' : unit;
-                        dimsText = w + unitStr + 'W x ' + d + unitStr + 'D x ' + h + unitStr + 'H';
+                        dimsText = w + ' x ' + d + ' x ' + h + ' ' + unitStr + 'H';
                     }
                 }
                 var keywordsText = item.keywords && item.keywords.length ? item.keywords.join(', ') : 'None';
+                var deliveryText = '-';
+                if (item.delivery_country || item.delivery_postal_code) {
+                    deliveryText = (item.delivery_country || '') + (item.delivery_postal_code ? (' ' + item.delivery_postal_code) : '');
+                }
+                var fabricSuppliedText = 'No';
+                if (item.rfq_fabric_supplied_flag === 'yes') {
+                    fabricSuppliedText = 'Yes';
+                } else if (item.rfq_fabric_supplied_flag === 'no') {
+                    fabricSuppliedText = 'No';
+                } else if (item.rfq_fabric_supplied_flag) {
+                    fabricSuppliedText = item.rfq_fabric_supplied_flag;
+                }
                 var quoteDecision = item.batch_quote_decision === 'skip' ? 'skip' : 'quote';
                 var images = [];
                 if (item.primary_image_url) {
@@ -3985,6 +4138,41 @@ class N88_RFQ_Auth {
                 var galleryHtml = images.length ? '<div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:12px;">' + images.map(function(url) {
                     return '<img src="' + escapeBatchText(url) + '" alt="" style="width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid #333;" />';
                 }).join('') + '</div>' : '<div style="margin-top:12px; font-size:11px; color:#777; font-family:monospace;">No reference images attached.</div>';
+                var supportSectionHTML = '<div style="display:flex; flex-direction:column; flex:1; min-height:0;">' +
+                    '<div id="n88-supplier-clarification-form-' + itemId + '" style="display:flex; flex:1; min-height:560px; padding:16px; background-color:#111111; border:1px solid #555; border-radius:10px; flex-direction:column; overflow:hidden;">' +
+                        '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-shrink:0; flex-wrap:wrap;">' +
+                            '<div style="font-size:14px; font-weight:600; color:#ccc; display:flex; align-items:center; gap:8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Designer Messages</div>' +
+                            '<select id="n88-clarification-category-' + itemId + '" name="category" style="width:170px; max-width:100%; padding:7px 10px; background-color:#000; color:#ccc; border:1px solid #555; font-family:Courier New, Courier, monospace; font-size:10px; border-radius:10px; margin-left:auto;">' +
+                                '<option value="">Category</option>' +
+                                '<option value="Specs">Specs</option>' +
+                                '<option value="Dimensions">Dimensions</option>' +
+                                '<option value="Materials">Materials</option>' +
+                                '<option value="Timeline">Timeline</option>' +
+                                '<option value="Other">Other</option>' +
+                            '</select>' +
+                        '</div>' +
+                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">' +
+                            '<input type="hidden" name="item_id" value="' + itemId + '">' +
+                            '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex:1 1 auto; min-height:280px; overflow-y:auto; padding:16px; background-color:#0a0a0a; border-radius:10px; margin-bottom:12px; border:1px solid #555; display:flex; flex-direction:column;">' +
+                                '<div style="text-align:center; color:#666; font-size:12px; padding:20px; margin:auto;">Loading conversation...</div>' +
+                            '</div>' +
+                            '<div style="margin-bottom:4px; flex-shrink:0;">' +
+                                '<div style="font-size:9px; color:#888; margin-bottom:3px;">Select all that apply</div>' +
+                                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">' +
+                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-clarifying-' + itemId + '" value="clarifying_questions" style="width:11px; height:11px; cursor:pointer;"> <span>Clarifying questions</span></label>' +
+                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-mse-' + itemId + '" value="mse_material" style="width:11px; height:11px; cursor:pointer;"> <span>MSE/Material Suggestions</span></label>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">' +
+                                '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex:1; padding:10px 12px; background-color:#000; color:#fff; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:12px; resize:none; min-height:40px; max-height:100px;" placeholder="Type your message..."></textarea>' +
+                                '<div id="n88-supplier-attachment-preview-' + itemId + '" style="display:none; flex-wrap:wrap; gap:4px; align-items:center; flex:0 0 auto; max-width:120px;"></div>' +
+                                '<button type="button" id="n88-supplier-attach-btn-' + itemId + '" onclick="var el=document.getElementById(&quot;n88-supplier-message-attachments-' + itemId + '&quot;); if(el) el.click();" style="padding:7px 8px; background-color:#111111; color:#ccc; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:9px; cursor:pointer; white-space:nowrap; flex-shrink:0;">Attach files</button>' +
+                                '<input type="file" id="n88-supplier-message-attachments-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ');}">' +
+                                '<button type="submit" style="padding:7px 9px; background-color:#FF0065; color:#000; border:none; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:10px; font-weight:600; cursor:pointer; white-space:nowrap; flex-shrink:0;" onmouseover="this.style.backgroundColor=&quot;#cc0052&quot;;" onmouseout="this.style.backgroundColor=&quot;#FF0065&quot;;">Send</button>' +
+                            '</div>' +
+                        '</form>' +
+                    '</div>' +
+                '</div>';
                 return '' +
                     '<div class="n88-batch-accordion-section" data-item-id="' + itemId + '" style="margin:0 20px 14px; border:1px solid #333; border-radius:12px; overflow:hidden; background:#0b0b0b;">' +
                     '<button type="button" class="n88-batch-accordion-toggle" data-item-id="' + itemId + '" style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#0a0a0a; color:#ddd; border:none; border-bottom:1px solid #222; text-align:left; cursor:pointer;">' +
@@ -4018,19 +4206,20 @@ class N88_RFQ_Auth {
                             '</div>' +
                             '<div id="n88-batch-skip-note-' + itemId + '" style="display:' + (quoteDecision === 'skip' ? 'block' : 'none') + '; margin-top:10px; color:#ffb37d; font-size:11px; font-family:monospace;">This item will be recorded as Not Quoted for this supplier.</div>' +
                         '</div>' +
-                        '<div style="display:grid; grid-template-columns:minmax(280px, 340px) minmax(0, 1fr); gap:18px; align-items:start;">' +
+                        '<div style="display:grid; grid-template-columns:minmax(360px, 420px) minmax(0, 1fr); gap:18px; align-items:start;">' +
                             '<div style="padding:14px; border:1px solid #555; border-radius:10px; background:#111;">' +
-                                '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">RFQ Item Summary</div>' +
+                                '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:10px;">Item summary</div>' +
                                 '<div style="font-size:12px; color:#ddd; line-height:1.7; font-family:monospace;">' +
-                                    '<div><strong style="color:#fff;">RFQ ID:</strong> ' + escapeBatchText(item.rfq_reference || ('ITEM-' + itemId)) + '</div>' +
                                     '<div><strong style="color:#fff;">Project:</strong> ' + escapeBatchText(item.project_name || 'Unassigned') + '</div>' +
                                     '<div><strong style="color:#fff;">Designer:</strong> ' + escapeBatchText(item.designer_name || 'Designer') + '</div>' +
-                                    '<div><strong style="color:#fff;">Route:</strong> ' + escapeBatchText(item.route_label || 'RFQ') + '</div>' +
-                                    '<div><strong style="color:#fff;">Delivery:</strong> ' + escapeBatchText((item.delivery_country || '-') + (item.delivery_postal_code ? (' ' + item.delivery_postal_code) : '')) + '</div>' +
+                                    '<div><strong style="color:#fff;">Delivery:</strong> ' + escapeBatchText(deliveryText) + '</div>' +
+                                    '<div><strong style="color:#fff;">Category:</strong> ' + escapeBatchText(item.category || '-') + '</div>' +
+                                    '<div><strong style="color:#fff;">Dims:</strong> ' + escapeBatchText(dimsText) + '</div>' +
+                                    '<div><strong style="color:#fff;">Fabric Supplied:</strong> ' + escapeBatchText(fabricSuppliedText) + '</div>' +
                                 '</div>' +
-                                '<div style="margin-top:14px; font-size:11px; color:#aaa; line-height:1.6; white-space:pre-wrap;">' + escapeBatchText(item.description || 'No additional specs provided.') + '</div>' +
+                                '<div style="margin-top:14px; font-size:11px; color:#999; font-family:monospace;">Keywords: ' + escapeBatchText(keywordsText) + '</div>' +
+                                '<div style="margin-top:14px;">' + supportSectionHTML + '</div>' +
                                 galleryHtml +
-                                '<div style="margin-top:12px;"><button type="button" class="n88-batch-open-single-modal" data-item-id="' + itemId + '" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Open Full Item Modal ]</button></div>' +
                             '</div>' +
                             '<div id="n88-batch-form-host-' + itemId + '" style="min-width:0; padding:14px; border:1px solid #555; border-radius:10px; background:#111;"><div style="padding:24px; color:#aaa; font-family:monospace; text-align:center;">Loading proposal form...</div></div>' +
                         '</div>' +
@@ -4067,13 +4256,14 @@ class N88_RFQ_Auth {
                     '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Expand an item to fill its proposal form. Batch actions are available at the bottom.</div>' +
                     '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
                     '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
-                        '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch Actions</div>' +
+                        '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch actions</div>' +
+                        '<div style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:10px;">Choose files</div>' +
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
                             '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
-                            '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload Shared Files ]</button>' +
-                            '<button type="button" id="n88-batch-validate-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Validate All Quoted ]</button>' +
-                            '<button type="button" id="n88-batch-save-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Save Draft For All ]</button>' +
-                            '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit All Quoted ]</button>' +
+                            '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload shared files ]</button>' +
+                            '<button type="button" id="n88-batch-validate-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Validate all quoted ]</button>' +
+                            '<button type="button" id="n88-batch-save-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Save draft for all ]</button>' +
+                            '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit all quoted ]</button>' +
                         '</div>' +
                         '<div id="n88-batch-action-status" style="font-size:11px; color:#aaa; font-family:monospace; margin-bottom:12px;"></div>' +
                         '<div id="n88-batch-shared-upload-list"></div>' +
@@ -6482,7 +6672,7 @@ class N88_RFQ_Auth {
             }
             
             // Build embedded bid form HTML (adapted from openBidFormModalInternal)
-            function buildEmbeddedBidFormHTML(item, itemId) {
+            function buildEmbeddedBidFormHTMLLegacy(item, itemId) {
                 // Get primary image URL
                 var primaryImageUrl = item.primary_image_url || item.image_url || '';
                 
@@ -6818,6 +7008,54 @@ class N88_RFQ_Auth {
                         '</div>' +
                     '</form>';
                 
+                return bidFormHTML;
+            }
+
+            function buildEmbeddedBidFormHTML(item, itemId) {
+                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace; display: block; width: 100%; overflow: visible;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
+                    '<input type="hidden" name="prototype_video_yes" value="1" />' +
+                    '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
+                    '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">PROPOSAL FORM</h2>' +
+                    '</div>' +
+                    '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 18px;">' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">1- unit price</label>' +
+                    '<input type="number" name="unit_price" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-unit-price-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">2- production lead time</label>' +
+                    '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
+                    '<option value="">[ Select lead time... ]</option><option value="2-4 weeks">2-4 weeks</option><option value="4-6 weeks">4-6 weeks</option><option value="6-8 weeks">6-8 weeks</option><option value="8-12 weeks">8-12 weeks</option><option value="12-16 weeks">12-16 weeks</option></select>' +
+                    '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">3- prototype cost</label>' +
+                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<div id="n88-prototype-cost-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">4- prototype timeline</label>' +
+                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
+                    '<option value="">[ Select timeline... ]</option><option value="1-2w">1-2w</option><option value="2-4w">2-4w</option><option value="4-6w">4-6w</option><option value="6-8w">6-8w</option><option value="8-10w">8-10w</option></select>' +
+                    '<div id="n88-prototype-timeline-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '</div>' +
+                    '<div style="margin-bottom: 24px; padding: 16px; background-color: #111; border-radius: 4px; border: 1px solid #222;">' +
+                    '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">5- Media</label>' +
+                    '<div style="font-size: 11px; color: #aaa; margin-bottom: 12px; font-family: monospace;">Combine video links and media photos uploads. No minimums.</div>' +
+                    '<div id="n88-video-links-container-embedded-' + itemId + '">' +
+                    '<div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;"><span style="color: #FF0065; font-family: monospace; font-size: 12px;">1)</span>' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="Paste YouTube, Vimeo, or Loom link" style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; display: none; font-family: monospace; font-size: 11px;">Remove</button></div></div>' +
+                    '<div id="n88-video-links-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
+                    '<input type="file" id="n88-bid-photos-input-embedded-' + itemId + '" name="bid_photos[]" accept="image/*" multiple style="display: none;" onchange="handleBidPhotosChangeEmbedded(this, ' + itemId + ');" />' +
+                    '<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;">' +
+                    '<button type="button" onclick="addVideoLinkEmbedded(' + itemId + ')" id="n88-add-video-link-btn-embedded-' + itemId + '" style="padding: 8px 14px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">Add Media</button>' +
+                    '<button type="button" onclick="document.getElementById(\'n88-bid-photos-input-embedded-' + itemId + '\').click();" style="padding: 8px 14px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: monospace;">Upload Media Photos</button>' +
+                    '</div><div id="n88-bid-photos-preview-embedded-' + itemId + '" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;"></div>' +
+                    '<div id="n88-bid-photos-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
+                    '<div style="margin-bottom: 24px;"><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">6- Notes</label>' +
+                    '<textarea name="proposal_notes" rows="5" placeholder="Add notes..." style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace; resize: vertical;" oninput="validateBidFormEmbedded(' + itemId + ');"></textarea></div>' +
+                    '<div style="padding: 20px 0; border-top: 1px solid #FF0065; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
+                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                    '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
+                    '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
+                    '</div></form>';
+
                 return bidFormHTML;
             }
             
@@ -8024,7 +8262,7 @@ class N88_RFQ_Auth {
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 // Other fields
-                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
@@ -8196,7 +8434,7 @@ class N88_RFQ_Auth {
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 // Other fields
-                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
@@ -8307,7 +8545,7 @@ class N88_RFQ_Auth {
             }
             
             // Embedded form helper functions
-            function addVideoLinkEmbedded(itemId) {
+            function addVideoLinkEmbeddedLegacyV2(itemId) {
                 var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
                 if (!container) return;
                 
@@ -8328,19 +8566,12 @@ class N88_RFQ_Auth {
                 validateBidFormEmbedded(itemId);
             }
             
-            function handleBidPhotosChangeEmbedded(input, itemId) {
+            function handleBidPhotosChangeEmbeddedLegacyV2(input, itemId) {
                 var files = input.files;
                 if (!files || files.length === 0) {
                     return;
                 }
-                
-                // Validate file count (max 5)
-                if (files.length > 5) {
-                    alert('Maximum 5 photos allowed. Please select up to 5 photos.');
-                    input.value = '';
-                    return;
-                }
-                
+
                 // Validate file types - support HEIC images
                 var imageFiles = Array.from(files).filter(function(file) {
                     var fileName = file.name.toLowerCase();
@@ -8499,7 +8730,7 @@ class N88_RFQ_Auth {
             }
             
             // Validate embedded bid form
-            function validateBidFormEmbedded(itemId) {
+            function validateBidFormEmbeddedLegacy(itemId) {
                 var form = document.getElementById('n88-bid-form-embedded-' + itemId);
                 if (!form) return false;
                 
@@ -8699,7 +8930,7 @@ class N88_RFQ_Auth {
             }
             
             // Add video link for embedded form
-            function addVideoLinkEmbedded(itemId) {
+            function addVideoLinkEmbeddedLegacyV2(itemId) {
                 var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
                 if (!container) return;
                 
@@ -8734,7 +8965,7 @@ class N88_RFQ_Auth {
             }
             
             // Update video link buttons for embedded form
-            function updateVideoLinkButtonsEmbedded(itemId) {
+            function updateVideoLinkButtonsEmbeddedLegacy(itemId) {
                 var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
                 if (!container) return;
                 
@@ -8751,6 +8982,297 @@ class N88_RFQ_Auth {
                 if (addBtn) {
                     addBtn.style.display = links.length >= 3 ? 'none' : 'block';
                 }
+            }
+
+            function getEmbeddedPrototypeVideoValue(form) {
+                if (!form) {
+                    return '';
+                }
+                var checked = form.querySelector('input[name="prototype_video_yes"]:checked');
+                if (checked) {
+                    return checked.value;
+                }
+                var hidden = form.querySelector('input[name="prototype_video_yes"]');
+                return hidden ? hidden.value : '1';
+            }
+
+            function addVideoLinkEmbedded(itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+
+                var linkCount = container.querySelectorAll('.n88-video-link-input-embedded').length;
+                var newLinkDiv = document.createElement('div');
+                var linkNum = linkCount + 1;
+                newLinkDiv.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px; align-items: center;';
+                newLinkDiv.innerHTML = '<span style="color: #FF0065; font-family: monospace; font-size: 12px;">' + linkNum + ')</span>' +
+                    '<input type="url" name="video_links[]" class="n88-video-link-input-embedded" placeholder="Paste YouTube, Vimeo, or Loom link" style="flex: 1; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" onblur="validateVideoLinkEmbedded(this, ' + itemId + ');" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
+                    '<button type="button" onclick="removeVideoLinkEmbedded(this, ' + itemId + ')" style="padding: 8px 12px; background-color: #dc3545; color: #fff; border: none; border-radius: 2px; cursor: pointer; font-family: monospace; font-size: 11px;">Remove</button>';
+
+                container.appendChild(newLinkDiv);
+                updateVideoLinkButtonsEmbedded(itemId);
+                validateBidFormEmbedded(itemId);
+            }
+
+            function updateVideoLinkButtonsEmbedded(itemId) {
+                var container = document.getElementById('n88-video-links-container-embedded-' + itemId);
+                if (!container) return;
+
+                var rows = container.children;
+                Array.prototype.forEach.call(rows, function(row, index) {
+                    var label = row.querySelector('span');
+                    if (label) {
+                        label.textContent = (index + 1) + ')';
+                    }
+                });
+
+                var removeButtons = container.querySelectorAll('button[onclick*="removeVideoLinkEmbedded"]');
+                removeButtons.forEach(function(btn) {
+                    btn.style.display = rows.length > 1 ? 'block' : 'none';
+                });
+
+                var addBtn = document.getElementById('n88-add-video-link-btn-embedded-' + itemId);
+                if (addBtn) {
+                    addBtn.style.display = 'inline-block';
+                }
+            }
+
+            function handleBidPhotosChangeEmbedded(input, itemId) {
+                var files = input.files;
+                if (!files || files.length === 0) {
+                    return;
+                }
+
+                var imageFiles = Array.from(files).filter(function(file) {
+                    var fileName = file.name.toLowerCase();
+                    return file.type.startsWith('image/') ||
+                           fileName.endsWith('.heic') ||
+                           fileName.endsWith('.heif');
+                });
+
+                if (imageFiles.length !== files.length) {
+                    alert('Please select image files only.');
+                    input.value = '';
+                    return;
+                }
+
+                var previewContainer = document.getElementById('n88-bid-photos-preview-embedded-' + itemId);
+                var errorDiv = document.getElementById('n88-bid-photos-error-embedded-' + itemId);
+
+                if (!previewContainer) {
+                    console.error('Bid photos preview container not found');
+                    return;
+                }
+
+                previewContainer.innerHTML = '';
+
+                var nonce = '<?php echo wp_create_nonce( 'n88_upload_inspiration_image' ); ?>';
+                var ajaxUrl = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
+
+                var uploadPromises = imageFiles.map(function(file, index) {
+                    return new Promise(function(resolve, reject) {
+                        var formData = new FormData();
+                        formData.append('action', 'n88_upload_inspiration_image');
+                        formData.append('inspiration_image', file);
+                        formData.append('nonce', nonce);
+
+                        var placeholderId = 'n88-bid-photo-placeholder-embedded-' + itemId + '-' + index;
+                        var placeholder = document.createElement('div');
+                        placeholder.id = placeholderId;
+                        placeholder.style.cssText = 'position: relative; width: 100px; height: 100px; border: 2px dashed #FF0065; border-radius: 4px; display: flex; align-items: center; justify-content: center; background-color: #1a1a1a;';
+                        placeholder.innerHTML = '<div style="font-size: 11px; color: #FF0065; font-family: monospace;">Uploading...</div>';
+                        previewContainer.appendChild(placeholder);
+
+                        fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        })
+                        .then(function(response) {
+                            if (!response.ok) {
+                                throw new Error('HTTP error! status: ' + response.status);
+                            }
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success && data.data && data.data.id) {
+                                resolve(data.data);
+                            } else {
+                                reject(new Error((data.data && data.data.message) ? data.data.message : 'Upload failed'));
+                            }
+                        })
+                        .catch(function(error) {
+                            reject(error);
+                        });
+                    });
+                });
+
+                Promise.allSettled(uploadPromises).then(function(results) {
+                    previewContainer.innerHTML = '';
+                    results.forEach(function(result) {
+                        if (result.status !== 'fulfilled') {
+                            return;
+                        }
+                        var upload = result.value;
+                        var photoWrap = document.createElement('div');
+                        photoWrap.style.cssText = 'position: relative; width: 100px;';
+                        photoWrap.innerHTML = '<input type="hidden" name="bid_photo_ids[]" value="' + upload.id + '" />' +
+                            '<img src="' + upload.url + '" style="width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid #333;" />' +
+                            '<button type="button" onclick="this.parentNode.remove(); validateBidFormEmbedded(' + itemId + ');" style="position: absolute; top: 4px; right: 4px; background: #dc3545; color: #fff; border: none; border-radius: 2px; font-size: 10px; cursor: pointer;">X</button>';
+                        previewContainer.appendChild(photoWrap);
+                    });
+
+                    if (errorDiv) {
+                        var failed = results.filter(function(result) { return result.status === 'rejected'; });
+                        if (failed.length) {
+                            errorDiv.textContent = 'Some media uploads failed. Please retry those files.';
+                            errorDiv.style.display = 'block';
+                        } else {
+                            errorDiv.style.display = 'none';
+                        }
+                    }
+
+                    validateBidFormEmbedded(itemId);
+                });
+            }
+
+            function validateBidFormEmbedded(itemId) {
+                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
+                if (!form) return false;
+
+                var isValid = true;
+                var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                clearBatchFieldHighlights(itemId);
+
+                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
+                var allowedDomains = [ 'youtube.com', 'youtu.be', 'vimeo.com', 'loom.com' ];
+                var videoError = document.getElementById('n88-video-links-error-embedded-' + itemId);
+                var videoTarget = videoLinks.length ? videoLinks[0] : document.getElementById('n88-video-links-container-embedded-' + itemId);
+                var invalidVideoFound = false;
+
+                videoLinks.forEach(function(input) {
+                    var url = input.value.trim();
+                    if (!url) {
+                        return;
+                    }
+                    try {
+                        var urlObj = new URL(url);
+                        var hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+                        var isAllowed = allowedDomains.some(function(domain) {
+                            return hostname === domain || hostname.endsWith('.' + domain);
+                        });
+                        if (!isAllowed) {
+                            invalidVideoFound = true;
+                        }
+                    } catch (e) {
+                        invalidVideoFound = true;
+                    }
+                });
+
+                if (invalidVideoFound) {
+                    isValid = false;
+                    if (videoError) {
+                        videoError.textContent = 'Use only valid YouTube, Vimeo, or Loom links.';
+                        videoError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(videoTarget);
+                } else if (videoError) {
+                    videoError.style.display = 'none';
+                }
+
+                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
+                var timelineError = document.getElementById('n88-prototype-timeline-error-embedded-' + itemId);
+                if (!timeline || !timeline.value) {
+                    isValid = false;
+                    if (timelineError) {
+                        timelineError.textContent = 'Prototype timeline is required.';
+                        timelineError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(timeline);
+                } else if (timelineError) {
+                    timelineError.style.display = 'none';
+                }
+
+                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
+                var costError = document.getElementById('n88-prototype-cost-error-embedded-' + itemId);
+                if (!prototypeCost || prototypeCost.value === '') {
+                    isValid = false;
+                    if (costError) {
+                        costError.textContent = 'Prototype cost is required.';
+                        costError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(prototypeCost);
+                } else {
+                    var costValue = parseFloat(prototypeCost.value);
+                    if (isNaN(costValue) || costValue < 0) {
+                        isValid = false;
+                        if (costError) {
+                            costError.textContent = 'Prototype cost must be 0 or more.';
+                            costError.style.display = 'block';
+                        }
+                        markBatchFieldHighlight(prototypeCost);
+                    } else if (costError) {
+                        costError.style.display = 'none';
+                    }
+                }
+
+                var leadTime = form.querySelector('select[name="production_lead_time_text"]');
+                var leadTimeError = document.getElementById('n88-lead-time-error-embedded-' + itemId);
+                if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
+                    isValid = false;
+                    if (leadTimeError) {
+                        leadTimeError.textContent = 'Production lead time is required.';
+                        leadTimeError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(leadTime);
+                } else if (leadTimeError) {
+                    leadTimeError.style.display = 'none';
+                }
+
+                var unitPrice = form.querySelector('input[name="unit_price"]');
+                var priceError = document.getElementById('n88-unit-price-error-embedded-' + itemId);
+                if (!unitPrice || unitPrice.value === '') {
+                    isValid = false;
+                    if (priceError) {
+                        priceError.textContent = 'Unit price is required.';
+                        priceError.style.display = 'block';
+                    }
+                    markBatchFieldHighlight(unitPrice);
+                } else {
+                    var priceValue = parseFloat(unitPrice.value);
+                    if (isNaN(priceValue) || priceValue <= 0) {
+                        isValid = false;
+                        if (priceError) {
+                            priceError.textContent = 'Unit price must be greater than 0.';
+                            priceError.style.display = 'block';
+                        }
+                        markBatchFieldHighlight(unitPrice);
+                    } else if (priceError) {
+                        priceError.style.display = 'none';
+                    }
+                }
+
+                if (validateBtn) {
+                    if (isValid) {
+                        validateBtn.disabled = false;
+                        validateBtn.style.opacity = '1';
+                        validateBtn.style.cursor = 'pointer';
+                    } else {
+                        validateBtn.disabled = true;
+                        validateBtn.style.opacity = '0.5';
+                        validateBtn.style.cursor = 'not-allowed';
+                    }
+                }
+
+                if (isBatchEmbeddedForm(itemId)) {
+                    var item = window.n88SupplierBatchState.itemData[itemId] || {};
+                    if (item.bid_status === 'submitted' || item.bid_status === 'awarded') {
+                        setBatchItemState(itemId, 'quoted');
+                    } else {
+                        setBatchItemState(itemId, isValid ? 'ready' : 'not_ready');
+                    }
+                }
+
+                return isValid;
             }
             
             // Validate individual video link for embedded form
@@ -8839,8 +9361,7 @@ class N88_RFQ_Auth {
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                var prototypeVideoYes = form.querySelector('input[name="prototype_video_yes"]:checked');
-                formData.append('prototype_video_yes', prototypeVideoYes ? prototypeVideoYes.value : '');
+                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]') ? form.querySelector('input[name="prototype_cost"]').value : '');
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]') ? form.querySelector('select[name="production_lead_time_text"]').value : '');
@@ -9010,7 +9531,7 @@ class N88_RFQ_Auth {
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
@@ -9149,7 +9670,7 @@ class N88_RFQ_Auth {
                 });
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
-                formData.append('prototype_video_yes', form.querySelector('input[name="prototype_video_yes"]:checked') ? form.querySelector('input[name="prototype_video_yes"]:checked').value : '');
+                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
                 formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
                 formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
@@ -10203,13 +10724,6 @@ class N88_RFQ_Auth {
                     var closeBtn = e.target && e.target.closest ? e.target.closest('#n88-close-batch-proposal-modal') : null;
                     if (closeBtn) {
                         closeBatchProposalModal();
-                        return;
-                    }
-                    var openSingleBtn = e.target && e.target.closest ? e.target.closest('.n88-batch-open-single-modal') : null;
-                    if (openSingleBtn) {
-                        var singleItemId = openSingleBtn.getAttribute('data-item-id');
-                        closeBatchProposalModal();
-                        openBidModal(singleItemId, 'overview');
                         return;
                     }
                     var validateAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-validate-all-btn') : null;
@@ -14629,7 +15143,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
             
-            $select_fields = "b.bid_id, b.supplier_id, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.status, b.created_at";
+            $select_fields = "b.bid_id, b.supplier_id, supplier.display_name AS supplier_name, b.unit_price, b.production_lead_time_text, b.prototype_timeline_option, b.prototype_cost, b.prototype_video_yes, b.cad_yes, b.status, b.created_at";
             if ( $has_bid_meta_json ) {
                 $select_fields .= ", b.meta_json";
             }
@@ -14640,6 +15154,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $bids_data = $wpdb->get_results( $wpdb->prepare(
                 "SELECT {$select_fields}
                 FROM {$item_bids_table} b
+                LEFT JOIN {$users_table} supplier ON b.supplier_id = supplier.ID
                 WHERE b.item_id = %d 
                 AND b.status IN ('submitted', 'awarded', 'declined')
                 ORDER BY 
@@ -14742,6 +15257,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 // Get Smart Alternatives suggestion and note from meta_json if available
                 $smart_alternatives_suggestion = null;
                 $bid_smart_alternatives_note = null;
+                $proposal_group_id            = 0;
+                $batch_shared_uploads       = array();
+                $batch_shared_upload_user_id = 0;
+                if ( isset( $bid['supplier_id'] ) ) {
+                    $batch_shared_upload_user_id = intval( $bid['supplier_id'] );
+                }
                 if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) ) {
                     $bid_meta = json_decode( $bid['meta_json'], true );
                     if ( is_array( $bid_meta ) ) {
@@ -14752,9 +15273,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         if ( isset( $bid_meta['smart_alternatives_note'] ) ) {
                             $bid_smart_alternatives_note = sanitize_textarea_field( $bid_meta['smart_alternatives_note'] );
                         }
+                        if ( ! empty( $bid_meta['proposal_group_id'] ) ) {
+                            $proposal_group_id = absint( $bid_meta['proposal_group_id'] );
+                        }
                     }
                 }
-                
+
+                if ( $proposal_group_id > 0 ) {
+                    $batch_shared_uploads = $this->get_supplier_proposal_group_uploads( $proposal_group_id, $batch_shared_upload_user_id );
+                }
+
                 // Debug: Log if meta_json exists but smart_alternatives_suggestion is null
                 if ( $has_bid_meta_json && ! empty( $bid['meta_json'] ) && $smart_alternatives_suggestion === null ) {
                     error_log( 'Bid ' . $bid['bid_id'] . ': meta_json exists but smart_alternatives_suggestion is null. meta_json: ' . substr( $bid['meta_json'], 0, 200 ) );
@@ -14872,6 +15400,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 
                 $bids[] = array(
                     'bid_id' => intval( $bid['bid_id'] ),
+                    'supplier_id' => intval( $bid['supplier_id'] ),
+                    'supplier_name' => ! empty( $bid['supplier_name'] ) ? sanitize_text_field( $bid['supplier_name'] ) : '',
                     'unit_price' => $unit_price_display, // Designer sees landed cost (margin + duty)
                     'unit_price_raw' => $unit_price_raw, // Keep raw price for reference
                     'unit_price_duty_est' => $unit_price_landed ? $unit_price_landed['duty_est'] : null, // Duty estimate
@@ -14896,6 +15426,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
                     'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
                     'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
+                    'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
+                    'batch_shared_uploads' => $batch_shared_uploads,
                     'created_at' => $bid['created_at'],
                     'rfq_revision_at_submit' => $bid_revision, // D5: Revision tracking for bid filtering
                     // Commit 2.3.10: Delivery cost (door-to-door USA)
@@ -15445,41 +15977,36 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Filter out empty links
         $video_links = array_filter( array_map( 'trim', $video_links ) );
         
-        // Commit 2.3.5.1: Video links are optional now, but if provided, max 3
-        if ( count( $video_links ) > 3 ) {
-            $errors['video_links'] = 'Maximum 3 video links allowed.';
-        } else {
-            // Validate each link against allowlist (only if provided)
-            if ( count( $video_links ) > 0 ) {
-                $allowed_domains = array(
-                    'youtube.com', 'www.youtube.com', 'youtu.be',
-                    'vimeo.com', 'www.vimeo.com',
-                    'loom.com', 'www.loom.com'
-                );
+        // Video links are optional now. If provided, validate provider/format only.
+        if ( count( $video_links ) > 0 ) {
+            $allowed_domains = array(
+                'youtube.com', 'www.youtube.com', 'youtu.be',
+                'vimeo.com', 'www.vimeo.com',
+                'loom.com', 'www.loom.com'
+            );
+            
+            foreach ( $video_links as $link ) {
+                $parsed_url = wp_parse_url( $link );
+                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                    break;
+                }
                 
-                foreach ( $video_links as $link ) {
-                    $parsed_url = wp_parse_url( $link );
-                    if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
-                        $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                $hostname = strtolower( $parsed_url['host'] );
+                $hostname = preg_replace( '/^www\./', '', $hostname );
+                
+                $is_allowed = false;
+                foreach ( $allowed_domains as $domain ) {
+                    $domain_clean = preg_replace( '/^www\./', '', $domain );
+                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                        $is_allowed = true;
                         break;
                     }
-                    
-                    $hostname = strtolower( $parsed_url['host'] );
-                    $hostname = preg_replace( '/^www\./', '', $hostname );
-                    
-                    $is_allowed = false;
-                    foreach ( $allowed_domains as $domain ) {
-                        $domain_clean = preg_replace( '/^www\./', '', $domain );
-                        if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
-                            $is_allowed = true;
-                            break;
-                        }
-                    }
-                    
-                    if ( ! $is_allowed ) {
-                        $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
-                        break;
-                    }
+                }
+                
+                if ( ! $is_allowed ) {
+                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                    break;
                 }
             }
         }
@@ -15506,13 +16033,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return $id > 0;
         } );
         
-        $bid_photos_count = count( $bid_photo_ids );
-        
-        if ( $bid_photos_count < 2 ) {
-            $errors['bid_photos'] = 'At least 2 photos are required.';
-        } elseif ( $bid_photos_count > 5 ) {
-            $errors['bid_photos'] = 'Maximum 5 photos allowed.';
-        } else {
+        if ( ! empty( $bid_photo_ids ) ) {
             // Validate that all photo IDs exist in WordPress media library
             foreach ( $bid_photo_ids as $photo_id ) {
                 $attachment = get_post( $photo_id );
@@ -15530,29 +16051,24 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        // 2. Prototype video commitment (optional - YES or NO)
-        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
-        $is_prototype_yes = ( $prototype_video_yes === 1 );
+        // 2. Prototype video commitment
+        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 1;
 
-        // 3. Prototype timeline (required ONLY if prototype is YES)
+        // 3. Prototype timeline (required)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
-        if ( $is_prototype_yes ) {
-            $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-            if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
-                $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
-            }
+        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
         }
 
-        // 4. Prototype cost (required ONLY if prototype is YES)
+        // 4. Prototype cost (required)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( $is_prototype_yes ) {
-            if ( empty( $prototype_cost ) ) {
-                $errors['prototype_cost'] = 'Prototype cost is required.';
-            } else {
-                $prototype_cost_float = floatval( $prototype_cost );
-                if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
-                    $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
-                }
+        if ( empty( $prototype_cost ) ) {
+            $errors['prototype_cost'] = 'Prototype cost is required.';
+        } else {
+            $prototype_cost_float = floatval( $prototype_cost );
+            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
             }
         }
 
@@ -15673,41 +16189,36 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // Filter out empty links
         $video_links = array_filter( array_map( 'trim', $video_links ) );
         
-        // Commit 2.3.5.1: Video links are optional now, but if provided, max 3
-        if ( count( $video_links ) > 3 ) {
-            $errors['video_links'] = 'Maximum 3 video links allowed.';
-        } else {
-            // Validate each link against allowlist (only if provided)
-            if ( count( $video_links ) > 0 ) {
-                $allowed_domains = array(
-                    'youtube.com', 'www.youtube.com', 'youtu.be',
-                    'vimeo.com', 'www.vimeo.com',
-                    'loom.com', 'www.loom.com'
-                );
+        // Video links are optional now. If provided, validate provider/format only.
+        if ( count( $video_links ) > 0 ) {
+            $allowed_domains = array(
+                'youtube.com', 'www.youtube.com', 'youtu.be',
+                'vimeo.com', 'www.vimeo.com',
+                'loom.com', 'www.loom.com'
+            );
+            
+            foreach ( $video_links as $link ) {
+                $parsed_url = wp_parse_url( $link );
+                if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
+                    $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                    break;
+                }
                 
-                foreach ( $video_links as $link ) {
-                    $parsed_url = wp_parse_url( $link );
-                    if ( ! $parsed_url || ! isset( $parsed_url['host'] ) ) {
-                        $errors['video_links'] = 'Invalid URL format: ' . esc_html( $link );
+                $hostname = strtolower( $parsed_url['host'] );
+                $hostname = preg_replace( '/^www\./', '', $hostname );
+                
+                $is_allowed = false;
+                foreach ( $allowed_domains as $domain ) {
+                    $domain_clean = preg_replace( '/^www\./', '', $domain );
+                    if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
+                        $is_allowed = true;
                         break;
                     }
-                    
-                    $hostname = strtolower( $parsed_url['host'] );
-                    $hostname = preg_replace( '/^www\./', '', $hostname );
-                    
-                    $is_allowed = false;
-                    foreach ( $allowed_domains as $domain ) {
-                        $domain_clean = preg_replace( '/^www\./', '', $domain );
-                        if ( $hostname === $domain_clean || strpos( $hostname, '.' . $domain_clean ) !== false ) {
-                            $is_allowed = true;
-                            break;
-                        }
-                    }
-                    
-                    if ( ! $is_allowed ) {
-                        $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
-                        break;
-                    }
+                }
+                
+                if ( ! $is_allowed ) {
+                    $errors['video_links'] = 'Only YouTube, Vimeo, or Loom links are allowed. Invalid: ' . esc_html( $link );
+                    break;
                 }
             }
         }
@@ -15734,13 +16245,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return $id > 0;
         } );
         
-        $bid_photos_count = count( $bid_photo_ids );
-        
-        if ( $bid_photos_count < 2 ) {
-            $errors['bid_photos'] = 'At least 2 photos are required.';
-        } elseif ( $bid_photos_count > 5 ) {
-            $errors['bid_photos'] = 'Maximum 5 photos allowed.';
-        } else {
+        if ( ! empty( $bid_photo_ids ) ) {
             // Validate that all photo IDs exist in WordPress media library
             foreach ( $bid_photo_ids as $photo_id ) {
                 $attachment = get_post( $photo_id );
@@ -15758,29 +16263,24 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        // 2. Prototype video commitment (optional - YES or NO)
-        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 0;
-        $is_prototype_yes = ( $prototype_video_yes === 1 );
+        // 2. Prototype video commitment
+        $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 1;
 
-        // 3. Prototype timeline (required ONLY if prototype is YES)
+        // 3. Prototype timeline (required)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
-        if ( $is_prototype_yes ) {
-            $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-            if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
-                $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
-            }
+        $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
+        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+            $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
         }
 
-        // 4. Prototype cost (required ONLY if prototype is YES)
+        // 4. Prototype cost (required)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( $is_prototype_yes ) {
-            if ( empty( $prototype_cost ) ) {
-                $errors['prototype_cost'] = 'Prototype cost is required.';
-            } else {
-                $prototype_cost_float = floatval( $prototype_cost );
-                if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
-                    $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
-                }
+        if ( empty( $prototype_cost ) ) {
+            $errors['prototype_cost'] = 'Prototype cost is required.';
+        } else {
+            $prototype_cost_float = floatval( $prototype_cost );
+            if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
+                $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
             }
         }
 
@@ -16356,7 +16856,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             wp_send_json_success( array(
                 'message' => 'Bid submitted successfully!',
                 'bid_id' => $bid_id,
-                'proposal_group_id' => $proposal_group_id ? $proposal_group_id : null,
+                'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
             ) );
 
         } catch ( Exception $e ) {
@@ -17873,7 +18373,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         wp_send_json_success( array(
             'message' => 'Draft saved successfully.',
             'saved_at' => $draft_data['saved_at'],
-            'proposal_group_id' => $proposal_group_id ? $proposal_group_id : null,
+            'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
         ) );
     }
 
@@ -27056,3 +27556,5 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 }
 
 // .....
+
+
