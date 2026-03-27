@@ -74,6 +74,16 @@ class N88_RFQ_Auth {
         
         // Commit 2.4.1: Award bid (designer action)
         add_action( 'wp_ajax_n88_award_bid', array( $this, 'ajax_award_bid' ) );
+        add_action( 'wp_ajax_n88_request_material_samples', array( $this, 'ajax_request_material_samples' ) );
+        add_action( 'wp_ajax_n88_create_material_validation_request', array( $this, 'ajax_create_material_validation_request' ) );
+        add_action( 'wp_ajax_n88_submit_material_validation_payment', array( $this, 'ajax_submit_material_validation_payment' ) );
+        add_action( 'wp_ajax_n88_supplier_submit_material_samples', array( $this, 'ajax_supplier_submit_material_samples' ) );
+        add_action( 'wp_ajax_n88_mark_material_samples_received', array( $this, 'ajax_mark_material_samples_received' ) );
+        add_action( 'wp_ajax_n88_review_material_samples', array( $this, 'ajax_review_material_samples' ) );
+        add_action( 'wp_ajax_n88_upload_validation_po', array( $this, 'ajax_upload_validation_po' ) );
+        add_action( 'wp_ajax_n88_submit_validation_com', array( $this, 'ajax_submit_validation_com' ) );
+        add_action( 'wp_ajax_n88_mark_validation_com_delivered', array( $this, 'ajax_mark_validation_com_delivered' ) );
+        add_action( 'wp_ajax_n88_submit_validation_deposit', array( $this, 'ajax_submit_validation_deposit' ) );
         
         // Commit 28: Operator marks deposit received (production Step 4 can then start)
         add_action( 'wp_ajax_n88_mark_deposit_received', array( $this, 'ajax_mark_deposit_received' ) );
@@ -917,6 +927,152 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Commit 3.C.18: Return grouped proposal workspace interpretation data for a designer item view.
+     *
+     * This exposes supplier quote/skip decisions even when an item has no submitted bid,
+     * allowing the designer comparison layer to render explicit "Not Quoted" states and
+     * preserve grouped item alignment.
+     *
+     * @param int $item_id Item ID.
+     * @return array<int, array<string, mixed>>
+     */
+    private function get_item_proposal_group_workspace_states( $item_id ) {
+        global $wpdb;
+
+        $this->ensure_supplier_proposal_workspace_support();
+
+        $item_id            = absint( $item_id );
+        $groups_table       = $wpdb->prefix . 'n88_supplier_proposal_groups';
+        $group_items_table  = $wpdb->prefix . 'n88_supplier_proposal_group_items';
+        $users_table        = $wpdb->users;
+        $wireframe_supplier = $this->get_default_wireframe_supplier_id();
+
+        if ( ! $item_id ) {
+            return array();
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$groups_table}'" ) !== $groups_table ) {
+            return array();
+        }
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$group_items_table}'" ) !== $group_items_table ) {
+            return array();
+        }
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT gi.proposal_group_id, gi.quote_decision, gi.item_state, gi.linked_bid_id, gi.updated_at AS state_updated_at,
+                        g.supplier_id, g.workspace_label, g.rfq_reference, g.status AS workspace_status, g.created_at AS workspace_created_at, g.updated_at AS workspace_updated_at,
+                        u.display_name AS supplier_name
+                FROM {$group_items_table} gi
+                INNER JOIN {$groups_table} g ON g.proposal_group_id = gi.proposal_group_id
+                LEFT JOIN {$users_table} u ON u.ID = g.supplier_id
+                WHERE gi.item_id = %d
+                ORDER BY CASE WHEN g.supplier_id = %d THEN 0 ELSE 1 END, g.created_at ASC, g.proposal_group_id ASC",
+                $item_id,
+                $wireframe_supplier
+            ),
+            ARRAY_A
+        );
+
+        if ( empty( $rows ) ) {
+            return array();
+        }
+
+        $group_ids = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        wp_list_pluck( (array) $rows, 'proposal_group_id' )
+                    )
+                )
+            )
+        );
+
+        $group_items_map = array();
+        if ( ! empty( $group_ids ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+            $group_rows   = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT proposal_group_id, item_id, quote_decision, item_state, linked_bid_id
+                    FROM {$group_items_table}
+                    WHERE proposal_group_id IN ({$placeholders})
+                    ORDER BY proposal_group_id ASC, item_id ASC",
+                    ...$group_ids
+                ),
+                ARRAY_A
+            );
+
+            foreach ( (array) $group_rows as $group_row ) {
+                $proposal_group_id = isset( $group_row['proposal_group_id'] ) ? absint( $group_row['proposal_group_id'] ) : 0;
+                $group_item_id     = isset( $group_row['item_id'] ) ? absint( $group_row['item_id'] ) : 0;
+
+                if ( ! $proposal_group_id || ! $group_item_id ) {
+                    continue;
+                }
+
+                if ( ! isset( $group_items_map[ $proposal_group_id ] ) ) {
+                    $group_items_map[ $proposal_group_id ] = array(
+                        'item_ids'    => array(),
+                        'item_states' => array(),
+                    );
+                }
+
+                $group_items_map[ $proposal_group_id ]['item_ids'][] = $group_item_id;
+                $group_items_map[ $proposal_group_id ]['item_states'][ $group_item_id ] = array(
+                    'quote_decision' => ! empty( $group_row['quote_decision'] ) ? sanitize_text_field( $group_row['quote_decision'] ) : 'quote',
+                    'item_state'     => ! empty( $group_row['item_state'] ) ? sanitize_text_field( $group_row['item_state'] ) : 'not_ready',
+                    'linked_bid_id'  => ! empty( $group_row['linked_bid_id'] ) ? absint( $group_row['linked_bid_id'] ) : null,
+                );
+            }
+        }
+
+        $workspaces = array();
+        foreach ( (array) $rows as $row ) {
+            $proposal_group_id = isset( $row['proposal_group_id'] ) ? absint( $row['proposal_group_id'] ) : 0;
+            $supplier_id       = isset( $row['supplier_id'] ) ? absint( $row['supplier_id'] ) : 0;
+            if ( ! $proposal_group_id || ! $supplier_id ) {
+                continue;
+            }
+
+            $group_items = isset( $group_items_map[ $proposal_group_id ] ) ? $group_items_map[ $proposal_group_id ] : array(
+                'item_ids'    => array(),
+                'item_states' => array(),
+            );
+
+            $item_ids = array_values(
+                array_unique(
+                    array_map( 'absint', (array) $group_items['item_ids'] )
+                )
+            );
+            sort( $item_ids );
+
+            $workspaces[] = array(
+                'proposal_group_id'     => $proposal_group_id,
+                'supplier_id'           => $supplier_id,
+                'supplier_name'         => ! empty( $row['supplier_name'] ) ? sanitize_text_field( $row['supplier_name'] ) : 'Supplier #' . $supplier_id,
+                'supplier_is_wireframe' => $wireframe_supplier > 0 && $supplier_id === $wireframe_supplier,
+                'quote_decision'        => ! empty( $row['quote_decision'] ) ? sanitize_text_field( $row['quote_decision'] ) : 'quote',
+                'item_state'            => ! empty( $row['item_state'] ) ? sanitize_text_field( $row['item_state'] ) : 'not_ready',
+                'linked_bid_id'         => ! empty( $row['linked_bid_id'] ) ? absint( $row['linked_bid_id'] ) : null,
+                'workspace_label'       => ! empty( $row['workspace_label'] ) ? sanitize_text_field( $row['workspace_label'] ) : '',
+                'rfq_reference'         => ! empty( $row['rfq_reference'] ) ? sanitize_text_field( $row['rfq_reference'] ) : '',
+                'workspace_status'      => ! empty( $row['workspace_status'] ) ? sanitize_text_field( $row['workspace_status'] ) : '',
+                'workspace_created_at'  => ! empty( $row['workspace_created_at'] ) ? $row['workspace_created_at'] : null,
+                'workspace_updated_at'  => ! empty( $row['workspace_updated_at'] ) ? $row['workspace_updated_at'] : null,
+                'state_updated_at'      => ! empty( $row['state_updated_at'] ) ? $row['state_updated_at'] : null,
+                'item_ids'              => $item_ids,
+                'item_count'            => count( $item_ids ),
+                'item_states'           => isset( $group_items['item_states'] ) && is_array( $group_items['item_states'] ) ? $group_items['item_states'] : array(),
+                'shared_uploads'        => $this->get_supplier_proposal_group_uploads( $proposal_group_id, $supplier_id ),
+            );
+        }
+
+        return $workspaces;
+    }
+
+    /**
      * Create custom roles with appropriate capabilities (Commit 2.2.1)
      */
     public function create_custom_roles() {
@@ -1598,6 +1754,8 @@ class N88_RFQ_Auth {
                 'redirect_url' => home_url( '/designer/onboarding' ),
             ) );
         }
+
+        $validation_state = $this->build_material_validation_state( $item_id, isset( $meta ) && is_array( $meta ) ? $meta : array() );
 
         wp_send_json_success( array(
             'message' => 'Registration successful!',
@@ -2760,6 +2918,15 @@ class N88_RFQ_Auth {
             $item_data['unread_operator_messages'] = $unread_operator_messages;
             $item_data['has_unread_designer_messages'] = $has_unread_designer_messages;
             $item_data['unread_designer_messages'] = $unread_designer_messages;
+            $validation_meta = array();
+            if ( ! empty( $item_data['meta_json'] ) ) {
+                $decoded_validation_meta = json_decode( $item_data['meta_json'], true );
+                if ( is_array( $decoded_validation_meta ) ) {
+                    $validation_meta = $decoded_validation_meta;
+                }
+            }
+            $validation_state = $this->build_material_validation_state( $item_id, $validation_meta );
+            $item_data['validation_state'] = $validation_state;
             
             // E) Fix #22, #25: Clear Action Required when CAD approved or prototype approved (supplier has no pending task)
             // F) Fix #28: Never show Action Required when awarded
@@ -2830,6 +2997,11 @@ class N88_RFQ_Auth {
             // When operator sent CAD and supplier has submitted prototype video: no reply needed  clear Action Required (unread)
             if ( $cad_released_to_supplier_at && $prototype_status === 'submitted' ) {
                 $show_action_required = $has_message_action_required;
+            }
+            $validation_requires_sample_upload = ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] );
+            $item_data['validation_requires_sample_upload'] = $validation_requires_sample_upload;
+            if ( $validation_requires_sample_upload ) {
+                $show_action_required = true;
             }
             $item_data['show_action_required'] = $show_action_required;
             $item_data['cad_released_to_supplier_at'] = $cad_released_to_supplier_at;
@@ -2902,6 +3074,10 @@ class N88_RFQ_Auth {
             } elseif ( $cad_released && ! in_array( (string) $prototype_status, array( 'submitted', 'approved', 'changes_requested' ), true ) ) {
                 // CAD files sent to supplier; supplier must submit prototype video (any state except already submitted/approved/changes_requested)
                 $status_label = __( 'Action Required  CAD Files approved', 'n88-rfq-platform' );
+                $status_color = '#ff4500';
+                $is_action_required = true;
+            } elseif ( $validation_requires_sample_upload ) {
+                $status_label = __( 'Action Required - Upload sample', 'n88-rfq-platform' );
                 $status_color = '#ff4500';
                 $is_action_required = true;
             } elseif ( $show_action_required && $has_unread_operator_messages ) {
@@ -3179,6 +3355,9 @@ class N88_RFQ_Auth {
                                     default:
                                         $action_button_text = __( 'View', 'n88-rfq-platform' ) . ' ->';
                                         break;
+                                }
+                                if ( ! empty( $item_data['validation_requires_sample_upload'] ) ) {
+                                    $action_button_text = __( 'Upload Sample', 'n88-rfq-platform' ) . ' ->';
                                 }
                             ?>
                                 <tr>
@@ -6248,6 +6427,57 @@ class N88_RFQ_Auth {
                         var selectedIdx = 0;
                         var supplierEvidenceByStep = data.data.supplier_step_evidence_by_step || {};
                         var step456Videos = data.data.step_456_videos || {};
+                        var validationState = data.data.validation_state || t.validation_state || {};
+                        if (validationState && validationState.request && validationState.request.requested_at && (!validationState.supplier || !validationState.supplier.updated_at)) {
+                            selectedIdx = 1;
+                        }
+                        function escHtml(value) {
+                            return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        }
+                        window.n88SupplierValidationFlash = window.n88SupplierValidationFlash || {};
+                        function buildSupplierValidationBlock(stepNumber, itemId) {
+                            if (stepNumber !== 2 || !validationState || !validationState.request) return '';
+                            var req = validationState.request || {};
+                            var supplier = validationState.supplier || {};
+                            var files = supplier.files || [];
+                            var flashMessage = window.n88SupplierValidationFlash[itemId] || '';
+                            var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';">';
+                            block += '<div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Material Samples</div>';
+                            if (req.sample_types && req.sample_types.length) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Sample type: ' + escHtml(req.sample_types.join(', ')) + '</div>';
+                            if (req.sample_format) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Format: ' + escHtml(req.sample_format) + '</div>';
+                            if (req.instructions) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px; white-space: pre-wrap;">Instructions: ' + escHtml(req.instructions) + '</div>';
+                            if (req.shipping_address) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px; white-space: pre-wrap;">Ship to: ' + escHtml(req.shipping_address) + '</div>';
+                            if (req.reference_files && req.reference_files.length) {
+                                block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 6px;">Designer reference files</div><ul style="margin: 0 0 10px 18px; padding: 0; font-size: 11px;">';
+                                for (var rf = 0; rf < req.reference_files.length; rf++) {
+                                    block += '<li><a href="' + escHtml(req.reference_files[rf].url || '') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">' + escHtml(req.reference_files[rf].title || ('Reference ' + (rf + 1))) + '</a></li>';
+                                }
+                                block += '</ul>';
+                            }
+                            if (supplier.updated_at) {
+                                block += '<div style="display:grid; gap:8px; padding:12px; border:1px solid ' + green + '; border-radius:4px; background:rgba(255,0,101,0.08);">';
+                                block += '<div style="font-size:12px; font-weight:600; color:' + green + ';">' + escHtml(flashMessage || 'Samples sent') + '</div>';
+                                if (supplier.status) block += '<div style="font-size:11px; color:' + darkText + ';">Status: ' + escHtml(String(supplier.status).replace(/_/g, ' ')) + '</div>';
+                                if (supplier.tracking_number) block += '<div style="font-size:11px; color:' + darkText + ';">Tracking: ' + escHtml(supplier.tracking_number) + '</div>';
+                                if (supplier.note) block += '<div style="font-size:11px; color:' + darkText + '; white-space:pre-wrap;">Note: ' + escHtml(supplier.note) + '</div>';
+                                if (files.length) {
+                                    block += '<div style="font-size:11px; color:#fff; margin-bottom:2px;">Uploaded sample files</div><ul style="margin: 0 0 0 18px; padding: 0; font-size: 11px;">';
+                                    for (var fi = 0; fi < files.length; fi++) {
+                                        block += '<li><a href="' + escHtml(files[fi].url || '') + '" target="_blank" rel="noopener noreferrer" style="color: ' + green + ';">' + escHtml(files[fi].title || ('Sample ' + (fi + 1))) + '</a></li>';
+                                    }
+                                    block += '</ul>';
+                                }
+                                block += '</div></div>';
+                                return block;
+                            }
+                            block += '<div style="display: grid; gap: 8px;">';
+                            block += '<input type="text" id="n88-validation-tracking-' + itemId + '" value="' + escHtml(supplier.tracking_number || '') + '" placeholder="Tracking number" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />';
+                            block += '<textarea id="n88-validation-note-' + itemId + '" rows="3" placeholder="Supplier note" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; font-family: monospace;">' + escHtml(supplier.note || '') + '</textarea>';
+                            block += '<input type="file" id="n88-validation-files-' + itemId + '" multiple style="padding: 6px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px;" />';
+                            block += '<button type="button" id="n88-validation-submit-' + itemId + '" onclick="n88SupplierSubmitMaterialSamples(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Submit Samples</button>';
+                            block += '</div></div>';
+                            return block;
+                        }
                         function buildSupplierStepEvidenceBlock(sel, itemId) {
                             if (!sel || !sel.step_id) return '';
                             var stepId = sel.step_id;
@@ -6310,6 +6540,7 @@ class N88_RFQ_Auth {
                                     (sel.started_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 4px;">Started: ' + sel.started_at + '</div>' : '') +
                                     (sel.completed_at ? '<div style="font-size: 11px; color: #ccc; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>' : '') +
                                     (sel.expected_by ? '<div style="font-size: 11px; color: #ccc;">Expected by: ' + sel.expected_by + '</div>' : '') +
+                                    buildSupplierValidationBlock(stepNum, itemId) +
                                     buildSupplierStepEvidenceBlock(sel, itemId);
                             }
                             var btns = document.querySelectorAll('[data-n88-step-btn]');
@@ -6321,6 +6552,61 @@ class N88_RFQ_Auth {
                                 var lbl = b.querySelector('.n88-step-label');
                                 if (lbl) lbl.style.color = bidx === idx ? green : darkText;
                             }
+                        };
+                        window.n88SupplierSubmitMaterialSamples = function(itemId) {
+                            var trackingEl = document.getElementById('n88-validation-tracking-' + itemId);
+                            var noteEl = document.getElementById('n88-validation-note-' + itemId);
+                            var filesEl = document.getElementById('n88-validation-files-' + itemId);
+                            var submitBtn = document.getElementById('n88-validation-submit-' + itemId);
+                            if (submitBtn) {
+                                submitBtn.disabled = true;
+                                submitBtn.textContent = 'Sending...';
+                                submitBtn.style.opacity = '0.55';
+                                submitBtn.style.cursor = 'not-allowed';
+                            }
+                            var formData = new FormData();
+                            formData.append('action', 'n88_supplier_submit_material_samples');
+                            formData.append('item_id', String(itemId));
+                            formData.append('sample_status', 'delivered');
+                            formData.append('tracking_number', trackingEl ? trackingEl.value : '');
+                            formData.append('note', noteEl ? noteEl.value : '');
+                            formData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'n88_get_item_rfq_state' ) ); ?>');
+                            if (filesEl && filesEl.files && filesEl.files.length) {
+                                for (var sf = 0; sf < filesEl.files.length; sf++) {
+                                    formData.append('sample_files[]', filesEl.files[sf]);
+                                }
+                            }
+                            fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', { method: 'POST', body: formData, credentials: 'same-origin' })
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    if (!data.success) {
+                                        if (submitBtn) {
+                                            submitBtn.disabled = false;
+                                            submitBtn.textContent = 'Submit Samples';
+                                            submitBtn.style.opacity = '1';
+                                            submitBtn.style.cursor = 'pointer';
+                                        }
+                                        alert((data.data && data.data.message) || data.message || 'Failed to submit samples.');
+                                        return;
+                                    }
+                                    window.n88SupplierValidationFlash[itemId] = (data.data && data.data.message) || 'Samples sent';
+                                    var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                                    if (wrap) {
+                                        wrap.setAttribute('data-timeline-loaded', '0');
+                                    }
+                                    if (typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
+                                        window.n88LoadSupplierWorkflowTimeline(itemId);
+                                    }
+                                })
+                                .catch(function() {
+                                    if (submitBtn) {
+                                        submitBtn.disabled = false;
+                                        submitBtn.textContent = 'Submit Samples';
+                                        submitBtn.style.opacity = '1';
+                                        submitBtn.style.cursor = 'pointer';
+                                    }
+                                    alert('Failed to submit samples.');
+                                });
                         };
                         // Commit fix: Preserve Steps 1-3 (CAD / CAD Approved / Prototype)  only update Steps 4-6.
                         // Steps 1-3 show supplier-specific content: CAD Request Pending Payment, keywords, files, prototype video submit.
@@ -6379,6 +6665,7 @@ class N88_RFQ_Auth {
                             if (sel.started_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 4px;">Started: ' + sel.started_at + '</div>';
                             if (sel.completed_at) detail += '<div style="font-size: 11px; color: ' + darkText + '; margin-top: 2px;">Completed: ' + sel.completed_at + '</div>';
                             if (sel.expected_by) detail += '<div style="font-size: 11px; color: ' + darkText + ';">Expected by: ' + sel.expected_by + '</div>';
+                            detail += buildSupplierValidationBlock(stepNum0, itemId);
                             detail += buildSupplierStepEvidenceBlock(sel, itemId);
                             detail += '</div>';
                             if (t.show_prototype_mini) {
@@ -6388,9 +6675,14 @@ class N88_RFQ_Auth {
                             }
                             container.innerHTML = row + detail;
                         }
-                        wrap._n88SelectedStep = 0;
+                        wrap._n88SelectedStep = selectedIdx;
                         wrap._n88StepsData = steps;
+                        wrap._n88TimelineData = t;
+                        wrap._n88ValidationState = validationState;
                         wrap.setAttribute('data-timeline-loaded', '1');
+                        if (typeof window.n88SupplierTimelineSelectStep === 'function') {
+                            window.n88SupplierTimelineSelectStep(selectedIdx);
+                        }
                     })
                     .catch(function(err) {
                         container.innerHTML = '<div style="padding: 12px; color: #cc6666; font-size: 12px;">Failed to load timeline.</div>';
@@ -14567,6 +14859,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $bid_status === 'awarded' ) {
             $supplier_workflow_active_step = 3; // Step 4: Official Quote PDF (show form or "Quote file submitted")
         }
+        $validation_state = $this->build_material_validation_state( $item_id, isset( $meta ) && is_array( $meta ) ? $meta : array() );
+        if ( ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] ) ) {
+            $supplier_workflow_active_step = 1; // Step 2: supplier must upload samples
+        }
 
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
@@ -14638,6 +14934,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'project_id' => ! empty( $item['project_id'] ) ? (int) $item['project_id'] : null,
             'project_name' => $project_name ? sanitize_text_field( $project_name ) : '',
             'rfq_reference' => 'ITEM-' . intval( $item['id'] ),
+            'validation_state' => $validation_state,
         );
 
         wp_send_json_success( $response );
@@ -14996,6 +15293,291 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
      * AJAX handler to get item RFQ and bid state for designer modal
      * Returns: has_rfq (boolean), has_bids (boolean), bids (array if has_bids)
      */
+    private function get_item_meta_array( $item_id ) {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+        $meta_json   = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
+        $meta        = ! empty( $meta_json ) ? json_decode( $meta_json, true ) : array();
+
+        return is_array( $meta ) ? $meta : array();
+    }
+
+    private function update_item_meta_array( $item_id, $meta ) {
+        global $wpdb;
+        $items_table = $wpdb->prefix . 'n88_items';
+
+        return $wpdb->update(
+            $items_table,
+            array( 'meta_json' => wp_json_encode( is_array( $meta ) ? $meta : array() ) ),
+            array( 'id' => $item_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+    }
+
+    private function upload_material_validation_attachment( $file, $title_prefix, $mimes = array() ) {
+        if ( empty( $file['name'] ) ) {
+            return new WP_Error( 'missing_file', 'No file uploaded.' );
+        }
+
+        if ( empty( $mimes ) ) {
+            $mimes = array(
+                'pdf'   => 'application/pdf',
+                'jpg'   => 'image/jpeg',
+                'jpeg'  => 'image/jpeg',
+                'png'   => 'image/png',
+                'webp'  => 'image/webp',
+                'gif'   => 'image/gif',
+                'heic'  => 'image/heic',
+                'heif'  => 'image/heif',
+                'doc'   => 'application/msword',
+                'docx'  => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'xls'   => 'application/vnd.ms-excel',
+                'xlsx'  => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'zip'   => 'application/zip',
+                'dwg'   => 'application/acad',
+            );
+        }
+
+        $upload = wp_handle_upload(
+            $file,
+            array(
+                'test_form' => false,
+                'mimes'     => $mimes,
+            )
+        );
+
+        if ( ! empty( $upload['error'] ) ) {
+            return new WP_Error( 'upload_failed', $upload['error'] );
+        }
+
+        $attachment_id = wp_insert_attachment(
+            array(
+                'post_mime_type' => $upload['type'],
+                'post_title'     => sanitize_text_field( $title_prefix . ' - ' . wp_basename( $upload['file'] ) ),
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            ),
+            $upload['file']
+        );
+
+        if ( is_wp_error( $attachment_id ) ) {
+            return $attachment_id;
+        }
+
+        return array(
+            'attachment_id' => (int) $attachment_id,
+            'url'           => wp_get_attachment_url( $attachment_id ),
+        );
+    }
+
+    private function get_validation_attachment_entries( $ids ) {
+        $entries = array();
+        foreach ( (array) $ids as $attachment_id ) {
+            $attachment_id = absint( $attachment_id );
+            if ( ! $attachment_id ) {
+                continue;
+            }
+            $url = wp_get_attachment_url( $attachment_id );
+            if ( ! $url ) {
+                continue;
+            }
+            $entries[] = array(
+                'id'   => $attachment_id,
+                'url'  => esc_url_raw( $url ),
+                'name' => wp_basename( get_attached_file( $attachment_id ) ?: ( 'attachment-' . $attachment_id ) ),
+            );
+        }
+        return $entries;
+    }
+
+    private function get_supplier_company_address( $supplier_id ) {
+        global $wpdb;
+
+        $supplier_id = absint( $supplier_id );
+        if ( ! $supplier_id ) {
+            return 'Address pending from supplier.';
+        }
+
+        $profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$profiles_table}'" ) !== $profiles_table ) {
+            return 'Address pending from supplier.';
+        }
+
+        $profile = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT company_name, address_line1, city, state, postal_code, country FROM {$profiles_table} WHERE supplier_id = %d LIMIT 1",
+                $supplier_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $profile ) {
+            return 'Address pending from supplier.';
+        }
+
+        $parts = array();
+        foreach ( array( 'company_name', 'address_line1', 'city', 'state', 'postal_code', 'country' ) as $key ) {
+            if ( ! empty( $profile[ $key ] ) ) {
+                $parts[] = sanitize_text_field( $profile[ $key ] );
+            }
+        }
+
+        return ! empty( $parts ) ? implode( ', ', $parts ) : 'Address pending from supplier.';
+    }
+
+    private function build_material_validation_state( $item_id, $meta = null ) {
+        $item_id = absint( $item_id );
+        $meta    = is_array( $meta ) ? $meta : $this->get_item_meta_array( $item_id );
+
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] )
+            ? $meta['material_validation']
+            : array();
+
+        $request    = isset( $validation['request'] ) && is_array( $validation['request'] ) ? $validation['request'] : array();
+        $supplier   = isset( $validation['supplier'] ) && is_array( $validation['supplier'] ) ? $validation['supplier'] : array();
+        $review     = isset( $validation['review'] ) && is_array( $validation['review'] ) ? $validation['review'] : array();
+        $commitment = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+
+        $sample_status = isset( $validation['sample_status'] ) ? sanitize_key( $validation['sample_status'] ) : '';
+        if ( ! $sample_status ) {
+            if ( ! empty( $review['approved_at'] ) ) {
+                $sample_status = 'samples_approved';
+            } elseif ( ! empty( $review['samples_received_at'] ) ) {
+                $sample_status = 'samples_received';
+            } elseif ( ! empty( $supplier['status'] ) ) {
+                $sample_status = sanitize_key( $supplier['status'] );
+            } elseif ( ! empty( $request['requested_at'] ) ) {
+                $sample_status = 'sample_requested';
+            }
+        }
+
+        $payment_status = isset( $request['payment_status'] ) ? sanitize_key( $request['payment_status'] ) : '';
+        $payment_mode   = isset( $request['payment_mode'] ) ? sanitize_key( $request['payment_mode'] ) : '';
+        $supplier_id    = isset( $validation['supplier_id'] ) ? absint( $validation['supplier_id'] ) : ( isset( $request['supplier_id'] ) ? absint( $request['supplier_id'] ) : 0 );
+
+        $fabric_supplied_flag = isset( $meta['rfq_fabric_supplied_flag'] ) ? $meta['rfq_fabric_supplied_flag'] : '';
+        $com_applicable       = in_array( strtolower( (string) $fabric_supplied_flag ), array( 'yes', '1', 'true' ), true );
+
+        if ( empty( $commitment['com_delivery_address'] ) && $supplier_id ) {
+            $commitment['com_delivery_address'] = $this->get_supplier_company_address( $supplier_id );
+        }
+
+        $po_uploaded     = ! empty( $commitment['po_file_id'] );
+        $samples_approved = ! empty( $review['approved_at'] );
+        $com_status      = isset( $commitment['com_status'] ) ? sanitize_key( $commitment['com_status'] ) : '';
+        $com_completed   = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
+        $deposit_status  = isset( $commitment['deposit_status'] ) ? sanitize_key( $commitment['deposit_status'] ) : '';
+        $deposit_confirmed = in_array( $deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
+
+        $readiness = array(
+            'validation_complete' => $samples_approved,
+            'awaiting_po'         => $samples_approved && ! $po_uploaded,
+            'awaiting_com'        => $samples_approved && $po_uploaded && $com_applicable && ! $com_completed,
+            'awaiting_deposit'    => $samples_approved && $po_uploaded && $com_completed && ! $deposit_confirmed,
+        );
+
+        $can_commit = $samples_approved && $po_uploaded && $com_completed && $deposit_confirmed;
+
+        $card_status_text  = '';
+        $card_status_color = '#2196f3';
+        if ( $can_commit ) {
+            $card_status_text  = 'Ready for Production';
+            $card_status_color = '#4caf50';
+        } elseif ( $readiness['awaiting_deposit'] ) {
+            $card_status_text  = 'Awaiting Deposit';
+            $card_status_color = '#ff9800';
+        } elseif ( $readiness['awaiting_com'] ) {
+            $card_status_text  = 'Awaiting COM';
+            $card_status_color = '#ff9800';
+        } elseif ( $readiness['awaiting_po'] ) {
+            $card_status_text  = 'Awaiting PO';
+            $card_status_color = '#ff9800';
+        } elseif ( $sample_status === 'samples_approved' ) {
+            $card_status_text  = 'Samples Approved';
+            $card_status_color = '#4caf50';
+        } elseif ( in_array( $sample_status, array( 'under_review', 'samples_received', 'delivered' ), true ) ) {
+            $card_status_text  = 'Review Samples';
+            $card_status_color = '#2196f3';
+        } elseif ( in_array( $sample_status, array( 'shipped', 'in_transit' ), true ) ) {
+            $card_status_text  = 'Samples In Transit';
+            $card_status_color = '#2196f3';
+        } elseif ( $sample_status === 'in_preparation' ) {
+            $card_status_text  = 'Samples In Preparation';
+            $card_status_color = '#2196f3';
+        } elseif ( $sample_status === 'sample_requested' ) {
+            $card_status_text  = $payment_status === 'submitted' ? 'Sample Payment Sent' : 'Samples Requested';
+            $card_status_color = $payment_status === 'submitted' ? '#ff9800' : '#2196f3';
+        }
+
+        return array(
+            'enabled'                    => ! empty( $request['requested_at'] ) || ! empty( $review['approved_at'] ) || ! empty( $supplier['updated_at'] ) || ! empty( $commitment['po_uploaded_at'] ),
+            'item_id'                    => $item_id,
+            'supplier_id'                => $supplier_id,
+            'supplier_name'              => isset( $validation['supplier_name'] ) ? sanitize_text_field( $validation['supplier_name'] ) : '',
+            'bid_id'                     => isset( $validation['bid_id'] ) ? absint( $validation['bid_id'] ) : 0,
+            'wireframe_supplier'         => ! empty( $validation['wireframe_supplier'] ),
+            'sample_status'              => $sample_status,
+            'payment_mode'               => $payment_mode,
+            'payment_status'             => $payment_status,
+            'request'                    => array(
+                'sample_types'          => isset( $request['sample_types'] ) && is_array( $request['sample_types'] ) ? array_values( array_map( 'sanitize_text_field', $request['sample_types'] ) ) : array(),
+                'sample_format'         => isset( $request['sample_format'] ) ? sanitize_text_field( $request['sample_format'] ) : '',
+                'instructions'          => isset( $request['instructions'] ) ? sanitize_textarea_field( $request['instructions'] ) : '',
+                'shipping_address'      => isset( $request['shipping_address'] ) ? sanitize_textarea_field( $request['shipping_address'] ) : '',
+                'reference_files'       => $this->get_validation_attachment_entries( isset( $request['reference_file_ids'] ) ? $request['reference_file_ids'] : array() ),
+                'requested_at'          => isset( $request['requested_at'] ) ? $request['requested_at'] : null,
+                'payment_submitted_at'  => isset( $request['payment_submitted_at'] ) ? $request['payment_submitted_at'] : null,
+                'payment_proof_files'   => $this->get_validation_attachment_entries( isset( $request['payment_proof_file_ids'] ) ? $request['payment_proof_file_ids'] : array() ),
+            ),
+            'supplier'                   => array(
+                'status'                => isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '',
+                'tracking_number'       => isset( $supplier['tracking_number'] ) ? sanitize_text_field( $supplier['tracking_number'] ) : '',
+                'note'                  => isset( $supplier['note'] ) ? sanitize_textarea_field( $supplier['note'] ) : '',
+                'files'                 => $this->get_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() ),
+                'updated_at'            => isset( $supplier['updated_at'] ) ? $supplier['updated_at'] : null,
+                'submitted_by'          => isset( $supplier['submitted_by'] ) ? absint( $supplier['submitted_by'] ) : 0,
+            ),
+            'review'                     => array(
+                'samples_received_at'   => isset( $review['samples_received_at'] ) ? $review['samples_received_at'] : null,
+                'approved_material_codes' => isset( $review['approved_material_codes'] ) && is_array( $review['approved_material_codes'] ) ? array_values( array_map( 'sanitize_text_field', $review['approved_material_codes'] ) ) : array(),
+                'approved_finish_codes' => isset( $review['approved_finish_codes'] ) && is_array( $review['approved_finish_codes'] ) ? array_values( array_map( 'sanitize_text_field', $review['approved_finish_codes'] ) ) : array(),
+                'approved_sample_images' => $this->get_validation_attachment_entries( isset( $review['approved_sample_image_ids'] ) ? $review['approved_sample_image_ids'] : array() ),
+                'selected_supplier_samples' => array_map( 'absint', isset( $review['selected_supplier_sample_ids'] ) ? (array) $review['selected_supplier_sample_ids'] : array() ),
+                'notes'                 => isset( $review['notes'] ) ? sanitize_textarea_field( $review['notes'] ) : '',
+                'approved_at'           => isset( $review['approved_at'] ) ? $review['approved_at'] : null,
+            ),
+            'commitment'                 => array(
+                'po_file'               => ! empty( $commitment['po_file_id'] ) ? array(
+                    'id'  => absint( $commitment['po_file_id'] ),
+                    'url' => esc_url_raw( wp_get_attachment_url( absint( $commitment['po_file_id'] ) ) ),
+                ) : null,
+                'po_uploaded_at'        => isset( $commitment['po_uploaded_at'] ) ? $commitment['po_uploaded_at'] : null,
+                'com_applicable'        => $com_applicable,
+                'com_required'          => ! empty( $commitment['com_required'] ) || $com_applicable,
+                'com_qty'               => isset( $commitment['com_qty'] ) ? sanitize_text_field( $commitment['com_qty'] ) : '',
+                'com_delivery_address'  => isset( $commitment['com_delivery_address'] ) ? sanitize_text_field( $commitment['com_delivery_address'] ) : '',
+                'com_tracking_number'   => isset( $commitment['com_tracking_number'] ) ? sanitize_text_field( $commitment['com_tracking_number'] ) : '',
+                'com_status'            => $com_status,
+                'com_shipped_at'        => isset( $commitment['com_shipped_at'] ) ? $commitment['com_shipped_at'] : null,
+                'com_delivered_at'      => isset( $commitment['com_delivered_at'] ) ? $commitment['com_delivered_at'] : null,
+                'deposit_supplier_name' => isset( $commitment['deposit_supplier_name'] ) ? sanitize_text_field( $commitment['deposit_supplier_name'] ) : '',
+                'deposit_amount'        => isset( $commitment['deposit_amount'] ) ? floatval( $commitment['deposit_amount'] ) : null,
+                'deposit_status'        => $deposit_status,
+                'deposit_receipt_files' => $this->get_validation_attachment_entries( isset( $commitment['deposit_receipt_file_ids'] ) ? $commitment['deposit_receipt_file_ids'] : array() ),
+                'deposit_confirmed_at'  => isset( $commitment['deposit_confirmed_at'] ) ? $commitment['deposit_confirmed_at'] : null,
+            ),
+            'readiness_flags'            => $readiness,
+            'can_commit'                 => $can_commit,
+            'approved_material_codes'    => isset( $meta['approved_material_codes'] ) && is_array( $meta['approved_material_codes'] ) ? array_values( $meta['approved_material_codes'] ) : array(),
+            'approved_finish_codes'      => isset( $meta['approved_finish_codes'] ) && is_array( $meta['approved_finish_codes'] ) ? array_values( $meta['approved_finish_codes'] ) : array(),
+            'approved_sample_images'     => $this->get_validation_attachment_entries( isset( $meta['approved_sample_images'] ) ? $meta['approved_sample_images'] : array() ),
+            'validation_notes'           => isset( $meta['validation_notes'] ) ? sanitize_textarea_field( $meta['validation_notes'] ) : '',
+            'card_status_text'           => $card_status_text,
+            'card_status_color'          => $card_status_color,
+        );
+    }
+
     public function ajax_get_item_rfq_state() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
 
@@ -15023,6 +15605,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $bid_media_links_table = $wpdb->prefix . 'n88_bid_media_links';
         $items_table = $wpdb->prefix . 'n88_items';
         $users_table = $wpdb->users;
+        $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
 
         // Check if item exists and user owns it (unless system operator)
         if ( ! $is_system_operator ) {
@@ -15136,6 +15719,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ) ) > 0;
 
         $bids = array();
+        $proposal_group_workspaces = $this->get_item_proposal_group_workspace_states( $item_id );
         if ( $has_bids ) {
             // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
             // Check if meta_json and rfq_revision_at_submit columns exist
@@ -15257,6 +15841,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 // Get Smart Alternatives suggestion and note from meta_json if available
                 $smart_alternatives_suggestion = null;
                 $bid_smart_alternatives_note = null;
+                $proposal_notes               = null;
                 $proposal_group_id            = 0;
                 $batch_shared_uploads       = array();
                 $batch_shared_upload_user_id = 0;
@@ -15272,6 +15857,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         // Get supplier's note if stored in bid meta_json
                         if ( isset( $bid_meta['smart_alternatives_note'] ) ) {
                             $bid_smart_alternatives_note = sanitize_textarea_field( $bid_meta['smart_alternatives_note'] );
+                        }
+                        if ( isset( $bid_meta['proposal_notes'] ) ) {
+                            $proposal_notes = sanitize_textarea_field( $bid_meta['proposal_notes'] );
                         }
                         if ( ! empty( $bid_meta['proposal_group_id'] ) ) {
                             $proposal_group_id = absint( $bid_meta['proposal_group_id'] );
@@ -15402,6 +15990,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'bid_id' => intval( $bid['bid_id'] ),
                     'supplier_id' => intval( $bid['supplier_id'] ),
                     'supplier_name' => ! empty( $bid['supplier_name'] ) ? sanitize_text_field( $bid['supplier_name'] ) : '',
+                    'is_wireframe_supplier' => $default_wireframe_supplier_id > 0 && intval( $bid['supplier_id'] ) === $default_wireframe_supplier_id,
                     'unit_price' => $unit_price_display, // Designer sees landed cost (margin + duty)
                     'unit_price_raw' => $unit_price_raw, // Keep raw price for reference
                     'unit_price_duty_est' => $unit_price_landed ? $unit_price_landed['duty_est'] : null, // Duty estimate
@@ -15426,6 +16015,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
                     'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
                     'bid_smart_alternatives_note' => $bid_smart_alternatives_note, // Bid-level note (supplier's note)
+                    'proposal_notes' => $proposal_notes,
                     'proposal_group_id' => ( $proposal_group_id > 0 ? $proposal_group_id : null ),
                     'batch_shared_uploads' => $batch_shared_uploads,
                     'created_at' => $bid['created_at'],
@@ -15870,6 +16460,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'has_bids' => $has_bids,
             'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Check if any bid is awarded
             'bids' => $bids,
+            'proposal_group_workspaces' => $proposal_group_workspaces,
             'rfq_revision_current' => $rfq_revision_current, // D5: Current revision for Specs Updated panel
             'revision_changed' => $revision_changed, // D5: Flag indicating specs were updated after RFQ
             'has_unread_operator_messages' => $has_unread_operator_messages, // Action Required: Unread operator messages
@@ -15910,6 +16501,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'deposit_receipt_url' => ( isset( $meta['deposit_receipt_file_id'] ) && $meta['deposit_receipt_file_id'] ) ? wp_get_attachment_url( (int) $meta['deposit_receipt_file_id'] ) : '',
             'deposit_sent_note'   => isset( $meta['deposit_sent_note'] ) ? $meta['deposit_sent_note'] : '',
             'deposit_sent_at'     => isset( $meta['deposit_sent_at'] ) ? $meta['deposit_sent_at'] : null,
+            'validation_state'    => $validation_state,
             // Action Required: so card updates when operator opens modal (e.g. review payment proof)
             'action_required' => $has_unread_operator_messages || $has_unread_supplier_messages || ( $is_system_operator && isset( $meta ) && is_array( $meta ) && isset( $meta['deposit_status'] ) && $meta['deposit_status'] === 'sent_by_designer' ),
         ) );
@@ -17326,6 +17918,722 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'message' => 'Failed to award bid: ' . $e->getMessage(),
             ) );
         }
+    }
+
+    /**
+     * Commit 3.C.18: Designer requests material samples for one or more quoted supplier items.
+     *
+     * This is an interpretation-layer action only. It records the request per item/bid
+     * without changing quote validity or supplier selection state.
+     */
+    public function ajax_request_material_samples() {
+        check_ajax_referer( 'n88-rfq-nonce', 'nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+
+        if ( ! $is_designer && ! $is_system_operator ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ), 403 );
+        }
+
+        if ( self::is_view_only_team_member( $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied. Team members have view-only access.' ), 403 );
+        }
+
+        $requests_json = isset( $_POST['requests'] ) ? wp_unslash( $_POST['requests'] ) : '';
+        $requests      = array();
+
+        if ( $requests_json ) {
+            $decoded = json_decode( $requests_json, true );
+            if ( is_array( $decoded ) ) {
+                $requests = $decoded;
+            }
+        }
+
+        if ( empty( $requests ) ) {
+            $single_item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
+            $single_bid_id  = isset( $_POST['bid_id'] ) ? absint( $_POST['bid_id'] ) : 0;
+            $single_supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+            if ( $single_item_id && $single_bid_id && $single_supplier_id ) {
+                $requests[] = array(
+                    'item_id'     => $single_item_id,
+                    'bid_id'      => $single_bid_id,
+                    'supplier_id' => $single_supplier_id,
+                );
+            }
+        }
+
+        if ( empty( $requests ) || ! is_array( $requests ) ) {
+            wp_send_json_error( array( 'message' => 'No valid sample request payload was provided.' ) );
+        }
+
+        global $wpdb;
+        $items_table     = $wpdb->prefix . 'n88_items';
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+
+        $success_count = 0;
+        $failure_messages = array();
+
+        foreach ( $requests as $request ) {
+            $item_id     = isset( $request['item_id'] ) ? absint( $request['item_id'] ) : 0;
+            $bid_id      = isset( $request['bid_id'] ) ? absint( $request['bid_id'] ) : 0;
+            $supplier_id = isset( $request['supplier_id'] ) ? absint( $request['supplier_id'] ) : 0;
+
+            if ( ! $item_id || ! $bid_id || ! $supplier_id ) {
+                $failure_messages[] = 'One or more sample requests had invalid item, bid, or supplier IDs.';
+                continue;
+            }
+
+            $item_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id = %d AND deleted_at IS NULL",
+                    $item_id
+                ),
+                ARRAY_A
+            );
+
+            if ( ! $item_row ) {
+                $failure_messages[] = 'Item #' . $item_id . ' was not found.';
+                continue;
+            }
+
+            if ( ! $is_system_operator && intval( $item_row['owner_user_id'] ) !== intval( $current_user->ID ) ) {
+                $failure_messages[] = 'You do not have access to item #' . $item_id . '.';
+                continue;
+            }
+
+            $bid_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT bid_id, item_id, supplier_id, status FROM {$item_bids_table} WHERE bid_id = %d AND item_id = %d",
+                    $bid_id,
+                    $item_id
+                ),
+                ARRAY_A
+            );
+
+            if ( ! $bid_row ) {
+                $failure_messages[] = 'Bid #' . $bid_id . ' was not found for item #' . $item_id . '.';
+                continue;
+            }
+
+            if ( intval( $bid_row['supplier_id'] ) !== $supplier_id ) {
+                $failure_messages[] = 'Supplier mismatch for item #' . $item_id . '.';
+                continue;
+            }
+
+            if ( ! in_array( $bid_row['status'], array( 'submitted', 'awarded' ), true ) ) {
+                $failure_messages[] = 'Samples can only be requested from submitted or awarded bids for item #' . $item_id . '.';
+                continue;
+            }
+
+            $meta = ! empty( $item_row['meta_json'] ) ? json_decode( $item_row['meta_json'], true ) : array();
+            if ( ! is_array( $meta ) ) {
+                $meta = array();
+            }
+
+            $sample_requests = isset( $meta['designer_sample_requests'] ) && is_array( $meta['designer_sample_requests'] )
+                ? array_values( $meta['designer_sample_requests'] )
+                : array();
+
+            $updated_existing = false;
+            foreach ( $sample_requests as &$sample_request ) {
+                $existing_bid_id = isset( $sample_request['bid_id'] ) ? absint( $sample_request['bid_id'] ) : 0;
+                $existing_supplier_id = isset( $sample_request['supplier_id'] ) ? absint( $sample_request['supplier_id'] ) : 0;
+                if ( $existing_bid_id === $bid_id && $existing_supplier_id === $supplier_id ) {
+                    $sample_request['status']       = 'requested';
+                    $sample_request['requested_at'] = current_time( 'mysql' );
+                    $sample_request['requested_by'] = (int) $current_user->ID;
+                    $sample_request['source']       = 'proposal_comparison';
+                    $updated_existing = true;
+                    break;
+                }
+            }
+            unset( $sample_request );
+
+            if ( ! $updated_existing ) {
+                $sample_requests[] = array(
+                    'item_id'      => $item_id,
+                    'bid_id'       => $bid_id,
+                    'supplier_id'  => $supplier_id,
+                    'status'       => 'requested',
+                    'requested_at' => current_time( 'mysql' ),
+                    'requested_by' => (int) $current_user->ID,
+                    'source'       => 'proposal_comparison',
+                );
+            }
+
+            $meta['designer_sample_requests'] = $sample_requests;
+
+            $updated = $wpdb->update(
+                $items_table,
+                array( 'meta_json' => wp_json_encode( $meta ) ),
+                array( 'id' => $item_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            if ( false === $updated ) {
+                $failure_messages[] = 'Failed to save sample request for item #' . $item_id . '.';
+                continue;
+            }
+
+            $project_id = 0;
+            if ( ! empty( $meta['project_id'] ) ) {
+                $project_id = absint( $meta['project_id'] );
+            } elseif ( ! empty( $meta['current_project_id'] ) ) {
+                $project_id = absint( $meta['current_project_id'] );
+            }
+
+            if ( $project_id > 0 && class_exists( 'N88_RFQ_Notifications' ) ) {
+                N88_RFQ_Notifications::create_notification(
+                    $project_id,
+                    $supplier_id,
+                    'designer_requested_material_samples',
+                    sprintf( 'Designer requested material samples for item #%d.', $item_id ),
+                    $bid_id
+                );
+            }
+
+            if ( function_exists( 'n88_log_event' ) ) {
+                n88_log_event(
+                    'material_samples_requested',
+                    'item',
+                    array(
+                        'item_id'      => $item_id,
+                        'object_id'    => $bid_id,
+                        'payload_json' => array(
+                            'item_id'      => $item_id,
+                            'bid_id'       => $bid_id,
+                            'supplier_id'  => $supplier_id,
+                            'requested_by' => (int) $current_user->ID,
+                            'source'       => 'proposal_comparison',
+                            'timestamp'    => current_time( 'mysql' ),
+                        ),
+                    )
+                );
+            }
+
+            $success_count++;
+        }
+
+        if ( ! $success_count ) {
+            wp_send_json_error(
+                array(
+                    'message' => ! empty( $failure_messages ) ? implode( ' ', array_unique( $failure_messages ) ) : 'No sample requests were recorded.',
+                )
+            );
+        }
+
+        $message = $success_count === 1
+            ? 'Material sample request recorded for 1 quoted item.'
+            : 'Material sample requests recorded for ' . $success_count . ' quoted items.';
+
+        if ( ! empty( $failure_messages ) ) {
+            $message .= ' Some requests were skipped.';
+        }
+
+        wp_send_json_success(
+            array(
+                'message'        => $message,
+                'success_count'  => $success_count,
+                'failure_count'  => count( $failure_messages ),
+                'failures'       => array_values( array_unique( $failure_messages ) ),
+            )
+        );
+    }
+
+    public function ajax_create_material_validation_request() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_designer  = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
+        if ( ! $is_designer || ! $this->user_is_designer_owner_of_item( absint( $_POST['item_id'] ?? 0 ) ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        global $wpdb;
+        $item_id         = absint( $_POST['item_id'] ?? 0 );
+        $bid_id          = absint( $_POST['bid_id'] ?? 0 );
+        $supplier_id     = absint( $_POST['supplier_id'] ?? 0 );
+        $sample_types    = isset( $_POST['sample_types'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['sample_types'] ) ) ) ) : array();
+        $sample_format   = sanitize_text_field( wp_unslash( $_POST['sample_format'] ?? '' ) );
+        $instructions    = sanitize_textarea_field( wp_unslash( $_POST['instructions'] ?? '' ) );
+        $shipping_address = sanitize_textarea_field( wp_unslash( $_POST['shipping_address'] ?? '' ) );
+        $payment_mode    = sanitize_key( wp_unslash( $_POST['payment_mode'] ?? '' ) );
+        $approve_without_samples = ! empty( $_POST['approve_without_samples'] );
+
+        if ( ! $item_id || ! $bid_id || ! $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Item, bid, and supplier are required.' ) );
+        }
+
+        $item_bids_table = $wpdb->prefix . 'n88_item_bids';
+        $users_table     = $wpdb->users;
+        $bid_row         = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT bid_id, supplier_id, status FROM {$item_bids_table} WHERE bid_id = %d AND item_id = %d LIMIT 1",
+                $bid_id,
+                $item_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $bid_row || absint( $bid_row['supplier_id'] ) !== $supplier_id ) {
+            wp_send_json_error( array( 'message' => 'Selected supplier bid was not found for this item.' ) );
+        }
+
+        $supplier_name = $wpdb->get_var( $wpdb->prepare( "SELECT display_name FROM {$users_table} WHERE ID = %d", $supplier_id ) );
+        $wireframe_supplier = (int) $supplier_id === (int) $this->get_default_wireframe_supplier_id();
+        if ( ! $payment_mode ) {
+            $payment_mode = $wireframe_supplier ? 'wireframe_managed' : 'external';
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        if ( ! empty( $validation['request']['requested_at'] ) && empty( $_POST['approve_without_samples'] ) ) {
+            wp_send_json_error( array( 'message' => 'Material samples have already been requested for this item.' ) );
+        }
+        $now        = current_time( 'mysql' );
+
+        $reference_file_ids = array();
+        if ( ! empty( $_FILES['reference_files'] ) && ! empty( $_FILES['reference_files']['name'] ) ) {
+            $file_names = (array) $_FILES['reference_files']['name'];
+            foreach ( array_keys( $file_names ) as $idx ) {
+                if ( empty( $file_names[ $idx ] ) ) {
+                    continue;
+                }
+                $file = array(
+                    'name'     => $_FILES['reference_files']['name'][ $idx ],
+                    'type'     => $_FILES['reference_files']['type'][ $idx ],
+                    'tmp_name' => $_FILES['reference_files']['tmp_name'][ $idx ],
+                    'error'    => $_FILES['reference_files']['error'][ $idx ],
+                    'size'     => $_FILES['reference_files']['size'][ $idx ],
+                );
+                $upload = $this->upload_material_validation_attachment( $file, 'Material Validation Reference ' . $item_id );
+                if ( ! is_wp_error( $upload ) && ! empty( $upload['attachment_id'] ) ) {
+                    $reference_file_ids[] = (int) $upload['attachment_id'];
+                }
+            }
+        }
+
+        $validation['bid_id']            = $bid_id;
+        $validation['supplier_id']       = $supplier_id;
+        $validation['supplier_name']     = $supplier_name ? sanitize_text_field( $supplier_name ) : ( 'Supplier #' . $supplier_id );
+        $validation['wireframe_supplier'] = $wireframe_supplier;
+        $validation['request']           = array(
+            'sample_types'           => ! empty( $sample_types ) ? $sample_types : array( 'Mixed Kit' ),
+            'sample_format'          => $sample_format ? $sample_format : 'Physical',
+            'instructions'           => $instructions,
+            'shipping_address'       => $shipping_address,
+            'reference_file_ids'     => $reference_file_ids,
+            'payment_mode'           => $payment_mode,
+            'payment_status'         => $approve_without_samples ? 'not_required' : 'pending',
+            'requested_at'           => $now,
+            'requested_by'           => (int) $current_user->ID,
+            'payment_submitted_at'   => null,
+            'payment_proof_file_ids' => array(),
+        );
+        $validation['supplier']          = isset( $validation['supplier'] ) && is_array( $validation['supplier'] ) ? $validation['supplier'] : array();
+        $validation['review']            = $approve_without_samples ? array(
+            'samples_received_at'        => $now,
+            'approved_material_codes'    => array(),
+            'approved_finish_codes'      => array(),
+            'approved_sample_image_ids'  => array(),
+            'selected_supplier_sample_ids' => array(),
+            'notes'                      => 'Approved for validation without sample request.',
+            'approved_at'                => $now,
+            'approved_by'                => (int) $current_user->ID,
+        ) : ( isset( $validation['review'] ) && is_array( $validation['review'] ) ? $validation['review'] : array() );
+        $validation['commitment']        = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['sample_status']     = $approve_without_samples ? 'samples_approved' : 'sample_requested';
+        $meta['material_validation']     = $validation;
+
+        if ( $approve_without_samples ) {
+            $meta['validation_notes'] = 'Approved for validation without sample request.';
+        }
+
+        $updated = $this->update_item_meta_array( $item_id, $meta );
+        if ( false === $updated ) {
+            wp_send_json_error( array( 'message' => 'Failed to save material validation request.' ) );
+        }
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'material_validation_requested', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id,
+                'payload_json' => array(
+                    'item_id'       => $item_id,
+                    'bid_id'        => $bid_id,
+                    'supplier_id'   => $supplier_id,
+                    'payment_mode'  => $payment_mode,
+                    'sample_types'  => ! empty( $sample_types ) ? $sample_types : array( 'Mixed Kit' ),
+                    'approved_directly' => $approve_without_samples,
+                    'timestamp'     => $now,
+                ),
+            ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => $approve_without_samples ? 'Validation approved without sample request.' : 'Material sample request created.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_submit_material_validation_payment() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        if ( empty( $validation['request'] ) || ! is_array( $validation['request'] ) ) {
+            wp_send_json_error( array( 'message' => 'No material validation request found.' ) );
+        }
+
+        $payment_mode = sanitize_key( wp_unslash( $_POST['payment_mode'] ?? ( $validation['request']['payment_mode'] ?? '' ) ) );
+        $now          = current_time( 'mysql' );
+        $proof_ids    = isset( $validation['request']['payment_proof_file_ids'] ) && is_array( $validation['request']['payment_proof_file_ids'] ) ? $validation['request']['payment_proof_file_ids'] : array();
+
+        if ( ! empty( $_FILES['payment_proof'] ) && ! empty( $_FILES['payment_proof']['name'] ) ) {
+            $upload = $this->upload_material_validation_attachment( $_FILES['payment_proof'], 'Material Sample Payment Proof ' . $item_id );
+            if ( is_wp_error( $upload ) ) {
+                wp_send_json_error( array( 'message' => $upload->get_error_message() ) );
+            }
+            $proof_ids[] = (int) $upload['attachment_id'];
+        }
+
+        $validation['request']['payment_mode']           = $payment_mode ? $payment_mode : ( $validation['request']['payment_mode'] ?? 'external' );
+        $validation['request']['payment_status']         = $payment_mode === 'external' ? 'recorded' : 'submitted';
+        $validation['request']['payment_submitted_at']   = $now;
+        $validation['request']['payment_proof_file_ids'] = array_values( array_unique( array_map( 'absint', $proof_ids ) ) );
+        $meta['material_validation']                     = $validation;
+
+        $updated = $this->update_item_meta_array( $item_id, $meta );
+        if ( false === $updated ) {
+            wp_send_json_error( array( 'message' => 'Failed to save payment submission.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Payment submission saved.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_supplier_submit_material_samples() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $current_user = wp_get_current_user();
+        $is_supplier  = in_array( 'n88_supplier_admin', $current_user->roles, true ) || in_array( 'n88_supplier', $current_user->roles, true ) || in_array( 'supplier', $current_user->roles, true );
+        $item_id      = absint( $_POST['item_id'] ?? 0 );
+
+        if ( ! $is_supplier || ! $item_id || ! $this->supplier_has_route_to_item( $item_id, $current_user->ID ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $request    = isset( $validation['request'] ) && is_array( $validation['request'] ) ? $validation['request'] : array();
+
+        if ( empty( $request['requested_at'] ) || absint( $validation['supplier_id'] ?? 0 ) !== (int) $current_user->ID ) {
+            wp_send_json_error( array( 'message' => 'No active sample request assigned to this supplier.' ) );
+        }
+
+        $status          = sanitize_key( wp_unslash( $_POST['sample_status'] ?? 'shipped' ) );
+        $tracking_number = sanitize_text_field( wp_unslash( $_POST['tracking_number'] ?? '' ) );
+        $note            = sanitize_textarea_field( wp_unslash( $_POST['note'] ?? '' ) );
+        if ( ! in_array( $status, array( 'shipped', 'in_transit', 'delivered', 'under_review' ), true ) ) {
+            $status = 'shipped';
+        }
+
+        $existing_ids = isset( $validation['supplier']['sample_file_ids'] ) && is_array( $validation['supplier']['sample_file_ids'] ) ? $validation['supplier']['sample_file_ids'] : array();
+        if ( ! empty( $_FILES['sample_files'] ) && ! empty( $_FILES['sample_files']['name'] ) ) {
+            foreach ( array_keys( (array) $_FILES['sample_files']['name'] ) as $idx ) {
+                if ( empty( $_FILES['sample_files']['name'][ $idx ] ) ) {
+                    continue;
+                }
+                $file = array(
+                    'name'     => $_FILES['sample_files']['name'][ $idx ],
+                    'type'     => $_FILES['sample_files']['type'][ $idx ],
+                    'tmp_name' => $_FILES['sample_files']['tmp_name'][ $idx ],
+                    'error'    => $_FILES['sample_files']['error'][ $idx ],
+                    'size'     => $_FILES['sample_files']['size'][ $idx ],
+                );
+                $upload = $this->upload_material_validation_attachment( $file, 'Supplier Sample Upload ' . $item_id );
+                if ( ! is_wp_error( $upload ) && ! empty( $upload['attachment_id'] ) ) {
+                    $existing_ids[] = (int) $upload['attachment_id'];
+                }
+            }
+        }
+
+        $validation['supplier'] = array(
+            'status'         => $status,
+            'tracking_number'=> $tracking_number,
+            'note'           => $note,
+            'sample_file_ids'=> array_values( array_unique( array_map( 'absint', $existing_ids ) ) ),
+            'updated_at'     => current_time( 'mysql' ),
+            'submitted_by'   => (int) $current_user->ID,
+        );
+        $validation['sample_status'] = $status;
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to save supplier sample submission.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Samples sent successfully.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_mark_material_samples_received() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['review'] = isset( $validation['review'] ) && is_array( $validation['review'] ) ? $validation['review'] : array();
+        $validation['review']['samples_received_at'] = current_time( 'mysql' );
+        $validation['sample_status'] = 'samples_received';
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to update sample status.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Samples marked received.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_review_material_samples() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $approved_material_codes = isset( $_POST['approved_material_codes'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', preg_split( '/[\r\n,]+/', wp_unslash( $_POST['approved_material_codes'] ) ) ) ) ) : array();
+        $approved_finish_codes   = isset( $_POST['approved_finish_codes'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', preg_split( '/[\r\n,]+/', wp_unslash( $_POST['approved_finish_codes'] ) ) ) ) ) : array();
+        $notes                   = sanitize_textarea_field( wp_unslash( $_POST['notes'] ?? '' ) );
+        $selected_supplier_sample_ids = isset( $_POST['selected_supplier_sample_ids'] ) ? array_values( array_map( 'absint', (array) wp_unslash( $_POST['selected_supplier_sample_ids'] ) ) ) : array();
+        $approve                 = ! empty( $_POST['approve_samples'] );
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $review     = isset( $validation['review'] ) && is_array( $validation['review'] ) ? $validation['review'] : array();
+        $approved_image_ids = isset( $review['approved_sample_image_ids'] ) && is_array( $review['approved_sample_image_ids'] ) ? $review['approved_sample_image_ids'] : array();
+
+        if ( ! empty( $_FILES['approved_sample_images'] ) && ! empty( $_FILES['approved_sample_images']['name'] ) ) {
+            foreach ( array_keys( (array) $_FILES['approved_sample_images']['name'] ) as $idx ) {
+                if ( empty( $_FILES['approved_sample_images']['name'][ $idx ] ) ) {
+                    continue;
+                }
+                $file = array(
+                    'name'     => $_FILES['approved_sample_images']['name'][ $idx ],
+                    'type'     => $_FILES['approved_sample_images']['type'][ $idx ],
+                    'tmp_name' => $_FILES['approved_sample_images']['tmp_name'][ $idx ],
+                    'error'    => $_FILES['approved_sample_images']['error'][ $idx ],
+                    'size'     => $_FILES['approved_sample_images']['size'][ $idx ],
+                );
+                $upload = $this->upload_material_validation_attachment( $file, 'Approved Sample Image ' . $item_id );
+                if ( ! is_wp_error( $upload ) && ! empty( $upload['attachment_id'] ) ) {
+                    $approved_image_ids[] = (int) $upload['attachment_id'];
+                }
+            }
+        }
+
+        $review['samples_received_at']        = $review['samples_received_at'] ?? current_time( 'mysql' );
+        $review['approved_material_codes']    = $approved_material_codes;
+        $review['approved_finish_codes']      = $approved_finish_codes;
+        $review['approved_sample_image_ids']  = array_values( array_unique( array_map( 'absint', $approved_image_ids ) ) );
+        $review['selected_supplier_sample_ids'] = $selected_supplier_sample_ids;
+        $review['notes']                      = $notes;
+        if ( $approve ) {
+            $review['approved_at'] = current_time( 'mysql' );
+            $review['approved_by'] = get_current_user_id();
+            $validation['sample_status'] = 'samples_approved';
+            $meta['approved_material_codes'] = $approved_material_codes;
+            $meta['approved_finish_codes']   = $approved_finish_codes;
+            $meta['approved_sample_images']  = $review['approved_sample_image_ids'];
+            $meta['validation_notes']        = $notes;
+        } else {
+            $validation['sample_status'] = 'under_review';
+        }
+        $validation['review'] = $review;
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to save sample review.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => $approve ? 'Samples approved.' : 'Sample review saved.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_upload_validation_po() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+        if ( empty( $_FILES['po_file']['name'] ) ) {
+            wp_send_json_error( array( 'message' => 'PO file is required.' ) );
+        }
+
+        $upload = $this->upload_material_validation_attachment( $_FILES['po_file'], 'Validation PO ' . $item_id );
+        if ( is_wp_error( $upload ) ) {
+            wp_send_json_error( array( 'message' => $upload->get_error_message() ) );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['po_file_id']     = (int) $upload['attachment_id'];
+        $validation['commitment']['po_uploaded_at'] = current_time( 'mysql' );
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to save PO.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'PO uploaded.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_submit_validation_com() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['com_required']         = ! empty( $_POST['com_required'] );
+        $validation['commitment']['com_qty']              = sanitize_text_field( wp_unslash( $_POST['com_qty'] ?? '' ) );
+        $validation['commitment']['com_delivery_address'] = sanitize_text_field( wp_unslash( $_POST['com_delivery_address'] ?? ( $validation['commitment']['com_delivery_address'] ?? '' ) ) );
+        $validation['commitment']['com_tracking_number']  = sanitize_text_field( wp_unslash( $_POST['com_tracking_number'] ?? '' ) );
+        $validation['commitment']['com_status']           = 'com_in_transit';
+        $validation['commitment']['com_shipped_at']       = current_time( 'mysql' );
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to save COM details.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'COM shipment recorded.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_mark_validation_com_delivered() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['com_status']       = 'com_delivered';
+        $validation['commitment']['com_delivered_at'] = current_time( 'mysql' );
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to mark COM delivered.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'COM marked delivered.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
+    }
+
+    public function ajax_submit_validation_deposit() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        $item_id = absint( $_POST['item_id'] ?? 0 );
+        if ( ! $item_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        $supplier_name = sanitize_text_field( wp_unslash( $_POST['deposit_supplier_name'] ?? '' ) );
+        $deposit_amount = isset( $_POST['deposit_amount'] ) ? floatval( $_POST['deposit_amount'] ) : 0;
+
+        $receipt_ids = array();
+        if ( ! empty( $_FILES['deposit_receipts'] ) && ! empty( $_FILES['deposit_receipts']['name'] ) ) {
+            foreach ( array_keys( (array) $_FILES['deposit_receipts']['name'] ) as $idx ) {
+                if ( empty( $_FILES['deposit_receipts']['name'][ $idx ] ) ) {
+                    continue;
+                }
+                $file = array(
+                    'name'     => $_FILES['deposit_receipts']['name'][ $idx ],
+                    'type'     => $_FILES['deposit_receipts']['type'][ $idx ],
+                    'tmp_name' => $_FILES['deposit_receipts']['tmp_name'][ $idx ],
+                    'error'    => $_FILES['deposit_receipts']['error'][ $idx ],
+                    'size'     => $_FILES['deposit_receipts']['size'][ $idx ],
+                );
+                $upload = $this->upload_material_validation_attachment( $file, 'Validation Deposit Receipt ' . $item_id );
+                if ( ! is_wp_error( $upload ) && ! empty( $upload['attachment_id'] ) ) {
+                    $receipt_ids[] = (int) $upload['attachment_id'];
+                }
+            }
+        }
+
+        $meta       = $this->get_item_meta_array( $item_id );
+        $validation = isset( $meta['material_validation'] ) && is_array( $meta['material_validation'] ) ? $meta['material_validation'] : array();
+        $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
+        $validation['commitment']['deposit_supplier_name']  = $supplier_name;
+        $validation['commitment']['deposit_amount']         = $deposit_amount;
+        $validation['commitment']['deposit_receipt_file_ids'] = $receipt_ids;
+        $validation['commitment']['deposit_status']         = 'confirmed';
+        $validation['commitment']['deposit_confirmed_at']   = current_time( 'mysql' );
+        $meta['material_validation'] = $validation;
+
+        if ( false === $this->update_item_meta_array( $item_id, $meta ) ) {
+            wp_send_json_error( array( 'message' => 'Failed to save deposit details.' ) );
+        }
+
+        wp_send_json_success( array(
+            'message'          => 'Deposit saved.',
+            'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
+        ) );
     }
 
     /**
@@ -25958,6 +27266,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 6 => N88_Timeline_Step_Comments::get_comments_for_step( $item_id, 6 ),
             );
         }
+        $validation_state = $this->build_material_validation_state( $item_id );
         wp_send_json_success( array(
             'timeline'                       => $timeline,
             'is_operator'                    => $is_operator,
@@ -25967,6 +27276,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'supplier_step_evidence_by_step' => $supplier_step_evidence_by_step,
             'step_456_videos'                => $step_456_videos,
             'step_456_comments'               => $step_456_comments,
+            'validation_state'               => $validation_state,
         ) );
     }
 

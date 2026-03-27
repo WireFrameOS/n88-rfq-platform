@@ -3200,7 +3200,7 @@ class N88_RFQ_Admin {
                                     project_id: projectId,
                                     nonce_sent: !!roomNonce
                                 }
-                            });
+                            );
                             
                             // Try to parse error response
                             try {
@@ -10137,7 +10137,11 @@ class N88_RFQ_Admin {
                                 return { text: 'Payment received', color: workflowColor, dot: workflowColor };
                             }
                         }
-                        // Priority 3: Bid Awarded
+                        // Priority 3: Material validation flow
+                        if (item.validation_status_text && !hasAwardedBid) {
+                            return { text: item.validation_status_text, color: item.validation_status_color || rfqSentColor, dot: item.validation_status_color || rfqSentColor };
+                        }
+                        // Priority 4: Bid Awarded
                         if (hasAwardedBid) {
                             if (inProduction) {
                                 return { text: 'In Production', color: workflowColor, dot: workflowColor };
@@ -10151,7 +10155,7 @@ class N88_RFQ_Admin {
                             }
                             return { text: 'Project Awarded \u2014 Awaiting Deposit', color: workflowColor, dot: workflowColor };
                         }
-                        // Priority 4: Proposals Received
+                        // Priority 5: Proposals Received
                         var validBidCountEarly = 0;
                         if (item.valid_bid_count !== undefined && item.valid_bid_count !== null) {
                             validBidCountEarly = parseInt(item.valid_bid_count, 10);
@@ -12860,6 +12864,10 @@ class N88_RFQ_Admin {
                     var onSave = props.onSave;
                     var boardId = props.boardId;
                     var initialTabProp = props.initialTab || 'details';
+                    var normalizedInitialTabProp = initialTabProp === 'workflow' ? 'timeline' : initialTabProp;
+                    var initialWorkflowStepProp = props.initialWorkflowStep;
+                    var initialWorkflowIntentProp = props.initialWorkflowIntent || '';
+                    var initialSelectedBidIdProp = props.initialSelectedBidId;
                     
                     // Get updateLayout from store (if available)
                     var updateLayout = null;
@@ -12917,6 +12925,7 @@ class N88_RFQ_Admin {
                         prototype_submission: null,
                         direction_keyword_ids: null,
                         workflow_milestones: null,
+                        validation_state: null,
                         // Commit 28 / 3.C.1: Deposit lifecycle
                         deposit_status: '',
                         deposit_amount: null,
@@ -13192,6 +13201,82 @@ class N88_RFQ_Admin {
                     var _cadPrototypeSuccessState = React.useState(false);
                     var cadPrototypeSuccess = _cadPrototypeSuccessState[0];
                     var setCadPrototypeSuccess = _cadPrototypeSuccessState[1];
+                    var _showSampleRequestFormState = React.useState(false);
+                    var showSampleRequestForm = _showSampleRequestFormState[0];
+                    var setShowSampleRequestForm = _showSampleRequestFormState[1];
+                    var _sampleRequestSubmittingState = React.useState(false);
+                    var sampleRequestSubmitting = _sampleRequestSubmittingState[0];
+                    var setSampleRequestSubmitting = _sampleRequestSubmittingState[1];
+                    var _sampleRequestMessageState = React.useState('');
+                    var sampleRequestMessage = _sampleRequestMessageState[0];
+                    var setSampleRequestMessage = _sampleRequestMessageState[1];
+                    var _samplePaymentSubmittingState = React.useState(false);
+                    var samplePaymentSubmitting = _samplePaymentSubmittingState[0];
+                    var setSamplePaymentSubmitting = _samplePaymentSubmittingState[1];
+                    var _sampleReviewSubmittingState = React.useState(false);
+                    var sampleReviewSubmitting = _sampleReviewSubmittingState[0];
+                    var setSampleReviewSubmitting = _sampleReviewSubmittingState[1];
+                    var _commitmentSubmittingState = React.useState(false);
+                    var commitmentSubmitting = _commitmentSubmittingState[0];
+                    var setCommitmentSubmitting = _commitmentSubmittingState[1];
+                    var _sampleTypesState = React.useState(['Mixed Kit']);
+                    var sampleTypes = _sampleTypesState[0];
+                    var setSampleTypes = _sampleTypesState[1];
+                    var _sampleFormatState = React.useState('Physical');
+                    var sampleFormat = _sampleFormatState[0];
+                    var setSampleFormat = _sampleFormatState[1];
+                    var _sampleInstructionsState = React.useState('');
+                    var sampleInstructions = _sampleInstructionsState[0];
+                    var setSampleInstructions = _sampleInstructionsState[1];
+                    var _sampleShippingAddressState = React.useState('');
+                    var sampleShippingAddress = _sampleShippingAddressState[0];
+                    var setSampleShippingAddress = _sampleShippingAddressState[1];
+                    var sampleReferenceInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var samplePaymentProofInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var approvedSampleImagesInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var poUploadInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var depositReceiptInputRef = React.useRef ? React.useRef(null) : { current: null };
+                    var sampleValidationSectionRef = React.useRef ? React.useRef(null) : { current: null };
+                    var modalScrollContentRef = React.useRef ? React.useRef(null) : { current: null };
+                    var _sampleRequestFilesState = React.useState([]);
+                    var sampleRequestFiles = _sampleRequestFilesState[0];
+                    var setSampleRequestFiles = _sampleRequestFilesState[1];
+                    var _samplePaymentFileState = React.useState(null);
+                    var samplePaymentFile = _samplePaymentFileState[0];
+                    var setSamplePaymentFile = _samplePaymentFileState[1];
+                    var _approvedMaterialCodesState = React.useState('');
+                    var approvedMaterialCodes = _approvedMaterialCodesState[0];
+                    var setApprovedMaterialCodes = _approvedMaterialCodesState[1];
+                    var _approvedFinishCodesState = React.useState('');
+                    var approvedFinishCodes = _approvedFinishCodesState[0];
+                    var setApprovedFinishCodes = _approvedFinishCodesState[1];
+                    var _sampleReviewNotesState = React.useState('');
+                    var sampleReviewNotes = _sampleReviewNotesState[0];
+                    var setSampleReviewNotes = _sampleReviewNotesState[1];
+                    var _selectedSupplierSampleIdsState = React.useState([]);
+                    var selectedSupplierSampleIds = _selectedSupplierSampleIdsState[0];
+                    var setSelectedSupplierSampleIds = _selectedSupplierSampleIdsState[1];
+                    var _approvedSampleImagesState = React.useState([]);
+                    var approvedSampleImages = _approvedSampleImagesState[0];
+                    var setApprovedSampleImages = _approvedSampleImagesState[1];
+                    var _poUploadFileState = React.useState(null);
+                    var poUploadFile = _poUploadFileState[0];
+                    var setPoUploadFile = _poUploadFileState[1];
+                    var _comQtyState = React.useState('');
+                    var comQty = _comQtyState[0];
+                    var setComQty = _comQtyState[1];
+                    var _comTrackingNumberState = React.useState('');
+                    var comTrackingNumber = _comTrackingNumberState[0];
+                    var setComTrackingNumber = _comTrackingNumberState[1];
+                    var _depositSupplierNameState = React.useState('');
+                    var depositSupplierName = _depositSupplierNameState[0];
+                    var setDepositSupplierName = _depositSupplierNameState[1];
+                    var _depositAmountState = React.useState('');
+                    var depositAmount = _depositAmountState[0];
+                    var setDepositAmount = _depositAmountState[1];
+                    var _depositReceiptFilesState = React.useState([]);
+                    var depositReceiptFiles = _depositReceiptFilesState[0];
+                    var setDepositReceiptFiles = _depositReceiptFilesState[1];
                     
                     // Commit 2.3.9.1C-a: Designer message operator state
                     var _showDesignerMessageFormState = React.useState(true);
@@ -13376,7 +13461,7 @@ class N88_RFQ_Admin {
                     var setIsUploadingInspiration = _isUploadingInspirationState[1];
                     
                     // Active tab state
-                    var _activeTabState = React.useState(initialTabProp);
+                    var _activeTabState = React.useState(normalizedInitialTabProp);
                     var activeTab = _activeTabState[0];
                     var setActiveTab = _activeTabState[1];
                     // When designer requests CAD revision or approves CAD, keep tab on Mission Spec (details) instead of switching to Proposals
@@ -13411,13 +13496,25 @@ class N88_RFQ_Admin {
                     var evidenceCommentSubmitting = _evidenceCommentSubmittingState[0];
                     var setEvidenceCommentSubmitting = _evidenceCommentSubmittingState[1];
 
-                    // Keep active tab in sync with initialTab prop when it changes (e.g., auto-open RFQ)
                     React.useEffect(function() {
-                        if (!initialTabProp || openToDetailsAndSupport) return;
-                        if (activeTab !== initialTabProp) {
-                            setActiveTab(initialTabProp);
+                        if (!isOpen) return;
+                        if (openToDetailsAndSupport) {
+                            setActiveTab('details');
+                        } else if (initialWorkflowIntentProp === 'sample_request') {
+                            setActiveTab('timeline');
+                        } else if (normalizedInitialTabProp) {
+                            setActiveTab(normalizedInitialTabProp);
                         }
-                    }, [initialTabProp]);
+                        if (initialWorkflowStepProp !== undefined && initialWorkflowStepProp !== null) {
+                            setSelectedStepIndex(parseInt(initialWorkflowStepProp, 10) || 0);
+                        }
+                        if (initialWorkflowIntentProp === 'sample_request') {
+                            setShowSampleRequestForm(true);
+                        }
+                        if (initialSelectedBidIdProp) {
+                            setSelectedBidId(parseInt(initialSelectedBidIdProp, 10));
+                        }
+                    }, [isOpen, openToDetailsAndSupport, normalizedInitialTabProp, initialWorkflowStepProp, initialWorkflowIntentProp, initialSelectedBidIdProp]);
                     // Commit 3.A.2S: Designer read-only supplier step evidence (View Step Evidence)
                     var _supplierStepEvidenceViewState = React.useState(null);
                     var supplierStepEvidenceView = _supplierStepEvidenceViewState[0];
@@ -13457,6 +13554,15 @@ class N88_RFQ_Admin {
                     // Skip when opened from Support link so we stay on Item Spec + chat box
                     React.useEffect(function() {
                         if (openToDetailsAndSupport) return;
+                        if (isOpen && initialWorkflowIntentProp === 'sample_request') {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(0);
+                            setShowSampleRequestForm(true);
+                            if (initialSelectedBidIdProp) {
+                                setSelectedBidId(parseInt(initialSelectedBidIdProp, 10) || null);
+                            }
+                            return;
+                        }
                         if (itemState.loading) return;
                         if (skipNextTabSwitchFromCadActionRef.current) {
                             skipNextTabSwitchFromCadActionRef.current = false;
@@ -13507,7 +13613,31 @@ class N88_RFQ_Admin {
                         } else {
                             setActiveTab('details');
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, openToDetailsAndSupport]);
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, openToDetailsAndSupport, isOpen, initialWorkflowIntentProp, initialSelectedBidIdProp]);
+                    React.useEffect(function() {
+                        if (!isOpen) return;
+                        if (activeTab !== 'timeline') return;
+                        if (selectedStepIndex !== 0) return;
+                        if (!showSampleRequestForm) return;
+                        var scrollTarget = sampleValidationSectionRef && sampleValidationSectionRef.current ? sampleValidationSectionRef.current : null;
+                        var scrollContainer = modalScrollContentRef && modalScrollContentRef.current ? modalScrollContentRef.current : null;
+                        if (!scrollTarget) return;
+                        setTimeout(function() {
+                            try {
+                                if (scrollContainer && typeof scrollContainer.scrollTo === 'function') {
+                                    scrollContainer.scrollTo({ top: Math.max(scrollTarget.offsetTop - 16, 0), behavior: 'smooth' });
+                                } else if (typeof scrollTarget.scrollIntoView === 'function') {
+                                    scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }
+                            } catch (e) {
+                                if (scrollContainer) {
+                                    scrollContainer.scrollTop = Math.max(scrollTarget.offsetTop - 16, 0);
+                                } else if (typeof scrollTarget.scrollIntoView === 'function') {
+                                    scrollTarget.scrollIntoView();
+                                }
+                            }
+                        }, 350);
+                    }, [isOpen, activeTab, selectedStepIndex, showSampleRequestForm, initialWorkflowIntentProp]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -14011,6 +14141,7 @@ class N88_RFQ_Admin {
                                     direction_keyword_ids: data.data.direction_keyword_ids || null,
                                     direction_keyword_names: data.data.direction_keyword_names || null,
                                     workflow_milestones: data.data.workflow_milestones || null,
+                                    validation_state: data.data.validation_state || null,
                                     // Commit 28 / 3.C.1: Deposit lifecycle
                                     deposit_status: (data.data.deposit_status !== undefined && data.data.deposit_status !== null) ? data.data.deposit_status : '',
                                     deposit_amount: (data.data.deposit_amount !== undefined && data.data.deposit_amount !== null) ? data.data.deposit_amount : null,
@@ -14030,6 +14161,10 @@ class N88_RFQ_Admin {
                                     if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
                                     if (data.data.has_awarded_bid !== undefined) cardUpdates.has_awarded_bid = !!data.data.has_awarded_bid;
                                     if (data.data.deposit_status !== undefined) cardUpdates.deposit_status = data.data.deposit_status;
+                                    if (data.data.validation_state && data.data.validation_state.card_status_text) {
+                                        cardUpdates.validation_status_text = data.data.validation_state.card_status_text;
+                                        cardUpdates.validation_status_color = data.data.validation_state.card_status_color || '#2196f3';
+                                    }
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
                                 }
                                 // When all bids withdrawn: item is State A; reset Request Quote to show "Request Quote" (fresh form)
@@ -14058,6 +14193,56 @@ class N88_RFQ_Admin {
                             fetchItemState();
                         }
                     }, [isOpen, itemId]);
+                    React.useEffect(function() {
+                        var validationState = itemState && itemState.validation_state ? itemState.validation_state : null;
+                        if (!validationState) return;
+                        var requestState = validationState.request || {};
+                        var reviewState = validationState.review || {};
+                        var commitmentState = validationState.commitment || {};
+                        if (Array.isArray(requestState.sample_types) && requestState.sample_types.length) setSampleTypes(requestState.sample_types);
+                        if (requestState.sample_format) setSampleFormat(requestState.sample_format);
+                        if (requestState.instructions !== undefined) setSampleInstructions(requestState.instructions || '');
+                        if (requestState.shipping_address !== undefined) setSampleShippingAddress(requestState.shipping_address || '');
+                        if (requestState.requested_at) setShowSampleRequestForm(false);
+                        if (reviewState.notes !== undefined) setSampleReviewNotes(reviewState.notes || '');
+                        if (Array.isArray(reviewState.approved_material_codes) && reviewState.approved_material_codes.length) setApprovedMaterialCodes(reviewState.approved_material_codes.join(', '));
+                        if (Array.isArray(reviewState.approved_finish_codes) && reviewState.approved_finish_codes.length) setApprovedFinishCodes(reviewState.approved_finish_codes.join(', '));
+                        if (Array.isArray(reviewState.selected_supplier_samples)) setSelectedSupplierSampleIds(reviewState.selected_supplier_samples.map(function(v) { return String(v); }));
+                        if (commitmentState.com_qty !== undefined) setComQty(commitmentState.com_qty || '');
+                        if (commitmentState.com_tracking_number !== undefined) setComTrackingNumber(commitmentState.com_tracking_number || '');
+                        if (commitmentState.deposit_supplier_name !== undefined) setDepositSupplierName(commitmentState.deposit_supplier_name || '');
+                        if (commitmentState.deposit_amount !== undefined && commitmentState.deposit_amount !== null) setDepositAmount(String(commitmentState.deposit_amount));
+                        if (validationState && validationState.supplier && validationState.supplier.updated_at && activeTab === 'timeline' && selectedStepIndex === 0) {
+                            setSelectedStepIndex(1);
+                        }
+                    }, [itemState && itemState.validation_state, activeTab, selectedStepIndex]);
+
+                    var submitValidationAction = React.useCallback(function(action, fields, filesByKey) {
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                        if (!nonce) return Promise.reject(new Error('Security token missing.'));
+                        var fd = new FormData();
+                        fd.append('action', action);
+                        fd.append('item_id', String(itemId));
+                        fd.append('_ajax_nonce', nonce);
+                        Object.keys(fields || {}).forEach(function(key) {
+                            var value = fields[key];
+                            if (Array.isArray(value)) {
+                                value.forEach(function(entry) { fd.append(key + '[]', String(entry)); });
+                            } else if (value !== undefined && value !== null) {
+                                fd.append(key, String(value));
+                            }
+                        });
+                        Object.keys(filesByKey || {}).forEach(function(key) {
+                            var value = filesByKey[key];
+                            if (Array.isArray(value)) {
+                                value.forEach(function(file) { if (file) fd.append(key + '[]', file); });
+                            } else if (value) {
+                                fd.append(key, value);
+                            }
+                        });
+                        return fetch(ajaxUrl, { method: 'POST', body: fd }).then(function(res) { return res.json(); });
+                    }, [itemId]);
                     
                     // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD) - defined after fetchItemState
                     var requestCadRevision = React.useCallback(function(files) {
@@ -16086,6 +16271,7 @@ class N88_RFQ_Admin {
                                     ),
                                     // Tab Content (details tab: whole area scrolls; support box stays visible)
                                     React.createElement('div', {
+                                        ref: modalScrollContentRef,
                                         style: {
                                             flex: 1,
                                             minHeight: 0,
@@ -18258,6 +18444,47 @@ class N88_RFQ_Admin {
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (!itemState.workflow_milestones || !itemState.workflow_milestones.step1 || !itemState.workflow_milestones.step1.payment_sent_at)) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: '1px solid #66aaff', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' } }, 'CAD Requested'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Designer has requested CAD with selected keywords.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones && itemState.workflow_milestones.step1 && itemState.workflow_milestones.step1.payment_sent_at) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: '1px solid #ff8800', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' } }, 'Payment Sent - Pending Approval'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Receipt uploaded. CAD drafting will begin once payment is confirmed.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
+                                                        s.step_number === 1 ? React.createElement('div', { ref: sampleValidationSectionRef, id: 'n88-material-sample-validation-section', style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                            (function() {
+                                                                var hasExistingSampleRequest = !!(itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.requested_at);
+                                                                var sampleRequestReferenceFiles = itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.reference_files ? itemState.validation_state.request.reference_files : [];
+                                                                return React.createElement(React.Fragment, null,
+                                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' } },
+                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Material Sample Validation'),
+                                                                !showSampleRequestForm && !hasExistingSampleRequest ? React.createElement('button', { type: 'button', onClick: function() { setShowSampleRequestForm(true); if (!selectedBidId && itemState.bids && itemState.bids.length === 1) setSelectedBidId(itemState.bids[0].bid_id); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, 'Request Material Samples') : null
+                                                            ),
+                                                            itemState.validation_state && itemState.validation_state.card_status_text ? React.createElement('div', { style: { fontSize: '11px', color: itemState.validation_state.card_status_color || darkText, marginBottom: '10px' } }, 'Status: ' + itemState.validation_state.card_status_text) : null,
+                                                            sampleRequestMessage ? React.createElement('div', { style: { fontSize: '11px', color: sampleRequestMessage.indexOf('Failed:') === 0 ? '#ff6666' : greenAccent, marginBottom: '10px', whiteSpace: 'pre-wrap' } }, sampleRequestMessage) : null,
+                                                            hasExistingSampleRequest ? React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)', marginBottom: '12px' } },
+                                                                React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Sample Requested'),
+                                                                itemState.validation_state && itemState.validation_state.supplier_name ? React.createElement('div', { style: { fontSize: '11px', color: '#fff' } }, 'Supplier: ' + itemState.validation_state.supplier_name) : null,
+                                                                itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.requested_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Requested: ' + formatWorkflowDateTime(itemState.validation_state.request.requested_at)) : null,
+                                                                itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.sample_types && itemState.validation_state.request.sample_types.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Sample types: ' + itemState.validation_state.request.sample_types.join(', ')) : null,
+                                                                itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.sample_format ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Format: ' + itemState.validation_state.request.sample_format) : null,
+                                                                itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.instructions ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Instructions: ' + itemState.validation_state.request.instructions) : null,
+                                                                itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.shipping_address ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Ship to: ' + itemState.validation_state.request.shipping_address) : null,
+                                                                sampleRequestReferenceFiles.length ? React.createElement('div', null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: '#fff', marginBottom: '6px' } }, 'Reference files'),
+                                                                    React.createElement('div', { style: { display: 'grid', gap: '6px' } }, sampleRequestReferenceFiles.map(function(fileEntry, fileIdx) {
+                                                                        return React.createElement('a', { key: 'mv-request-ref-' + fileIdx, href: fileEntry.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || ('Reference ' + (fileIdx + 1)));
+                                                                    }))
+                                                                ) : null
+                                                            ) : null,
+                                                            showSampleRequestForm && !hasExistingSampleRequest ? React.createElement('div', { style: { display: 'grid', gap: '10px' } },
+                                                                itemState.bids && itemState.bids.length > 1 ? React.createElement('select', { value: selectedBidId || '', onChange: function(e) { setSelectedBidId(parseInt(e.target.value, 10) || null); }, style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }, React.createElement('option', { value: '' }, '-- Select supplier bid --'), itemState.bids.map(function(bid) { return React.createElement('option', { key: 'mv-bid-' + bid.bid_id, value: bid.bid_id }, 'Bid #' + bid.bid_id + ' - ' + (bid.supplier_name || ('Supplier ' + bid.supplier_id))); })) : null,
+                                                                React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, ['Finish', 'Material', 'Fabric', 'Component', 'Mixed Kit'].map(function(typeLabel) { var activeSampleType = sampleTypes.indexOf(typeLabel) !== -1; return React.createElement('button', { key: 'mv-type-' + typeLabel, type: 'button', onClick: function() { setSampleTypes(function(prev) { var hasType = prev.indexOf(typeLabel) !== -1; if (hasType && prev.length === 1) return prev; return hasType ? prev.filter(function(v) { return v !== typeLabel; }) : prev.concat([typeLabel]); }); }, style: { padding: '6px 10px', borderRadius: '999px', border: '1px solid ' + (activeSampleType ? greenAccent : darkBorder), background: activeSampleType ? 'rgba(255,0,101,0.15)' : '#111', color: '#fff', fontSize: '11px', cursor: 'pointer', fontFamily: 'monospace' } }, typeLabel); })),
+                                                                React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } }, ['Digital', 'Physical'].map(function(formatLabel) { return React.createElement('label', { key: 'mv-format-' + formatLabel, style: { fontSize: '11px', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '6px' } }, React.createElement('input', { type: 'radio', name: 'n88-material-validation-format-' + itemId, checked: sampleFormat === formatLabel, onChange: function() { setSampleFormat(formatLabel); } }), formatLabel); })),
+                                                                React.createElement('input', { type: 'text', value: sampleInstructions, onChange: function(e) { setSampleInstructions(e.target.value); }, placeholder: 'Instructions', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }),
+                                                                React.createElement('input', { type: 'text', value: sampleShippingAddress, onChange: function(e) { setSampleShippingAddress(e.target.value); }, placeholder: 'Ship-to address', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }),
+                                                                React.createElement('div', null, React.createElement('input', { ref: sampleReferenceInputRef, type: 'file', multiple: true, style: { display: 'none' }, onChange: function(e) { setSampleRequestFiles(Array.from(e.target.files || [])); } }), React.createElement('button', { type: 'button', onClick: function() { if (sampleReferenceInputRef.current) sampleReferenceInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, 'Upload references'), sampleRequestFiles.length ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, sampleRequestFiles.map(function(file) { return file.name; }).join(', ')) : null),
+                                                                React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                    React.createElement('button', { type: 'button', disabled: sampleRequestSubmitting || !selectedBidId, onClick: function() { var selectedBid = (itemState.bids || []).filter(function(b) { return b.bid_id === selectedBidId; })[0]; setSampleRequestSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_create_material_validation_request', { bid_id: selectedBidId, supplier_id: selectedBid && selectedBid.supplier_id ? selectedBid.supplier_id : 0, sample_types: sampleTypes, sample_format: sampleFormat, instructions: sampleInstructions, shipping_address: sampleShippingAddress }, { reference_files: sampleRequestFiles }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Material sample request created.'); setShowSampleRequestForm(false); setSampleRequestFiles([]); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setSampleRequestSubmitting(false); }); }, style: { padding: '10px 14px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: sampleRequestSubmitting || !selectedBidId ? 'not-allowed' : 'pointer', opacity: sampleRequestSubmitting || !selectedBidId ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '600' } }, sampleRequestSubmitting ? 'Sending...' : 'Pay & Send Request')
+                                                                )
+                                                            ) : null,
+                                                            itemState.validation_state && itemState.validation_state.request && itemState.validation_state.request.requested_at && itemState.validation_state.wireframe_supplier ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } }, React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: darkText, marginBottom: '8px' } }, 'WireFrameOS Sample Payment'), React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.6, marginBottom: '8px' } }, React.createElement('div', null, 'ACH / Wire: [Bank Name / Account / Routing]'), React.createElement('div', null, 'Zelle: payments@wireframeos.com')), React.createElement('div', null, React.createElement('input', { ref: samplePaymentProofInputRef, type: 'file', style: { display: 'none' }, onChange: function(e) { setSamplePaymentFile((e.target.files || [])[0] || null); } }), React.createElement('button', { type: 'button', onClick: function() { if (samplePaymentProofInputRef.current) samplePaymentProofInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace', marginRight: '8px' } }, 'View Payment Instructions'), React.createElement('button', { type: 'button', disabled: samplePaymentSubmitting || !samplePaymentFile, onClick: function() { setSamplePaymentSubmitting(true); submitValidationAction('n88_submit_material_validation_payment', { payment_mode: itemState.validation_state.payment_mode || 'wireframe_managed' }, { payment_proof: samplePaymentFile }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Payment proof uploaded.'); setSamplePaymentFile(null); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setSamplePaymentSubmitting(false); }); }, style: { padding: '8px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: samplePaymentSubmitting || !samplePaymentFile ? 'not-allowed' : 'pointer', opacity: samplePaymentSubmitting || !samplePaymentFile ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, samplePaymentSubmitting ? 'Uploading...' : 'Upload Payment Receipt')), samplePaymentFile ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, samplePaymentFile.name) : null) : null
+                                                        );
+                                                            })()
+                                                        ) : null,
                                                         (s.step_number === 1 && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                             React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
                                                                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
@@ -18312,6 +18539,103 @@ class N88_RFQ_Admin {
                                                                     )
                                                                 )
                                                             )
+                                                        ) : null,
+                                                        s.step_number === 2 ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                            React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, 'Sample Review'),
+                                                            itemState.validation_state && itemState.validation_state.supplier ? React.createElement('div', { style: { display: 'grid', gap: '10px' } },
+                                                                itemState.validation_state.request && itemState.validation_state.request.reference_files && itemState.validation_state.request.reference_files.length ? React.createElement('div', null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: '#fff', marginBottom: '6px' } }, 'Designer reference files'),
+                                                                    React.createElement('div', { style: { display: 'grid', gap: '6px' } }, itemState.validation_state.request.reference_files.map(function(fileEntry, fileIdx) {
+                                                                        return React.createElement('a', { key: 'mv-step2-request-ref-' + fileIdx, href: fileEntry.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || ('Reference ' + (fileIdx + 1)));
+                                                                    }))
+                                                                ) : null,
+                                                                itemState.validation_state.supplier.updated_at ? React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Supplier Sample Submission'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Submitted: ' + formatWorkflowDateTime(itemState.validation_state.supplier.updated_at))
+                                                                ) : null,
+                                                                itemState.validation_state.supplier.status ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Supplier status: ' + String(itemState.validation_state.supplier.status).replace(/_/g, ' ')) : null,
+                                                                itemState.validation_state.supplier.tracking_number ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Tracking: ' + itemState.validation_state.supplier.tracking_number) : null,
+                                                                itemState.validation_state.supplier.note ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Supplier note: ' + itemState.validation_state.supplier.note) : null,
+                                                                itemState.validation_state.supplier.files && itemState.validation_state.supplier.files.length ? React.createElement('div', null,
+                                                                    React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: '#fff', marginBottom: '6px' } }, 'Supplier uploaded samples'),
+                                                                    React.createElement('div', { style: { display: 'grid', gap: '6px' } }, itemState.validation_state.supplier.files.map(function(fileEntry, fileIdx) {
+                                                                        var isSelectedSample = selectedSupplierSampleIds.indexOf(String(fileEntry.id)) !== -1;
+                                                                        return React.createElement('label', { key: 'supplier-sample-' + fileIdx, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', border: '1px solid ' + (isSelectedSample ? greenAccent : darkBorder), borderRadius: '4px', background: isSelectedSample ? 'rgba(255,0,101,0.08)' : '#000', cursor: 'pointer' } },
+                                                                            React.createElement('input', { type: 'checkbox', checked: isSelectedSample, onChange: function(e) { setSelectedSupplierSampleIds(function(prev) { var fileId = String(fileEntry.id); return e.target.checked ? prev.concat(prev.indexOf(fileId) === -1 ? [fileId] : []) : prev.filter(function(v) { return v !== fileId; }); }); } }),
+                                                                            React.createElement('a', { href: fileEntry.url, target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || ('Sample #' + fileEntry.id))
+                                                                        );
+                                                                    }))
+                                                                ) : React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'No supplier samples uploaded yet.'),
+                                                                itemState.validation_state.review && itemState.validation_state.review.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'Samples received: ' + formatWorkflowDateTime(itemState.validation_state.review.samples_received_at)) : React.createElement('button', { type: 'button', disabled: sampleReviewSubmitting || !(itemState.validation_state && itemState.validation_state.supplier && itemState.validation_state.supplier.files && itemState.validation_state.supplier.files.length), onClick: function() { setSampleReviewSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_mark_material_samples_received', {}, {}).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Samples marked as received.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setSampleReviewSubmitting(false); }); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, sampleReviewSubmitting ? 'Saving...' : 'Mark Samples Received'),
+                                                                React.createElement('textarea', { value: approvedMaterialCodes, onChange: function(e) { setApprovedMaterialCodes(e.target.value); }, rows: 2, placeholder: 'Approved material codes', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }),
+                                                                React.createElement('textarea', { value: approvedFinishCodes, onChange: function(e) { setApprovedFinishCodes(e.target.value); }, rows: 2, placeholder: 'Approved finish codes', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }),
+                                                                React.createElement('textarea', { value: sampleReviewNotes, onChange: function(e) { setSampleReviewNotes(e.target.value); }, rows: 3, placeholder: 'Review notes for supplier', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace' } }),
+                                                                React.createElement('div', null,
+                                                                    React.createElement('input', { ref: approvedSampleImagesInputRef, type: 'file', multiple: true, style: { display: 'none' }, onChange: function(e) { setApprovedSampleImages(Array.from(e.target.files || [])); } }),
+                                                                    React.createElement('button', { type: 'button', onClick: function() { if (approvedSampleImagesInputRef.current) approvedSampleImagesInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, 'Upload selected sample photos'),
+                                                                    approvedSampleImages.length ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, approvedSampleImages.map(function(file) { return file.name; }).join(', ')) : null
+                                                                ),
+                                                                React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                    React.createElement('button', { type: 'button', disabled: sampleReviewSubmitting, onClick: function() { setSampleReviewSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_review_material_samples', { approved_material_codes: approvedMaterialCodes, approved_finish_codes: approvedFinishCodes, notes: sampleReviewNotes, selected_supplier_sample_ids: selectedSupplierSampleIds }, { approved_sample_images: approvedSampleImages }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Review saved.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setSampleReviewSubmitting(false); }); }, style: { padding: '10px 14px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontFamily: 'monospace' } }, 'Save Review'),
+                                                                    React.createElement('button', { type: 'button', disabled: sampleReviewSubmitting, onClick: function() { setSampleReviewSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_review_material_samples', { approved_material_codes: approvedMaterialCodes, approved_finish_codes: approvedFinishCodes, notes: sampleReviewNotes, selected_supplier_sample_ids: selectedSupplierSampleIds, approve_samples: '1' }, { approved_sample_images: approvedSampleImages }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Samples approved.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setSampleReviewSubmitting(false); }); }, style: { padding: '10px 14px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: sampleReviewSubmitting ? 'not-allowed' : 'pointer', opacity: sampleReviewSubmitting ? 0.55 : 1, fontFamily: 'monospace', fontWeight: '600' } }, 'Approve Samples')
+                                                                ),
+                                                                itemState.validation_state.review && itemState.validation_state.review.approved_at ? React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Approved: ' + formatWorkflowDateTime(itemState.validation_state.review.approved_at)),
+                                                                    itemState.validation_state.commitment && itemState.validation_state.commitment.po_file ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'PO uploaded. Workflow moved to Step 3.') : React.createElement('div', null,
+                                                                        React.createElement('input', { ref: poUploadInputRef, type: 'file', style: { display: 'none' }, onChange: function(e) { setPoUploadFile((e.target.files || [])[0] || null); } }),
+                                                                        React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                            React.createElement('button', { type: 'button', onClick: function() { if (poUploadInputRef.current) poUploadInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace' } }, 'Upload PO'),
+                                                                            React.createElement('button', { type: 'button', disabled: commitmentSubmitting || !poUploadFile, onClick: function() { setCommitmentSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_upload_validation_po', {}, { po_file: poUploadFile }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded.'); setPoUploadFile(null); setSelectedStepIndex(2); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setCommitmentSubmitting(false); }); }, style: { padding: '8px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: commitmentSubmitting || !poUploadFile ? 'not-allowed' : 'pointer', opacity: commitmentSubmitting || !poUploadFile ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, commitmentSubmitting ? 'Uploading...' : 'Submit PO')
+                                                                        ),
+                                                                        poUploadFile ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, poUploadFile.name) : null
+                                                                    )
+                                                                )
+                                                            ) : null
+                                                        ) : null,
+                                                        s.step_number === 3 ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                            React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, 'Commitment Readiness'),
+                                                            itemState.validation_state ? React.createElement('div', { style: { display: 'grid', gap: '12px' } },
+                                                                React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Status: ' + (itemState.validation_state.card_status_text || 'Pending')),
+                                                                React.createElement('div', { style: { padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#000' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'PO Upload'),
+                                                                    itemState.validation_state.commitment && itemState.validation_state.commitment.po_file ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '8px' } }, 'PO uploaded') : React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px' } }, 'Status: awaiting_po'),
+                                                                    React.createElement('div', null,
+                                                                        React.createElement('input', { ref: poUploadInputRef, type: 'file', style: { display: 'none' }, onChange: function(e) { setPoUploadFile((e.target.files || [])[0] || null); } }),
+                                                                        React.createElement('button', { type: 'button', onClick: function() { if (poUploadInputRef.current) poUploadInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace', marginRight: '8px' } }, 'Upload PO'),
+                                                                        React.createElement('button', { type: 'button', disabled: commitmentSubmitting || !poUploadFile, onClick: function() { setCommitmentSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_upload_validation_po', {}, { po_file: poUploadFile }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded.'); setPoUploadFile(null); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setCommitmentSubmitting(false); }); }, style: { padding: '8px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: commitmentSubmitting || !poUploadFile ? 'not-allowed' : 'pointer', opacity: commitmentSubmitting || !poUploadFile ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, commitmentSubmitting ? 'Uploading...' : 'Submit PO')
+                                                                    ),
+                                                                    poUploadFile ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, poUploadFile.name) : null
+                                                                ),
+                                                                itemState.validation_state.readiness && itemState.validation_state.readiness.com_required && itemState.validation_state.commitment && itemState.validation_state.commitment.po_uploaded_at ? React.createElement('div', { style: { padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#000' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'COM'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '6px' } }, 'COM activated'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '6px' } }, 'COM required: YES'),
+                                                                    React.createElement('input', { type: 'text', value: comQty, onChange: function(e) { setComQty(e.target.value); }, placeholder: 'COM qty', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', marginBottom: '8px' } }),
+                                                                    React.createElement('textarea', { value: (itemState.validation_state.commitment.delivery_address || ''), readOnly: true, rows: 3, style: { width: '100%', padding: '8px', background: '#050505', color: darkText, border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', marginBottom: '8px' } }),
+                                                                    React.createElement('input', { type: 'text', value: comTrackingNumber, onChange: function(e) { setComTrackingNumber(e.target.value); }, placeholder: 'COM tracking number', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', marginBottom: '8px' } }),
+                                                                    React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                        React.createElement('button', { type: 'button', disabled: commitmentSubmitting || !comTrackingNumber, onClick: function() { setCommitmentSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_submit_validation_com', { com_qty: comQty, tracking_number: comTrackingNumber }, {}).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM shipped.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setCommitmentSubmitting(false); }); }, style: { padding: '8px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: commitmentSubmitting || !comTrackingNumber ? 'not-allowed' : 'pointer', opacity: commitmentSubmitting || !comTrackingNumber ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, 'COM shipped'),
+                                                                        itemState.validation_state.commitment && itemState.validation_state.commitment.com_status === 'com_in_transit' ? React.createElement('button', { type: 'button', disabled: commitmentSubmitting, onClick: function() { setCommitmentSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_mark_validation_com_delivered', {}, {}).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM delivered.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setCommitmentSubmitting(false); }); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: commitmentSubmitting ? 'not-allowed' : 'pointer', opacity: commitmentSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, 'Mark COM Delivered') : null
+                                                                    ),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, marginTop: '8px' } }, 'Status: ' + ((itemState.validation_state.commitment && itemState.validation_state.commitment.com_status) ? String(itemState.validation_state.commitment.com_status).replace(/_/g, ' ') : 'awaiting_com'))
+                                                                ) : null,
+                                                                itemState.validation_state.commitment && itemState.validation_state.commitment.po_uploaded_at && (!itemState.validation_state.readiness || !itemState.validation_state.readiness.awaiting_com) ? React.createElement('div', { style: { padding: '12px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#000' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Payment & Deposit'),
+                                                                    React.createElement('input', { type: 'text', value: depositSupplierName, onChange: function(e) { setDepositSupplierName(e.target.value); }, placeholder: 'Supplier name', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', marginBottom: '8px' } }),
+                                                                    React.createElement('input', { type: 'number', value: depositAmount, onChange: function(e) { setDepositAmount(e.target.value); }, placeholder: 'Deposit amount', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', marginBottom: '8px' } }),
+                                                                    React.createElement('div', null,
+                                                                        React.createElement('input', { ref: depositReceiptInputRef, type: 'file', multiple: true, style: { display: 'none' }, onChange: function(e) { setDepositReceiptFiles(Array.from(e.target.files || [])); } }),
+                                                                        React.createElement('button', { type: 'button', onClick: function() { if (depositReceiptInputRef.current) depositReceiptInputRef.current.click(); }, style: { padding: '8px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontFamily: 'monospace', marginRight: '8px' } }, 'Upload deposit receipt'),
+                                                                        React.createElement('button', { type: 'button', disabled: commitmentSubmitting || !depositSupplierName || !depositAmount, onClick: function() { setCommitmentSubmitting(true); setSampleRequestMessage(''); submitValidationAction('n88_submit_validation_deposit', { supplier_name: depositSupplierName, amount: depositAmount }, { receipt_files: depositReceiptFiles }).then(function(res) { if (res && res.success) { setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Deposit saved.'); fetchItemState(); } else { setSampleRequestMessage('Failed: ' + ((res && res.data && res.data.message) ? res.data.message : 'Please try again.')); } }).catch(function(err) { setSampleRequestMessage('Failed: ' + (err && err.message ? err.message : 'Please try again.')); }).finally(function() { setCommitmentSubmitting(false); }); }, style: { padding: '8px 12px', background: greenAccent, color: '#000', border: 'none', borderRadius: '4px', cursor: commitmentSubmitting || !depositSupplierName || !depositAmount ? 'not-allowed' : 'pointer', opacity: commitmentSubmitting || !depositSupplierName || !depositAmount ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' } }, commitmentSubmitting ? 'Submitting...' : 'Submit Deposit')
+                                                                    ),
+                                                                    depositReceiptFiles.length ? React.createElement('div', { style: { marginTop: '6px', fontSize: '10px', color: darkText } }, depositReceiptFiles.map(function(file) { return file.name; }).join(', ')) : null
+                                                                ) : null,
+                                                                itemState.validation_state.can_commit ? React.createElement('div', { style: { padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
+                                                                    React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Ready for Production'),
+                                                                    React.createElement('div', { style: { fontSize: '11px', color: greenAccent, lineHeight: 1.7 } }, '✓ Samples Approved', React.createElement('br'), '✓ PO Uploaded', React.createElement('br'), (itemState.validation_state.readiness && itemState.validation_state.readiness.com_required ? '✓ COM Received' : '✓ COM Not Required'), React.createElement('br'), '✓ Deposit Confirmed', React.createElement('br'), React.createElement('span', { style: { color: '#fff' } }, '[ Production Unlocked ]'))
+                                                                ) : null
+                                                            ) : null
                                                         ) : null,
                                                         s.step_number !== 1 ? React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '4px' } },
                                                             '· State: ',
@@ -19592,6 +19916,15 @@ class N88_RFQ_Admin {
                     var _initialTabState = React.useState('details');
                     var initialTab = _initialTabState[0];
                     var setInitialTab = _initialTabState[1];
+                    var _initialWorkflowStepState = React.useState(null);
+                    var initialWorkflowStep = _initialWorkflowStepState[0];
+                    var setInitialWorkflowStep = _initialWorkflowStepState[1];
+                    var _initialWorkflowIntentState = React.useState('');
+                    var initialWorkflowIntent = _initialWorkflowIntentState[0];
+                    var setInitialWorkflowIntent = _initialWorkflowIntentState[1];
+                    var _initialSelectedBidIdState = React.useState(null);
+                    var initialSelectedBidId = _initialSelectedBidIdState[0];
+                    var setInitialSelectedBidId = _initialSelectedBidIdState[1];
                     
                     // Create a modified BoardItem that can trigger modal
                     var boardItemProps = Object.assign({}, props);
@@ -19603,11 +19936,17 @@ class N88_RFQ_Admin {
                                 return;
                             }
                             setInitialTab('details');
+                            setInitialWorkflowStep(null);
+                            setInitialWorkflowIntent('');
+                            setInitialSelectedBidId(null);
                             setOpenModalToSupport(false);
                             setIsModalOpen(true);
                         },
                         openSupport: function() {
                             setInitialTab('details');
+                            setInitialWorkflowStep(null);
+                            setInitialWorkflowIntent('');
+                            setInitialSelectedBidId(null);
                             setOpenModalToSupport(true);
                             setIsModalOpen(true);
                         },
@@ -19641,6 +19980,36 @@ class N88_RFQ_Admin {
                         window.addEventListener('n88-open-rfq-for-items', handleOpenRfqEvent);
                         return function() {
                             window.removeEventListener('n88-open-rfq-for-items', handleOpenRfqEvent);
+                        };
+                    }, [item && item.id]);
+
+                    React.useEffect(function() {
+                        function handleOpenWorkflowEvent(e) {
+                            try {
+                                var detail = e && e.detail ? e.detail : {};
+                                var rawId = item && item.id != null ? item.id : item && item.item_id != null ? item.item_id : null;
+                                var numericId = null;
+                                if (typeof rawId === 'string' && rawId.indexOf('item-') === 0) {
+                                    numericId = parseInt(rawId.replace('item-', ''), 10);
+                                } else if (typeof rawId === 'string') {
+                                    numericId = parseInt(rawId, 10);
+                                } else if (typeof rawId === 'number') {
+                                    numericId = rawId;
+                                }
+                                if (!numericId || String(detail.itemId) !== String(numericId)) return;
+                                setInitialTab(detail.initialTab === 'workflow' ? 'timeline' : (detail.initialTab || 'timeline'));
+                                setInitialWorkflowStep(detail.workflowStep != null ? parseInt(detail.workflowStep, 10) : 0);
+                                setInitialWorkflowIntent(detail.intent || '');
+                                setInitialSelectedBidId(detail.bidId != null ? parseInt(detail.bidId, 10) : null);
+                                setOpenModalToSupport(false);
+                                setIsModalOpen(true);
+                            } catch (err) {
+                                console.error('Open workflow event handler error:', err);
+                            }
+                        }
+                        window.addEventListener('n88-open-item-workflow', handleOpenWorkflowEvent);
+                        return function() {
+                            window.removeEventListener('n88-open-item-workflow', handleOpenWorkflowEvent);
                         };
                     }, [item && item.id]);
                     
@@ -19775,11 +20144,17 @@ class N88_RFQ_Admin {
                             onClose: function() {
                                 try { window.dispatchEvent(new CustomEvent('n88-board-refresh-status')); } catch (e) {}
                                 setOpenModalToSupport(false);
+                                setInitialWorkflowStep(null);
+                                setInitialWorkflowIntent('');
+                                setInitialSelectedBidId(null);
                                 setIsModalOpen(false);
                             },
                             onSave: handleSave,
                             boardId: boardId,
-                            initialTab: initialTab
+                            initialTab: initialTab,
+                            initialWorkflowStep: initialWorkflowStep,
+                            initialWorkflowIntent: initialWorkflowIntent,
+                            initialSelectedBidId: initialSelectedBidId
                         })
                     );
                 };
@@ -20306,15 +20681,11 @@ class N88_RFQ_Admin {
                         };
                         var onProposal = function() {
                             setSelectionMode(null);
+                            setBatchSelected({});
                             setBatchModalOpen(false);
+                            setProposalItems([]);
                             setBatchError('');
                             setProposalError('');
-                            if (selectedCount > 0) {
-                                openProposalModal();
-                                return;
-                            }
-                            setBatchSelected({});
-                            setProposalItems([]);
                             openGroupedProposalModal({ source: 'board' });
                         };
                         var onCancel = function() {
@@ -20335,7 +20706,7 @@ class N88_RFQ_Admin {
                             if (proposalBtn) proposalBtn.removeEventListener('click', onProposal);
                             cancelBtn.removeEventListener('click', onCancel);
                         };
-                    });
+                    }, []);
                     React.useEffect(function() {
                         window.n88TryOpenBatchProposalFromBoardItem = function(rawItem) {
                             if (!rawItem || !isTruthyValue(rawItem.has_batch_proposals)) {
@@ -20544,16 +20915,6 @@ class N88_RFQ_Admin {
                             return !!isTruthyValue(it.has_batch_proposals);
                         });
                         if (!candidateItems.length) {
-                            setProposalLoading(false);
-                            setProposalItems([]);
-                            setExpandedProposalSuppliers({});
-                            setProposalContext({
-                                mode: 'grouped',
-                                source: options.source || (anchorItemId ? 'item' : 'board'),
-                                anchorItemId: anchorItemId,
-                                groupId: requestedGroupId
-                            });
-                            setProposalModalOpen(true);
                             setProposalError('No batch proposals were found on this board yet.');
                             return false;
                         }
@@ -21385,131 +21746,166 @@ class N88_RFQ_Admin {
                             proposalError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.45)', borderRadius: '6px', color: '#ffd8a8', fontSize: '13px' } }, proposalError) : null,
                             proposalLoading ? React.createElement('div', { style: { padding: '28px 0', textAlign: 'center', fontSize: '14px', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'Loading batch proposal sheet...' : 'Loading selected proposals...') : null,
                             !proposalLoading && proposalItemGroups.length === 0 ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'No grouped proposals were found for this entry point yet.' : 'No proposals received for the selected items yet.') : null,
-                            !proposalLoading ? (function() {
-                                var modalActiveSupplierEntry = (function() {
-                                    for (var g = 0; g < proposalItemGroups.length; g++) {
-                                        var proposalGroup = proposalItemGroups[g];
-                                        var proposalItem = proposalGroup && proposalGroup.item ? proposalGroup.item : {};
-                                        var proposalItemId = toNumericItemId(proposalItem.id);
-                                        var proposalSuppliers = proposalGroup && Array.isArray(proposalGroup.suppliers) ? proposalGroup.suppliers : [];
-                                        for (var s = 0; s < proposalSuppliers.length; s++) {
-                                            var proposalSupplier = proposalSuppliers[s];
-                                            var proposalPanelKey = proposalItemId + ':' + proposalSupplier.supplierKey;
-                                            if (expandedProposalSuppliers[proposalPanelKey]) {
-                                                return proposalSupplier;
-                                            }
-                                        }
-                                    }
-                                    for (var g2 = 0; g2 < proposalItemGroups.length; g2++) {
-                                        if (proposalItemGroups[g2] && proposalItemGroups[g2].suppliers && proposalItemGroups[g2].suppliers.length) {
-                                            return proposalItemGroups[g2].suppliers[0];
-                                        }
-                                    }
-                                    return null;
-                                })();
-                                var modalSharedCtaLabels = ['REQUEST SAMPLES', 'REQUEST PROTOTYPE', 'SELECT THIS SUPPLIER'];
-                                return React.createElement(React.Fragment, null,
-                                    proposalItemGroups.map(function(group) {
-                                var currentItem = group.item || {};
-                                var currentItemId = toNumericItemId(currentItem.id);
-                                var itemLabel = currentItem.title || ('Item ' + currentItemId);
-                                var isAnchorItem = proposalContext && proposalContext.anchorItemId && proposalContext.anchorItemId === currentItemId;
-                                return React.createElement('div', { id: 'n88-batch-proposal-anchor-item-' + currentItemId, key: 'proposal-item-' + currentItemId, style: { marginBottom: '18px', border: isAnchorItem ? '1px solid #FF0065' : '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: isAnchorItem ? '#33212a' : '#2a2a2a', boxShadow: isAnchorItem ? '0 0 0 2px rgba(255,0,101,0.18)' : 'none' } },
-                                    React.createElement('div', { style: { padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', background: '#2f2f2f' } },
-                                        React.createElement('div', null,
-                                            React.createElement('div', { style: { fontSize: '16px', fontWeight: 600, color: '#fff' } }, itemLabel),
-                                            React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + currentItemId + (currentItem.quantity ? (' | Qty: ' + currentItem.quantity) : '') + (isAnchorItem ? ' | Opened from this item' : ''))
-                                        ),
-                                        React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: group.suppliers.length ? 'rgba(76,175,80,0.18)' : 'rgba(255,152,0,0.18)', border: group.suppliers.length ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,152,0,0.4)', color: group.suppliers.length ? '#9cffb2' : '#ffd8a8' } }, group.suppliers.length ? ('Quoted by ' + group.suppliers.length + ' supplier' + (group.suppliers.length === 1 ? '' : 's')) : 'Not Quoted')
-                                    ),
-                                    React.createElement('div', { style: { padding: '16px' } },
-                                        group.suppliers.length ? group.suppliers.map(function(supplierEntry, supplierIndex) {
-                                            var panelKey = currentItemId + ':' + supplierEntry.supplierKey;
-                                            var isExpanded = expandedProposalSuppliers[panelKey];
-                                            if (typeof isExpanded === 'undefined') isExpanded = supplierIndex === 0;
-                                            return React.createElement('div', { key: panelKey, style: { marginBottom: '12px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: '#323232' } },
-                                                React.createElement('button', {
-                                                    type: 'button',
-                                                    onClick: function() { toggleProposalSupplierPanel(panelKey); },
-                                                    style: {
-                                                        width: '100%',
-                                                        padding: '14px 16px',
-                                                        background: '#2b2b2b',
-                                                        border: 'none',
-                                                        borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.12)' : 'none',
-                                                        color: '#fff',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'space-between',
-                                                        gap: '12px',
-                                                        cursor: 'pointer',
-                                                        textAlign: 'left'
-                                                    }
-                                                },
-                                                    React.createElement('div', null,
-                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: 600 } }, supplierEntry.supplierDisplayLabel),
-                                                        React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, supplierEntry.supplierId ? ('Supplier ID: ' + supplierEntry.supplierId) : 'Supplier proposal')
-                                                    ),
-                                                    React.createElement('div', { style: { fontSize: '18px', lineHeight: 1, color: '#fff' } }, isExpanded ? '-' : '+')
-                                                ),
-                                                isExpanded ? React.createElement('div', { style: { padding: '14px' } },
-                                                    React.createElement(BidComparisonMatrixInline, {
-                                                        bids: [supplierEntry.bid],
-                                                        darkBorder: boardCanvasDarkBorder,
-                                                        greenAccent: boardCanvasGreenAccent,
-                                                        darkText: boardCanvasDarkText,
-                                                        darkBg: boardCanvasDarkBg,
-                                                        onImageClick: boardCanvasHandleImageClick,
-                                                        smartAlternativesEnabled: boardCanvasSmartAlternativesEnabled,
-                                                        itemId: currentItemId,
-                                                        itemQuantity: currentItem && (currentItem.quantity != null ? currentItem.quantity : (currentItem.meta && currentItem.meta.quantity)),
-                                                        itemCbm: currentItem && currentItem.cbm,
-                                                        itemDimsCm: currentItem && currentItem.dims_cm,
-                                                        singleBidHeading: supplierEntry.supplierDisplayLabel,
-                                                        hideAwardActions: true
-                                                    })
-                                                ) : null
-                                            );
-                                        }) : React.createElement('div', { style: { padding: '16px', borderRadius: '6px', border: '1px dashed rgba(255,255,255,0.2)', background: '#2b2b2b', color: '#ddd', fontSize: '13px' } }, 'Not Quoted'),
-                                        null
-                                    )
-                                );
-                            }),
-                                    modalActiveSupplierEntry ? React.createElement('div', {
+                            !proposalLoading ? React.createElement(React.Fragment, null,
+                                proposalItemGroups.map(function(group) {
+                                    var currentItem = group.item || {};
+                                    var currentItemId = toNumericItemId(currentItem.id);
+                                    var itemLabel = currentItem.title || ('Item ' + currentItemId);
+                                    var isAnchorItem = proposalContext && proposalContext.anchorItemId && proposalContext.anchorItemId === currentItemId;
+
+                                    return React.createElement('div', {
+                                        id: 'n88-batch-proposal-anchor-item-' + currentItemId,
+                                        key: 'proposal-item-' + currentItemId,
                                         style: {
-                                            display: 'flex',
-                                            gap: '10px',
-                                            flexWrap: 'wrap',
-                                            paddingTop: '6px',
-                                            marginTop: '6px'
+                                            marginBottom: '18px',
+                                            border: isAnchorItem ? '1px solid #FF0065' : '1px solid rgba(255,255,255,0.12)',
+                                            borderRadius: '8px',
+                                            overflow: 'hidden',
+                                            background: isAnchorItem ? '#33212a' : '#2a2a2a',
+                                            boxShadow: isAnchorItem ? '0 0 0 2px rgba(255,0,101,0.18)' : 'none'
                                         }
                                     },
-                                        modalSharedCtaLabels.map(function(label, idx) {
-                                            var isPrimary = idx === 2;
-                                            return React.createElement('button', {
-                                                key: 'shared-cta-modal-' + idx,
-                                                type: 'button',
-                                                title: modalActiveSupplierEntry.supplierDisplayLabel,
+                                        React.createElement('div', {
+                                            style: {
+                                                padding: '16px 18px',
+                                                borderBottom: '1px solid rgba(255,255,255,0.12)',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'flex-start',
+                                                gap: '12px',
+                                                flexWrap: 'wrap',
+                                                background: '#2f2f2f'
+                                            }
+                                        },
+                                            React.createElement('div', null,
+                                                React.createElement('div', { style: { fontSize: '16px', fontWeight: 600, color: '#fff' } }, itemLabel),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + currentItemId + (currentItem.quantity ? (' | Qty: ' + currentItem.quantity) : '') + (isAnchorItem ? ' | Opened from this item' : ''))
+                                            ),
+                                            React.createElement('div', {
                                                 style: {
-                                                    flex: '1 1 180px',
-                                                    minHeight: '38px',
-                                                    padding: '10px 14px',
-                                                    backgroundColor: isPrimary ? '#FF0065' : '#000000',
-                                                    color: '#ffffff',
-                                                    border: isPrimary ? '1px solid #FF0065' : '1px solid ' + boardCanvasDarkBorder,
-                                                    borderRadius: '0',
-                                                    fontSize: '12px',
-                                                    fontWeight: '700',
-                                                    letterSpacing: '0.4px',
-                                                    textTransform: 'uppercase',
-                                                    cursor: 'default'
+                                                    fontSize: '11px',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '999px',
+                                                    background: group.suppliers.length ? 'rgba(76,175,80,0.18)' : 'rgba(255,152,0,0.18)',
+                                                    border: group.suppliers.length ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,152,0,0.4)',
+                                                    color: group.suppliers.length ? '#9cffb2' : '#ffd8a8'
                                                 }
-                                            }, label);
-                                        }),
-                                        React.createElement('div', { style: { width: '100%', fontSize: '11px', color: '#bfbfbf', marginTop: '2px' } }, 'Active supplier: ' + modalActiveSupplierEntry.supplierDisplayLabel)
-                                    ) : null
-                                );
-                            })() : null
+                                            }, group.suppliers.length ? ('Quoted by ' + group.suppliers.length + ' supplier' + (group.suppliers.length === 1 ? '' : 's')) : 'Not Quoted')
+                                        ),
+                                        React.createElement('div', { style: { padding: '16px' } },
+                                            group.suppliers.length ? group.suppliers.map(function(supplierEntry, supplierIndex) {
+                                                var panelKey = currentItemId + ':' + supplierEntry.supplierKey;
+                                                var isExpanded = expandedProposalSuppliers[panelKey];
+                                                if (typeof isExpanded === 'undefined') {
+                                                    isExpanded = supplierIndex === 0;
+                                                }
+
+                                                return React.createElement('div', {
+                                                    key: panelKey,
+                                                    style: {
+                                                        marginBottom: '12px',
+                                                        border: '1px solid rgba(255,255,255,0.12)',
+                                                        borderRadius: '8px',
+                                                        overflow: 'hidden',
+                                                        background: '#323232'
+                                                    }
+                                                },
+                                                    React.createElement('button', {
+                                                        type: 'button',
+                                                        onClick: function() { toggleProposalSupplierPanel(panelKey); },
+                                                        style: {
+                                                            width: '100%',
+                                                            padding: '14px 16px',
+                                                            background: '#2b2b2b',
+                                                            border: 'none',
+                                                            borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.12)' : 'none',
+                                                            color: '#fff',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'space-between',
+                                                            gap: '12px',
+                                                            cursor: 'pointer',
+                                                            textAlign: 'left'
+                                                        }
+                                                    },
+                                                        React.createElement('div', null,
+                                                            React.createElement('div', { style: { fontSize: '14px', fontWeight: 600 } }, supplierEntry.supplierDisplayLabel),
+                                                            React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, supplierEntry.supplierId ? ('Supplier ID: ' + supplierEntry.supplierId) : 'Supplier proposal')
+                                                        ),
+                                                        React.createElement('div', { style: { fontSize: '18px', lineHeight: 1, color: '#fff' } }, isExpanded ? '-' : '+')
+                                                    ),
+                                                    isExpanded ? React.createElement('div', { style: { padding: '14px' } },
+                                                        React.createElement(BidComparisonMatrixInline, {
+                                                            bids: [supplierEntry.bid],
+                                                            darkBorder: boardCanvasDarkBorder,
+                                                            greenAccent: boardCanvasGreenAccent,
+                                                            darkText: boardCanvasDarkText,
+                                                            darkBg: boardCanvasDarkBg,
+                                                            onImageClick: boardCanvasHandleImageClick,
+                                                            smartAlternativesEnabled: boardCanvasSmartAlternativesEnabled,
+                                                            itemId: currentItemId,
+                                                            itemQuantity: currentItem && (currentItem.quantity != null ? currentItem.quantity : (currentItem.meta && currentItem.meta.quantity)),
+                                                            itemCbm: currentItem && currentItem.cbm,
+                                                            itemDimsCm: currentItem && currentItem.dims_cm,
+                                                            singleBidHeading: supplierEntry.supplierDisplayLabel,
+                                                            hideAwardActions: true
+                                                        }),
+                                                        React.createElement('div', {
+                                                            style: {
+                                                                display: 'flex',
+                                                                gap: '10px',
+                                                                flexWrap: 'wrap',
+                                                                paddingTop: '12px',
+                                                                marginTop: '12px',
+                                                                borderTop: '1px solid rgba(255,255,255,0.12)'
+                                                            }
+                                                        },
+                                                            ['REQUEST SAMPLES', 'REQUEST PROTOTYPE', 'SELECT THIS SUPPLIER'].map(function(label, idx) {
+                                                                var isPrimary = idx === 2;
+                                                                return React.createElement('button', {
+                                                                    key: 'item-supplier-cta-' + panelKey + '-' + idx,
+                                                                    type: 'button',
+                                                                    title: itemLabel + ' | ' + supplierEntry.supplierDisplayLabel,
+                                                                    onClick: function() {
+                                                                        if (idx === 0) {
+                                                                            setProposalModalOpen(false);
+                                                                            window.dispatchEvent(new CustomEvent('n88-open-item-workflow', { detail: { itemId: currentItemId, initialTab: 'timeline', workflowStep: 0, intent: 'sample_request', bidId: supplierEntry.bid && supplierEntry.bid.bid_id ? supplierEntry.bid.bid_id : null } }));
+                                                                            return;
+                                                                        }
+                                                                    },
+                                                                    style: {
+                                                                        flex: '1 1 180px',
+                                                                        minHeight: '38px',
+                                                                        padding: '10px 14px',
+                                                                        backgroundColor: isPrimary ? '#FF0065' : '#000000',
+                                                                        color: '#ffffff',
+                                                                        border: isPrimary ? '1px solid #FF0065' : '1px solid ' + boardCanvasDarkBorder,
+                                                                        borderRadius: '0',
+                                                                        fontSize: '12px',
+                                                                        fontWeight: '700',
+                                                                        letterSpacing: '0.4px',
+                                                                        textTransform: 'uppercase',
+                                                                        cursor: idx === 0 ? 'pointer' : 'default'
+                                                                    }
+                                                                }, label);
+                                                            })
+                                                        )
+                                                    ) : null
+                                                );
+                                            }) : React.createElement('div', {
+                                                style: {
+                                                    padding: '16px',
+                                                    borderRadius: '6px',
+                                                    border: '1px dashed rgba(255,255,255,0.2)',
+                                                    background: '#2b2b2b',
+                                                    color: '#ddd',
+                                                    fontSize: '13px'
+                                                }
+                                            }, 'Not Quoted')
+                                        )
+                                    );
+                                })
+                            ) : null
                         ))), document.body) : null,
                         // Welcome Modal - shown once per user
                         React.createElement(WelcomeModal, { userId: currentUserId }),
@@ -21887,6 +22283,41 @@ class N88_RFQ_Admin {
                     $step456_status_color = '#999';
                 }
             }
+            $validation_status_text  = null;
+            $validation_status_color = null;
+            $material_validation     = isset( $item_meta_for_deposit['material_validation'] ) && is_array( $item_meta_for_deposit['material_validation'] ) ? $item_meta_for_deposit['material_validation'] : array();
+            if ( ! empty( $material_validation ) ) {
+                $validation_request    = isset( $material_validation['request'] ) && is_array( $material_validation['request'] ) ? $material_validation['request'] : array();
+                $validation_supplier   = isset( $material_validation['supplier'] ) && is_array( $material_validation['supplier'] ) ? $material_validation['supplier'] : array();
+                $validation_review     = isset( $material_validation['review'] ) && is_array( $material_validation['review'] ) ? $material_validation['review'] : array();
+                $validation_commitment = isset( $material_validation['commitment'] ) && is_array( $material_validation['commitment'] ) ? $material_validation['commitment'] : array();
+                $validation_complete   = ! empty( $validation_review['approved_at'] ) || ! empty( $validation_request['approved_without_samples'] );
+                $po_uploaded           = ! empty( $validation_commitment['po_uploaded_at'] );
+                $com_required          = isset( $item_meta_for_deposit['rfq_fabric_supplied_flag'] ) && 'yes' === strtolower( (string) $item_meta_for_deposit['rfq_fabric_supplied_flag'] );
+                $com_status            = isset( $validation_commitment['com_status'] ) ? (string) $validation_commitment['com_status'] : '';
+                $com_done              = ! $com_required || in_array( $com_status, array( 'com_delivered', 'com_received' ), true );
+                $deposit_done          = ! empty( $validation_commitment['deposit_confirmed_at'] ) || ( isset( $validation_commitment['deposit_status'] ) && 'confirmed' === $validation_commitment['deposit_status'] );
+
+                if ( $validation_complete && $po_uploaded && $com_done && $deposit_done ) {
+                    $validation_status_text  = 'Ready for Production';
+                    $validation_status_color = '#4caf50';
+                } elseif ( $validation_complete && ! $po_uploaded ) {
+                    $validation_status_text  = 'Awaiting PO';
+                    $validation_status_color = '#2196f3';
+                } elseif ( $validation_complete && $po_uploaded && ! $com_done ) {
+                    $validation_status_text  = 'Awaiting COM';
+                    $validation_status_color = '#ff9800';
+                } elseif ( $validation_complete && $po_uploaded && $com_done && ! $deposit_done ) {
+                    $validation_status_text  = 'Awaiting Deposit';
+                    $validation_status_color = '#ff9800';
+                } elseif ( ! empty( $validation_supplier['status'] ) ) {
+                    $validation_status_text  = 'Samples ' . ucwords( str_replace( '_', ' ', $validation_supplier['status'] ) );
+                    $validation_status_color = '#2196f3';
+                } elseif ( ! empty( $validation_request['requested_at'] ) ) {
+                    $validation_status_text  = 'Sample Request Sent';
+                    $validation_status_color = '#2196f3';
+                }
+            }
             $items_status[] = array(
                 'id' => $item_id_string,
                 'has_prototype_payment' => $has_prototype_payment,
@@ -21907,6 +22338,8 @@ class N88_RFQ_Admin {
                 'action_required' => $action_required,
                 'step456_status_text' => $step456_status_text,
                 'step456_status_color' => $step456_status_color,
+                'validation_status_text' => $validation_status_text,
+                'validation_status_color' => $validation_status_color,
                 'deposit_status' => isset( $item_meta_for_deposit['deposit_status'] ) ? $item_meta_for_deposit['deposit_status'] : '',
                 'deposit_amount' => isset( $item_meta_for_deposit['deposit_amount'] ) ? floatval( $item_meta_for_deposit['deposit_amount'] ) : null,
                 'deposit_received_at' => isset( $item_meta_for_deposit['deposit_received_at'] ) ? $item_meta_for_deposit['deposit_received_at'] : null,
