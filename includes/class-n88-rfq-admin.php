@@ -178,7 +178,10 @@ class N88_RFQ_Admin {
         } elseif ( 'samples_approved' === $sample_status ) {
             $card_status_text  = 'Samples Approved';
             $card_status_color = '#4caf50';
-        } elseif ( in_array( $sample_status, array( 'under_review', 'samples_received', 'delivered' ), true ) ) {
+        } elseif ( 'samples_received' === $sample_status ) {
+            $card_status_text  = 'Samples Received';
+            $card_status_color = '#2196f3';
+        } elseif ( in_array( $sample_status, array( 'under_review', 'delivered' ), true ) ) {
             $card_status_text  = 'Review Samples';
             $card_status_color = '#2196f3';
         } elseif ( in_array( $sample_status, array( 'shipped', 'in_transit' ), true ) ) {
@@ -188,8 +191,16 @@ class N88_RFQ_Admin {
             $card_status_text  = 'Samples In Preparation';
             $card_status_color = '#2196f3';
         } elseif ( 'sample_requested' === $sample_status ) {
-            $card_status_text  = 'submitted' === $payment_status ? 'Sample Payment Sent' : 'Sample Requested';
-            $card_status_color = 'submitted' === $payment_status ? '#ff9800' : '#2196f3';
+            if ( in_array( $payment_status, array( 'approved', 'recorded' ), true ) ) {
+                $card_status_text  = 'Sample Payment Approved';
+                $card_status_color = '#4caf50';
+            } elseif ( 'submitted' === $payment_status ) {
+                $card_status_text  = 'Sample Payment Sent';
+                $card_status_color = '#ff9800';
+            } else {
+                $card_status_text  = 'Sample Requested';
+                $card_status_color = '#2196f3';
+            }
         }
 
         return array(
@@ -197,6 +208,26 @@ class N88_RFQ_Admin {
             'card_status_text'   => $card_status_text,
             'card_status_color'  => $card_status_color,
         );
+    }
+
+    /**
+     * Map unified message context keys to workflow step indexes.
+     *
+     * @param string $context_type Context key.
+     * @return int|null
+     */
+    private function get_item_message_context_step_index( $context_type ) {
+        $normalized = sanitize_key( (string) $context_type );
+        $map        = array(
+            'step_1_responses'  => 0,
+            'step_2_validation' => 1,
+            'step_3_commitment' => 2,
+            'step_4_production' => 3,
+            'step_5_quality'    => 4,
+            'step_6_delivery'   => 5,
+        );
+
+        return isset( $map[ $normalized ] ) ? $map[ $normalized ] : null;
     }
 
     /**
@@ -13010,6 +13041,8 @@ class N88_RFQ_Admin {
                         unread_operator_messages: 0,
                         has_unread_supplier_messages: false,
                         unread_supplier_messages: 0,
+                        latest_unread_supplier_message_context: '',
+                        latest_unread_supplier_message_step_index: null,
                         direct_supplier_id: null,
                         direct_supplier_options: [],
                         has_prototype_payment: false,
@@ -13418,6 +13451,9 @@ class N88_RFQ_Admin {
                     var _isLoadingDesignerMessagesState = React.useState(false);
                     var isLoadingDesignerMessages = _isLoadingDesignerMessagesState[0];
                     var setIsLoadingDesignerMessages = _isLoadingDesignerMessagesState[1];
+                    var _detailsSupportReadyState = React.useState(false);
+                    var detailsSupportReady = _detailsSupportReadyState[0];
+                    var setDetailsSupportReady = _detailsSupportReadyState[1];
                     
                     var _designerMessageTextState = React.useState('');
                     var designerMessageText = _designerMessageTextState[0];
@@ -13608,6 +13644,9 @@ class N88_RFQ_Admin {
                     var _selectedStepIndexState = React.useState(0);
                     var selectedStepIndex = _selectedStepIndexState[0];
                     var setSelectedStepIndex = _selectedStepIndexState[1];
+                    var _pinnedTimelineStepState = React.useState(null);
+                    var pinnedTimelineStep = _pinnedTimelineStepState[0];
+                    var setPinnedTimelineStep = _pinnedTimelineStepState[1];
                     var _isOperatorTimelineState = React.useState(true);
                     var isOperatorTimeline = _isOperatorTimelineState[0];
                     var setIsOperatorTimeline = _isOperatorTimelineState[1];
@@ -13675,12 +13714,22 @@ class N88_RFQ_Admin {
                     // Skip when opened from Support link so we stay on Item Spec + chat box
                     React.useEffect(function() {
                         if (openToDetailsAndSupport) return;
+                        if (isOpen && initialTabProp === 'timeline' && initialTimelineStepProp !== null) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(initialTimelineStepProp);
+                            return;
+                        }
                         if (requestSampleContextProp && isOpen) {
                             setActiveTab('timeline');
                             setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 0);
                             return;
                         }
                         if (itemState.loading) return;
+                        if (pinnedTimelineStep === 2) {
+                            setActiveTab('timeline');
+                            setSelectedStepIndex(2);
+                            return;
+                        }
                         if (skipNextTabSwitchFromCadActionRef.current) {
                             skipNextTabSwitchFromCadActionRef.current = false;
                             return;
@@ -13694,6 +13743,9 @@ class N88_RFQ_Admin {
                         var validationSupplierAuto = validationStateAuto.supplier && typeof validationStateAuto.supplier === 'object'
                             ? validationStateAuto.supplier
                             : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.supplier && typeof item.meta.material_validation.supplier === 'object') ? item.meta.material_validation.supplier : {});
+                        var validationReviewAuto = validationStateAuto.review && typeof validationStateAuto.review === 'object'
+                            ? validationStateAuto.review
+                            : ((item && item.meta && item.meta.material_validation && item.meta.material_validation.review && typeof item.meta.material_validation.review === 'object') ? item.meta.material_validation.review : {});
                         var validationSampleStatusAuto = String(validationStateAuto.sample_status || (item && item.meta && item.meta.material_validation && item.meta.material_validation.sample_status) || '').toLowerCase();
                         var validationCardTextAuto = String(itemState.validation_card_status_text || item.validation_card_status_text || validationStateAuto.card_status_text || '').toLowerCase();
                         var sampleSupplierResponseReceived = !!(
@@ -13703,7 +13755,15 @@ class N88_RFQ_Admin {
                             validationSupplierAuto.tracking_number ||
                             (validationSupplierAuto.files && validationSupplierAuto.files.length)
                         );
-                        var sampleReviewStepThree = validationSampleStatusAuto === 'samples_received' || validationSampleStatusAuto === 'under_review' || validationSampleStatusAuto === 'samples_approved' || validationCardTextAuto === 'samples approved';
+                        var sampleReviewStepThree = !!(
+                            validationReviewAuto.samples_received_at ||
+                            validationReviewAuto.approved_at ||
+                            validationSampleStatusAuto === 'samples_received' ||
+                            validationSampleStatusAuto === 'under_review' ||
+                            validationSampleStatusAuto === 'samples_approved' ||
+                            validationCardTextAuto === 'samples received' ||
+                            validationCardTextAuto === 'samples approved'
+                        );
                         var sampleReviewStepTwo = sampleSupplierResponseReceived || validationSampleStatusAuto === 'delivered' || validationSampleStatusAuto === 'shipped' || validationSampleStatusAuto === 'in_transit' || validationCardTextAuto === 'review samples';
                         if (sampleReviewStepThree) {
                             setActiveTab('timeline');
@@ -13755,7 +13815,7 @@ class N88_RFQ_Admin {
                         } else {
                             setActiveTab('details');
                         }
-                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, itemState.validation_state, itemState.validation_card_status_text, item.validation_state, item.validation_card_status_text, openToDetailsAndSupport, requestSampleContextProp, isOpen, initialTimelineStepProp]);
+                    }, [itemState.has_rfq, itemState.has_bids, itemState.loading, itemState.has_unread_operator_messages, itemState.has_prototype_payment, itemState.prototype_payment_status, itemState.cad_current_version, itemState.cad_status, itemState.cad_released_to_supplier_at, itemState.prototype_submission, itemState.prototype_status, itemState.validation_state, itemState.validation_card_status_text, item.validation_state, item.validation_card_status_text, openToDetailsAndSupport, requestSampleContextProp, isOpen, initialTimelineStepProp, pinnedTimelineStep]);
                     
                     // Auto-select first bid when form opens with single bid (Commit 2.3.9.1B)
                     React.useEffect(function() {
@@ -13833,6 +13893,19 @@ class N88_RFQ_Admin {
                     
                     var isDirectSupplierConversation = !!itemState.has_rfq;
                     var availableDirectSuppliers = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
+                    var getTimelineStepMessageContextType = React.useCallback(function() {
+                        var resolvedStepNumber = selectedStepIndex + 1;
+                        if (timelineData && timelineData.steps && timelineData.steps[selectedStepIndex] && timelineData.steps[selectedStepIndex].step_number) {
+                            resolvedStepNumber = parseInt(timelineData.steps[selectedStepIndex].step_number, 10) || resolvedStepNumber;
+                        }
+                        if (resolvedStepNumber === 1) return 'step_1_responses';
+                        if (resolvedStepNumber === 2) return 'step_2_validation';
+                        if (resolvedStepNumber === 3) return 'step_3_commitment';
+                        if (resolvedStepNumber === 4) return 'step_4_production';
+                        if (resolvedStepNumber === 5) return 'step_5_quality';
+                        if (resolvedStepNumber === 6) return 'step_6_delivery';
+                        return 'item_specs';
+                    }, [selectedStepIndex, timelineData]);
                     var normalizeDirectSupplierId = React.useCallback(function(preferredSupplierId) {
                         if (!isDirectSupplierConversation) {
                             return null;
@@ -13870,14 +13943,26 @@ class N88_RFQ_Admin {
                         return null;
                     }, [isDirectSupplierConversation, itemState.direct_supplier_options, itemState.direct_supplier_id, selectedDirectSupplierId]);
                     var getDesignerConversationContext = React.useCallback(function(preferredSupplierId) {
-                        var useDirectSupplier = !!itemState.has_rfq;
+                        var contextType = (activeTab === 'timeline' && itemState.has_rfq) ? getTimelineStepMessageContextType() : 'item_specs';
+                        var useDirectSupplier = (contextType !== 'item_specs') ? true : !!itemState.has_rfq;
                         return {
                             threadType: useDirectSupplier ? 'designer_supplier' : 'designer_operator',
-                            supplierId: useDirectSupplier ? normalizeDirectSupplierId(preferredSupplierId) : null
+                            supplierId: useDirectSupplier ? normalizeDirectSupplierId(preferredSupplierId) : null,
+                            contextType: contextType
                         };
-                    }, [itemState.has_rfq, normalizeDirectSupplierId]);
-                    var requiresMessageTags = !isDirectSupplierConversation;
-                    var canSendDesignerMessage = !!designerMessageText.trim() && (!requiresMessageTags || msgTagClarifying || msgTagMSE) && (!isDirectSupplierConversation || !!normalizeDirectSupplierId());
+                    }, [activeTab, itemState.has_rfq, getTimelineStepMessageContextType, normalizeDirectSupplierId]);
+                    var activeDesignerConversationContext = getDesignerConversationContext();
+                    var activeMessageContextType = activeDesignerConversationContext.contextType || 'item_specs';
+                    var activeMessageThreadLabel = activeMessageContextType === 'step_1_responses' ? 'Step 01 - Proposal Submitted Thread'
+                        : activeMessageContextType === 'step_2_validation' ? 'Step 02 - Design Evaluation Thread'
+                        : activeMessageContextType === 'step_3_commitment' ? 'Step 03 - Award Decision Thread'
+                        : activeMessageContextType === 'step_4_production' ? 'Step 04 - Production Thread'
+                        : activeMessageContextType === 'step_5_quality' ? 'Step 05 - Quality Review & Packing Thread'
+                        : activeMessageContextType === 'step_6_delivery' ? 'Step 06 - Delivery Thread'
+                        : activeMessageContextType === 'batch_proposal' ? 'Batch Proposal'
+                        : 'Item Specs';
+                    var requiresMessageTags = activeDesignerConversationContext.threadType === 'designer_operator' && activeMessageContextType === 'item_specs';
+                    var canSendDesignerMessage = !!designerMessageText.trim() && (!requiresMessageTags || msgTagClarifying || msgTagMSE) && (activeDesignerConversationContext.threadType !== 'designer_supplier' || !!normalizeDirectSupplierId());
 
                     // Commit 2.3.9.1C-a: Load Designer Messages
                     var loadDesignerMessages = React.useCallback(function(preferredSupplierId) {
@@ -13904,6 +13989,7 @@ class N88_RFQ_Admin {
                             formData.append('action', 'n88_get_item_messages');
                             formData.append('item_id', String(itemId));
                             formData.append('thread_type', conversationContext.threadType);
+                            formData.append('context_type', conversationContext.contextType || 'item_specs');
                             if (conversationContext.supplierId) {
                                 formData.append('supplier_id', String(conversationContext.supplierId));
                             }
@@ -13948,10 +14034,30 @@ class N88_RFQ_Admin {
                     // Ensure message history loads every time modal opens/reopens
                     React.useEffect(function() {
                         if (!isOpen || !itemId) return;
-                        if (typeof loadDesignerMessages === 'function') {
-                            loadDesignerMessages();
-                        }
+                        if (typeof loadDesignerMessages !== 'function') return;
+                        var timeoutId = window.setTimeout(function() {
+                            try {
+                                loadDesignerMessages();
+                            } catch (e) {
+                                console.error('Deferred message load failed:', e);
+                            }
+                        }, 120);
+                        return function() {
+                            window.clearTimeout(timeoutId);
+                        };
                     }, [isOpen, itemId, loadDesignerMessages]);
+                    React.useEffect(function() {
+                        if (!isOpen) {
+                            setDetailsSupportReady(false);
+                            return;
+                        }
+                        var timeoutId = window.setTimeout(function() {
+                            setDetailsSupportReady(true);
+                        }, 180);
+                        return function() {
+                            window.clearTimeout(timeoutId);
+                        };
+                    }, [isOpen, itemId]);
                     
                     React.useEffect(function() {
                         var options = Array.isArray(itemState.direct_supplier_options) ? itemState.direct_supplier_options : [];
@@ -14021,6 +14127,7 @@ class N88_RFQ_Admin {
                             formData.append('action', 'n88_send_item_message');
                             formData.append('item_id', String(itemId));
                             formData.append('thread_type', conversationContext.threadType);
+                            formData.append('context_type', conversationContext.contextType || 'item_specs');
                             formData.append('message_text', designerMessageText.trim());
                             if (conversationContext.supplierId) formData.append('supplier_id', String(conversationContext.supplierId));
                             if (msgTagClarifying) formData.append('message_tags[]', 'clarifying_questions');
@@ -14057,6 +14164,7 @@ class N88_RFQ_Admin {
                                         sender_name: 'You',
                                         message_text: designerMessageText.trim(),
                                         category: (msgTagClarifying || msgTagMSE) ? [msgTagClarifying ? 'clarifying_questions' : null, msgTagMSE ? 'mse_material' : null].filter(Boolean).join(',') : (designerMessageCategory || ''),
+                                        context_type: conversationContext.contextType || 'item_specs',
                                         created_at: new Date().toISOString(),
                                         message_attachments: []
                                     };
@@ -14078,6 +14186,8 @@ class N88_RFQ_Admin {
                                     if (fileInputT1) fileInputT1.value = '';
                                     var fileInputT2 = document.getElementById('n88-designer-message-attachments-timeline2');
                                     if (fileInputT2) fileInputT2.value = '';
+                                    var fileInputWorkflowSidebar = document.getElementById('n88-designer-message-attachments-workflow-sidebar');
+                                    if (fileInputWorkflowSidebar) fileInputWorkflowSidebar.value = '';
                                     loadDesignerMessages(resolvedSupplierId);
                                     fetchItemState();
                                 } else {
@@ -14110,15 +14220,13 @@ class N88_RFQ_Admin {
                         }
                     }, [showDesignerMessageForm, designerMessages]);
                     
-                    // Load designer/operator messages when Step 1 Clarifications is visible (timeline tab, has_rfq or has_prototype_payment, CAD not yet submitted)
+                    // Commit 3.C.20: Reload isolated thread when workflow step changes.
                     React.useEffect(function() {
                         if (activeTab !== 'timeline' || !itemId) return;
-                        var hasRfqOrPayment = itemState.has_rfq || itemState.has_prototype_payment;
-                        var cadSubmitted = (Number(itemState.cad_current_version) || 0) > 0;
-                        if (hasRfqOrPayment && !cadSubmitted && typeof loadDesignerMessages === 'function') {
+                        if ((itemState.has_rfq || itemState.has_prototype_payment) && typeof loadDesignerMessages === 'function') {
                             loadDesignerMessages();
                         }
-                    }, [activeTab, itemId, itemState.has_rfq, itemState.has_prototype_payment, itemState.cad_current_version, loadDesignerMessages]);
+                    }, [activeTab, itemId, itemState.has_rfq, itemState.has_prototype_payment, selectedStepIndex, pinnedTimelineStep, loadDesignerMessages]);
                     var fetchTimeline = React.useCallback(function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) return;
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>');
@@ -14177,12 +14285,29 @@ class N88_RFQ_Admin {
                     var showRevisionUpload = _showRevisionUploadState[0];
                     var setShowRevisionUpload = _showRevisionUploadState[1];
                     
+                    var mergeValidationState = function(currentState, incomingState) {
+                        var baseCurrent = currentState && typeof currentState === 'object' ? currentState : {};
+                        var baseIncoming = incomingState && typeof incomingState === 'object' ? incomingState : {};
+                        var mergeSection = function(sectionKey) {
+                            var currentSection = baseCurrent[sectionKey] && typeof baseCurrent[sectionKey] === 'object' ? baseCurrent[sectionKey] : {};
+                            var incomingSection = baseIncoming[sectionKey] && typeof baseIncoming[sectionKey] === 'object' ? baseIncoming[sectionKey] : {};
+                            return Object.assign({}, currentSection, incomingSection);
+                        };
+                        return Object.assign({}, baseCurrent, baseIncoming, {
+                            request: mergeSection('request'),
+                            supplier: mergeSection('supplier'),
+                            review: mergeSection('review'),
+                            commitment: mergeSection('commitment'),
+                            readiness_flags: mergeSection('readiness_flags')
+                        });
+                    };
+
                     // Fetch item RFQ/bid state when modal opens
                     var fetchItemState = function() {
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
                             });
                             return;
                         }
@@ -14207,7 +14332,7 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
                             });
                             return;
                         }
@@ -14226,49 +14351,59 @@ class N88_RFQ_Admin {
                         })
                         .then(function(data) {
                             if (data.success) {
-                                setItemState({
-                                    has_rfq: data.data.has_rfq || false,
-                                    has_bids: data.data.has_bids || false,
-                                    has_awarded_bid: !!data.data.has_awarded_bid,
-                                    bids: data.data.bids || [],
-                                    rfq_revision_current: data.data.rfq_revision_current || null,
-                                    revision_changed: data.data.revision_changed || false,
-                                    has_unread_operator_messages: data.data.has_unread_operator_messages || false,
-                                    unread_operator_messages: data.data.unread_operator_messages || 0,
-                                    has_unread_supplier_messages: data.data.has_unread_supplier_messages || false,
-                                    unread_supplier_messages: data.data.unread_supplier_messages || 0,
-                                    direct_supplier_id: data.data.direct_supplier_id || null,
-                                    direct_supplier_options: data.data.direct_supplier_options || [],
-                                    has_prototype_payment: data.data.has_prototype_payment || false,
-                                    prototype_payment_id: data.data.prototype_payment_id || null,
-                                    prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
-                                    prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
-                                    prototype_payment_status: data.data.prototype_payment_status || null,
-                                    prototype_payment_total_due: data.data.prototype_payment_total_due || null,
-                                    cad_status: data.data.cad_status || null,
-                                    cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
-                                    cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
-                                    cad_approved_at: data.data.cad_approved_at || null,
-                                    cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
-                                    cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
-                                    cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
-                                    prototype_status: data.data.prototype_status || null,
-                                    prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
-                                    prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
-                                    prototype_submission: data.data.prototype_submission || null,
-                                    direction_keyword_ids: data.data.direction_keyword_ids || null,
-                                    direction_keyword_names: data.data.direction_keyword_names || null,
-                                    workflow_milestones: data.data.workflow_milestones || null,
-                                    validation_state: data.data.validation_state || null,
-                                    // Commit 28 / 3.C.1: Deposit lifecycle
-                                    deposit_status: (data.data.deposit_status !== undefined && data.data.deposit_status !== null) ? data.data.deposit_status : '',
-                                    deposit_amount: (data.data.deposit_amount !== undefined && data.data.deposit_amount !== null) ? data.data.deposit_amount : null,
-                                    deposit_calculated_at: data.data.deposit_calculated_at || null,
-                                    deposit_received_at: data.data.deposit_received_at || null,
-                                    deposit_receipt_url: data.data.deposit_receipt_url || '',
-                                    deposit_sent_note: data.data.deposit_sent_note || '',
-                                    deposit_sent_at: data.data.deposit_sent_at || null,
-                                    loading: false,
+                                setItemState(function(prev) {
+                                    var previousState = prev && typeof prev === 'object' ? prev : {};
+                                    var previousValidationState = previousState.validation_state
+                                        || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null)
+                                        || (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null);
+                                    var mergedValidationState = mergeValidationState(previousValidationState, data.data.validation_state || null);
+                                    return Object.assign({}, previousState, {
+                                        has_rfq: data.data.has_rfq || false,
+                                        has_bids: data.data.has_bids || false,
+                                        has_awarded_bid: !!data.data.has_awarded_bid,
+                                        bids: data.data.bids || [],
+                                        rfq_revision_current: data.data.rfq_revision_current || null,
+                                        revision_changed: data.data.revision_changed || false,
+                                        has_unread_operator_messages: data.data.has_unread_operator_messages || false,
+                                        unread_operator_messages: data.data.unread_operator_messages || 0,
+                                        has_unread_supplier_messages: data.data.has_unread_supplier_messages || false,
+                                        unread_supplier_messages: data.data.unread_supplier_messages || 0,
+                                        latest_unread_supplier_message_context: data.data.latest_unread_supplier_message_context || '',
+                                        latest_unread_supplier_message_step_index: typeof data.data.latest_unread_supplier_message_step_index === 'number' ? data.data.latest_unread_supplier_message_step_index : null,
+                                        direct_supplier_id: data.data.direct_supplier_id || null,
+                                        direct_supplier_options: data.data.direct_supplier_options || [],
+                                        has_prototype_payment: data.data.has_prototype_payment || false,
+                                        prototype_payment_id: data.data.prototype_payment_id || null,
+                                        prototype_payment_bid_id: data.data.prototype_payment_bid_id || null,
+                                        prototype_payment_supplier_id: data.data.prototype_payment_supplier_id || null,
+                                        prototype_payment_status: data.data.prototype_payment_status || null,
+                                        prototype_payment_total_due: data.data.prototype_payment_total_due || null,
+                                        cad_status: data.data.cad_status || null,
+                                        cad_revision_rounds_included: (data.data.cad_revision_rounds_included !== undefined && data.data.cad_revision_rounds_included !== null) ? data.data.cad_revision_rounds_included : null,
+                                        cad_revision_rounds_used: (data.data.cad_revision_rounds_used !== undefined && data.data.cad_revision_rounds_used !== null) ? data.data.cad_revision_rounds_used : null,
+                                        cad_approved_at: data.data.cad_approved_at || null,
+                                        cad_approved_version: (data.data.cad_approved_version !== undefined && data.data.cad_approved_version !== null) ? data.data.cad_approved_version : null,
+                                        cad_released_to_supplier_at: data.data.cad_released_to_supplier_at || null,
+                                        cad_current_version: (data.data.cad_current_version !== undefined && data.data.cad_current_version !== null) ? data.data.cad_current_version : null,
+                                        prototype_status: data.data.prototype_status || null,
+                                        prototype_current_version: (data.data.prototype_current_version !== undefined && data.data.prototype_current_version !== null) ? data.data.prototype_current_version : null,
+                                        prototype_approved_version: (data.data.prototype_approved_version !== undefined && data.data.prototype_approved_version !== null) ? data.data.prototype_approved_version : null,
+                                        prototype_submission: data.data.prototype_submission || null,
+                                        direction_keyword_ids: data.data.direction_keyword_ids || null,
+                                        direction_keyword_names: data.data.direction_keyword_names || null,
+                                        workflow_milestones: data.data.workflow_milestones || null,
+                                        validation_state: mergedValidationState,
+                                        validation_card_status_text: mergedValidationState && mergedValidationState.card_status_text ? mergedValidationState.card_status_text : (previousState.validation_card_status_text || ''),
+                                        validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#2196f3'),
+                                        deposit_status: (data.data.deposit_status !== undefined && data.data.deposit_status !== null) ? data.data.deposit_status : '',
+                                        deposit_amount: (data.data.deposit_amount !== undefined && data.data.deposit_amount !== null) ? data.data.deposit_amount : null,
+                                        deposit_calculated_at: data.data.deposit_calculated_at || null,
+                                        deposit_received_at: data.data.deposit_received_at || null,
+                                        deposit_receipt_url: data.data.deposit_receipt_url || '',
+                                        deposit_sent_note: data.data.deposit_sent_note || '',
+                                        deposit_sent_at: data.data.deposit_sent_at || null,
+                                        loading: false
+                                    });
                                 });
                                 // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
                                 if (updateLayout && item && item.id) {
@@ -14279,9 +14414,14 @@ class N88_RFQ_Admin {
                                     if (data.data.prototype_status !== undefined && data.data.prototype_status !== null) cardUpdates.prototype_status = data.data.prototype_status;
                                     if (data.data.has_awarded_bid !== undefined) cardUpdates.has_awarded_bid = !!data.data.has_awarded_bid;
                                     if (data.data.deposit_status !== undefined) cardUpdates.deposit_status = data.data.deposit_status;
-                                    if (data.data.validation_state !== undefined) cardUpdates.validation_state = data.data.validation_state || null;
-                                    if (data.data.validation_state && data.data.validation_state.card_status_text !== undefined) cardUpdates.validation_card_status_text = data.data.validation_state.card_status_text || '';
-                                    if (data.data.validation_state && data.data.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = data.data.validation_state.card_status_color || '#2196f3';
+                                    if (data.data.validation_state !== undefined) {
+                                        cardUpdates.validation_state = mergeValidationState(
+                                            (item && item.validation_state && typeof item.validation_state === 'object') ? item.validation_state : ((item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object') ? item.meta.material_validation : null),
+                                            data.data.validation_state || null
+                                        );
+                                    }
+                                    if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_text !== undefined) cardUpdates.validation_card_status_text = cardUpdates.validation_state.card_status_text || '';
+                                    if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = cardUpdates.validation_state.card_status_color || '#2196f3';
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
                                 }
                                 // When all bids withdrawn: item is State A; reset Request Quote to show "Request Quote" (fresh form)
@@ -14291,14 +14431,14 @@ class N88_RFQ_Admin {
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
                             });
                         });
                     };
@@ -14307,6 +14447,7 @@ class N88_RFQ_Admin {
                     React.useEffect(function() {
                         if (isOpen && itemId && itemId > 0) {
                             setShowDesignerMessageForm(false);
+                            setPinnedTimelineStep(null);
                             fetchItemState();
                         }
                     }, [isOpen, itemId]);
@@ -16372,6 +16513,65 @@ class N88_RFQ_Admin {
                                             })
                                         )
                                     ) : null,
+                                    activeTab === 'timeline' ? React.createElement('div', {
+                                        style: { marginBottom: '16px' }
+                                    },
+                                        React.createElement('div', {
+                                            style: {
+                                                border: '1px solid ' + darkBorder,
+                                                borderRadius: '4px',
+                                                padding: '12px',
+                                                backgroundColor: '#111111'
+                                            }
+                                        },
+                                            React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, activeMessageThreadLabel),
+                                            React.createElement('div', { style: { fontSize: '10px', color: darkText, marginBottom: '10px', lineHeight: 1.5 } }, 'This conversation is isolated to this workflow step.'),
+                                            React.createElement('div', { id: 'n88-designer-messages-container-workflow-admin', style: { height: '240px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
+                                                isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation...') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px', padding: '20px' } }, 'No messages in this step yet.') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
+                                                    var isD = msg.sender_role === 'designer';
+                                                    var senderName = isD ? 'You' : (activeDesignerConversationContext.threadType === 'designer_supplier' ? 'Supplier' : 'Wireframe');
+                                                    var tags = [];
+                                                    if (activeMessageContextType === 'item_specs' && msg.category) { var parts = String(msg.category).split(','); if (parts.indexOf('clarifying_questions') !== -1) tags.push('Clarifying questions'); if (parts.indexOf('mse_material') !== -1) tags.push('MSE/Material Suggestions'); }
+                                                    var attachments = [];
+                                                    try { if (msg.message_attachments) { var a = typeof msg.message_attachments === 'string' ? JSON.parse(msg.message_attachments) : msg.message_attachments; if (Array.isArray(a)) attachments = a; } } catch (e) {}
+                                                    return React.createElement('div', { key: idx, style: { marginBottom: '5px', textAlign: isD ? 'right' : 'left' } }, React.createElement('div', { style: { display: 'inline-block', maxWidth: '92%', padding: '6px 9px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '6px', fontSize: '10px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.35 } }, React.createElement('div', { style: { fontSize: '8px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 2 } }, senderName), React.createElement('div', null, (msg.message_text || '').substring(0, 2000)), tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '5px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '7px', color: greenAccent } }, 'FILE')); })) : null, React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')));
+                                                })
+                                            ),
+                                            React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                                                activeDesignerConversationContext.threadType === 'designer_supplier' ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                    React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
+                                                    React.createElement('select', {
+                                                        ref: directSupplierSelectRef,
+                                                        className: 'n88-direct-supplier-select',
+                                                        value: selectedDirectSupplierId ? String(selectedDirectSupplierId) : '',
+                                                        onChange: function(e) { setSelectedDirectSupplierId(e.target.value || null); },
+                                                        style: { width: '100%', padding: '8px 10px', backgroundColor: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '10px', fontFamily: 'monospace', fontSize: '11px' }
+                                                    },
+                                                        React.createElement('option', { value: '' }, availableDirectSuppliers.length ? 'Select supplier' : 'No supplier available'),
+                                                        availableDirectSuppliers.map(function(opt) {
+                                                            return React.createElement('option', { key: String(opt.supplier_id), value: String(opt.supplier_id) }, opt.display_name || ('Supplier #' + opt.supplier_id));
+                                                        })
+                                                    )
+                                                ) : null,
+                                                requiresMessageTags ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+                                                    React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Select all that apply'),
+                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', color: darkText } },
+                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagClarifying, onChange: function(e) { setMsgTagClarifying(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'Clarifying questions'),
+                                                        React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '9px' } }, React.createElement('input', { type: 'checkbox', checked: msgTagMSE, onChange: function(e) { setMsgTagMSE(e.target.checked); }, style: { width: '12px', height: '12px', cursor: 'pointer' } }), 'MSE/Material Suggestions')
+                                                    )
+                                                ) : null,
+                                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' } },
+                                                    renderDesignerMessageFilePreview(),
+                                                    React.createElement('button', { type: 'button', title: "Attach files (optional)", onClick: function() { var el = document.getElementById('n88-designer-message-attachments-workflow-sidebar'); if (el) el.click(); }, style: { backgroundColor: '#111', border: '1px solid ' + darkBorder, padding: '6px 10px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, opacity: designerMessageFiles.length > 0 ? 1 : 0.8, color: darkText, borderRadius: '12px' } }, designerMessageFiles.length > 0 ? 'Files: ' + designerMessageFiles.length : 'Attach files'),
+                                                    React.createElement('input', { type: 'file', id: 'n88-designer-message-attachments-workflow-sidebar', multiple: true, onChange: function(e) { var files = e.target.files; if (files && files.length) appendDesignerMessageFiles(files); if (e.target) e.target.value = ''; }, style: { display: 'none' }, accept: '.pdf,.doc,.docx,image/*' })
+                                                ),
+                                                React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '0', backgroundColor: '#000', border: '1px solid ' + darkBorder, borderRadius: '20px', padding: '6px 10px 6px 12px', minHeight: '30px' } },
+                                                    React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...' }),
+                                                    React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
+                                                )
+                                            )
+                                        )
+                                    ) : null,
                                     // Inspiration / References / Sketch Drawings (State A only - editable)
                                     isEditable && currentState === 'A' ? React.createElement('div', null,
                                         React.createElement('div', {
@@ -17075,8 +17275,8 @@ class N88_RFQ_Admin {
                                             React.createElement('div', { id: 'n88-item-spec-support-box', style: { flex: '0 0 40%', maxWidth: '40%', flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'sticky', top: 0 } },
                                             React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent, marginBottom: '12px' } }, 'Support'),
                                             React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '12px', backgroundColor: '#111' } },
-                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('span', { style: { fontSize: '12px', color: darkText } }, 'Check files for CAD \u00B7 Check messages below')),
-                                                React.createElement('div', { id: 'n88-designer-messages-container-details-admin', style: { height: '200px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
+                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, React.createElement('span', { style: { fontSize: '12px', color: darkText } }, 'Check messages below')),
+                                                !detailsSupportReady ? React.createElement('div', { style: { height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder, color: '#666', fontSize: '12px' } }, 'Support loading...') : React.createElement('div', { id: 'n88-designer-messages-container-details-admin', style: { height: '200px', overflowY: 'auto', padding: '12px', backgroundColor: '#0a0a0a', borderRadius: '4px', marginBottom: '12px', border: '1px solid ' + darkBorder } },
                                                     isLoadingDesignerMessages ? React.createElement('div', { style: { textAlign: 'center', color: '#888', padding: '20px' } }, 'Loading conversation\u2026') : designerMessages.length === 0 ? React.createElement('div', { style: { textAlign: 'center', color: '#666', fontSize: '12px' } }, 'No messages yet.') : designerMessages.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); }).map(function(msg, idx) {
                                                         var isD = msg.sender_role === 'designer';
                                                         var senderName = isD ? 'You' : (itemState.has_rfq ? 'Supplier' : 'Operator');
@@ -17087,7 +17287,7 @@ class N88_RFQ_Admin {
                                                         return React.createElement('div', { key: idx, style: { marginBottom: '5px', textAlign: isD ? 'right' : 'left' } }, React.createElement('div', { style: { display: 'inline-block', maxWidth: '85%', padding: '5px 9px', backgroundColor: isD ? '#1a1a1a' : '#0a0a0a', border: '1px solid ' + (isD ? greenAccent : '#333'), borderRadius: '6px', fontSize: '10px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: 1.35 } }, React.createElement('div', { style: { fontSize: '8px', fontWeight: 600, color: isD ? greenAccent : '#00aa00', marginBottom: 2 } }, senderName), React.createElement('div', null, (msg.message_text || '').substring(0, 2000)), tags.length > 0 ? React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: 3 } }, tags.map(function(t, i) { return React.createElement('span', { key: i, style: { fontSize: '7px', padding: '1px 4px', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: '3px' } }, t); })) : null, attachments.length > 0 ? React.createElement('div', { style: { marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '6px' } }, attachments.map(function(att, i) { var isImg = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(String(att.url || '')) || /\.(jpe?g|png|gif|webp)$/i.test(String(att.name || '')); return React.createElement('a', { key: i, href: att.url, target: '_blank', rel: 'noopener noreferrer', title: att.name || 'Attachment', style: { width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', borderRadius: '6px', backgroundColor: '#0a0a0a', textDecoration: 'none' } }, isImg ? React.createElement('img', { src: att.url, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }) : React.createElement('span', { style: { fontSize: '9px', color: greenAccent } }, 'FILE')); })) : null, React.createElement('div', { style: { fontSize: '7px', color: '#666', textAlign: 'right', marginTop: 2 } }, msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : '')));
                                                     })
                                                 ),
-                                                React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                                                detailsSupportReady ? React.createElement('form', { onSubmit: function(e) { e.preventDefault(); if (typeof sendDesignerMessage === 'function') sendDesignerMessage(e); }, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
                                                     isDirectSupplierConversation ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
                                                         React.createElement('div', { style: { fontSize: '9px', color: darkText, fontWeight: '600' } }, 'Send to supplier'),
                                                         React.createElement('select', {
@@ -17117,7 +17317,7 @@ class N88_RFQ_Admin {
                                                         React.createElement('textarea', { value: designerMessageText, onChange: function(e) { setDesignerMessageText(e.target.value); }, required: true, rows: 1, style: { flex: 1, padding: '8px 4px', backgroundColor: 'transparent', color: '#fff', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '12px', resize: 'none', height: '30px', minHeight: '30px', maxHeight: '30px' }, placeholder: 'Type your message here...' }),
                                                         React.createElement('button', { type: 'submit', disabled: isSendingDesignerMessage || !canSendDesignerMessage, style: { padding: '8px 16px', backgroundColor: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#333' : greenAccent, color: (isSendingDesignerMessage || !canSendDesignerMessage) ? '#666' : '#000', border: 'none', borderRadius: '16px', fontFamily: 'monospace', fontSize: '11px', fontWeight: '600', cursor: (isSendingDesignerMessage || !canSendDesignerMessage) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', marginLeft: '4px' } }, isSendingDesignerMessage ? '...' : 'Send')
                                                     )
-                                                )
+                                                ) : React.createElement('div', { style: { fontSize: '11px', color: '#666', paddingTop: '4px' } }, 'Conversation box is initializing...')
                                             )
                                             )
                                         ) : null,
@@ -18812,7 +19012,7 @@ class N88_RFQ_Admin {
                                                                         mergedValidationRequest.payment_status ? React.createElement(React.Fragment, null, React.createElement('br'), 'Payment Status: ' + String(mergedValidationRequest.payment_status).replace(/_/g, ' ')) : null
                                                                     )
                                                                 ) : null,
-                                                                (showSampleRequestStep && hasSampleRequest && mergedValidationRequest.requested_at && mergedValidationRequest.payment_status !== 'not_required') ? React.createElement('div', {
+                                                                (showSampleRequestStep && hasSampleRequest && mergedValidationRequest.requested_at && mergedValidationRequest.payment_status !== 'not_required' && !showSupplierResponse && !mergedValidationReview.samples_received_at && !mergedValidationReview.approved_at && ['approved', 'recorded', 'submitted'].indexOf(String(mergedValidationRequest.payment_status || '').toLowerCase()) === -1 && !mergedValidationRequest.payment_submitted_at) ? React.createElement('div', {
                                                                     style: { marginBottom: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px' }
                                                                 },
                                                                     React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Sample Payment'),
@@ -18826,7 +19026,7 @@ class N88_RFQ_Admin {
                                                                         React.createElement('div', { style: { fontSize: '10px', color: '#999', marginBottom: '4px' } }, 'Payment Proof'),
                                                                         mergedValidationRequest.payment_proof_files.map(function(file, fileIdx) {
                                                                             return React.createElement('div', { key: 'sample-payment-proof-' + fileIdx, style: { marginBottom: '4px' } },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || ('Payment Proof ' + (fileIdx + 1)))
+                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Payment Proof ' + (fileIdx + 1)))
                                                                             );
                                                                         })
                                                                     ) : null,
@@ -18869,9 +19069,17 @@ class N88_RFQ_Admin {
                                                                             } : {})
                                                                                 .then(function(res) {
                                                                                     if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Payment submission saved.');
+                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Payment approved.');
                                                                                         setSamplePaymentProofFile(null);
                                                                                         if (samplePaymentProofInputRef && samplePaymentProofInputRef.current) samplePaymentProofInputRef.current.value = '';
+                                                                                        if (res.data && res.data.validation_state) {
+                                                                                            setItemState(function(prev) {
+                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
+                                                                                                nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
+                                                                                                return nextState;
+                                                                                            });
+                                                                                        }
                                                                                         fetchItemState();
                                                                                     } else {
                                                                                         setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save payment submission.');
@@ -19048,7 +19256,7 @@ class N88_RFQ_Admin {
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '4px' } }, 'Designer reference files'),
                                                                         mergedValidationRequest.reference_files.map(function(file, fileIdx) {
                                                                             return React.createElement('div', { key: 'designer-sample-ref-' + fileIdx, style: { marginBottom: '4px' } },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || ('Reference File ' + (fileIdx + 1)))
+                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Reference File ' + (fileIdx + 1)))
                                                                             );
                                                                         })
                                                                     ) : null,
@@ -19059,14 +19267,14 @@ class N88_RFQ_Admin {
                                                                                 key: 'supplier-sample-file-' + fileIdx,
                                                                                 style: { marginBottom: '6px', padding: '8px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#000' }
                                                                             },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || ('Sample File ' + (fileIdx + 1)))
+                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Sample File ' + (fileIdx + 1)))
                                                                             );
                                                                         })
                                                                     ) : null,
                                                                     React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                         mergedValidationReview.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(mergedValidationReview.samples_received_at)) : React.createElement('button', {
                                                                             type: 'button',
-                                                                            disabled: sampleReviewSubmitting || !(mergedValidationSupplier.files && mergedValidationSupplier.files.length),
+                                                                            disabled: sampleReviewSubmitting,
                                                                             onClick: function() {
                                                                                 setSampleReviewSubmitting(true);
                                                                                 setSampleRequestMessage('');
@@ -19075,7 +19283,20 @@ class N88_RFQ_Admin {
                                                                                     .then(function(res) {
                                                                                         if (res && res.success) {
                                                                                             setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Samples marked as received.');
+                                                                                            setActiveTab('timeline');
+                                                                                            setPinnedTimelineStep(2);
                                                                                             setSelectedStepIndex(2);
+                                                                                            if (res.data && res.data.validation_state) {
+                                                                                                setItemState(function(prev) {
+                                                                                                    var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                    nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
+                                                                                                    nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
+                                                                                                    return nextState;
+                                                                                                });
+                                                                                            }
+                                                                                            setTimeout(function() {
+                                                                                                setSelectedStepIndex(2);
+                                                                                            }, 80);
                                                                                             fetchItemState();
                                                                                         } else {
                                                                                             setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to mark samples received.');
@@ -19103,7 +19324,7 @@ class N88_RFQ_Admin {
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && (!itemState.workflow_milestones || !itemState.workflow_milestones.step1 || !itemState.workflow_milestones.step1.payment_sent_at)) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(0,51,51,0.4)', border: '1px solid #66aaff', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#66aaff', marginBottom: '4px' } }, 'CAD Requested'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Designer has requested CAD with selected keywords.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'requested' && itemState.workflow_milestones && itemState.workflow_milestones.step1 && itemState.workflow_milestones.step1.payment_sent_at) ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(51,33,0,0.4)', border: '1px solid #ff8800', borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#ff8800', marginBottom: '4px' } }, 'Payment Sent - Pending Approval'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'Receipt uploaded. CAD drafting will begin once payment is confirmed.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
                                                         (s.step_number === 1 && itemState.has_prototype_payment && itemState.prototype_payment_status === 'marked_received') ? React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: 'rgba(255,0,101,0.08)', border: '1px solid ' + greenAccent, borderRadius: '4px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: greenAccent, marginBottom: '4px' } }, 'Payment Confirmed'), React.createElement('div', { style: { fontSize: '12px', color: darkText, lineHeight: 1.5 } }, 'CAD drafting has begun.'), itemState.direction_keyword_ids && itemState.direction_keyword_ids.length > 0 && itemState.direction_keyword_names ? React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: darkText } }, 'Keywords: ' + itemState.direction_keyword_ids.map(function(id) { return itemState.direction_keyword_names[id] || ('#' + id); }).join(', ')) : null) : null,
-                                                        (s.step_number === 1 && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
+                                                        (s.step_number === 1 && (itemState.has_rfq || itemState.has_prototype_payment) && !cadSubmittedStep && activeMessageContextType !== 'step_1_responses') ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                             React.createElement('div', { style: { border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
                                                                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
                                                                     React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Clarifications / Message Operator'),
@@ -19165,18 +19386,105 @@ class N88_RFQ_Admin {
                                                         s.started_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Started: ' + formatWorkflowDateTime(s.started_at)) : null,
                                                         s.completed_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Completed: ' + formatWorkflowDateTime(s.completed_at)) : null,
                                                         s.expected_by ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '2px' } }, 'Expected by: ' + formatWorkflowDateTime(s.expected_by)) : null,
-                                                        (s.step_number === 3 && itemState.validation_state && itemState.validation_state.enabled) ? (function() {
-                                                            var step3ValidationState = itemState.validation_state || {};
-                                                            var step3Review = step3ValidationState.review && typeof step3ValidationState.review === 'object' ? step3ValidationState.review : {};
-                                                            var step3Supplier = step3ValidationState.supplier && typeof step3ValidationState.supplier === 'object' ? step3ValidationState.supplier : {};
-                                                            var step3Request = step3ValidationState.request && typeof step3ValidationState.request === 'object' ? step3ValidationState.request : {};
-                                                            var step3Commitment = step3ValidationState.commitment && typeof step3ValidationState.commitment === 'object' ? step3ValidationState.commitment : {};
-                                                            var step3Readiness = step3ValidationState.readiness_flags && typeof step3ValidationState.readiness_flags === 'object' ? step3ValidationState.readiness_flags : {};
-                                                            var hasStep3Approved = !!step3Review.approved_at;
+                                                        (s.step_number === 3) ? (function() {
+                                                            var step3ValidationState = itemState.validation_state && typeof itemState.validation_state === 'object'
+                                                                ? itemState.validation_state
+                                                                : ((item && item.validation_state && typeof item.validation_state === 'object') ? item.validation_state : {});
+                                                            var step3ValidationMeta = (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object')
+                                                                ? item.meta.material_validation
+                                                                : {};
+                                                            var step3Review = step3ValidationState.review && typeof step3ValidationState.review === 'object'
+                                                                ? step3ValidationState.review
+                                                                : ((step3ValidationMeta.review && typeof step3ValidationMeta.review === 'object') ? step3ValidationMeta.review : {});
+                                                            var step3Supplier = step3ValidationState.supplier && typeof step3ValidationState.supplier === 'object'
+                                                                ? step3ValidationState.supplier
+                                                                : ((step3ValidationMeta.supplier && typeof step3ValidationMeta.supplier === 'object') ? step3ValidationMeta.supplier : {});
+                                                            var step3Request = step3ValidationState.request && typeof step3ValidationState.request === 'object'
+                                                                ? step3ValidationState.request
+                                                                : ((step3ValidationMeta.request && typeof step3ValidationMeta.request === 'object') ? step3ValidationMeta.request : {});
+                                                            var step3Commitment = step3ValidationState.commitment && typeof step3ValidationState.commitment === 'object'
+                                                                ? step3ValidationState.commitment
+                                                                : ((step3ValidationMeta.commitment && typeof step3ValidationMeta.commitment === 'object') ? step3ValidationMeta.commitment : {});
+                                                            var step3Readiness = step3ValidationState.readiness_flags && typeof step3ValidationState.readiness_flags === 'object'
+                                                                ? step3ValidationState.readiness_flags
+                                                                : ((step3ValidationMeta.readiness_flags && typeof step3ValidationMeta.readiness_flags === 'object') ? step3ValidationMeta.readiness_flags : {});
+                                                            var step3ProgressCardText = String(step3ValidationState.card_status_text || step3ValidationMeta.card_status_text || itemState.validation_card_status_text || item.validation_card_status_text || '').toLowerCase();
+                                                            var step3HasCommitmentProgress = !!(
+                                                                (step3Commitment.po_file && step3Commitment.po_file.url) ||
+                                                                step3Commitment.po_uploaded_at ||
+                                                                step3Commitment.com_status ||
+                                                                step3Commitment.com_tracking_number ||
+                                                                step3Commitment.com_delivered_at ||
+                                                                step3Commitment.deposit_status ||
+                                                                step3Commitment.deposit_amount ||
+                                                                step3Commitment.deposit_confirmed_at ||
+                                                                (step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length) ||
+                                                                step3Readiness.validation_complete ||
+                                                                step3ValidationState.can_commit ||
+                                                                ['samples approved', 'awaiting po', 'awaiting com', 'awaiting deposit', 'ready for production'].indexOf(step3ProgressCardText) !== -1
+                                                            );
+                                                            var hasStep3Approved = !!(
+                                                                step3Review.approved_at ||
+                                                                step3HasCommitmentProgress ||
+                                                                ['samples_approved'].indexOf(String(step3ValidationState.sample_status || step3ValidationMeta.sample_status || '').toLowerCase()) !== -1
+                                                            );
+                                                            var step3SampleStatus = String(step3ValidationState.sample_status || step3ValidationMeta.sample_status || '').toLowerCase();
                                                             var step3ComApplicable = !!(step3Commitment.com_applicable || step3Commitment.com_required);
                                                             var step3ComCompleted = ['com_delivered', 'received', 'confirmed'].indexOf(String(step3Commitment.com_status || '').toLowerCase()) !== -1;
                                                             var step3DepositConfirmed = ['confirmed', 'paid', 'recorded'].indexOf(String(step3Commitment.deposit_status || '').toLowerCase()) !== -1;
-                                                            var canShowStep3Review = !!(step3Review.samples_received_at || step3Review.approved_at);
+                                                            var step3CardStatusText = step3ProgressCardText;
+                                                            var step3HasPoSuccess = !!(
+                                                                (step3Commitment.po_file && step3Commitment.po_file.url) ||
+                                                                step3Commitment.po_uploaded_at ||
+                                                                step3Readiness.awaiting_com ||
+                                                                step3Readiness.awaiting_deposit ||
+                                                                step3Readiness.validation_complete ||
+                                                                step3ValidationState.can_commit ||
+                                                                ['awaiting com', 'awaiting deposit', 'ready for production'].indexOf(step3CardStatusText) !== -1
+                                                            );
+                                                            var step3HasComSuccess = !!(
+                                                                !step3ComApplicable ||
+                                                                step3ComCompleted ||
+                                                                step3Readiness.awaiting_deposit ||
+                                                                step3Readiness.validation_complete ||
+                                                                step3ValidationState.can_commit ||
+                                                                ['awaiting deposit', 'ready for production'].indexOf(step3CardStatusText) !== -1
+                                                            );
+                                                            var step3HasDepositSuccess = !!(
+                                                                step3DepositConfirmed ||
+                                                                step3Readiness.validation_complete ||
+                                                                step3ValidationState.can_commit ||
+                                                                ['ready for production'].indexOf(step3CardStatusText) !== -1
+                                                            );
+                                                            var step3IsReadyForProduction = !!(
+                                                                step3ValidationState.can_commit ||
+                                                                step3Readiness.validation_complete ||
+                                                                (step3HasPoSuccess && step3HasComSuccess && step3HasDepositSuccess) ||
+                                                                step3CardStatusText === 'ready for production'
+                                                            );
+                                                            var step3ForcedOpen = pinnedTimelineStep === 2 || selectedStepIndex === 2;
+                                                            var step3HasAnyContext = !!(
+                                                                step3Request.requested_at ||
+                                                                step3Request.payment_submitted_at ||
+                                                                step3Review.samples_received_at ||
+                                                                hasStep3Approved ||
+                                                                step3Review.notes ||
+                                                                step3Supplier.updated_at ||
+                                                                step3Supplier.status ||
+                                                                step3Supplier.note ||
+                                                                step3Supplier.tracking_number ||
+                                                                (step3Supplier.files && step3Supplier.files.length) ||
+                                                                step3SampleStatus
+                                                            );
+                                                            var canShowStep3Review = !!(
+                                                                step3ForcedOpen ||
+                                                                step3Review.samples_received_at ||
+                                                                step3Review.approved_at ||
+                                                                ['samples_received', 'under_review', 'samples_approved'].indexOf(step3SampleStatus) !== -1 ||
+                                                                ['samples received', 'samples approved', 'review samples'].indexOf(step3CardStatusText) !== -1 ||
+                                                                (step3ForcedOpen && step3HasAnyContext) ||
+                                                                (step3Supplier.files && step3Supplier.files.length && (step3Review.samples_received_at || ['samples_received', 'under_review', 'samples_approved'].indexOf(step3SampleStatus) !== -1 || ['samples received', 'samples approved', 'review samples'].indexOf(step3CardStatusText) !== -1 || step3ForcedOpen))
+                                                            );
                                                             if (!canShowStep3Review) {
                                                                 return null;
                                                             }
@@ -19190,7 +19498,7 @@ class N88_RFQ_Admin {
                                                                         var isSelectedSample = selectedSupplierSampleIds.indexOf(fileId) !== -1;
                                                                         return React.createElement('label', { key: 'step3-supplier-sample-' + fileIdx, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', marginBottom: '6px', border: '1px solid ' + (isSelectedSample ? greenAccent : darkBorder), borderRadius: '4px', background: isSelectedSample ? 'rgba(255,0,101,0.08)' : '#000', cursor: hasStep3Approved ? 'default' : 'pointer' } },
                                                                             !hasStep3Approved ? React.createElement('input', { type: 'checkbox', checked: isSelectedSample, onChange: function(e) { setSelectedSupplierSampleIds(function(prev) { return e.target.checked ? (prev.indexOf(fileId) === -1 ? prev.concat([fileId]) : prev) : prev.filter(function(v) { return v !== fileId; }); }); } }) : null,
-                                                                            React.createElement('a', { href: fileEntry.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || ('Sample #' + (fileIdx + 1)))
+                                                                            React.createElement('a', { href: fileEntry.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, fontSize: '11px', textDecoration: 'none' } }, fileEntry.title || fileEntry.name || ('Sample #' + (fileIdx + 1)))
                                                                         );
                                                                     })
                                                                 ) : null,
@@ -19221,6 +19529,17 @@ class N88_RFQ_Admin {
                                                                                 .then(function(res) {
                                                                                     if (res && res.success) {
                                                                                         setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Sample review saved.');
+                                                                                        setActiveTab('timeline');
+                                                                                        setPinnedTimelineStep(2);
+                                                                                        setSelectedStepIndex(2);
+                                                                                        if (res.data && res.data.validation_state) {
+                                                                                            setItemState(function(prev) {
+                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
+                                                                                                nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
+                                                                                                return nextState;
+                                                                                            });
+                                                                                        }
                                                                                         fetchItemState();
                                                                                     } else {
                                                                                         setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save sample review.');
@@ -19255,6 +19574,17 @@ class N88_RFQ_Admin {
                                                                                     if (res && res.success) {
                                                                                         setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Samples approved.');
                                                                                         setApprovedSampleImages([]);
+                                                                                        setActiveTab('timeline');
+                                                                                        setPinnedTimelineStep(2);
+                                                                                        setSelectedStepIndex(2);
+                                                                                        if (res.data && res.data.validation_state) {
+                                                                                            setItemState(function(prev) {
+                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
+                                                                                                nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
+                                                                                                nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
+                                                                                                return nextState;
+                                                                                            });
+                                                                                        }
                                                                                         fetchItemState();
                                                                                     } else {
                                                                                         setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to approve samples.');
@@ -19271,20 +19601,75 @@ class N88_RFQ_Admin {
                                                                     }, sampleReviewSubmitting ? 'Approving...' : 'Approve Samples')
                                                                 ) : React.createElement('div', { style: { display: 'grid', gap: '8px', padding: '12px', border: '1px solid ' + greenAccent, borderRadius: '4px', background: 'rgba(255,0,101,0.08)' } },
                                                                     React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
-                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Approved: ' + formatWorkflowDateTime(step3Review.approved_at)),
+                                                                    (step3Review.approved_at || step3Commitment.po_uploaded_at || step3Commitment.com_delivered_at || step3Commitment.deposit_confirmed_at) ? React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Progress saved: ' + formatWorkflowDateTime(step3Review.approved_at || step3Commitment.po_uploaded_at || step3Commitment.com_delivered_at || step3Commitment.deposit_confirmed_at)) : null,
                                                                     step3Review.approved_material_codes && step3Review.approved_material_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + step3Review.approved_material_codes.join(', ')) : null,
                                                                     step3Review.approved_finish_codes && step3Review.approved_finish_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + step3Review.approved_finish_codes.join(', ')) : null,
                                                                     step3Review.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Notes: ' + step3Review.notes) : null,
-                                                                    step3Review.approved_sample_images && step3Review.approved_sample_images.length ? React.createElement('div', { style: { display: 'grid', gap: '4px' } }, step3Review.approved_sample_images.map(function(file, fileIdx) {
+                                                                    step3HasPoSuccess ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'PO Uploaded'),
+                                                                        (step3Commitment.po_file && step3Commitment.po_file.url) ? React.createElement('a', { href: step3Commitment.po_file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, 'Open PO') : React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'PO is already saved in this workflow.'),
+                                                                        step3Commitment.po_uploaded_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Uploaded: ' + formatWorkflowDateTime(step3Commitment.po_uploaded_at)) : null
+                                                                    ) : null,
+                                                                    step3ComApplicable ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasComSuccess ? greenAccent : '#ffb347' } }, step3HasComSuccess ? 'COM Completed' : 'COM Pending'),
+                                                                        step3Commitment.com_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.com_status).replace(/_/g, ' ')) : null,
+                                                                        step3Commitment.com_tracking_number ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Tracking: ' + step3Commitment.com_tracking_number) : null,
+                                                                        step3Commitment.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Delivered: ' + formatWorkflowDateTime(step3Commitment.com_delivered_at)) : null,
+                                                                        (step3HasComSuccess && !step3Commitment.com_status && !step3Commitment.com_delivered_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'COM stage is already completed.') : null
+                                                                    ) : React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'COM Not Required')
+                                                                    ),
+                                                                    ((step3Commitment.deposit_status || step3Commitment.deposit_amount || (step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length)) || step3HasDepositSuccess) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasDepositSuccess ? greenAccent : '#ffb347' } }, step3HasDepositSuccess ? 'Deposit Confirmed' : 'Deposit Submitted'),
+                                                                        step3Commitment.deposit_amount ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Amount: ' + step3Commitment.deposit_amount) : null,
+                                                                        step3Commitment.deposit_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.deposit_status).replace(/_/g, ' ')) : null,
+                                                                        step3Commitment.deposit_confirmed_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Confirmed: ' + formatWorkflowDateTime(step3Commitment.deposit_confirmed_at)) : null,
+                                                                        (step3HasDepositSuccess && !step3Commitment.deposit_status && !step3Commitment.deposit_confirmed_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Deposit stage is already completed.') : null,
+                                                                        step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length ? React.createElement('div', { style: { display: 'grid', gap: '3px' } }, step3Commitment.deposit_receipt_files.map(function(file, fileIdx) {
+                                                                            return React.createElement('a', { key: 'step3-deposit-receipt-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Deposit Receipt ' + (fileIdx + 1)));
+                                                                        })) : null
+                                                                    ) : null,
+                                                                    step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '700', color: greenAccent } }, 'Ready for Production'),
+                                                                        React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'All validation commitments are complete.')
+                                                                    ) : null,
+                                                                    step3Review.approved_sample_images && step3Review.approved_sample_images.length ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } }, step3Review.approved_sample_images.map(function(file, fileIdx) {
                                                                         return React.createElement('a', { key: 'step3-approved-image-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Approved Sample ' + (fileIdx + 1)));
                                                                     })) : null
                                                                 )
                                                             );
                                                         })() : null,
-                                                        (s.step_number === 3 && itemState.validation_state && itemState.validation_state.enabled && itemState.validation_state.review && itemState.validation_state.review.approved_at) ? (function() {
-                                                            var step3ValidationStateReadiness = itemState.validation_state || {};
-                                                            var step3CommitmentReadiness = step3ValidationStateReadiness.commitment && typeof step3ValidationStateReadiness.commitment === 'object' ? step3ValidationStateReadiness.commitment : {};
-                                                            var step3ReadinessFlags = step3ValidationStateReadiness.readiness_flags && typeof step3ValidationStateReadiness.readiness_flags === 'object' ? step3ValidationStateReadiness.readiness_flags : {};
+                                                        (s.step_number === 3) ? (function() {
+                                                            var step3ValidationStateReadiness = itemState.validation_state && typeof itemState.validation_state === 'object'
+                                                                ? itemState.validation_state
+                                                                : ((item && item.validation_state && typeof item.validation_state === 'object') ? item.validation_state : {});
+                                                            var step3ValidationMetaReadiness = (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object')
+                                                                ? item.meta.material_validation
+                                                                : {};
+                                                            var step3ReviewReadiness = step3ValidationStateReadiness.review && typeof step3ValidationStateReadiness.review === 'object'
+                                                                ? step3ValidationStateReadiness.review
+                                                                : ((step3ValidationMetaReadiness.review && typeof step3ValidationMetaReadiness.review === 'object') ? step3ValidationMetaReadiness.review : {});
+                                                            var step3CommitmentReadiness = step3ValidationStateReadiness.commitment && typeof step3ValidationStateReadiness.commitment === 'object'
+                                                                ? step3ValidationStateReadiness.commitment
+                                                                : ((step3ValidationMetaReadiness.commitment && typeof step3ValidationMetaReadiness.commitment === 'object') ? step3ValidationMetaReadiness.commitment : {});
+                                                            var step3ReadinessFlags = step3ValidationStateReadiness.readiness_flags && typeof step3ValidationStateReadiness.readiness_flags === 'object'
+                                                                ? step3ValidationStateReadiness.readiness_flags
+                                                                : ((step3ValidationMetaReadiness.readiness_flags && typeof step3ValidationMetaReadiness.readiness_flags === 'object') ? step3ValidationMetaReadiness.readiness_flags : {});
+                                                            var step3ReadinessApproved = !!(
+                                                                step3ReviewReadiness.approved_at ||
+                                                                (step3CommitmentReadiness.po_file && step3CommitmentReadiness.po_file.url) ||
+                                                                step3CommitmentReadiness.po_uploaded_at ||
+                                                                step3CommitmentReadiness.com_status ||
+                                                                step3CommitmentReadiness.com_delivered_at ||
+                                                                step3CommitmentReadiness.deposit_status ||
+                                                                step3CommitmentReadiness.deposit_confirmed_at ||
+                                                                (step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length) ||
+                                                                step3ReadinessFlags.validation_complete ||
+                                                                step3ValidationStateReadiness.can_commit
+                                                            );
+                                                            if (!step3ReadinessApproved) {
+                                                                return null;
+                                                            }
                                                             var step3ComApplicableReadiness = !!(step3CommitmentReadiness.com_applicable || step3CommitmentReadiness.com_required);
                                                             var step3ComCompletedReadiness = ['com_delivered', 'received', 'confirmed'].indexOf(String(step3CommitmentReadiness.com_status || '').toLowerCase()) !== -1;
                                                             var step3DepositConfirmedReadiness = ['confirmed', 'paid', 'recorded'].indexOf(String(step3CommitmentReadiness.deposit_status || '').toLowerCase()) !== -1;
@@ -20741,10 +21126,24 @@ class N88_RFQ_Admin {
                             if (item && window.n88TryOpenBatchProposalFromBoardItem && window.n88TryOpenBatchProposalFromBoardItem(item)) {
                                 return;
                             }
-                            setInitialTab('details');
-                            setInitialTimelineStep(null);
-                            setRequestSampleContext(null);
-                            setOpenModalToSupport(false);
+                            var unreadSupplierContext = item && item.latest_unread_supplier_message_context ? String(item.latest_unread_supplier_message_context) : '';
+                            var unreadSupplierStepIndex = item && typeof item.latest_unread_supplier_message_step_index === 'number' ? item.latest_unread_supplier_message_step_index : null;
+                            if (unreadSupplierContext && unreadSupplierContext.indexOf('step_') === 0 && unreadSupplierStepIndex !== null) {
+                                setInitialTab('timeline');
+                                setInitialTimelineStep(unreadSupplierStepIndex);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            } else if (unreadSupplierContext === 'item_specs') {
+                                setInitialTab('details');
+                                setInitialTimelineStep(null);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(true);
+                            } else {
+                                setInitialTab('details');
+                                setInitialTimelineStep(null);
+                                setRequestSampleContext(null);
+                                setOpenModalToSupport(false);
+                            }
                             setIsModalOpen(true);
                         },
                         openSupport: function() {
@@ -22783,24 +23182,153 @@ class N88_RFQ_Admin {
             "SELECT item_id FROM {$board_items_table} WHERE board_id = %d AND removed_at IS NULL ORDER BY added_at ASC",
             $board_id
         ) );
-        if ( ! is_array( $board_item_ids ) ) {
-            $board_item_ids = array();
+        $board_item_ids = array_values( array_filter( array_map( 'absint', (array) $board_item_ids ) ) );
+        if ( empty( $board_item_ids ) ) {
+            wp_send_json_success( array( 'items' => array() ) );
         }
         $items_status = array();
         $pp_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$prototype_payments_table}'" ) === $prototype_payments_table;
+        $messages_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table;
+        $resolutions_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table;
+        $submissions_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table;
+        $links_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table;
+        $receipts_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table;
+        $item_files_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table;
+        $video_submissions_456_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
+        $comments_456_table = $wpdb->prefix . 'n88_timeline_step_comments';
+        $steps_456_table = $wpdb->prefix . 'n88_item_timeline_steps';
+        $timelines_456_table = $wpdb->prefix . 'n88_item_timelines';
+        $video_submissions_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$video_submissions_456_table}'" ) === $video_submissions_456_table;
+        $comments_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$comments_456_table}'" ) === $comments_456_table;
+        $steps_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$steps_456_table}'" ) === $steps_456_table;
+        $timelines_456_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_456_table}'" ) === $timelines_456_table;
         $pp_cols = $pp_table_exists ? $wpdb->get_col( "DESCRIBE {$prototype_payments_table}" ) : array();
         $has_ps_col = is_array( $pp_cols ) && in_array( 'prototype_status', $pp_cols, true );
         $has_cad_col = is_array( $pp_cols ) && in_array( 'cad_status', $pp_cols, true );
         $sel_pp = 'id, status' . ( $has_ps_col ? ', prototype_status' : '' ) . ( $has_cad_col ? ', cad_status' : '' );
         $items_table = $wpdb->prefix . 'n88_items';
+        $item_placeholders = implode( ',', array_fill( 0, count( $board_item_ids ), '%d' ) );
+        $item_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, owner_user_id, meta_json FROM {$items_table} WHERE id IN ({$item_placeholders})",
+                $board_item_ids
+            ),
+            ARRAY_A
+        );
+        $item_rows_by_id = array();
+        $designer_ids_for_payments = array( (int) $current_user->ID );
+        foreach ( (array) $item_rows as $item_row ) {
+            $item_row['meta_array'] = ! empty( $item_row['meta_json'] ) ? json_decode( $item_row['meta_json'], true ) : array();
+            if ( ! is_array( $item_row['meta_array'] ) ) {
+                $item_row['meta_array'] = array();
+            }
+            $item_rows_by_id[ (int) $item_row['id'] ] = $item_row;
+            if ( ! empty( $item_row['owner_user_id'] ) ) {
+                $designer_ids_for_payments[] = (int) $item_row['owner_user_id'];
+            }
+        }
+        $designer_ids_for_payments = array_values( array_unique( array_filter( $designer_ids_for_payments ) ) );
+
+        $prototype_payments_by_item = array();
+        if ( $pp_table_exists && ! empty( $designer_ids_for_payments ) ) {
+            $designer_placeholders = implode( ',', array_fill( 0, count( $designer_ids_for_payments ), '%d' ) );
+            $prototype_payment_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT {$sel_pp}, item_id, designer_user_id
+                    FROM {$prototype_payments_table}
+                    WHERE item_id IN ({$item_placeholders})
+                    AND designer_user_id IN ({$designer_placeholders})
+                    ORDER BY item_id ASC, created_at DESC, id DESC",
+                    array_merge( $board_item_ids, $designer_ids_for_payments )
+                ),
+                ARRAY_A
+            );
+            foreach ( (array) $prototype_payment_rows as $prototype_payment_row ) {
+                $prototype_item_id = (int) $prototype_payment_row['item_id'];
+                if ( ! isset( $prototype_payments_by_item[ $prototype_item_id ] ) ) {
+                    $prototype_payments_by_item[ $prototype_item_id ] = $prototype_payment_row;
+                }
+            }
+        }
+
+        $awarded_bid_counts = array();
+        $batch_proposals_by_item = array();
+        $item_bid_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT bid_id, item_id, status, meta_json, rfq_revision_at_submit
+                FROM {$item_bids_table}
+                WHERE item_id IN ({$item_placeholders})
+                AND status IN ('submitted', 'awarded')
+                ORDER BY item_id ASC, bid_id DESC",
+                $board_item_ids
+            ),
+            ARRAY_A
+        );
+        foreach ( (array) $item_bid_rows as $item_bid_row ) {
+            $bid_item_id = (int) $item_bid_row['item_id'];
+            $bid_status = isset( $item_bid_row['status'] ) ? (string) $item_bid_row['status'] : '';
+
+            if ( 'awarded' === $bid_status ) {
+                if ( ! isset( $awarded_bid_counts[ $bid_item_id ] ) ) {
+                    $awarded_bid_counts[ $bid_item_id ] = 0;
+                }
+                $awarded_bid_counts[ $bid_item_id ]++;
+            }
+
+            if ( ! isset( $batch_proposals_by_item[ $bid_item_id ] ) ) {
+                $batch_proposals_by_item[ $bid_item_id ] = array(
+                    'has_batch_proposals'             => false,
+                    'batch_proposal_bid_count'        => 0,
+                    'batch_proposal_group_ids'        => array(),
+                    'batch_primary_proposal_group_id' => 0,
+                    '_primary_bid_id'                 => 0,
+                );
+            }
+
+            if ( empty( $item_bid_row['meta_json'] ) ) {
+                continue;
+            }
+
+            $bid_meta = json_decode( $item_bid_row['meta_json'], true );
+            if ( ! is_array( $bid_meta ) || empty( $bid_meta['proposal_group_id'] ) ) {
+                continue;
+            }
+
+            $proposal_group_id = absint( $bid_meta['proposal_group_id'] );
+            if ( ! $proposal_group_id ) {
+                continue;
+            }
+
+            $item_meta_for_revision = isset( $item_rows_by_id[ $bid_item_id ]['meta_array'] ) ? $item_rows_by_id[ $bid_item_id ]['meta_array'] : array();
+            $rfq_revision_current = isset( $item_meta_for_revision['rfq_revision_current'] ) ? (string) $item_meta_for_revision['rfq_revision_current'] : null;
+            $bid_revision = isset( $item_bid_row['rfq_revision_at_submit'] ) && '' !== $item_bid_row['rfq_revision_at_submit'] ? (string) $item_bid_row['rfq_revision_at_submit'] : null;
+            if ( null !== $rfq_revision_current && '' !== $rfq_revision_current ) {
+                $revision_pass = ( 'awarded' === $bid_status ) || ( null !== $bid_revision && $bid_revision === $rfq_revision_current );
+                if ( ! $revision_pass ) {
+                    continue;
+                }
+            }
+
+            $batch_proposals_by_item[ $bid_item_id ]['has_batch_proposals'] = true;
+            $batch_proposals_by_item[ $bid_item_id ]['batch_proposal_bid_count']++;
+            $batch_proposals_by_item[ $bid_item_id ]['batch_proposal_group_ids'][ $proposal_group_id ] = $proposal_group_id;
+            if ( (int) $item_bid_row['bid_id'] > (int) $batch_proposals_by_item[ $bid_item_id ]['_primary_bid_id'] ) {
+                $batch_proposals_by_item[ $bid_item_id ]['_primary_bid_id'] = (int) $item_bid_row['bid_id'];
+                $batch_proposals_by_item[ $bid_item_id ]['batch_primary_proposal_group_id'] = $proposal_group_id;
+            }
+        }
+        foreach ( $batch_proposals_by_item as $batch_item_id => $proposal_context ) {
+            $group_ids = array_values( array_unique( array_map( 'absint', $proposal_context['batch_proposal_group_ids'] ) ) );
+            sort( $group_ids );
+            $batch_proposals_by_item[ $batch_item_id ]['batch_proposal_group_ids'] = $group_ids;
+            unset( $batch_proposals_by_item[ $batch_item_id ]['_primary_bid_id'] );
+        }
         foreach ( $board_item_ids as $item_id ) {
             $item_id = intval( $item_id );
             $item_id_string = 'item-' . $item_id;
-            $item_meta_raw_ajax = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$items_table} WHERE id = %d", $item_id ) );
-            $item_meta_for_deposit = ! empty( $item_meta_raw_ajax ) ? json_decode( $item_meta_raw_ajax, true ) : array();
-            if ( ! is_array( $item_meta_for_deposit ) ) {
-                $item_meta_for_deposit = array();
-            }
+            $item_meta_for_deposit = isset( $item_rows_by_id[ $item_id ]['meta_array'] ) && is_array( $item_rows_by_id[ $item_id ]['meta_array'] )
+                ? $item_rows_by_id[ $item_id ]['meta_array']
+                : array();
             $rfq_revision_current = isset( $item_meta_for_deposit['rfq_revision_current'] ) ? $item_meta_for_deposit['rfq_revision_current'] : null;
             $validation_card_state = $this->get_item_validation_card_status( $item_meta_for_deposit );
             $has_prototype_payment = false;
@@ -22811,26 +23339,14 @@ class N88_RFQ_Admin {
             $has_prototype_video_submitted = false;
             $has_payment_receipt_uploaded = false;
             if ( $pp_table_exists ) {
-                $item_owner_id_ajax = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT owner_user_id FROM {$items_table} WHERE id = %d LIMIT 1",
-                    $item_id
-                ) );
-                $designer_ids_ajax = array_unique( array_filter( array( $current_user->ID, $item_owner_id_ajax ), function ( $id ) { return $id > 0; } ) );
-                $placeholders_ajax = implode( ',', array_fill( 0, count( $designer_ids_ajax ), '%d' ) );
-                $prototype_payment = $wpdb->get_row( $wpdb->prepare(
-                    "SELECT {$sel_pp} FROM {$prototype_payments_table}
-                    WHERE item_id = %d AND designer_user_id IN ({$placeholders_ajax})
-                    ORDER BY created_at DESC LIMIT 1",
-                    array_merge( array( $item_id ), $designer_ids_ajax )
-                ), ARRAY_A );
+                $prototype_payment = isset( $prototype_payments_by_item[ $item_id ] ) ? $prototype_payments_by_item[ $item_id ] : null;
                 if ( $prototype_payment ) {
                     $has_prototype_payment = true;
                     $prototype_payment_status = isset( $prototype_payment['status'] ) ? $prototype_payment['status'] : null;
                     $cad_status = ( $has_cad_col && isset( $prototype_payment['cad_status'] ) ) ? $prototype_payment['cad_status'] : null;
                     $prototype_status = ( $has_ps_col && isset( $prototype_payment['prototype_status'] ) ) ? $prototype_payment['prototype_status'] : null;
                     if ( $prototype_payment_status === 'marked_received' && ! empty( $prototype_payment['id'] ) ) {
-                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$submissions_table}'" ) === $submissions_table
-                            && $wpdb->get_var( "SHOW TABLES LIKE '{$links_table}'" ) === $links_table ) {
+                        if ( $submissions_table_exists && $links_table_exists ) {
                             $has_prototype_video_submitted = (bool) $wpdb->get_var( $wpdb->prepare(
                                 "SELECT 1 FROM {$submissions_table} s INNER JOIN {$links_table} l ON l.submission_id = s.id WHERE s.payment_id = %d LIMIT 1",
                                 intval( $prototype_payment['id'] )
@@ -22838,14 +23354,14 @@ class N88_RFQ_Admin {
                         }
                     }
                     if ( $prototype_payment_status === 'requested' && ! empty( $prototype_payment['id'] ) ) {
-                        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$receipts_table}'" ) === $receipts_table ) {
+                        if ( $receipts_table_exists ) {
                             $has_payment_receipt_uploaded = (bool) $wpdb->get_var( $wpdb->prepare(
                                 "SELECT 1 FROM {$receipts_table} WHERE payment_id = %d LIMIT 1",
                                 intval( $prototype_payment['id'] )
                             ) );
                         }
                     }
-                    if ( ! empty( $prototype_payment['id'] ) && $wpdb->get_var( "SHOW TABLES LIKE '{$item_files_table}'" ) === $item_files_table ) {
+                    if ( ! empty( $prototype_payment['id'] ) && $item_files_table_exists ) {
                         $cad_current_version_raw = $wpdb->get_var( $wpdb->prepare(
                             "SELECT MAX(cad_version) FROM {$item_files_table}
                             WHERE item_id = %d AND payment_id = %d
@@ -22859,14 +23375,13 @@ class N88_RFQ_Admin {
                     }
                 }
             }
-            $has_awarded_bid = (int) $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$item_bids_table} WHERE item_id = %d AND status = 'awarded'",
-                $item_id
-            ) ) > 0;
+            $has_awarded_bid = ! empty( $awarded_bid_counts[ $item_id ] );
             $unread_operator_messages = 0;
             $unread_supplier_messages = 0;
             $has_unread_supplier_messages = false;
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $latest_unread_supplier_message_context = '';
+            $latest_unread_supplier_message_step_index = null;
+            if ( $messages_table_exists ) {
                 $unread_operator_messages = (int) $wpdb->get_var( $wpdb->prepare(
                     "SELECT COUNT(DISTINCT m.message_id)
                     FROM {$messages_table} m
@@ -22882,7 +23397,7 @@ class N88_RFQ_Admin {
                     )",
                     $item_id
                 ) );
-                if ( $unread_operator_messages > 0 && $wpdb->get_var( "SHOW TABLES LIKE '{$resolutions_table}'" ) === $resolutions_table ) {
+                if ( $unread_operator_messages > 0 && $resolutions_table_exists ) {
                     if ( $wpdb->get_var( $wpdb->prepare(
                         "SELECT 1 FROM {$resolutions_table} WHERE item_id = %d AND bid_id IS NULL LIMIT 1",
                         $item_id
@@ -22985,27 +23500,53 @@ class N88_RFQ_Admin {
                         $direct_supplier_id
                     ) );
                     $has_unread_supplier_messages = $unread_supplier_messages > 0;
+                    $latest_unread_supplier_message_context = (string) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT COALESCE(NULLIF(m.context_type, ''), 'item_specs')
+                        FROM {$messages_table} m
+                        WHERE m.item_id = %d
+                        AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
+                        AND m.sender_role = 'supplier'
+                        AND m.supplier_id = %d
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {$messages_table} m2
+                            WHERE m2.item_id = m.item_id
+                            AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
+                            AND m2.sender_role = 'designer'
+                            AND m2.supplier_id = m.supplier_id
+                            AND COALESCE(NULLIF(m2.context_type, ''), 'item_specs') = COALESCE(NULLIF(m.context_type, ''), 'item_specs')
+                            AND m2.created_at > m.created_at
+                        )
+                        ORDER BY m.created_at DESC, m.message_id DESC
+                        LIMIT 1",
+                        $item_id,
+                        $direct_supplier_id
+                    ) );
+                    if ( $latest_unread_supplier_message_context ) {
+                        $latest_unread_supplier_message_step_index = $this->get_item_message_context_step_index( $latest_unread_supplier_message_context );
+                    }
                 }
             }
             $has_unread_operator_messages = $unread_operator_messages > 0;
             $is_operator_ajax = $current_user && ( in_array( 'n88_system_operator', $current_user->roles, true ) || current_user_can( 'manage_options' ) );
             $deposit_sent_by_designer = isset( $item_meta_for_deposit['deposit_status'] ) && $item_meta_for_deposit['deposit_status'] === 'sent_by_designer';
             $action_required = $has_unread_operator_messages || $has_unread_supplier_messages || ( $prototype_status === 'submitted' || ( $prototype_status === null && $has_prototype_video_submitted ) ) || ( $is_operator_ajax && $deposit_sent_by_designer );
-            $batch_proposal_context = $this->get_item_batch_proposal_context( $item_id, $rfq_revision_current );
+            $batch_proposal_context = isset( $batch_proposals_by_item[ $item_id ] )
+                ? $batch_proposals_by_item[ $item_id ]
+                : $this->get_item_batch_proposal_context( $item_id, $rfq_revision_current );
             // Commit 3.B.5.A1: Step 4–6 status for designer/operator cards (when prototype approved = in production)
             $step456_status_text = null;
             $step456_status_color = null;
             if ( $prototype_status === 'approved' || $has_awarded_bid ) {
-                $video_sub_table = $wpdb->prefix . 'n88_timeline_step_video_submissions';
-                $comments_table_456 = $wpdb->prefix . 'n88_timeline_step_comments';
-                $steps_table_456 = $wpdb->prefix . 'n88_item_timeline_steps';
-                $timelines_table = $wpdb->prefix . 'n88_item_timelines';
+                $video_sub_table = $video_submissions_456_table;
+                $comments_table_456 = $comments_456_table;
+                $steps_table_456 = $steps_456_table;
+                $timelines_table = $timelines_456_table;
                 $has_supplier_video = false;
                 $has_operator_video = false;
                 $has_designer_comment = false;
                 $latest_step_status = null;
                 $latest_step_num = null;
-                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$video_sub_table}'" ) === $video_sub_table ) {
+                if ( $video_submissions_456_exists ) {
                     $has_supplier_video = (int) $wpdb->get_var( $wpdb->prepare(
                         "SELECT COUNT(*) FROM {$video_sub_table} WHERE item_id = %d AND step_number IN (4,5,6) AND supplier_id IS NOT NULL",
                         $item_id
@@ -23015,14 +23556,13 @@ class N88_RFQ_Admin {
                         $item_id
                     ) ) > 0;
                 }
-                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$comments_table_456}'" ) === $comments_table_456 ) {
+                if ( $comments_456_exists ) {
                     $has_designer_comment = (int) $wpdb->get_var( $wpdb->prepare(
                         "SELECT COUNT(*) FROM {$comments_table_456} WHERE item_id = %d AND step_number IN (4,5,6)",
                         $item_id
                     ) ) > 0;
                 }
-                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$timelines_table}'" ) === $timelines_table
-                    && $wpdb->get_var( "SHOW TABLES LIKE '{$steps_table_456}'" ) === $steps_table_456 ) {
+                if ( $timelines_456_exists && $steps_456_exists ) {
                     $timeline_id = $wpdb->get_var( $wpdb->prepare( "SELECT timeline_id FROM {$timelines_table} WHERE item_id = %d", $item_id ) );
                     if ( $timeline_id ) {
                         $step_row = $wpdb->get_row( $wpdb->prepare(
@@ -23079,6 +23619,8 @@ class N88_RFQ_Admin {
                 'has_unread_operator_messages' => $has_unread_operator_messages,
                 'has_unread_supplier_messages' => $has_unread_supplier_messages,
                 'unread_supplier_messages' => $unread_supplier_messages,
+                'latest_unread_supplier_message_context' => $latest_unread_supplier_message_context,
+                'latest_unread_supplier_message_step_index' => $latest_unread_supplier_message_step_index,
                 'action_required' => $action_required,
                 'step456_status_text' => $step456_status_text,
                 'step456_status_color' => $step456_status_color,

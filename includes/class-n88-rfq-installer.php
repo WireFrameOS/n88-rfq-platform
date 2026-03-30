@@ -2675,6 +2675,7 @@ class N88_RFQ_Installer {
             sender_user_id BIGINT UNSIGNED NOT NULL,
             message_text TEXT NOT NULL,
             category VARCHAR(50) NULL,
+            context_type VARCHAR(100) NULL,
             message_attachments TEXT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (message_id),
@@ -2695,6 +2696,15 @@ class N88_RFQ_Installer {
         ) );
         if ( ! $col ) {
             $wpdb->query( "ALTER TABLE " . $wpdb->prefix . "n88_item_messages ADD COLUMN message_attachments TEXT NULL AFTER category" );
+        }
+
+        $context_col = $wpdb->get_row( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'context_type'",
+            DB_NAME,
+            $messages_table
+        ) );
+        if ( ! $context_col ) {
+            $wpdb->query( "ALTER TABLE " . $wpdb->prefix . "n88_item_messages ADD COLUMN context_type VARCHAR(100) NULL AFTER category" );
         }
 
         // Add foreign keys separately

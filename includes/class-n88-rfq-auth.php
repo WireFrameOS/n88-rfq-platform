@@ -497,6 +497,84 @@ class N88_RFQ_Auth {
     }
 
     /**
+     * Commit 3.C.20: Ensure the unified item message table supports isolated contexts.
+     *
+     * @return void
+     */
+    private function ensure_item_message_context_support() {
+        static $context_support_ready = false;
+
+        if ( $context_support_ready ) {
+            return;
+        }
+
+        global $wpdb;
+
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) !== $messages_table ) {
+            $context_support_ready = true;
+            return;
+        }
+
+        $context_col = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'context_type'",
+            DB_NAME,
+            $messages_table
+        ) );
+
+        if ( ! $context_col ) {
+            $alter_result = $wpdb->query( "ALTER TABLE {$messages_table} ADD COLUMN context_type VARCHAR(100) NULL AFTER category" );
+            if ( false === $alter_result && ! empty( $wpdb->last_error ) ) {
+                error_log( 'N88 message context_type migration failed: ' . $wpdb->last_error );
+            }
+        }
+
+        $context_support_ready = true;
+    }
+
+    /**
+     * Commit 3.C.20: Normalize supported thread context keys.
+     *
+     * @param string $raw_context Raw context.
+     * @return string
+     */
+    private function normalize_item_message_context_type( $raw_context ) {
+        $context_type = sanitize_key( (string) $raw_context );
+        $allowed      = array(
+            'item_specs',
+            'batch_proposal',
+            'step_1_responses',
+            'step_2_validation',
+            'step_3_commitment',
+            'step_4_production',
+            'step_5_quality',
+            'step_6_delivery',
+        );
+
+        return in_array( $context_type, $allowed, true ) ? $context_type : '';
+    }
+
+    /**
+     * Map unified message context keys to supplier/designer workflow step indexes.
+     *
+     * @param string $context_type Message context key.
+     * @return int|null
+     */
+    private function get_item_message_context_step_index( $context_type ) {
+        $normalized = $this->normalize_item_message_context_type( $context_type );
+        $map        = array(
+            'step_1_responses'  => 0,
+            'step_2_validation' => 1,
+            'step_3_commitment' => 2,
+            'step_4_production' => 3,
+            'step_5_quality'    => 4,
+            'step_6_delivery'   => 5,
+        );
+
+        return isset( $map[ $normalized ] ) ? $map[ $normalized ] : null;
+    }
+
+    /**
      * Repair or normalize direct designer <-> supplier messages so retrieval stays stable.
      *
      * Older installs could save blank thread_type or missing designer/supplier context before
@@ -4035,7 +4113,7 @@ class N88_RFQ_Auth {
                     }
                 });
                 ensureBatchFormLoaded(itemId);
-                loadSupplierMessagesInline(itemId);
+                loadSupplierMessagesInline(itemId, 'item_specs');
             }
 
             function ensureBatchFormLoaded(itemId) {
@@ -4321,7 +4399,7 @@ class N88_RFQ_Auth {
                     '<div id="n88-supplier-clarification-form-' + itemId + '" style="display:flex; flex:1; min-height:560px; padding:16px; background-color:#111111; border:1px solid #555; border-radius:10px; flex-direction:column; overflow:hidden;">' +
                         '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-shrink:0; flex-wrap:wrap;">' +
                             '<div style="font-size:14px; font-weight:600; color:#ccc; display:flex; align-items:center; gap:8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Designer Messages</div>' +
-                            '<select id="n88-clarification-category-' + itemId + '" name="category" style="width:170px; max-width:100%; padding:7px 10px; background-color:#000; color:#ccc; border:1px solid #555; font-family:Courier New, Courier, monospace; font-size:10px; border-radius:10px; margin-left:auto;">' +
+                            '<select id="n88-clarification-category-overview-' + itemId + '" name="category" style="width:170px; max-width:100%; padding:7px 10px; background-color:#000; color:#ccc; border:1px solid #555; font-family:Courier New, Courier, monospace; font-size:10px; border-radius:10px; margin-left:auto;">' +
                                 '<option value="">Category</option>' +
                                 '<option value="Specs">Specs</option>' +
                                 '<option value="Dimensions">Dimensions</option>' +
@@ -4330,23 +4408,23 @@ class N88_RFQ_Auth {
                                 '<option value="Other">Other</option>' +
                             '</select>' +
                         '</div>' +
-                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">' +
+                        '<form id="n88-supplier-clarification-form-inner-overview-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ', \'item_specs\');" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">' +
                             '<input type="hidden" name="item_id" value="' + itemId + '">' +
-                            '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex:1 1 auto; min-height:280px; overflow-y:auto; padding:16px; background-color:#0a0a0a; border-radius:10px; margin-bottom:12px; border:1px solid #555; display:flex; flex-direction:column;">' +
+                            '<div id="n88-supplier-clarification-messages-overview-' + itemId + '" style="flex:1 1 auto; min-height:280px; overflow-y:auto; padding:16px; background-color:#0a0a0a; border-radius:10px; margin-bottom:12px; border:1px solid #555; display:flex; flex-direction:column;">' +
                                 '<div style="text-align:center; color:#666; font-size:12px; padding:20px; margin:auto;">Loading conversation...</div>' +
                             '</div>' +
                             '<div style="margin-bottom:4px; flex-shrink:0;">' +
                                 '<div style="font-size:9px; color:#888; margin-bottom:3px;">Select all that apply</div>' +
                                 '<div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">' +
-                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-clarifying-' + itemId + '" value="clarifying_questions" style="width:11px; height:11px; cursor:pointer;"> <span>Clarifying questions</span></label>' +
-                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-mse-' + itemId + '" value="mse_material" style="width:11px; height:11px; cursor:pointer;"> <span>MSE/Material Suggestions</span></label>' +
+                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-clarifying-overview-' + itemId + '" value="clarifying_questions" style="width:11px; height:11px; cursor:pointer;"> <span>Clarifying questions</span></label>' +
+                                    '<label style="display:inline-flex; align-items:center; gap:3px; color:#ccc; font-size:9px; cursor:pointer; white-space:nowrap; line-height:1;"><input type="checkbox" id="n88-supplier-tag-mse-overview-' + itemId + '" value="mse_material" style="width:11px; height:11px; cursor:pointer;"> <span>MSE/Material Suggestions</span></label>' +
                                 '</div>' +
                             '</div>' +
                             '<div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">' +
-                                '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex:1; padding:10px 12px; background-color:#000; color:#fff; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:12px; resize:none; min-height:40px; max-height:100px;" placeholder="Type your message..."></textarea>' +
-                                '<div id="n88-supplier-attachment-preview-' + itemId + '" style="display:none; flex-wrap:wrap; gap:4px; align-items:center; flex:0 0 auto; max-width:120px;"></div>' +
-                                '<button type="button" id="n88-supplier-attach-btn-' + itemId + '" onclick="var el=document.getElementById(&quot;n88-supplier-message-attachments-' + itemId + '&quot;); if(el) el.click();" style="padding:7px 8px; background-color:#111111; color:#ccc; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:9px; cursor:pointer; white-space:nowrap; flex-shrink:0;">Attach files</button>' +
-                                '<input type="file" id="n88-supplier-message-attachments-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ');}">' +
+                                '<textarea id="n88-clarification-message-overview-' + itemId + '" name="message_text" required rows="2" style="flex:1; padding:10px 12px; background-color:#000; color:#fff; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:12px; resize:none; min-height:40px; max-height:100px;" placeholder="Type your message..."></textarea>' +
+                                '<div id="n88-supplier-attachment-preview-overview-' + itemId + '" style="display:none; flex-wrap:wrap; gap:4px; align-items:center; flex:0 0 auto; max-width:120px;"></div>' +
+                                '<button type="button" id="n88-supplier-attach-btn-overview-' + itemId + '" onclick="var el=document.getElementById(&quot;n88-supplier-message-attachments-overview-' + itemId + '&quot;); if(el) el.click();" style="padding:7px 8px; background-color:#111111; color:#ccc; border:1px solid #555; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:9px; cursor:pointer; white-space:nowrap; flex-shrink:0;">Attach files</button>' +
+                                '<input type="file" id="n88-supplier-message-attachments-overview-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ', \'item_specs\');}">' +
                                 '<button type="submit" style="padding:7px 9px; background-color:#FF0065; color:#000; border:none; border-radius:10px; font-family:Courier New, Courier, monospace; font-size:10px; font-weight:600; cursor:pointer; white-space:nowrap; flex-shrink:0;" onmouseover="this.style.backgroundColor=&quot;#cc0052&quot;;" onmouseout="this.style.backgroundColor=&quot;#FF0065&quot;;">Send</button>' +
                             '</div>' +
                         '</form>' +
@@ -4630,7 +4708,7 @@ class N88_RFQ_Auth {
                 
                 if (formContainer.style.display === 'none' || !formContainer.style.display) {
                     formContainer.style.display = 'flex';
-                    loadSupplierMessagesInline(itemId);
+                    loadSupplierMessagesInline(itemId, 'item_specs');
                 } else {
                     formContainer.style.display = 'none';
                 }
@@ -4639,8 +4717,55 @@ class N88_RFQ_Auth {
             // Commit 2.3.9.1C-a: Load Supplier Messages (Inline)
             window.n88SupplierDirectThreadContext = window.n88SupplierDirectThreadContext || {};
             var n88CurrentSupplierThreadUserId = '<?php echo (int) $current_user->ID; ?>';
-            function loadSupplierMessagesInline(itemId) {
-                var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
+            function getSupplierWorkflowMessageContextType(itemId) {
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                if (wrap) {
+                    var activeIdx = parseInt(wrap.getAttribute('data-active-step') || wrap.getAttribute('data-active-idx') || '0', 10);
+                    if (!isNaN(activeIdx) && activeIdx >= 0 && activeIdx <= 5) {
+                        return ['step_1_responses', 'step_2_validation', 'step_3_commitment', 'step_4_production', 'step_5_quality', 'step_6_delivery'][activeIdx] || 'step_1_responses';
+                    }
+                }
+                return 'step_1_responses';
+            }
+            window.n88GetSupplierWorkflowMessageContextType = getSupplierWorkflowMessageContextType;
+            function getSupplierMessageThreadLabel(contextType) {
+                var labels = {
+                    item_specs: 'Item Specification Thread',
+                    batch_proposal: 'Batch Proposal Thread',
+                    step_1_responses: 'Step 01 - Proposal Submitted Thread',
+                    step_2_validation: 'Step 02 - Design Evaluation Thread',
+                    step_3_commitment: 'Step 03 - Award Decision Thread',
+                    step_4_production: 'Step 04 - Production Thread',
+                    step_5_quality: 'Step 05 - Quality Review & Packing Thread',
+                    step_6_delivery: 'Step 06 - Delivery Thread'
+                };
+                return labels[String(contextType || 'item_specs')] || 'Item Specification Thread';
+            }
+            function getSupplierMessageDomConfig(itemId, contextType) {
+                var normalizedContextType = String(contextType || 'item_specs');
+                var isWorkflowThread = normalizedContextType.indexOf('step_') === 0;
+                var scopeKey = isWorkflowThread ? 'workflow' : 'overview';
+                return {
+                    contextType: normalizedContextType,
+                    isWorkflowThread: isWorkflowThread,
+                    scopeKey: scopeKey,
+                    messagesContainerId: 'n88-supplier-clarification-messages-' + scopeKey + '-' + itemId,
+                    messageInputId: 'n88-clarification-message-' + scopeKey + '-' + itemId,
+                    categoryId: 'n88-clarification-category-' + scopeKey + '-' + itemId,
+                    tagClarifyingId: 'n88-supplier-tag-clarifying-' + scopeKey + '-' + itemId,
+                    tagMseId: 'n88-supplier-tag-mse-' + scopeKey + '-' + itemId,
+                    attachmentInputId: 'n88-supplier-message-attachments-' + scopeKey + '-' + itemId,
+                    attachmentPreviewId: 'n88-supplier-attachment-preview-' + scopeKey + '-' + itemId,
+                    attachBtnId: 'n88-supplier-attach-btn-' + scopeKey + '-' + itemId
+                };
+            }
+            function updateSupplierWorkflowThreadHeading(itemId, contextType) {
+                var heading = document.getElementById('n88-supplier-workflow-thread-title-' + itemId);
+                if (heading) heading.textContent = getSupplierMessageThreadLabel(contextType);
+            }
+            function loadSupplierMessagesInline(itemId, contextType) {
+                var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
+                var messagesContainer = document.getElementById(threadConfig.messagesContainerId);
                 if (!messagesContainer) return;
                 
                 messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">Loading conversation...</div>';
@@ -4650,6 +4775,7 @@ class N88_RFQ_Auth {
                 formData.append('item_id', itemId);
                 formData.append('thread_type', 'designer_supplier');
                 formData.append('supplier_id', n88CurrentSupplierThreadUserId);
+                formData.append('context_type', threadConfig.contextType);
                 formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_item_messages' ); ?>');
                 
                 fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
@@ -4674,7 +4800,7 @@ class N88_RFQ_Auth {
                             supplier_has_submitted_bid: !!(data.data.supplier_has_submitted_bid),
                             bid_id: data.data.bid_id || 0
                         };
-                        renderSupplierMessagesInline(data.data.messages, itemId, opts);
+                        renderSupplierMessagesInline(data.data.messages, itemId, opts, threadConfig.contextType);
                     } else {
                         messagesContainer.innerHTML = '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">No messages yet. Start the conversation!</div>';
                     }
@@ -4686,9 +4812,10 @@ class N88_RFQ_Auth {
             }
             
             // Commit 2.3.9.1C-a: Render Supplier Messages (Inline) - WhatsApp Style
-            function renderSupplierMessagesInline(messages, itemId, opts) {
+            function renderSupplierMessagesInline(messages, itemId, opts, contextType) {
                 opts = opts || {};
-                var messagesContainer = document.getElementById('n88-supplier-clarification-messages-' + itemId);
+                var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
+                var messagesContainer = document.getElementById(threadConfig.messagesContainerId);
                 if (!messagesContainer) return;
                 
                 if (!messages || messages.length === 0) {
@@ -4705,7 +4832,7 @@ class N88_RFQ_Auth {
                 sortedMessages.forEach(function(msg) {
                     var isSupplier = msg.sender_role === 'supplier';
                     var senderName = isSupplier ? 'You' : 'Designer';
-                    var categoryDisplay = (msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
+                    var categoryDisplay = (!threadConfig.isWorkflowThread && msg.category && String(msg.category).indexOf('clarifying_questions') === -1 && String(msg.category).indexOf('mse_material') === -1) ? ' [' + msg.category + ']' : '';
                     
                     var date = new Date(msg.created_at);
                     var dateStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -4733,7 +4860,7 @@ class N88_RFQ_Auth {
                     } catch (attachmentParseError) {
                         console.warn('Failed to parse message attachments:', attachmentParseError);
                     }
-                    if (msg.category) {
+                    if (!threadConfig.isWorkflowThread && msg.category) {
                         String(msg.category).split(',').forEach(function(tagKey) {
                             var normalizedTagKey = String(tagKey || '').trim();
                             if (normalizedTagKey === 'clarifying_questions') {
@@ -4832,7 +4959,7 @@ class N88_RFQ_Auth {
                 });
                 
                 // Supplier: "Mark as Clarified" when operator replied; after clarified show "Submit Proposal" (hide if already submitted). If operator replied again after clarify, show "Mark as Clarified" again.
-                if (opts.has_operator_reply) {
+                if (!threadConfig.isWorkflowThread && opts.has_operator_reply) {
                     html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px;">';
                     if (opts.has_operator_reply_after_confirmation) {
                         var bidIdVal = (opts.bid_id || 0);
@@ -4868,7 +4995,7 @@ class N88_RFQ_Auth {
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         if (data.success) {
-                            loadSupplierMessagesInline(itemId);
+                            loadSupplierMessagesInline(itemId, 'item_specs');
                         } else {
                             if (btn) { btn.disabled = false; btn.textContent = 'Mark as Clarified'; }
                             alert(data.data && data.data.message ? data.data.message : 'Failed.');
@@ -4902,44 +5029,48 @@ class N88_RFQ_Auth {
             
             // Commit 2.3.9.1C-a: Send Supplier Clarification (Inline)
             window.n88SupplierMessageFiles = window.n88SupplierMessageFiles || {};
-            window.n88GetSupplierMessageFiles = function(itemId) {
-                var key = String(itemId || '');
+            window.n88GetSupplierMessageFiles = function(itemId, contextType) {
+                var key = String(itemId || '') + '::' + String(contextType || 'item_specs');
                 if (!window.n88SupplierMessageFiles[key]) window.n88SupplierMessageFiles[key] = [];
                 return window.n88SupplierMessageFiles[key];
             };
-            window.n88HandleSupplierAttachmentSelect = function(itemId) {
-                var fileInput = document.getElementById('n88-supplier-message-attachments-' + itemId);
-                var currentFiles = window.n88GetSupplierMessageFiles(itemId);
+            window.n88HandleSupplierAttachmentSelect = function(itemId, contextType) {
+                var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
+                var fileInput = document.getElementById(threadConfig.attachmentInputId);
+                var currentFiles = window.n88GetSupplierMessageFiles(itemId, threadConfig.contextType);
                 if (fileInput && fileInput.files && fileInput.files.length) {
                     Array.prototype.slice.call(fileInput.files).forEach(function(file) {
                         if (currentFiles.length < 5) currentFiles.push(file);
                     });
                     fileInput.value = '';
                 }
-                if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId);
+                if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId, threadConfig.contextType);
             };
-            window.n88RemoveSupplierAttachment = function(itemId, fileIndex) {
-                var currentFiles = window.n88GetSupplierMessageFiles(itemId);
+            window.n88RemoveSupplierAttachment = function(itemId, fileIndex, contextType) {
+                var currentFiles = window.n88GetSupplierMessageFiles(itemId, contextType);
                 if (fileIndex >= 0 && fileIndex < currentFiles.length) currentFiles.splice(fileIndex, 1);
-                if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId);
+                if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId, contextType);
             };
-            function sendSupplierClarificationInline(event, itemId) {
+            function sendSupplierClarificationInline(event, itemId, contextType) {
                 event.preventDefault();
                 
-                var messageText = document.getElementById('n88-clarification-message-' + itemId);
-                var category = document.getElementById('n88-clarification-category-' + itemId);
-                var tagClarifying = document.getElementById('n88-supplier-tag-clarifying-' + itemId);
-                var tagMse = document.getElementById('n88-supplier-tag-mse-' + itemId);
-                var fileInput = document.getElementById('n88-supplier-message-attachments-' + itemId);
-                var selectedFiles = window.n88GetSupplierMessageFiles(itemId);
+                var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
+                var messageText = document.getElementById(threadConfig.messageInputId);
+                var category = document.getElementById(threadConfig.categoryId);
+                var tagClarifying = document.getElementById(threadConfig.tagClarifyingId);
+                var tagMse = document.getElementById(threadConfig.tagMseId);
+                var fileInput = document.getElementById(threadConfig.attachmentInputId);
+                var selectedFiles = window.n88GetSupplierMessageFiles(itemId, threadConfig.contextType);
                 
                 if (!messageText || !messageText.value.trim()) {
                     alert('Please enter a message.');
                     return false;
                 }
                 var selectedTags = [];
-                if (tagClarifying && tagClarifying.checked) selectedTags.push('clarifying_questions');
-                if (tagMse && tagMse.checked) selectedTags.push('mse_material');
+                if (!threadConfig.isWorkflowThread) {
+                    if (tagClarifying && tagClarifying.checked) selectedTags.push('clarifying_questions');
+                    if (tagMse && tagMse.checked) selectedTags.push('mse_material');
+                }
                 
                 var formData = new FormData();
                 formData.append('action', 'n88_send_item_message');
@@ -4948,6 +5079,7 @@ class N88_RFQ_Auth {
                 formData.append('message_text', messageText.value.trim());
                 formData.append('category', category ? category.value : '');
                 formData.append('supplier_id', n88CurrentSupplierThreadUserId);
+                formData.append('context_type', threadConfig.contextType);
                 if (selectedTags.length > 0) {
                     formData.append('message_tags', selectedTags.join(','));
                 }
@@ -4989,11 +5121,11 @@ class N88_RFQ_Auth {
                         if (tagClarifying) tagClarifying.checked = false;
                         if (tagMse) tagMse.checked = false;
                         if (fileInput) fileInput.value = '';
-                        window.n88SupplierMessageFiles[String(itemId || '')] = [];
-                        if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId);
+                        window.n88SupplierMessageFiles[String(itemId || '') + '::' + String(threadConfig.contextType || 'item_specs')] = [];
+                        if (window.n88UpdateSupplierAttachmentPreview) window.n88UpdateSupplierAttachmentPreview(itemId, threadConfig.contextType);
                         
                         // Reload messages
-                        loadSupplierMessagesInline(itemId);
+                        loadSupplierMessagesInline(itemId, threadConfig.contextType);
                     } else {
                         alert('Error: ' + ((data.data && data.data.message) ? data.data.message : 'Failed to send message. Please try again.'));
                     }
@@ -5015,11 +5147,11 @@ class N88_RFQ_Auth {
                 
                 return false;
             }
-            window.n88UpdateSupplierAttachmentPreview = function(itemId) {
-                var fileInput = document.getElementById('n88-supplier-message-attachments-' + itemId);
-                var preview = document.getElementById('n88-supplier-attachment-preview-' + itemId);
-                var attachBtn = document.getElementById('n88-supplier-attach-btn-' + itemId);
-                var selectedFiles = window.n88GetSupplierMessageFiles(itemId);
+            window.n88UpdateSupplierAttachmentPreview = function(itemId, contextType) {
+                var threadConfig = getSupplierMessageDomConfig(itemId, contextType);
+                var preview = document.getElementById(threadConfig.attachmentPreviewId);
+                var attachBtn = document.getElementById(threadConfig.attachBtnId);
+                var selectedFiles = window.n88GetSupplierMessageFiles(itemId, threadConfig.contextType);
                 if (!preview) return;
                 preview.innerHTML = '';
                 if (!selectedFiles || !selectedFiles.length) {
@@ -5037,7 +5169,7 @@ class N88_RFQ_Auth {
                     var removeBtn = document.createElement('button');
                     removeBtn.type = 'button';
                     removeBtn.textContent = 'x';
-                    removeBtn.onclick = function() { window.n88RemoveSupplierAttachment(itemId, fileIndex); };
+                    removeBtn.onclick = function() { window.n88RemoveSupplierAttachment(itemId, fileIndex, threadConfig.contextType); };
                     removeBtn.style.cssText = 'position:absolute;top:0;right:0;width:10px;height:10px;border:none;border-radius:999px;background:rgba(0,0,0,0.82);color:#fff;font-size:8px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:2;';
                     if (isImage) {
                         var img = document.createElement('img');
@@ -5506,7 +5638,7 @@ class N88_RFQ_Auth {
                         '<div id="n88-supplier-clarification-form-' + itemId + '" style="display: flex; flex: 1; min-height: 560px; padding: 16px; background-color: #111111; border: 1px solid #555; border-radius: 10px; flex-direction: column; overflow: hidden;">' +
                         '<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-shrink: 0; flex-wrap: wrap;">' +
                         '<div style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg> Designer Messages</div>' +
-                        '<select id="n88-clarification-category-' + itemId + '" name="category" style="width: 170px; max-width: 100%; padding: 7px 10px; background-color: #000; color: #ccc; border: 1px solid #555; font-family: \'Courier New\', Courier, monospace; font-size: 10px; border-radius: 10px; margin-left: auto;">' +
+                        '<select id="n88-clarification-category-overview-' + itemId + '" name="category" style="width: 170px; max-width: 100%; padding: 7px 10px; background-color: #000; color: #ccc; border: 1px solid #555; font-family: \'Courier New\', Courier, monospace; font-size: 10px; border-radius: 10px; margin-left: auto;">' +
                         '<option value="">Category</option>' +
                         '<option value="Specs">Specs</option>' +
                         '<option value="Dimensions">Dimensions</option>' +
@@ -5515,27 +5647,52 @@ class N88_RFQ_Auth {
                         '<option value="Other">Other</option>' +
                         '</select>' +
                         '</div>' +
-                        '<form id="n88-supplier-clarification-form-inner-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ');" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
+                        '<form id="n88-supplier-clarification-form-inner-overview-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ', \'item_specs\');" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
                         '<input type="hidden" name="item_id" value="' + itemId + '">' +
-                        '<div id="n88-supplier-clarification-messages-' + itemId + '" style="flex: 0 0 350px; min-height: 300px; max-height: 300px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
+                        '<div id="n88-supplier-clarification-messages-overview-' + itemId + '" style="flex: 0 0 350px; min-height: 300px; max-height: 300px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
                         '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Loading conversation...</div>' +
                         '</div>' +
                         '<div style="margin-bottom: 4px; flex-shrink: 0;">' +
                         '<div style="font-size: 9px; color: #888; margin-bottom: 3px;">Select all that apply</div>' +
                         '<div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">' +
-                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-clarifying-' + itemId + '" value="clarifying_questions" style="width: 11px; height: 11px; cursor: pointer;"> <span>Clarifying questions</span></label>' +
-                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-mse-' + itemId + '" value="mse_material" style="width: 11px; height: 11px; cursor: pointer;"> <span>MSE/Material Suggestions</span></label>' +
+                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-clarifying-overview-' + itemId + '" value="clarifying_questions" style="width: 11px; height: 11px; cursor: pointer;"> <span>Clarifying questions</span></label>' +
+                        '<label style="display: inline-flex; align-items: center; gap: 3px; color: #ccc; font-size: 9px; cursor: pointer; white-space: nowrap; line-height: 1;"><input type="checkbox" id="n88-supplier-tag-mse-overview-' + itemId + '" value="mse_material" style="width: 11px; height: 11px; cursor: pointer;"> <span>MSE/Material Suggestions</span></label>' +
                         '</div>' +
                         '</div>' +
                         '<div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">' +
-                        '<textarea id="n88-clarification-message-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message..."></textarea>' +
-                        '<div id="n88-supplier-attachment-preview-' + itemId + '" style="display:none; flex-wrap: wrap; gap: 4px; align-items: center; flex: 0 0 auto; max-width: 120px;"></div>' +
-                        '<button type="button" id="n88-supplier-attach-btn-' + itemId + '" onclick="var el=document.getElementById(\'n88-supplier-message-attachments-' + itemId + '\'); if(el) el.click();" style="padding: 7px 8px; background-color: #111111; color: #ccc; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 9px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Attach files</button>' +
-                        '<input type="file" id="n88-supplier-message-attachments-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ');}">' +
+                        '<textarea id="n88-clarification-message-overview-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message..."></textarea>' +
+                        '<div id="n88-supplier-attachment-preview-overview-' + itemId + '" style="display:none; flex-wrap: wrap; gap: 4px; align-items: center; flex: 0 0 auto; max-width: 120px;"></div>' +
+                        '<button type="button" id="n88-supplier-attach-btn-overview-' + itemId + '" onclick="var el=document.getElementById(\'n88-supplier-message-attachments-overview-' + itemId + '\'); if(el) el.click();" style="padding: 7px 8px; background-color: #111111; color: #ccc; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 9px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Attach files</button>' +
+                        '<input type="file" id="n88-supplier-message-attachments-overview-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ', \'item_specs\');}">' +
                         '<button type="submit" style="padding: 7px 9px; background-color: #FF0065; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#cc0052\';" onmouseout="this.style.backgroundColor=\'#FF0065\';">Send</button>' +
                         '</div>' +
                         '</form>' +
                         '</div></div>';
+                    var workflowSupportSectionHTML = '<div id="n88-supplier-workflow-thread-box-' + itemId + '" style="display: none; flex-direction: column; margin-top: 16px; min-height: 460px; padding: 16px; background-color: #111111; border: 1px solid #555; border-radius: 10px; overflow: hidden;">' +
+                        '<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-shrink: 0; flex-wrap: wrap;">' +
+                        '<div id="n88-supplier-workflow-thread-title-' + itemId + '" style="font-size: 14px; font-weight: 600; color: #ccc; display: flex; align-items: center; gap: 8px;">' + getSupplierMessageThreadLabel(getSupplierWorkflowMessageContextType(itemId)) + '</div>' +
+                        '<select id="n88-clarification-category-workflow-' + itemId + '" name="category" style="width: 170px; max-width: 100%; padding: 7px 10px; background-color: #000; color: #ccc; border: 1px solid #555; font-family: \'Courier New\', Courier, monospace; font-size: 10px; border-radius: 10px; margin-left: auto;">' +
+                        '<option value="">Category</option>' +
+                        '<option value="Specs">Specs</option>' +
+                        '<option value="Dimensions">Dimensions</option>' +
+                        '<option value="Materials">Materials</option>' +
+                        '<option value="Timeline">Timeline</option>' +
+                        '<option value="Other">Other</option>' +
+                        '</select>' +
+                        '</div>' +
+                        '<form id="n88-supplier-clarification-form-inner-workflow-' + itemId + '" onsubmit="return sendSupplierClarificationInline(event, ' + itemId + ', (window.n88GetSupplierWorkflowMessageContextType ? window.n88GetSupplierWorkflowMessageContextType(' + itemId + ') : \'step_1_responses\'));" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">' +
+                        '<div id="n88-supplier-clarification-messages-workflow-' + itemId + '" style="flex: 1 1 auto; min-height: 240px; max-height: 280px; overflow-y: auto; padding: 16px; background-color: #0a0a0a; border-radius: 10px; margin-bottom: 12px; border: 1px solid #555; display: flex; flex-direction: column;">' +
+                        '<div style="text-align: center; color: #666; font-size: 12px; padding: 20px; margin: auto;">Open a workflow step to load the thread.</div>' +
+                        '</div>' +
+                        '<div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">' +
+                        '<textarea id="n88-clarification-message-workflow-' + itemId + '" name="message_text" required rows="2" style="flex: 1; padding: 10px 12px; background-color: #000; color: #fff; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 12px; resize: none; min-height: 40px; max-height: 100px;" placeholder="Type your message..."></textarea>' +
+                        '<div id="n88-supplier-attachment-preview-workflow-' + itemId + '" style="display:none; flex-wrap: wrap; gap: 4px; align-items: center; flex: 0 0 auto; max-width: 120px;"></div>' +
+                        '<button type="button" id="n88-supplier-attach-btn-workflow-' + itemId + '" onclick="var el=document.getElementById(\'n88-supplier-message-attachments-workflow-' + itemId + '\'); if(el) el.click();" style="padding: 7px 8px; background-color: #111111; color: #ccc; border: 1px solid #555; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 9px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">Attach files</button>' +
+                        '<input type="file" id="n88-supplier-message-attachments-workflow-' + itemId + '" multiple accept=".pdf,.doc,.docx,image/*" style="display:none;" onchange="if(window.n88HandleSupplierAttachmentSelect){window.n88HandleSupplierAttachmentSelect(' + itemId + ', (window.n88GetSupplierWorkflowMessageContextType ? window.n88GetSupplierWorkflowMessageContextType(' + itemId + ') : \'step_1_responses\'));}">' +
+                        '<button type="submit" style="padding: 7px 9px; background-color: #FF0065; color: #000; border: none; border-radius: 10px; font-family: \'Courier New\', Courier, monospace; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0;" onmouseover="this.style.backgroundColor=\'#cc0052\';" onmouseout="this.style.backgroundColor=\'#FF0065\';">Send</button>' +
+                        '</div>' +
+                        '</form>' +
+                        '</div>';
                     // Item Specification: 65% item/proposal (left), 35% support (right)
                     overviewTabHTML = '<div style="display: flex; flex-direction: row; flex: 1; min-height: 0; gap: 20px; overflow: hidden;">' +
                         '<div id="n88-supplier-overview-left-' + item.item_id + '" style="width: 60%; flex: 0 0 60%; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;">' + itemBoxHTML + '</div>' +
@@ -5999,7 +6156,7 @@ class N88_RFQ_Auth {
                         '<button onclick="closeBidModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: #FF0065; font-family: monospace; line-height: 1;">[ x Close ]</button>' +
                         '</div>' +
                         '<div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">' +
-                        '<div style="width: 24%; min-width: 220px; border-right: 1px solid #555; padding: 16px; overflow-y: auto; background-color: #000;">' + leftColImages + '</div>' +
+                        '<div style="width: calc(24% + 15px); min-width: 235px; border-right: 1px solid #555; padding: 16px; overflow-y: auto; background-color: #000;">' + leftColImages + workflowSupportSectionHTML + '</div>' +
                         '<div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;">' +
                         '<div style="display: flex; border-bottom: 1px solid #555; flex-shrink: 0;">' +
                         '<button type="button" onclick="n88SupplierModalSwitchTab(\'overview\');" id="n88-supplier-tab-overview" style="' + (defaultTab === 'overview' ? tabActiveStyle : tabStyle) + '">Item Specification</button>' +
@@ -6031,7 +6188,16 @@ class N88_RFQ_Auth {
                         }
                         var clarificationForm = document.getElementById('n88-supplier-clarification-form-' + itemId);
                         if (clarificationForm && defaultTab === 'overview') clarificationForm.style.display = 'flex';
-                        if (typeof loadSupplierMessagesInline === 'function') loadSupplierMessagesInline(itemId);
+                        var workflowThreadBox = document.getElementById('n88-supplier-workflow-thread-box-' + itemId);
+                        if (workflowThreadBox) workflowThreadBox.style.display = defaultTab === 'workflow' ? 'flex' : 'none';
+                        if (typeof loadSupplierMessagesInline === 'function') {
+                            loadSupplierMessagesInline(itemId, 'item_specs');
+                            if (defaultTab === 'workflow') {
+                                var initialWorkflowContext = getSupplierWorkflowMessageContextType(itemId);
+                                updateSupplierWorkflowThreadHeading(itemId, initialWorkflowContext);
+                                loadSupplierMessagesInline(itemId, initialWorkflowContext);
+                            }
+                        }
                     }, 100);
                     
                     // Commit 2.3.9.2B-S: Initialize prototype video submission forms (workflow tab now contains the form)
@@ -6308,6 +6474,9 @@ class N88_RFQ_Auth {
                 var tabs = ['overview', 'workflow'];
                 var tabStyle = 'flex: 1; padding: 12px 16px; background: #000; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 400; cursor: pointer; font-family: monospace;';
                 var tabActiveStyle = 'flex: 1; padding: 12px 16px; background: #111111; border: none; border-bottom: 2px solid #FF0065; color: #FF0065; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;';
+                var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
+                var itemId = wrap ? wrap.getAttribute('data-item-id') : '';
+                var workflowThreadBox = itemId ? document.getElementById('n88-supplier-workflow-thread-box-' + itemId) : null;
                 tabs.forEach(function(name) {
                     var btn = document.getElementById('n88-supplier-tab-' + name);
                     var panel = document.getElementById('n88-supplier-panel-' + name);
@@ -6318,6 +6487,12 @@ class N88_RFQ_Auth {
                             panel.style.flexDirection = 'column';
                             if (name === 'workflow' && typeof window.n88LoadSupplierWorkflowTimeline === 'function') {
                                 window.n88LoadSupplierWorkflowTimeline();
+                                if (workflowThreadBox) workflowThreadBox.style.display = 'flex';
+                                if (itemId && typeof loadSupplierMessagesInline === 'function') {
+                                    var workflowContext = getSupplierWorkflowMessageContextType(itemId);
+                                    updateSupplierWorkflowThreadHeading(itemId, workflowContext);
+                                    loadSupplierMessagesInline(itemId, workflowContext);
+                                }
                             }
                             if (name === 'prototype' && typeof window.initPrototypeVideoForms === 'function') {
                                 window.initPrototypeVideoForms();
@@ -6327,11 +6502,13 @@ class N88_RFQ_Auth {
                         }
                     }
                 });
+                if (workflowThreadBox && tabName !== 'workflow') workflowThreadBox.style.display = 'none';
             };
 
             window.n88SupplierWorkflowShowStep = function(idx) {
                 var wrap = document.getElementById('n88-supplier-workflow-timeline-wrap');
                 if (!wrap) return;
+                wrap.setAttribute('data-active-step', String(idx));
                 var details = wrap.querySelectorAll('.n88-workflow-step-detail');
                 for (var i = 0; i < details.length; i++) {
                     var stepId = details[i].getAttribute('id') || '';
@@ -6357,6 +6534,12 @@ class N88_RFQ_Auth {
                         if (circle) { circle.style.background = circleBg; circle.style.borderColor = circleBorder; circle.style.color = circleColor; }
                         if (label) label.style.color = labelColor;
                     }
+                }
+                var itemId = wrap.getAttribute('data-item-id');
+                if (itemId && typeof loadSupplierMessagesInline === 'function') {
+                    var workflowContext = getSupplierWorkflowMessageContextType(itemId);
+                    updateSupplierWorkflowThreadHeading(itemId, workflowContext);
+                    loadSupplierMessagesInline(itemId, workflowContext);
                 }
                 if (typeof window.initPrototypeVideoForms === 'function') window.initPrototypeVideoForms();
             };
@@ -6425,10 +6608,14 @@ class N88_RFQ_Auth {
                         var darkText = '#ccc';
                         var darkBorder = '#555';
                         var selectedIdx = 0;
+                        var savedActiveIdx = parseInt(wrap.getAttribute('data-active-step') || '', 10);
+                        if (!isNaN(savedActiveIdx) && savedActiveIdx >= 0 && savedActiveIdx < steps.length) {
+                            selectedIdx = savedActiveIdx;
+                        }
                         var supplierEvidenceByStep = data.data.supplier_step_evidence_by_step || {};
                         var step456Videos = data.data.step_456_videos || {};
                         var validationState = data.data.validation_state || t.validation_state || {};
-                        if (validationState && validationState.request && validationState.request.requested_at && (!validationState.supplier || !validationState.supplier.updated_at)) {
+                        if (isNaN(savedActiveIdx) && validationState && validationState.request && validationState.request.requested_at && (!validationState.supplier || !validationState.supplier.updated_at)) {
                             selectedIdx = 1;
                         }
                         function escHtml(value) {
@@ -6551,6 +6738,12 @@ class N88_RFQ_Auth {
                                 b.style.color = bidx === idx ? green : darkText;
                                 var lbl = b.querySelector('.n88-step-label');
                                 if (lbl) lbl.style.color = bidx === idx ? green : darkText;
+                            }
+                            w.setAttribute('data-active-step', String(idx));
+                            if (itemId && typeof loadSupplierMessagesInline === 'function') {
+                                var workflowContext = getSupplierWorkflowMessageContextType(itemId);
+                                updateSupplierWorkflowThreadHeading(itemId, workflowContext);
+                                loadSupplierMessagesInline(itemId, workflowContext);
                             }
                         };
                         window.n88SupplierSubmitMaterialSamples = function(itemId) {
@@ -14863,6 +15056,40 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( ! empty( $validation_state['request']['requested_at'] ) && empty( $validation_state['supplier']['updated_at'] ) ) {
             $supplier_workflow_active_step = 1; // Step 2: supplier must upload samples
         }
+        $latest_unread_designer_message_context = '';
+        $latest_unread_designer_message_step_index = null;
+        if ( $is_supplier && $wpdb->get_var( "SHOW TABLES LIKE '{$messages_table}'" ) === $messages_table ) {
+            $latest_unread_designer_message_context = (string) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COALESCE(NULLIF(m.context_type, ''), 'item_specs')
+                FROM {$messages_table} m
+                WHERE m.item_id = %d
+                AND (m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)
+                AND m.sender_role = 'designer'
+                AND m.supplier_id = %d
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {$messages_table} m2
+                    WHERE m2.item_id = m.item_id
+                    AND (m2.thread_type = 'designer_supplier' OR m2.thread_type = '' OR m2.thread_type IS NULL)
+                    AND m2.sender_role = 'supplier'
+                    AND m2.supplier_id = m.supplier_id
+                    AND COALESCE(NULLIF(m2.context_type, ''), 'item_specs') = COALESCE(NULLIF(m.context_type, ''), 'item_specs')
+                    AND m2.created_at > m.created_at
+                )
+                ORDER BY m.created_at DESC, m.message_id DESC
+                LIMIT 1",
+                $item_id,
+                $current_user->ID
+            ) );
+            if ( $latest_unread_designer_message_context ) {
+                $latest_unread_designer_message_step_index = $this->get_item_message_context_step_index( $latest_unread_designer_message_context );
+                if ( null !== $latest_unread_designer_message_step_index ) {
+                    $supplier_workflow_active_step = $latest_unread_designer_message_step_index;
+                } elseif ( 'item_specs' === $latest_unread_designer_message_context ) {
+                    $supplier_workflow_active_step = null;
+                }
+            }
+        }
 
         // Build response (read-only, no writes)
         // Commit 2.3.5.4: Remove total_cbm from supplier response (CBM should not be visible to suppliers)
@@ -14883,7 +15110,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
         // Ensure workflow opens on Step 4 when supplier is the awarded bidder via snapshot fallback as well
-        if ( $bid_status === 'awarded' ) {
+        if ( $bid_status === 'awarded' && null === $latest_unread_designer_message_step_index && 'item_specs' !== $latest_unread_designer_message_context ) {
             $supplier_workflow_active_step = 3;
         }
         $response_awarded_bid_id = $awarded_bid_id_from_meta ? $awarded_bid_id_from_meta : ( ( isset( $bid_status ) && $bid_status === 'awarded' && isset( $bid_id ) ) ? intval( $bid_id ) : null );
@@ -14925,6 +15152,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'has_operator_supplier_messages' => $has_operator_supplier_messages, // Auto-expand Operator-Supplier Messages when any message exists
             'workflow_milestones' => $workflow_milestones, // Supplier Workflow tab: dates per step (step1/2/3)
             'supplier_workflow_active_step' => $supplier_workflow_active_step, // 0|1|2 when to open modal on Workflow tab
+            'latest_unread_designer_message_context' => $latest_unread_designer_message_context,
+            'latest_unread_designer_message_step_index' => $latest_unread_designer_message_step_index,
             // Commit 3.C.1: Official Quote PDF + awarded bid for commercial gate UI
             'official_quote_status' => isset( $meta['official_quote_status'] ) ? $meta['official_quote_status'] : '',
             'official_quote_version' => isset( $meta['official_quote_version'] ) ? intval( $meta['official_quote_version'] ) : null,
@@ -15365,6 +15594,28 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             return $attachment_id;
         }
 
+        $supplier_files = $this->get_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() );
+        if ( empty( $supplier_files ) && ! empty( $supplier['files'] ) && is_array( $supplier['files'] ) ) {
+            $supplier_files = array();
+            foreach ( $supplier['files'] as $supplier_file ) {
+                if ( ! is_array( $supplier_file ) ) {
+                    continue;
+                }
+
+                $supplier_file_url = isset( $supplier_file['url'] ) ? esc_url_raw( $supplier_file['url'] ) : '';
+                if ( '' === $supplier_file_url ) {
+                    continue;
+                }
+
+                $supplier_files[] = array(
+                    'id'    => isset( $supplier_file['id'] ) ? absint( $supplier_file['id'] ) : 0,
+                    'url'   => $supplier_file_url,
+                    'name'  => isset( $supplier_file['name'] ) ? sanitize_file_name( $supplier_file['name'] ) : '',
+                    'title' => isset( $supplier_file['title'] ) ? sanitize_text_field( $supplier_file['title'] ) : '',
+                );
+            }
+        }
+
         return array(
             'attachment_id' => (int) $attachment_id,
             'url'           => wp_get_attachment_url( $attachment_id ),
@@ -15383,12 +15634,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 continue;
             }
             $entries[] = array(
-                'id'   => $attachment_id,
-                'url'  => esc_url_raw( $url ),
-                'name' => wp_basename( get_attached_file( $attachment_id ) ?: ( 'attachment-' . $attachment_id ) ),
+                'id'    => $attachment_id,
+                'url'   => esc_url_raw( $url ),
+                'name'  => wp_basename( get_attached_file( $attachment_id ) ?: ( 'attachment-' . $attachment_id ) ),
+                'title' => get_the_title( $attachment_id ),
             );
         }
         return $entries;
+    }
+
+    private function sanitize_validation_attachment_entries( $entries ) {
+        $sanitized = array();
+        foreach ( (array) $entries as $entry ) {
+            if ( ! is_array( $entry ) ) {
+                continue;
+            }
+            $url = isset( $entry['url'] ) ? esc_url_raw( $entry['url'] ) : '';
+            if ( ! $url ) {
+                continue;
+            }
+            $sanitized[] = array(
+                'id'    => isset( $entry['id'] ) ? absint( $entry['id'] ) : 0,
+                'url'   => $url,
+                'name'  => isset( $entry['name'] ) ? sanitize_file_name( $entry['name'] ) : '',
+                'title' => isset( $entry['title'] ) ? sanitize_text_field( $entry['title'] ) : '',
+            );
+        }
+        return $sanitized;
     }
 
     private function get_supplier_company_address( $supplier_id ) {
@@ -15496,7 +15768,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         } elseif ( $sample_status === 'samples_approved' ) {
             $card_status_text  = 'Samples Approved';
             $card_status_color = '#4caf50';
-        } elseif ( in_array( $sample_status, array( 'under_review', 'samples_received', 'delivered' ), true ) ) {
+        } elseif ( $sample_status === 'samples_received' ) {
+            $card_status_text  = 'Samples Received';
+            $card_status_color = '#2196f3';
+        } elseif ( in_array( $sample_status, array( 'under_review', 'delivered' ), true ) ) {
             $card_status_text  = 'Review Samples';
             $card_status_color = '#2196f3';
         } elseif ( in_array( $sample_status, array( 'shipped', 'in_transit' ), true ) ) {
@@ -15506,8 +15781,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $card_status_text  = 'Samples In Preparation';
             $card_status_color = '#2196f3';
         } elseif ( $sample_status === 'sample_requested' ) {
-            $card_status_text  = $payment_status === 'submitted' ? 'Sample Payment Sent' : 'Samples Requested';
-            $card_status_color = $payment_status === 'submitted' ? '#ff9800' : '#2196f3';
+            if ( in_array( $payment_status, array( 'approved', 'recorded' ), true ) ) {
+                $card_status_text  = 'Sample Payment Approved';
+                $card_status_color = '#4caf50';
+            } elseif ( $payment_status === 'submitted' ) {
+                $card_status_text  = 'Sample Payment Sent';
+                $card_status_color = '#ff9800';
+            } else {
+                $card_status_text  = 'Samples Requested';
+                $card_status_color = '#2196f3';
+            }
         }
 
         return array(
@@ -15534,7 +15817,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'status'                => isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '',
                 'tracking_number'       => isset( $supplier['tracking_number'] ) ? sanitize_text_field( $supplier['tracking_number'] ) : '',
                 'note'                  => isset( $supplier['note'] ) ? sanitize_textarea_field( $supplier['note'] ) : '',
-                'files'                 => $this->get_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() ),
+                'files'                 => $supplier_files,
                 'updated_at'            => isset( $supplier['updated_at'] ) ? $supplier['updated_at'] : null,
                 'submitted_by'          => isset( $supplier['submitted_by'] ) ? absint( $supplier['submitted_by'] ) : 0,
             ),
@@ -18147,6 +18430,49 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         );
     }
 
+    /**
+     * Check whether a designer<->supplier thread still has legacy rows needing normalization.
+     *
+     * @param int $item_id Item ID.
+     * @param int $supplier_id Supplier user ID.
+     * @param int $designer_id Designer user ID.
+     * @return bool
+     */
+    private function designer_supplier_thread_needs_repair( $item_id, $supplier_id, $designer_id ) {
+        global $wpdb;
+
+        $item_id     = absint( $item_id );
+        $supplier_id = absint( $supplier_id );
+        $designer_id = absint( $designer_id );
+        if ( ! $item_id || ! $supplier_id || ! $designer_id ) {
+            return false;
+        }
+
+        $messages_table = $wpdb->prefix . 'n88_item_messages';
+
+        return (bool) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT 1
+                FROM {$messages_table}
+                WHERE item_id = %d
+                AND (thread_type = 'designer_supplier' OR thread_type = '' OR thread_type IS NULL)
+                AND (
+                    (sender_role = 'designer' AND sender_user_id = %d)
+                    OR (sender_role = 'supplier' AND sender_user_id = %d)
+                )
+                AND (
+                    supplier_id IS NULL OR supplier_id = 0
+                    OR designer_id IS NULL OR designer_id = 0
+                    OR thread_type = '' OR thread_type IS NULL
+                )
+                LIMIT 1",
+                $item_id,
+                $designer_id,
+                $supplier_id
+            )
+        );
+    }
+
     public function ajax_create_material_validation_request() {
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
 
@@ -18318,7 +18644,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         $validation['request']['payment_mode']           = $payment_mode ? $payment_mode : ( $validation['request']['payment_mode'] ?? 'external' );
-        $validation['request']['payment_status']         = $payment_mode === 'external' ? 'recorded' : 'submitted';
+        $validation['request']['payment_status']         = 'approved';
         $validation['request']['payment_submitted_at']   = $now;
         $validation['request']['payment_proof_file_ids'] = array_values( array_unique( array_map( 'absint', $proof_ids ) ) );
         $meta['material_validation']                     = $validation;
@@ -18329,7 +18655,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         wp_send_json_success( array(
-            'message'          => 'Payment submission saved.',
+            'message'          => 'Payment approved.',
             'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
         ) );
     }
@@ -18384,13 +18710,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
+        $supplier_sample_file_ids = array_values( array_unique( array_map( 'absint', $existing_ids ) ) );
         $validation['supplier'] = array(
-            'status'         => $status,
-            'tracking_number'=> $tracking_number,
-            'note'           => $note,
-            'sample_file_ids'=> array_values( array_unique( array_map( 'absint', $existing_ids ) ) ),
-            'updated_at'     => current_time( 'mysql' ),
-            'submitted_by'   => (int) $current_user->ID,
+            'status'          => $status,
+            'tracking_number' => $tracking_number,
+            'note'            => $note,
+            'sample_file_ids' => $supplier_sample_file_ids,
+            'files'           => $this->get_validation_attachment_entries( $supplier_sample_file_ids ),
+            'updated_at'      => current_time( 'mysql' ),
+            'submitted_by'    => (int) $current_user->ID,
         );
         $validation['sample_status'] = $status;
         $meta['material_validation'] = $validation;
@@ -25185,10 +25513,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
+        $context_type = isset( $_POST['context_type'] ) ? $this->normalize_item_message_context_type( wp_unslash( $_POST['context_type'] ) ) : '';
         $requested_supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
         if ( $thread_type === 'designer_supplier' ) {
             $this->ensure_supplier_proposal_workspace_support();
         }
+        $this->ensure_item_message_context_support();
         
         if ( ! $item_id || ! in_array( $thread_type, array( 'supplier_operator', 'designer_operator', 'designer_supplier' ), true ) ) {
             wp_send_json_error( array( 'message' => 'Invalid parameters.' ) );
@@ -25210,6 +25540,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $where_clauses[] = "(m.thread_type = 'designer_supplier' OR m.thread_type = '' OR m.thread_type IS NULL)";
         } else {
             $where_clauses[] = $wpdb->prepare( 'm.thread_type = %s', $thread_type );
+        }
+        if ( $context_type ) {
+            if ( 'item_specs' === $context_type ) {
+                $where_clauses[] = "(m.context_type = 'item_specs' OR m.context_type = '' OR m.context_type IS NULL)";
+            } else {
+                $where_clauses[] = $wpdb->prepare( 'm.context_type = %s', $context_type );
+            }
         }
 
         $thread_supplier_id = 0;
@@ -25296,7 +25633,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        if ( $thread_type === 'designer_supplier' && $thread_supplier_id && $thread_designer_id ) {
+        if ( $thread_type === 'designer_supplier' && $thread_supplier_id && $thread_designer_id && $this->designer_supplier_thread_needs_repair( $item_id, $thread_supplier_id, $thread_designer_id ) ) {
             $this->repair_designer_supplier_thread_messages( $item_id, $thread_supplier_id, $thread_designer_id );
         }
 
@@ -25312,7 +25649,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ARRAY_A
         );
 
-        $response = array( 'messages' => $messages );
+        $response = array(
+            'messages'     => $messages,
+            'context_type' => $context_type,
+        );
         if ( $thread_type === 'designer_supplier' ) {
             if ( $is_supplier ) {
                 $response['supplier_id'] = (int) $current_user->ID;
@@ -25447,9 +25787,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $item_id = isset( $_POST['item_id'] ) ? absint( $_POST['item_id'] ) : 0;
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $message_text = isset( $_POST['message_text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['message_text'] ) ) : '';
+        $context_type = isset( $_POST['context_type'] ) ? $this->normalize_item_message_context_type( wp_unslash( $_POST['context_type'] ) ) : '';
         if ( $thread_type === 'designer_supplier' ) {
             $this->ensure_supplier_proposal_workspace_support();
         }
+        $this->ensure_item_message_context_support();
         $category = isset( $_POST['category'] ) ? sanitize_text_field( wp_unslash( $_POST['category'] ) ) : '';
         // Message tags (designer_operator designer only): required  at least one of clarifying_questions, mse_material
         $message_tags = array();
@@ -25661,10 +26003,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'sender_user_id' => $current_user->ID,
                 'message_text' => $message_text,
                 'category' => $category ? $category : null,
+                'context_type' => $context_type ? $context_type : null,
                 'message_attachments' => $message_attachments_json,
                 'created_at' => current_time( 'mysql' ),
             ),
-            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s' )
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s' )
         );
 
         if ( ! $insert_result ) {
@@ -25716,6 +26059,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'payload_json' => array(
                 'message_id' => $message_id,
                 'thread_type' => $thread_type,
+                'context_type' => $context_type,
                 'item_id' => $item_id,
                 'bid_id' => $bid_id,
                 'supplier_id' => $supplier_id,
@@ -25726,7 +26070,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             ),
         ) );
 
-        $response = array( 'message_id' => $message_id );
+        $response = array(
+            'message_id'    => $message_id,
+            'context_type'  => $context_type,
+        );
         if ( $thread_type === 'designer_supplier' && $supplier_id ) {
             $response['supplier_id'] = (int) $supplier_id;
         }
@@ -25739,9 +26086,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
      *
      * @return int|false Inserted message_id or false on failure
      */
-    private function n88_insert_item_message( $thread_type, $item_id, $sender_role, $sender_user_id, $message_text, $category = null, $bid_id = null, $supplier_id = null, $designer_id = null ) {
+    private function n88_insert_item_message( $thread_type, $item_id, $sender_role, $sender_user_id, $message_text, $category = null, $bid_id = null, $supplier_id = null, $designer_id = null, $context_type = null ) {
         global $wpdb;
         $messages_table = $wpdb->prefix . 'n88_item_messages';
+        $this->ensure_item_message_context_support();
 
         $insert_result = $wpdb->insert(
             $messages_table,
@@ -25755,9 +26103,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'sender_user_id' => $sender_user_id,
                 'message_text'   => $message_text,
                 'category'       => $category ? $category : null,
+                'context_type'   => $context_type ? $this->normalize_item_message_context_type( $context_type ) : null,
                 'created_at'     => current_time( 'mysql' ),
             ),
-            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s' )
+            array( '%s', '%d', '%d', '%d', '%d', '%s', '%d', '%s', '%s', '%s', '%s' )
         );
 
         if ( ! $insert_result ) {

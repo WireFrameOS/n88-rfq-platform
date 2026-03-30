@@ -115,6 +115,11 @@ class N88_Item_Timeline {
             $timeline_id
         ), ARRAY_A );
 
+        $prototype_gate_cleared = (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM {$wpdb->prefix}n88_prototype_payments WHERE item_id = %d AND status = 'marked_received' AND received_at IS NOT NULL LIMIT 1",
+            $item_id
+        ) );
+
         $rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT step_id, timeline_id, step_number, label, status, started_at, completed_at, expected_by, evidence_required, evidence_verified_at, evidence_verified_by FROM {$steps_table} WHERE timeline_id = %d ORDER BY step_number ASC",
             $timeline_id
@@ -142,12 +147,14 @@ class N88_Item_Timeline {
                 'evidence_verified_by' => $row['evidence_verified_by'] ? (int) $row['evidence_verified_by'] : null,
             );
             if ( $step_number >= 4 && $step_number <= 6 ) {
-                $step_data['has_required_evidence'] = self::has_required_evidence( $item_id, $step_number );
+                $step_data['has_required_evidence'] = ! empty( $row['evidence_verified_at'] ) || empty( $row['evidence_required'] );
+            } elseif ( 1 === $step_number ) {
+                $step_data['has_required_evidence'] = ! empty( $row['evidence_verified_at'] ) || empty( $row['evidence_required'] ) || $prototype_gate_cleared;
             }
             $steps[] = $step_data;
         }
 
-        $show_prototype_mini = self::item_has_prototype_payment_gate_cleared( $item_id );
+        $show_prototype_mini = $prototype_gate_cleared;
 
         return array(
             'timeline_id'         => (int) $timeline_id,
