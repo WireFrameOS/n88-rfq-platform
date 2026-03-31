@@ -210,17 +210,23 @@ class N88_RFQ_Admin {
         $supplier_files    = $this->get_item_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() );
         $po_uploaded       = ! empty( $commitment['po_file_id'] );
         $samples_approved  = ! empty( $review['approved_at'] );
+        $has_awarded_bid   = false;
+        if ( isset( $item_meta['item_status'] ) && 'Awarded' === $item_meta['item_status'] ) {
+            $has_awarded_bid = true;
+        } elseif ( ! empty( $item_meta['awarded_bid_snapshot'] ) ) {
+            $has_awarded_bid = true;
+        }
         $com_status        = isset( $commitment['com_status'] ) ? sanitize_key( $commitment['com_status'] ) : '';
         $com_completed     = ! $com_applicable || in_array( $com_status, array( 'com_delivered', 'received', 'confirmed' ), true );
         $deposit_status    = isset( $commitment['deposit_status'] ) ? sanitize_key( $commitment['deposit_status'] ) : '';
         $deposit_confirmed = in_array( $deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
         $readiness         = array(
             'validation_complete' => $samples_approved,
-            'awaiting_po'         => $samples_approved && ! $po_uploaded,
-            'awaiting_com'        => $samples_approved && $po_uploaded && $com_applicable && ! $com_completed,
-            'awaiting_deposit'    => $samples_approved && $po_uploaded && $com_completed && ! $deposit_confirmed,
+            'awaiting_po'         => $has_awarded_bid && $samples_approved && ! $po_uploaded,
+            'awaiting_com'        => $has_awarded_bid && $samples_approved && $po_uploaded && $com_applicable && ! $com_completed,
+            'awaiting_deposit'    => $has_awarded_bid && $samples_approved && $po_uploaded && $com_completed && ! $deposit_confirmed,
         );
-        $can_commit        = $samples_approved && $po_uploaded && $com_completed && $deposit_confirmed;
+        $can_commit        = $has_awarded_bid && $samples_approved && $po_uploaded && $com_completed && $deposit_confirmed;
 
         $card_status_text  = '';
         $card_status_color = '#2196f3';
@@ -228,6 +234,9 @@ class N88_RFQ_Admin {
         if ( $can_commit ) {
             $card_status_text  = 'Ready for Production';
             $card_status_color = '#4caf50';
+        } elseif ( 'samples_approved' === $sample_status ) {
+            $card_status_text  = $has_awarded_bid ? 'Awaiting PO' : 'Samples Approved';
+            $card_status_color = $has_awarded_bid ? '#ff9800' : '#4caf50';
         } elseif ( $readiness['awaiting_deposit'] ) {
             $card_status_text  = 'Awaiting Deposit';
             $card_status_color = '#ff9800';
@@ -237,9 +246,6 @@ class N88_RFQ_Admin {
         } elseif ( $readiness['awaiting_po'] ) {
             $card_status_text  = 'Awaiting PO';
             $card_status_color = '#ff9800';
-        } elseif ( 'samples_approved' === $sample_status ) {
-            $card_status_text  = 'Samples Approved';
-            $card_status_color = '#4caf50';
         } elseif ( 'samples_received' === $sample_status ) {
             $card_status_text  = 'Samples Received';
             $card_status_color = '#2196f3';
@@ -11259,7 +11265,7 @@ class N88_RFQ_Admin {
                                     itemId: itemId,
                                     bidId: parseInt(bid.bid_id, 10),
                                     supplierId: bid.supplier_id ? parseInt(bid.supplier_id, 10) : null,
-                                    stepIndex: 0
+                                    stepIndex: 1
                                 }
                             }));
                         } catch (err) {
@@ -13345,6 +13351,9 @@ class N88_RFQ_Admin {
                     var _sampleRequestPanelDismissedState = React.useState(false);
                     var sampleRequestPanelDismissed = _sampleRequestPanelDismissedState[0];
                     var setSampleRequestPanelDismissed = _sampleRequestPanelDismissedState[1];
+                    var _sampleRequestInlineOpenState = React.useState(false);
+                    var sampleRequestInlineOpen = _sampleRequestInlineOpenState[0];
+                    var setSampleRequestInlineOpen = _sampleRequestInlineOpenState[1];
                     var sampleRequestFileInputRef = React.useRef ? React.useRef(null) : { current: null };
                     var _sampleReviewSubmittingState = React.useState(false);
                     var sampleReviewSubmitting = _sampleReviewSubmittingState[0];
@@ -14003,13 +14012,7 @@ class N88_RFQ_Admin {
                             validationCommitmentAuto.deposit_status ||
                             validationCommitmentAuto.deposit_confirmed_at ||
                             (validationCommitmentAuto.deposit_receipt_files && validationCommitmentAuto.deposit_receipt_files.length) ||
-                            validationReadinessAuto.awaiting_po ||
-                            validationReadinessAuto.awaiting_com ||
-                            validationReadinessAuto.awaiting_deposit ||
                             validationStateAuto.can_commit ||
-                            validationCardTextAuto === 'awaiting po' ||
-                            validationCardTextAuto === 'awaiting com' ||
-                            validationCardTextAuto === 'awaiting deposit' ||
                             validationCardTextAuto === 'ready for production'
                         );
                         var sampleReviewStepTwo = sampleSupplierResponseReceived ||
@@ -14268,9 +14271,6 @@ class N88_RFQ_Admin {
                             })
                             .then(function(data) {
                                 if (data.success && data.data && data.data.messages) {
-                                    if (conversationContext.threadType === 'designer_supplier' && data.data.supplier_id && String(data.data.supplier_id) !== String(selectedDirectSupplierId || '')) {
-                                        setSelectedDirectSupplierId(String(data.data.supplier_id));
-                                    }
                                     setDesignerMessages(data.data.messages);
                                 } else {
                                     setDesignerMessages([]);
@@ -14305,6 +14305,17 @@ class N88_RFQ_Admin {
                             window.clearTimeout(timeoutId);
                         };
                     }, [isOpen, itemId, loadDesignerMessages]);
+                    React.useEffect(function() {
+                        if (!isOpen || !itemId || activeDesignerConversationContext.threadType !== 'designer_supplier') {
+                            return;
+                        }
+                        if (!selectedDirectSupplierId) {
+                            setDesignerMessages([]);
+                            return;
+                        }
+                        setDesignerMessages([]);
+                        loadDesignerMessages(selectedDirectSupplierId);
+                    }, [isOpen, itemId, activeDesignerConversationContext.threadType, selectedDirectSupplierId, loadDesignerMessages]);
                     React.useEffect(function() {
                         if (!isOpen) {
                             setDetailsSupportReady(false);
@@ -14722,9 +14733,13 @@ class N88_RFQ_Admin {
                         setSampleRequestMessage('');
                         setSampleRequestError('');
                         setSampleRequestPanelDismissed(false);
+                        setSampleRequestInlineOpen(true);
                         setActiveTab('timeline');
                         setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 0);
                     }, [isOpen, requestSampleContextProp, initialTimelineStepProp]);
+                    React.useEffect(function() {
+                        setSampleRequestInlineOpen(false);
+                    }, [itemId]);
                     React.useEffect(function() {
                         if (!isOpen || !itemState.bids || !itemState.bids.length) return;
                         var preferredBidId = requestSampleContextProp && requestSampleContextProp.bidId ? parseInt(requestSampleContextProp.bidId, 10) : null;
@@ -18557,17 +18572,21 @@ class N88_RFQ_Admin {
                                                         itemDimsCm: item && item.dims_cm,
                                                         batchActionMode: true,
                                                         onRequestSampleBid: function(selectedBid) {
-                                                            try {
-                                                                window.dispatchEvent(new CustomEvent('n88-open-sample-request-for-item', {
-                                                                    detail: {
-                                                                        itemId: itemId,
-                                                                        bidId: selectedBid && selectedBid.bid_id ? parseInt(selectedBid.bid_id, 10) : null,
-                                                                        supplierId: selectedBid && selectedBid.supplier_id ? parseInt(selectedBid.supplier_id, 10) : null,
-                                                                        stepIndex: 0
-                                                                    }
-                                                                }));
-                                                            } catch (err) {
-                                                                console.error('Failed to open sample request modal:', err);
+                                                            if (!selectedBid || !selectedBid.bid_id) return;
+                                                            setSampleRequestBidId(parseInt(selectedBid.bid_id, 10) || null);
+                                                            setSampleRequestFiles([]);
+                                                            if (sampleRequestFileInputRef && sampleRequestFileInputRef.current) {
+                                                                sampleRequestFileInputRef.current.value = '';
+                                                            }
+                                                            setSampleRequestMessage('');
+                                                            setSampleRequestError('');
+                                                            setSampleRequestPanelDismissed(false);
+                                                            setSampleRequestInlineOpen(true);
+                                                            if (activeTab !== 'timeline') {
+                                                                setActiveTab('timeline');
+                                                            }
+                                                            if (selectedStepIndex !== 0) {
+                                                                setSelectedStepIndex(0);
                                                             }
                                                         },
                                                         onRequestPrototypeBid: function(selectedBid) {
@@ -19194,15 +19213,17 @@ class N88_RFQ_Admin {
                                                             id: 'n88-step1-payment-required',
                                                             style: { marginBottom: '24px', padding: '20px', backgroundColor: '#331100', border: '2px solid #ff8800', borderRadius: '4px' }
                                                         }, React.createElement('div', { id: 'n88-step1-payment-required-heading', style: { fontSize: '16px', fontWeight: '600', color: '#ff8800', marginBottom: '12px' } }, 'Payment Required - Prototype & CAD Not Started'), React.createElement('div', { style: { fontSize: '13px', color: '#ffaa66', marginBottom: '16px', lineHeight: 1.5 } }, 'Your prototype request has been submitted. CAD drafting and prototype work will begin only after payment is received.'), React.createElement('div', { style: { marginBottom: '12px', padding: '12px', backgroundColor: '#1a0a00', borderRadius: '4px', border: '1px solid #ff8800' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '8px' } }, 'Amount Due: $' + (itemState.prototype_payment_total_due ? itemState.prototype_payment_total_due.toFixed(2) : '0.00')), React.createElement('div', { style: { fontSize: '12px', color: '#ffaa66' } }, 'Payment Methods: Wire / ACH / Zelle')), React.createElement('button', { onClick: function() { setShowPaymentInstructions(true); }, style: { padding: '10px 20px', backgroundColor: '#ff8800', color: '#000', border: 'none', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px', fontWeight: '600', cursor: 'pointer' } }, '[ View Payment Instructions ]')) : null,
-                                                        (s.step_number === 1 && itemState.has_bids && itemState.bids && itemState.bids.length > 0) ? (function() {
+                                                        ((s.step_number === 1 || (s.step_number === 2 && showCadPrototypeForm)) && itemState.has_bids && itemState.bids && itemState.bids.length > 0) ? (function() {
                                                             return React.createElement('div', { style: { marginBottom: '24px' }, onClick: function(e) { e.stopPropagation(); } },
+                                                                (s.step_number === 1) ? React.createElement(React.Fragment, null,
                                                                 React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
                                                                     React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
                                                                         React.createElement('span', { style: { color: greenAccent } }, (item.title || item.description || ('Item ' + itemId))),
                                                                         React.createElement('span', { style: { color: darkText } }, 'Quotes Received')
                                                                     )
                                                                 ),
-                                                                React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId, itemQuantity: item && (item.quantity != null ? item.quantity : (item.meta && item.meta.quantity)), itemCbm: item && item.cbm, itemDimsCm: item && item.dims_cm, batchActionMode: true, onRequestSampleBid: function(selectedBid) { try { window.dispatchEvent(new CustomEvent('n88-open-sample-request-for-item', { detail: { itemId: itemId, bidId: selectedBid && selectedBid.bid_id ? parseInt(selectedBid.bid_id, 10) : null, supplierId: selectedBid && selectedBid.supplier_id ? parseInt(selectedBid.supplier_id, 10) : null, stepIndex: 0 } })); } catch (e) {} }, onRequestPrototypeBid: function(selectedBid) { if (selectedBid && selectedBid.bid_id) { setSelectedBidId(parseInt(selectedBid.bid_id, 10)); } setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, onAwardProjectBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) return; var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php'); var nonce = ''; if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) { nonce = window.n88BoardNonce.nonce_award_bid; } else if (window.n88BoardData && window.n88BoardData.nonce) { nonce = window.n88BoardData.nonce; } else if (window.n88 && window.n88.nonce) { nonce = window.n88.nonce; } if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; } var formData = new FormData(); formData.append('action', 'n88_award_bid'); formData.append('item_id', itemId); formData.append('bid_id', selectedBid.bid_id); formData.append('_ajax_nonce', nonce); fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(response) { return response.json(); }).then(function(data) { if (data.success) { alert('Bid awarded successfully!'); window.location.reload(); } else { alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid')); } }).catch(function(error) { console.error('Error awarding bid:', error); alert('Error awarding bid. Please try again.'); }); } }),
+                                                                React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId, itemQuantity: item && (item.quantity != null ? item.quantity : (item.meta && item.meta.quantity)), itemCbm: item && item.cbm, itemDimsCm: item && item.dims_cm, batchActionMode: true, onRequestSampleBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; setSampleRequestBidId(parseInt(selectedBid.bid_id, 10) || null); setSampleRequestFiles([]); if (sampleRequestFileInputRef && sampleRequestFileInputRef.current) { sampleRequestFileInputRef.current.value = ''; } setSampleRequestMessage(''); setSampleRequestError(''); setSampleRequestPanelDismissed(false); setSampleRequestInlineOpen(true); if (activeTab !== 'timeline') { setActiveTab('timeline'); } if (selectedStepIndex !== 1) { setSelectedStepIndex(1); } }, onRequestPrototypeBid: function(selectedBid) { if (selectedBid && selectedBid.bid_id) { setSelectedBidId(parseInt(selectedBid.bid_id, 10)); } setShowCadPrototypeForm(true); setCadPrototypeError(''); setCadPrototypeSuccess(false); if (activeTab !== 'timeline') { setActiveTab('timeline'); } if (selectedStepIndex !== 1) { setSelectedStepIndex(1); } }, onAwardProjectBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) return; var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php'); var nonce = ''; if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) { nonce = window.n88BoardNonce.nonce_award_bid; } else if (window.n88BoardData && window.n88BoardData.nonce) { nonce = window.n88BoardData.nonce; } else if (window.n88 && window.n88.nonce) { nonce = window.n88.nonce; } if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; } var formData = new FormData(); formData.append('action', 'n88_award_bid'); formData.append('item_id', itemId); formData.append('bid_id', selectedBid.bid_id); formData.append('_ajax_nonce', nonce); fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(response) { return response.json(); }).then(function(data) { if (data.success) { alert('Bid awarded successfully!'); window.location.reload(); } else { alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid')); } }).catch(function(error) { console.error('Error awarding bid:', error); alert('Error awarding bid. Please try again.'); }); } }),
+                                                                ) : null,
                                                                 !itemState.has_prototype_payment ? ( showCadPrototypeForm && React.createElement('div', { id: 'cad-prototype-form-step1', style: { marginTop: '20px', border: '1px solid ' + darkBorder, borderRadius: '4px', padding: '16px', backgroundColor: '#111111' } },
                                                                     React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } }, React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, 'Request Prototype Video'), React.createElement('button', { onClick: function() { setShowCadPrototypeForm(false); setSelectedBidId(null); setSelectedKeywords([]); setPrototypeNote(''); setCadPrototypeError(''); setCadPrototypeSuccess(false); }, style: { background: 'none', border: 'none', color: darkText, fontSize: '20px', cursor: 'pointer', padding: '0', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, '\u00D7')),
                                                                     cadPrototypeSuccess ? React.createElement('div', { style: { marginBottom: '16px', padding: '12px', backgroundColor: '#1a3a1a', border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '12px', color: greenAccent, lineHeight: 1.5 } }, 'Request submitted. Please send payment. CAD drafting will begin once payment is confirmed.') : null,
@@ -19240,7 +19261,7 @@ class N88_RFQ_Admin {
                                                                 )) : null
                                                             );
                                                         })() : null,
-                                                        ((s.step_number === 1 || s.step_number === 2) && itemState.has_bids && itemState.bids && itemState.bids.length > 0) ? (function() {
+                                                        (s.step_number === 2 && itemState.has_bids && itemState.bids && itemState.bids.length > 0) ? (function() {
                                                             var validationState = itemState.validation_state || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : {}) || {};
                                                             var validationRequest = validationState.request && typeof validationState.request === 'object' ? validationState.request : {};
                                                             var validationSupplier = validationState.supplier && typeof validationState.supplier === 'object' ? validationState.supplier : {};
@@ -19253,7 +19274,7 @@ class N88_RFQ_Admin {
                                                             var mergedValidationSupplier = Object.assign({}, validationMetaSupplier, validationSupplier);
                                                             var mergedValidationReview = Object.assign({}, validationMetaReview, (validationState.review && typeof validationState.review === 'object' ? validationState.review : {}));
                                                             var mergedValidationStatus = validationStatus || validationMeta.sample_status || '';
-                                                            var showSampleRequestStep = s.step_number === 1;
+                                                            var showSampleRequestStep = s.step_number === 2;
                                                             var showSampleResponseStep = s.step_number === 2;
                                                             var selectedBidForRequest = selectedSampleRequestBid;
                                                             var supplierOptions = itemState.bids.map(function(bid) {
@@ -19277,8 +19298,8 @@ class N88_RFQ_Admin {
                                                                 step2CardStatusText === 'samples approved'
                                                             );
                                                             var step2ShowRequestStatusBox = !!(hasSampleRequest && !showSupplierResponse && !step2ReviewReceived && !step2ReviewApproved);
-                                                            var step2ShowSupplierDetailsBox = !!(showSampleResponseStep && showSupplierResponse && !step2ReviewApproved);
-                                                            var step2ShowApprovedBox = !!(showSampleResponseStep && showSupplierResponse && step2ReviewApproved);
+                                                            var step2ShowSupplierDetailsBox = !!(showSampleResponseStep && showSupplierResponse);
+                                                            var step2ShowApprovedBox = !!(showSampleResponseStep && !showSupplierResponse && step2ReviewApproved);
                                                             var step2ReviewBidId = parseInt(validationState.bid_id || validationMeta.bid_id || (selectedBidForRequest && selectedBidForRequest.bid_id) || 0, 10) || 0;
                                                             var step2ValidationCanAward = !!(
                                                                 step2ReviewApproved &&
@@ -19286,11 +19307,11 @@ class N88_RFQ_Admin {
                                                                 !itemState.has_awarded_bid
                                                             );
                                                             var hasSampleRequest = !!(sampleRequestLocked || validationState.enabled || validationState.bid_id || mergedValidationRequest.requested_at || mergedValidationStatus === 'sample_requested' || showSupplierResponse || validationMeta.sample_status || validationMeta.bid_id || validationMetaRequest.requested_at || validationMetaSupplier.updated_at);
-                                                            var openedFromSampleRequestAction = !!(showSampleRequestStep && requestSampleContextProp);
-                                                            var canDismissSampleRequestPanel = !!(showSampleRequestStep && !hasSampleRequest && openedFromSampleRequestAction);
-                                                            var shouldRenderSamplePanel = showSampleResponseStep
-                                                                ? hasSampleRequest
-                                                                : (hasSampleRequest || openedFromSampleRequestAction);
+                                                            var sampleRequestAlreadySubmitted = !!(showSampleRequestStep && hasSampleRequest && mergedValidationRequest.requested_at);
+                                                            var openedFromSampleRequestAction = !!(requestSampleContextProp || sampleRequestInlineOpen);
+                                                            var canDismissSampleRequestPanel = !!(!hasSampleRequest && openedFromSampleRequestAction);
+                                                            var shouldRenderSamplePanel = !!(hasSampleRequest || openedFromSampleRequestAction);
+                                                            var samplePanelTitle = (showSupplierResponse || step2ReviewReceived || step2ReviewApproved) ? 'Review Material Samples' : 'Request Material Samples';
                                                             if (canDismissSampleRequestPanel && sampleRequestPanelDismissed) {
                                                                 return null;
                                                             }
@@ -19307,7 +19328,10 @@ class N88_RFQ_Admin {
                                                                 }
                                                             },
                                                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' } },
-                                                                    React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, showSampleResponseStep ? 'Review Material Samples' : 'Request Material Samples'),
+                                                                    React.createElement('div', { style: { display: 'grid', gap: '4px' } },
+                                                                        React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: darkText } }, samplePanelTitle),
+                                                                        sampleRequestAlreadySubmitted ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'Request submitted: ' + formatWorkflowDateTime(mergedValidationRequest.requested_at)) : null
+                                                                    ),
                                                                     canDismissSampleRequestPanel ? React.createElement('button', {
                                                                         type: 'button',
                                                                         onClick: function() { setSampleRequestPanelDismissed(true); },
@@ -19316,7 +19340,6 @@ class N88_RFQ_Admin {
                                                                         style: { width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, backgroundColor: 'transparent', color: '#999', border: '1px solid ' + darkBorder, borderRadius: '999px', cursor: 'pointer', fontSize: '16px', lineHeight: 1, fontFamily: 'monospace', flexShrink: 0 }
                                                                     }, 'x') : null
                                                                 ),
-                                                                (showSampleRequestStep && !requestSampleContextProp) ? React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '14px', lineHeight: 1.5 } }, 'Open from Batch Proposal View selects the supplier automatically. Submit the request here, then the supplier sees it in Workflow Step 02 and can upload sample files there.') : null,
                                                                 sampleRequestMessage ? React.createElement('div', {
                                                                     style: { marginBottom: '12px', padding: '10px 12px', backgroundColor: '#102410', border: '1px solid ' + greenAccent, borderRadius: '4px', fontSize: '12px', color: greenAccent }
                                                                 }, sampleRequestMessage) : null,
@@ -19557,15 +19580,15 @@ class N88_RFQ_Admin {
                         React.createElement('button', {
                             type: 'button',
                             onClick: function() { submitSampleRequest(false); },
-                            disabled: sampleRequestSubmitting || !selectedBidForRequest || !selectedSampleRequestSupplierId,
-                            style: { width: '100%', padding: '12px', backgroundColor: (sampleRequestSubmitting || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? '#333' : greenAccent, color: (sampleRequestSubmitting || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? '#666' : darkBg, border: 'none', borderRadius: '4px', fontSize: '13px', fontWeight: '700', fontFamily: 'monospace', cursor: (sampleRequestSubmitting || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? 'not-allowed' : 'pointer' }
-                        }, sampleRequestSubmitting ? 'Submitting...' : 'Request Material Samples')
+                            disabled: sampleRequestSubmitting || sampleRequestAlreadySubmitted || !selectedBidForRequest || !selectedSampleRequestSupplierId,
+                            style: { width: '100%', padding: '12px', backgroundColor: (sampleRequestSubmitting || sampleRequestAlreadySubmitted || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? '#333' : greenAccent, color: (sampleRequestSubmitting || sampleRequestAlreadySubmitted || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? '#666' : darkBg, border: 'none', borderRadius: '4px', fontSize: '13px', fontWeight: '700', fontFamily: 'monospace', cursor: (sampleRequestSubmitting || sampleRequestAlreadySubmitted || !selectedBidForRequest || !selectedSampleRequestSupplierId) ? 'not-allowed' : 'pointer' }
+                        }, sampleRequestSubmitting ? 'Submitting...' : (sampleRequestAlreadySubmitted ? 'Sample Request Submitted' : 'Request Material Samples'))
                                                                 ) : null,
                                                                 step2ShowSupplierDetailsBox ? React.createElement('div', {
                                                                     style: { marginTop: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px' }
                                                                 },
                                                                     React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Supplier Sample Details'),
-                                                                    mergedValidationSupplier.status ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Status: ' + String(mergedValidationSupplier.status).replace(/_/g, ' ')) : null,
+                                                                    mergedValidationSupplier.status ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Status: ' + (String(mergedValidationSupplier.status).toLowerCase() === 'delivered' ? 'shipped' : String(mergedValidationSupplier.status).replace(/_/g, ' '))) : null,
                                                                     mergedValidationSupplier.updated_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Updated: ' + formatWorkflowDateTime(mergedValidationSupplier.updated_at)) : null,
                                                                     mergedValidationSupplier.tracking_number ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Tracking: ' + mergedValidationSupplier.tracking_number) : null,
                                                                     mergedValidationSupplier.note ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px', whiteSpace: 'pre-wrap' } }, mergedValidationSupplier.note) : null,
@@ -19587,6 +19610,49 @@ class N88_RFQ_Admin {
                                                                                 React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Sample File ' + (fileIdx + 1)))
                                                                             );
                                                                         })
+                                                                    ) : null,
+                                                                    step2ReviewApproved ? React.createElement('div', { style: { marginBottom: '12px', padding: '12px', backgroundColor: '#05050a', border: '1px solid ' + darkBorder, borderRadius: '4px', display: 'grid', gap: '6px' } },
+                                                                        React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: greenAccent } }, 'Samples Approved'),
+                                                                        mergedValidationReview.approved_material_codes && mergedValidationReview.approved_material_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Material Codes: ' + mergedValidationReview.approved_material_codes.join(', ')) : null,
+                                                                        mergedValidationReview.approved_finish_codes && mergedValidationReview.approved_finish_codes.length ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, 'Finish Codes: ' + mergedValidationReview.approved_finish_codes.join(', ')) : null,
+                                                                        mergedValidationReview.notes ? React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationReview.notes) : null,
+                                                                        step2ValidationCanAward ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, display: 'grid', gap: '8px' } },
+                                                                            React.createElement('div', { style: { fontSize: '11px', color: darkText } }, 'Validation approved. You can now award this supplier and move to Step 03.'),
+                                                                            React.createElement('button', {
+                                                                                type: 'button',
+                                                                                onClick: function() {
+                                                                                    if (!window.confirm('Award this project to the supplier? All other bids will be declined.')) return;
+                                                                                    var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                                                                                    var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                                                                                    if (!nonce) {
+                                                                                        setSampleRequestError('Security token missing. Please refresh and try again.');
+                                                                                        return;
+                                                                                    }
+                                                                                    var fd = new FormData();
+                                                                                    fd.append('action', 'n88_award_bid');
+                                                                                    fd.append('item_id', String(itemId));
+                                                                                    fd.append('bid_id', String(step2ReviewBidId));
+                                                                                    fd.append('_ajax_nonce', nonce);
+                                                                                    fetch(ajaxUrl, { method: 'POST', body: fd })
+                                                                                        .then(function(response) { return response.json(); })
+                                                                                        .then(function(data) {
+                                                                                            if (data && data.success) {
+                                                                                                setSampleRequestMessage(data.data && data.data.message ? data.data.message : 'Bid awarded successfully.');
+                                                                                                setPinnedTimelineStep(2);
+                                                                                                setSelectedStepIndex(2);
+                                                                                                fetchItemState();
+                                                                                            } else {
+                                                                                                setSampleRequestError(data && data.data && data.data.message ? data.data.message : 'Failed to award bid.');
+                                                                                            }
+                                                                                        })
+                                                                                        .catch(function(error) {
+                                                                                            console.error('Error awarding bid:', error);
+                                                                                            setSampleRequestError('Failed to award bid. Please try again.');
+                                                                                        });
+                                                                                },
+                                                                                style: { padding: '10px 14px', background: '#FF0065', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontFamily: 'monospace', fontWeight: '700' }
+                                                                            }, 'Award Bid')
+                                                                        ) : (showSampleResponseStep && itemState.has_awarded_bid) ? React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder, fontSize: '11px', color: greenAccent } }, 'Bid awarded. Step 03 is now active for PO, COM, and deposit.') : null
                                                                     ) : null,
                                                                     React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid ' + darkBorder } },
                                                                         mergedValidationReview.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(mergedValidationReview.samples_received_at)) : React.createElement('button', {
@@ -20143,9 +20209,12 @@ class N88_RFQ_Admin {
                                                             var step3AwaitingPoReadiness = !!step3ReadinessFlags.awaiting_po;
                                                             var step3AwaitingComReadiness = !!step3ReadinessFlags.awaiting_com;
                                                             var step3AwaitingDepositReadiness = !!step3ReadinessFlags.awaiting_deposit;
+                                                            if (step3ValidationStateReadiness.can_commit) {
+                                                                return null;
+                                                            }
                                                             return React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px', display: 'grid', gap: '10px' } },
                                                             React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Validation Readiness'),
-                                                            !step3ValidationStateReadiness.can_commit ? React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.7 } }, 'Only pending actions are shown below. Completed sections are hidden automatically.') : null,
+                                                            React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.7 } }, 'Only pending actions are shown below. Completed sections are hidden automatically.'),
                                                             step3AwaitingPoReadiness ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
                                                                 React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'Upload PO'),
                                                                 React.createElement('input', { ref: validationPoInputRef, type: 'file', onChange: function(e) { setValidationPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff' } }),
@@ -23457,7 +23526,7 @@ class N88_RFQ_Admin {
                                                                     itemId: currentItemId,
                                                                     bidId: selectedBid && selectedBid.bid_id ? parseInt(selectedBid.bid_id, 10) : null,
                                                                     supplierId: selectedBid && selectedBid.supplier_id ? parseInt(selectedBid.supplier_id, 10) : null,
-                                                                    stepIndex: 0
+                                                                    stepIndex: 1
                                                                 }
                                                             }));
                                                             setProposalModalOpen(false);

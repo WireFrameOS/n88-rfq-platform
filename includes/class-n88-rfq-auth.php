@@ -48,6 +48,10 @@ class N88_RFQ_Auth {
 
         // Commit 2.2.7: Supplier profile save handler
         add_action( 'wp_ajax_n88_save_supplier_profile', array( $this, 'ajax_save_supplier_profile' ) );
+        add_action( 'wp_ajax_n88_get_supplier_media_library', array( $this, 'ajax_get_supplier_media_library' ) );
+        add_action( 'wp_ajax_n88_save_supplier_media_asset', array( $this, 'ajax_save_supplier_media_asset' ) );
+        add_action( 'wp_ajax_n88_update_supplier_media_asset', array( $this, 'ajax_update_supplier_media_asset' ) );
+        add_action( 'wp_ajax_n88_toggle_supplier_media_asset', array( $this, 'ajax_toggle_supplier_media_asset' ) );
         
         // Commit 2.2.7: AJAX handler to fetch keywords by category
         add_action( 'wp_ajax_n88_get_keywords_by_category', array( $this, 'ajax_get_keywords_by_category' ) );
@@ -530,6 +534,809 @@ class N88_RFQ_Auth {
         }
 
         $context_support_ready = true;
+    }
+
+    /**
+     * Commit 3.C.33: Ensure supplier-level media library tables exist.
+     */
+    private function ensure_supplier_media_library_support() {
+        static $media_library_support_ready = false;
+
+        if ( $media_library_support_ready ) {
+            return;
+        }
+
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate        = $wpdb->get_charset_collate();
+        $supplier_media_table   = $wpdb->prefix . 'n88_supplier_media';
+        $supplier_materials_tbl = $wpdb->prefix . 'n88_supplier_materials';
+
+        dbDelta(
+            "CREATE TABLE {$supplier_media_table} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                supplier_id BIGINT UNSIGNED NOT NULL,
+                media_type VARCHAR(20) NOT NULL DEFAULT 'image',
+                media_url TEXT NOT NULL,
+                thumbnail_url TEXT NULL,
+                attachment_id BIGINT UNSIGNED NULL,
+                title VARCHAR(255) NULL,
+                description TEXT NULL,
+                tags LONGTEXT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                PRIMARY KEY (id),
+                KEY idx_supplier_active (supplier_id, is_active),
+                KEY idx_supplier_media_type (supplier_id, media_type)
+            ) {$charset_collate};"
+        );
+
+        dbDelta(
+            "CREATE TABLE {$supplier_materials_tbl} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                supplier_id BIGINT UNSIGNED NOT NULL,
+                material_type VARCHAR(100) NOT NULL,
+                material_name VARCHAR(255) NOT NULL,
+                material_image_url TEXT NOT NULL,
+                attachment_id BIGINT UNSIGNED NULL,
+                material_code VARCHAR(100) NULL,
+                description TEXT NULL,
+                tags LONGTEXT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                PRIMARY KEY (id),
+                KEY idx_supplier_active (supplier_id, is_active),
+                KEY idx_supplier_material_type (supplier_id, material_type)
+            ) {$charset_collate};"
+        );
+
+        $media_library_support_ready = true;
+    }
+
+    private function current_user_can_manage_supplier_library() {
+        if ( ! is_user_logged_in() ) {
+            return false;
+        }
+
+        $current_user = wp_get_current_user();
+        return in_array( 'n88_supplier_admin', (array) $current_user->roles, true );
+    }
+
+    private function normalize_supplier_library_tags( $raw_tags ) {
+        if ( is_array( $raw_tags ) ) {
+            $raw_tags = implode( ',', $raw_tags );
+        }
+
+        $tags = preg_split( '/[\r\n,]+/', (string) $raw_tags );
+        $tags = array_filter(
+            array_map(
+                static function( $tag ) {
+                    return sanitize_text_field( trim( $tag ) );
+                },
+                (array) $tags
+            )
+        );
+
+        return array_values( array_unique( $tags ) );
+    }
+
+    private function upload_supplier_library_image( $file, $title_prefix ) {
+        if ( empty( $file['name'] ) ) {
+            return new WP_Error( 'missing_file', 'No file uploaded.' );
+        }
+
+        $upload = wp_handle_upload(
+            $file,
+            array(
+                'test_form' => false,
+                'mimes'     => array(
+                    'jpg'  => 'image/jpeg',
+                    'jpeg' => 'image/jpeg',
+                    'png'  => 'image/png',
+                    'webp' => 'image/webp',
+                    'gif'  => 'image/gif',
+                    'heic' => 'image/heic',
+                    'heif' => 'image/heif',
+                ),
+            )
+        );
+
+        if ( ! empty( $upload['error'] ) ) {
+            return new WP_Error( 'upload_failed', $upload['error'] );
+        }
+
+        $attachment_id = wp_insert_attachment(
+            array(
+                'post_mime_type' => $upload['type'],
+                'post_title'     => sanitize_text_field( $title_prefix . ' - ' . wp_basename( $upload['file'] ) ),
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            ),
+            $upload['file']
+        );
+
+        if ( is_wp_error( $attachment_id ) ) {
+            return $attachment_id;
+        }
+
+        $attach_data = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
+        if ( ! empty( $attach_data ) ) {
+            wp_update_attachment_metadata( $attachment_id, $attach_data );
+        }
+
+        $image_url = wp_get_attachment_url( $attachment_id );
+        if ( ! $image_url ) {
+            return new WP_Error( 'upload_missing_url', 'Image uploaded but URL could not be resolved.' );
+        }
+
+        return array(
+            'attachment_id' => (int) $attachment_id,
+            'url'           => esc_url_raw( $image_url ),
+            'thumbnail_url' => esc_url_raw( wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: $image_url ),
+        );
+    }
+
+    private function format_supplier_media_library_item( $row ) {
+        if ( ! is_array( $row ) ) {
+            return array();
+        }
+
+        $tags = array();
+        if ( ! empty( $row['tags'] ) ) {
+            $decoded_tags = json_decode( (string) $row['tags'], true );
+            if ( is_array( $decoded_tags ) ) {
+                $tags = array_values( array_filter( array_map( 'sanitize_text_field', $decoded_tags ) ) );
+            }
+        }
+
+        return array(
+            'id'            => isset( $row['id'] ) ? (int) $row['id'] : 0,
+            'media_type'    => isset( $row['media_type'] ) ? sanitize_key( $row['media_type'] ) : 'image',
+            'media_url'     => isset( $row['media_url'] ) ? esc_url_raw( $row['media_url'] ) : '',
+            'thumbnail_url' => isset( $row['thumbnail_url'] ) ? esc_url_raw( $row['thumbnail_url'] ) : '',
+            'attachment_id' => isset( $row['attachment_id'] ) ? (int) $row['attachment_id'] : 0,
+            'title'         => isset( $row['title'] ) ? sanitize_text_field( $row['title'] ) : '',
+            'description'   => isset( $row['description'] ) ? sanitize_textarea_field( $row['description'] ) : '',
+            'tags'          => $tags,
+            'is_active'     => ! empty( $row['is_active'] ),
+            'created_at'    => isset( $row['created_at'] ) ? $row['created_at'] : null,
+            'updated_at'    => isset( $row['updated_at'] ) ? $row['updated_at'] : null,
+        );
+    }
+
+    private function format_supplier_material_library_item( $row ) {
+        if ( ! is_array( $row ) ) {
+            return array();
+        }
+
+        $tags = array();
+        if ( ! empty( $row['tags'] ) ) {
+            $decoded_tags = json_decode( (string) $row['tags'], true );
+            if ( is_array( $decoded_tags ) ) {
+                $tags = array_values( array_filter( array_map( 'sanitize_text_field', $decoded_tags ) ) );
+            }
+        }
+
+        return array(
+            'id'                 => isset( $row['id'] ) ? (int) $row['id'] : 0,
+            'material_id'        => isset( $row['id'] ) ? (int) $row['id'] : 0,
+            'material_type'      => isset( $row['material_type'] ) ? sanitize_text_field( $row['material_type'] ) : '',
+            'material_name'      => isset( $row['material_name'] ) ? sanitize_text_field( $row['material_name'] ) : '',
+            'material_image_url' => isset( $row['material_image_url'] ) ? esc_url_raw( $row['material_image_url'] ) : '',
+            'attachment_id'      => isset( $row['attachment_id'] ) ? (int) $row['attachment_id'] : 0,
+            'material_code'      => isset( $row['material_code'] ) ? sanitize_text_field( $row['material_code'] ) : '',
+            'description'        => isset( $row['description'] ) ? sanitize_textarea_field( $row['description'] ) : '',
+            'tags'               => $tags,
+            'is_active'          => ! empty( $row['is_active'] ),
+            'created_at'         => isset( $row['created_at'] ) ? $row['created_at'] : null,
+            'updated_at'         => isset( $row['updated_at'] ) ? $row['updated_at'] : null,
+        );
+    }
+
+    private function get_supplier_media_library_payload( $supplier_id, $include_inactive = false ) {
+        global $wpdb;
+
+        $this->ensure_supplier_media_library_support();
+
+        $supplier_id = absint( $supplier_id );
+        if ( ! $supplier_id ) {
+            return array(
+                'our_work'         => array(),
+                'material_samples' => array(),
+            );
+        }
+
+        $media_table      = $wpdb->prefix . 'n88_supplier_media';
+        $materials_table  = $wpdb->prefix . 'n88_supplier_materials';
+        $active_condition = $include_inactive ? '' : ' AND is_active = 1';
+
+        $portfolio_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$media_table} WHERE supplier_id = %d{$active_condition} ORDER BY is_active DESC, updated_at DESC, id DESC",
+                $supplier_id
+            ),
+            ARRAY_A
+        );
+
+        $material_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$materials_table} WHERE supplier_id = %d{$active_condition} ORDER BY is_active DESC, updated_at DESC, id DESC",
+                $supplier_id
+            ),
+            ARRAY_A
+        );
+
+        return array(
+            'our_work'         => array_map( array( $this, 'format_supplier_media_library_item' ), (array) $portfolio_rows ),
+            'material_samples' => array_map( array( $this, 'format_supplier_material_library_item' ), (array) $material_rows ),
+        );
+    }
+
+    private function render_supplier_media_library_manager( $supplier_id, $context = 'queue' ) {
+        $supplier_id     = absint( $supplier_id );
+        $context_key     = sanitize_key( $context ? $context : 'queue' );
+        $library_payload = $this->get_supplier_media_library_payload( $supplier_id, true );
+        $ajax_nonce      = wp_create_nonce( 'n88_supplier_media_library' );
+
+        ob_start();
+        ?>
+        <div class="n88-supplier-media-library" data-context="<?php echo esc_attr( $context_key ); ?>" data-ajax-url="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>" data-nonce="<?php echo esc_attr( $ajax_nonce ); ?>">
+            <div class="n88-supplier-media-library-intro">
+                <h3><?php echo 'onboarding' === $context_key ? esc_html__( 'Show Your Work', 'n88-rfq-platform' ) : esc_html__( 'Manage Media Library', 'n88-rfq-platform' ); ?></h3>
+                <p><?php echo 'onboarding' === $context_key ? esc_html__( 'Upload past work and reusable material samples now so designers can understand your capabilities immediately.', 'n88-rfq-platform' ) : esc_html__( 'Update support media from your supplier workspace so your reusable library stays current.', 'n88-rfq-platform' ); ?></p>
+            </div>
+            <div class="n88-supplier-media-library-grid">
+                <section class="n88-supplier-media-library-panel">
+                    <h4><?php esc_html_e( 'Our Work', 'n88-rfq-platform' ); ?></h4>
+                    <form class="n88-supplier-media-form" data-library-group="our_work">
+                        <div class="n88-supplier-media-form-row">
+                            <label><span><?php esc_html_e( 'Media Type', 'n88-rfq-platform' ); ?></span><select name="media_type"><option value="image"><?php esc_html_e( 'Image Upload', 'n88-rfq-platform' ); ?></option><option value="video"><?php esc_html_e( 'Video Link', 'n88-rfq-platform' ); ?></option></select></label>
+                            <label><span><?php esc_html_e( 'Title', 'n88-rfq-platform' ); ?></span><input type="text" name="title" maxlength="255"></label>
+                        </div>
+                        <div class="n88-supplier-media-form-row">
+                            <label class="n88-media-file-field"><span><?php esc_html_e( 'Image File', 'n88-rfq-platform' ); ?></span><input type="file" name="image_file" accept="image/*"></label>
+                            <label class="n88-media-video-field" style="display:none;"><span><?php esc_html_e( 'Video URL', 'n88-rfq-platform' ); ?></span><input type="url" name="video_url" placeholder="https://"></label>
+                            <label class="n88-media-video-field" style="display:none;"><span><?php esc_html_e( 'Thumbnail URL', 'n88-rfq-platform' ); ?></span><input type="url" name="thumbnail_url" placeholder="https://"></label>
+                        </div>
+                        <label><span><?php esc_html_e( 'Description', 'n88-rfq-platform' ); ?></span><textarea name="description" rows="3"></textarea></label>
+                        <label><span><?php esc_html_e( 'Tags', 'n88-rfq-platform' ); ?></span><input type="text" name="tags" placeholder="<?php esc_attr_e( 'outdoor, aluminum, hospitality', 'n88-rfq-platform' ); ?>"></label>
+                        <button type="submit" class="n88-supplier-media-submit"><?php esc_html_e( 'Add Our Work Asset', 'n88-rfq-platform' ); ?></button>
+                    </form>
+                    <div class="n88-supplier-media-list" data-library-list="our_work" data-items="<?php echo esc_attr( wp_json_encode( $library_payload['our_work'] ) ); ?>"></div>
+                </section>
+                <section class="n88-supplier-media-library-panel">
+                    <h4><?php esc_html_e( 'Material Samples', 'n88-rfq-platform' ); ?></h4>
+                    <form class="n88-supplier-media-form" data-library-group="material_samples">
+                        <div class="n88-supplier-media-form-row">
+                            <label><span><?php esc_html_e( 'Material Type', 'n88-rfq-platform' ); ?></span><input type="text" name="material_type"></label>
+                            <label><span><?php esc_html_e( 'Material Name', 'n88-rfq-platform' ); ?></span><input type="text" name="material_name"></label>
+                        </div>
+                        <div class="n88-supplier-media-form-row">
+                            <label><span><?php esc_html_e( 'Material Code', 'n88-rfq-platform' ); ?></span><input type="text" name="material_code"></label>
+                            <label><span><?php esc_html_e( 'Sample Image', 'n88-rfq-platform' ); ?></span><input type="file" name="material_image_file" accept="image/*"></label>
+                        </div>
+                        <label><span><?php esc_html_e( 'Description', 'n88-rfq-platform' ); ?></span><textarea name="description" rows="3"></textarea></label>
+                        <label><span><?php esc_html_e( 'Tags', 'n88-rfq-platform' ); ?></span><input type="text" name="tags" placeholder="<?php esc_attr_e( 'rope, beige, UV-safe', 'n88-rfq-platform' ); ?>"></label>
+                        <button type="submit" class="n88-supplier-media-submit"><?php esc_html_e( 'Add Material Sample', 'n88-rfq-platform' ); ?></button>
+                    </form>
+                    <div class="n88-supplier-media-list" data-library-list="material_samples" data-items="<?php echo esc_attr( wp_json_encode( $library_payload['material_samples'] ) ); ?>"></div>
+                </section>
+            </div>
+            <div class="n88-supplier-media-library-feedback" style="display:none;"></div>
+        </div>
+        <style>
+            .n88-supplier-media-library { margin-top:24px; padding:20px; border:1px solid #4a4a4a; border-radius:14px; background:#363636; color:#fff; }
+            .n88-supplier-media-library-intro h3 { margin:0 0 6px; font-size:20px; color:#fff; }
+            .n88-supplier-media-library-intro p { margin:0 0 18px; color:#bdbdbd; line-height:1.6; font-size:13px; }
+            .n88-supplier-media-library-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+            .n88-supplier-media-library-panel { border:1px solid #4a4a4a; border-radius:12px; padding:16px; background:#363636; }
+            .n88-supplier-media-library-panel h4 { margin:0 0 12px; color:#FF0065; font-size:16px; }
+            .n88-supplier-media-form { display:flex; flex-direction:column; gap:12px; margin-bottom:16px; }
+            .n88-supplier-media-form label { display:flex; flex-direction:column; gap:6px; color:#f3f3f3; font-size:12px; font-weight:600; }
+            .n88-supplier-media-form input, .n88-supplier-media-form select, .n88-supplier-media-form textarea { width:100%; padding:10px 12px; border-radius:10px; border:1px solid #555; background:#222; color:#fff; box-sizing:border-box; }
+            .n88-supplier-media-form-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+            .n88-supplier-media-submit { padding:10px 14px; border:1px solid #FF0065; border-radius:999px; background:#FF0065; color:#fff; font-weight:700; cursor:pointer; transition:opacity .2s ease, transform .2s ease; }
+            .n88-supplier-media-submit:disabled { opacity:.72; cursor:wait; transform:none; }
+            .n88-supplier-media-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; align-items:start; }
+            .n88-supplier-media-card { display:grid; grid-template-columns:84px 1fr; gap:12px; padding:12px; border:1px solid #555; border-radius:12px; background:#2f2f2f; }
+            .n88-supplier-media-thumb { width:84px; height:84px; border-radius:10px; overflow:hidden; position:relative; background:#000; display:flex; align-items:center; justify-content:center; }
+            .n88-supplier-media-thumb img { width:100%; height:100%; object-fit:cover; }
+            .n88-supplier-media-thumb .n88-play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff; background:rgba(0,0,0,.28); }
+            .n88-supplier-media-meta h5 { margin:0 0 4px; font-size:13px; color:#fff; }
+            .n88-supplier-media-meta p { margin:0 0 8px; font-size:11px; line-height:1.5; color:#b3b3b3; }
+            .n88-supplier-media-tags { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+            .n88-supplier-media-tags span { padding:3px 8px; border-radius:999px; background:rgba(255,0,101,.12); color:#ff6da6; font-size:10px; }
+            .n88-supplier-media-meta-actions { display:flex; gap:8px; flex-wrap:wrap; }
+            .n88-supplier-media-meta-actions button, .n88-supplier-media-meta-actions a { padding:6px 10px; border-radius:999px; border:1px solid #555; background:#222; color:#fff; text-decoration:none; font-size:10px; cursor:pointer; }
+            .n88-supplier-media-meta-actions .is-inactive { border-color:#ff9800; color:#ff9800; }
+            .n88-supplier-media-library-feedback { margin-top:14px; padding:10px 12px; border-radius:10px; font-size:12px; }
+            .n88-supplier-media-library-feedback.is-success { display:block !important; background:rgba(46,125,50,.15); border:1px solid #2e7d32; color:#7fd488; }
+            .n88-supplier-media-library-feedback.is-error { display:block !important; background:rgba(198,40,40,.15); border:1px solid #c62828; color:#ff8f8f; }
+            .n88-supplier-media-library-feedback.is-loading { display:block !important; background:rgba(255,255,255,.08); border:1px solid #666; color:#fff; }
+        </style>
+        <script>
+        (function() {
+            var libraries = document.querySelectorAll('.n88-supplier-media-library');
+            var root = libraries[libraries.length - 1];
+            if (!root || root.dataset.bound === '1') return;
+            root.dataset.bound = '1';
+
+            var ajaxUrl = root.getAttribute('data-ajax-url');
+            var nonce = root.getAttribute('data-nonce');
+            var feedback = root.querySelector('.n88-supplier-media-library-feedback');
+
+            function showFeedback(message, state) {
+                if (!feedback) return;
+                feedback.textContent = message || '';
+                if (!message) {
+                    feedback.className = 'n88-supplier-media-library-feedback';
+                    feedback.style.display = 'none';
+                    return;
+                }
+                feedback.className = 'n88-supplier-media-library-feedback ' + (state || 'is-success');
+            }
+
+            function escapeHtml(value) {
+                return String(value || '').replace(/[&<>\"']/g, function(m) {
+                    return ({ '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;', "'":'&#039;' })[m];
+                });
+            }
+
+            function setButtonLoading(button, isLoading, loadingText) {
+                if (!button) return;
+                if (!button.dataset.idleText) {
+                    button.dataset.idleText = button.textContent;
+                }
+                button.disabled = !!isLoading;
+                button.textContent = isLoading ? (loadingText || 'Saving...') : button.dataset.idleText;
+            }
+
+            function renderList(group, items) {
+                var list = root.querySelector('[data-library-list=\"' + group + '\"]');
+                if (!list) return;
+                if (!items || !items.length) {
+                    list.innerHTML = '<div class=\"n88-supplier-media-card\"><div class=\"n88-supplier-media-meta\" style=\"grid-column:1 / -1;\"><h5>No items yet</h5><p>Add assets here so designers can review your work and reusable materials later.</p></div></div>';
+                    return;
+                }
+
+                list.innerHTML = items.map(function(item) {
+                    var thumb = group === 'our_work' ? (item.thumbnail_url || item.media_url || '') : (item.material_image_url || '');
+                    var title = group === 'our_work' ? (item.title || (item.media_type === 'video' ? 'Video Asset' : 'Image Asset')) : (item.material_name || 'Material Sample');
+                    var subtitle = group === 'our_work' ? (item.description || '') : [item.material_type || '', item.material_code || '', item.description || ''].filter(Boolean).join(' | ');
+                    var tags = Array.isArray(item.tags) ? item.tags : [];
+                    var href = group === 'our_work' ? (item.media_url || '#') : (item.material_image_url || '#');
+                    var isVideo = group === 'our_work' && item.media_type === 'video';
+                    var payload = encodeURIComponent(JSON.stringify(item));
+
+                    return '<div class=\"n88-supplier-media-card\"><div class=\"n88-supplier-media-thumb\">' + (thumb ? '<img loading=\"lazy\" src=\"' + escapeHtml(thumb) + '\" alt=\"\">' : '<span>[media]</span>') + (isVideo ? '<span class=\"n88-play\">&#9654;</span>' : '') + '</div><div class=\"n88-supplier-media-meta\"><h5>' + escapeHtml(title) + '</h5><p>' + escapeHtml(subtitle) + '</p><div class=\"n88-supplier-media-tags\">' + tags.map(function(tag) { return '<span>' + escapeHtml(tag) + '</span>'; }).join('') + '</div><div class=\"n88-supplier-media-meta-actions\"><a href=\"' + escapeHtml(href) + '\" target=\"_blank\" rel=\"noopener noreferrer\">Open</a><button type=\"button\" data-action=\"edit\" data-group=\"' + escapeHtml(group) + '\" data-payload=\"' + payload + '\">Edit</button><button type=\"button\" class=\"' + (!item.is_active ? 'is-inactive' : '') + '\" data-action=\"toggle\" data-group=\"' + escapeHtml(group) + '\" data-id=\"' + escapeHtml(group === 'our_work' ? item.id : (item.material_id || item.id)) + '\" data-next-state=\"' + (item.is_active ? '0' : '1') + '\">' + (item.is_active ? 'Disable' : 'Enable') + '</button></div></div></div>';
+                }).join('');
+            }
+
+            function refreshLibrary() {
+                var fd = new FormData();
+                fd.append('action', 'n88_get_supplier_media_library');
+                fd.append('nonce', nonce);
+
+                return fetch(ajaxUrl, { method:'POST', body:fd }).then(function(r) {
+                    return r.json();
+                }).then(function(data) {
+                    if (!data || !data.success || !data.data) {
+                        throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to load media library.');
+                    }
+                    renderList('our_work', data.data.our_work || []);
+                    renderList('material_samples', data.data.material_samples || []);
+                    return data.data;
+                }).catch(function(err) {
+                    showFeedback(err && err.message ? err.message : 'Failed to load media library.', 'is-error');
+                    throw err;
+                });
+            }
+
+            root.querySelectorAll('[data-library-list]').forEach(function(list) {
+                var items = [];
+                try { items = JSON.parse(list.getAttribute('data-items') || '[]'); } catch (err) {}
+                renderList(list.getAttribute('data-library-list'), items);
+            });
+
+            root.querySelectorAll('.n88-supplier-media-form').forEach(function(form) {
+                var mediaTypeSelect = form.querySelector('select[name=\"media_type\"]');
+                var submitButton = form.querySelector('.n88-supplier-media-submit');
+
+                function syncMediaFields() {
+                    if (!mediaTypeSelect) return;
+                    var isVideo = mediaTypeSelect.value === 'video';
+                    form.querySelectorAll('.n88-media-video-field').forEach(function(node) { node.style.display = isVideo ? '' : 'none'; });
+                    form.querySelectorAll('.n88-media-file-field').forEach(function(node) {
+                        if (form.getAttribute('data-library-group') === 'our_work') {
+                            node.style.display = isVideo ? 'none' : '';
+                        }
+                    });
+                }
+
+                if (mediaTypeSelect) {
+                    mediaTypeSelect.addEventListener('change', syncMediaFields);
+                    syncMediaFields();
+                }
+
+                form.addEventListener('submit', function(event) {
+                    event.preventDefault();
+
+                    var fd = new FormData(form);
+                    fd.append('action', 'n88_save_supplier_media_asset');
+                    fd.append('nonce', nonce);
+                    fd.append('library_group', form.getAttribute('data-library-group') || '');
+
+                    setButtonLoading(submitButton, true, 'Uploading...');
+                    showFeedback('Uploading asset...', 'is-loading');
+
+                    fetch(ajaxUrl, { method:'POST', body:fd }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (!data || !data.success) {
+                            throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to save media asset.');
+                        }
+
+                        form.reset();
+                        syncMediaFields();
+
+                        return refreshLibrary().then(function() {
+                            showFeedback((data.data && data.data.message) ? data.data.message : 'Saved successfully.', 'is-success');
+                        });
+                    }).catch(function(err) {
+                        showFeedback(err && err.message ? err.message : 'Failed to save media asset.', 'is-error');
+                    }).finally(function() {
+                        setButtonLoading(submitButton, false);
+                    });
+                });
+            });
+
+            root.addEventListener('click', function(event) {
+                var button = event.target.closest('button[data-action]');
+                if (!button) return;
+
+                var action = button.getAttribute('data-action');
+                var group = button.getAttribute('data-group') || '';
+
+                if (action === 'toggle') {
+                    var toggleData = new FormData();
+                    toggleData.append('action', 'n88_toggle_supplier_media_asset');
+                    toggleData.append('nonce', nonce);
+                    toggleData.append('library_group', group);
+                    toggleData.append('record_id', button.getAttribute('data-id') || '');
+                    toggleData.append('is_active', button.getAttribute('data-next-state') || '0');
+
+                    showFeedback('Updating asset...', 'is-loading');
+
+                    fetch(ajaxUrl, { method:'POST', body:toggleData }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (!data || !data.success) {
+                            throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to update asset.');
+                        }
+
+                        return refreshLibrary().then(function() {
+                            showFeedback((data.data && data.data.message) ? data.data.message : 'Updated successfully.', 'is-success');
+                        });
+                    }).catch(function(err) {
+                        showFeedback(err && err.message ? err.message : 'Failed to update asset.', 'is-error');
+                    });
+                    return;
+                }
+
+                if (action === 'edit') {
+                    var payload = {};
+                    try { payload = JSON.parse(decodeURIComponent(button.getAttribute('data-payload') || '{}')); } catch (err) {}
+
+                    var editData = new FormData();
+                    editData.append('action', 'n88_update_supplier_media_asset');
+                    editData.append('nonce', nonce);
+                    editData.append('library_group', group);
+                    editData.append('record_id', payload.material_id || payload.id || '');
+
+                    if (group === 'our_work') {
+                        var title = window.prompt('Title', payload.title || '');
+                        if (title === null) return;
+                        var description = window.prompt('Description', payload.description || '');
+                        if (description === null) return;
+                        var tags = window.prompt('Tags (comma separated)', (payload.tags || []).join(', '));
+                        if (tags === null) return;
+
+                        editData.append('title', title);
+                        editData.append('description', description);
+                        editData.append('tags', tags);
+                    } else {
+                        var materialName = window.prompt('Material Name', payload.material_name || '');
+                        if (materialName === null) return;
+                        var materialType = window.prompt('Material Type', payload.material_type || '');
+                        if (materialType === null) return;
+                        var materialCode = window.prompt('Material Code', payload.material_code || '');
+                        if (materialCode === null) return;
+                        var materialDesc = window.prompt('Description', payload.description || '');
+                        if (materialDesc === null) return;
+                        var materialTags = window.prompt('Tags (comma separated)', (payload.tags || []).join(', '));
+                        if (materialTags === null) return;
+
+                        editData.append('material_name', materialName);
+                        editData.append('material_type', materialType);
+                        editData.append('material_code', materialCode);
+                        editData.append('description', materialDesc);
+                        editData.append('tags', materialTags);
+                    }
+
+                    showFeedback('Saving changes...', 'is-loading');
+
+                    fetch(ajaxUrl, { method:'POST', body:editData }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (!data || !data.success) {
+                            throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to update asset.');
+                        }
+
+                        return refreshLibrary().then(function() {
+                            showFeedback((data.data && data.data.message) ? data.data.message : 'Updated successfully.', 'is-success');
+                        });
+                    }).catch(function(err) {
+                        showFeedback(err && err.message ? err.message : 'Failed to update asset.', 'is-error');
+                    });
+                }
+            });
+        })();
+        </script>
+        <?php
+
+        return ob_get_clean();
+    }
+
+    public function ajax_get_supplier_media_library() {
+        check_ajax_referer( 'n88_supplier_media_library', 'nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $current_user = wp_get_current_user();
+        $requested_supplier_id = absint( isset( $_POST['supplier_id'] ) ? wp_unslash( $_POST['supplier_id'] ) : 0 );
+        $target_supplier_id    = $requested_supplier_id ? $requested_supplier_id : get_current_user_id();
+        $is_supplier_self      = in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) && $target_supplier_id === get_current_user_id();
+        $can_read_other        = current_user_can( 'manage_options' ) || in_array( 'n88_system_operator', (array) $current_user->roles, true ) || in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
+
+        if ( ! $is_supplier_self && ! $can_read_other ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        wp_send_json_success( $this->get_supplier_media_library_payload( $target_supplier_id, $is_supplier_self ) );
+    }
+
+    public function ajax_save_supplier_media_asset() {
+        check_ajax_referer( 'n88_supplier_media_library', 'nonce' );
+
+        if ( ! $this->current_user_can_manage_supplier_library() ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        global $wpdb;
+
+        $this->ensure_supplier_media_library_support();
+
+        $supplier_id      = get_current_user_id();
+        $library_group    = sanitize_key( isset( $_POST['library_group'] ) ? wp_unslash( $_POST['library_group'] ) : '' );
+        $media_table      = $wpdb->prefix . 'n88_supplier_media';
+        $materials_table  = $wpdb->prefix . 'n88_supplier_materials';
+        $timestamp        = current_time( 'mysql' );
+
+        if ( 'our_work' === $library_group ) {
+            $media_type    = sanitize_key( isset( $_POST['media_type'] ) ? wp_unslash( $_POST['media_type'] ) : 'image' );
+            $title         = sanitize_text_field( isset( $_POST['title'] ) ? wp_unslash( $_POST['title'] ) : '' );
+            $description   = sanitize_textarea_field( isset( $_POST['description'] ) ? wp_unslash( $_POST['description'] ) : '' );
+            $tags          = wp_json_encode( $this->normalize_supplier_library_tags( isset( $_POST['tags'] ) ? wp_unslash( $_POST['tags'] ) : '' ) );
+            $media_url     = '';
+            $thumbnail_url = '';
+            $attachment_id = null;
+
+            if ( 'video' === $media_type ) {
+                $media_url     = esc_url_raw( isset( $_POST['video_url'] ) ? wp_unslash( $_POST['video_url'] ) : '' );
+                $thumbnail_url = esc_url_raw( isset( $_POST['thumbnail_url'] ) ? wp_unslash( $_POST['thumbnail_url'] ) : '' );
+                if ( ! $media_url || ! $thumbnail_url ) {
+                    wp_send_json_error( array( 'message' => 'Video URL and thumbnail URL are required.' ), 400 );
+                }
+            } else {
+                if ( empty( $_FILES['image_file'] ) || empty( $_FILES['image_file']['name'] ) ) {
+                    wp_send_json_error( array( 'message' => 'Please upload an image for Our Work.' ), 400 );
+                }
+
+                $upload = $this->upload_supplier_library_image( $_FILES['image_file'], 'Supplier Work Media ' . $supplier_id );
+                if ( is_wp_error( $upload ) ) {
+                    wp_send_json_error( array( 'message' => $upload->get_error_message() ), 400 );
+                }
+
+                $media_url     = $upload['url'];
+                $thumbnail_url = $upload['thumbnail_url'];
+                $attachment_id = $upload['attachment_id'];
+            }
+
+            $wpdb->insert(
+                $media_table,
+                array(
+                    'supplier_id'   => $supplier_id,
+                    'media_type'    => $media_type,
+                    'media_url'     => $media_url,
+                    'thumbnail_url' => $thumbnail_url,
+                    'attachment_id' => $attachment_id,
+                    'title'         => $title,
+                    'description'   => $description,
+                    'tags'          => $tags,
+                    'created_at'    => $timestamp,
+                    'updated_at'    => $timestamp,
+                    'is_active'     => 1,
+                ),
+                array( '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%d' )
+            );
+
+            if ( ! $wpdb->insert_id ) {
+                wp_send_json_error( array( 'message' => 'Failed to save portfolio media.' ), 500 );
+            }
+
+            wp_send_json_success( array( 'message' => 'Our Work asset saved.' ) );
+        }
+
+        if ( 'material_samples' === $library_group ) {
+            $material_type = sanitize_text_field( isset( $_POST['material_type'] ) ? wp_unslash( $_POST['material_type'] ) : '' );
+            $material_name = sanitize_text_field( isset( $_POST['material_name'] ) ? wp_unslash( $_POST['material_name'] ) : '' );
+            $material_code = sanitize_text_field( isset( $_POST['material_code'] ) ? wp_unslash( $_POST['material_code'] ) : '' );
+            $description   = sanitize_textarea_field( isset( $_POST['description'] ) ? wp_unslash( $_POST['description'] ) : '' );
+            $tags          = wp_json_encode( $this->normalize_supplier_library_tags( isset( $_POST['tags'] ) ? wp_unslash( $_POST['tags'] ) : '' ) );
+
+            if ( '' === $material_type || '' === $material_name ) {
+                wp_send_json_error( array( 'message' => 'Material type and name are required.' ), 400 );
+            }
+
+            if ( empty( $_FILES['material_image_file'] ) || empty( $_FILES['material_image_file']['name'] ) ) {
+                wp_send_json_error( array( 'message' => 'Please upload a material sample image.' ), 400 );
+            }
+
+            $upload = $this->upload_supplier_library_image( $_FILES['material_image_file'], 'Supplier Material Sample ' . $supplier_id );
+            if ( is_wp_error( $upload ) ) {
+                wp_send_json_error( array( 'message' => $upload->get_error_message() ), 400 );
+            }
+
+            $wpdb->insert(
+                $materials_table,
+                array(
+                    'supplier_id'        => $supplier_id,
+                    'material_type'      => $material_type,
+                    'material_name'      => $material_name,
+                    'material_image_url' => $upload['url'],
+                    'attachment_id'      => $upload['attachment_id'],
+                    'material_code'      => $material_code,
+                    'description'        => $description,
+                    'tags'               => $tags,
+                    'created_at'         => $timestamp,
+                    'updated_at'         => $timestamp,
+                    'is_active'          => 1,
+                ),
+                array( '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%d' )
+            );
+
+            if ( ! $wpdb->insert_id ) {
+                wp_send_json_error( array( 'message' => 'Failed to save material sample.' ), 500 );
+            }
+
+            wp_send_json_success( array( 'message' => 'Material sample saved.' ) );
+        }
+
+        wp_send_json_error( array( 'message' => 'Unknown media library section.' ), 400 );
+    }
+
+    public function ajax_update_supplier_media_asset() {
+        check_ajax_referer( 'n88_supplier_media_library', 'nonce' );
+
+        if ( ! $this->current_user_can_manage_supplier_library() ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        global $wpdb;
+
+        $this->ensure_supplier_media_library_support();
+
+        $supplier_id     = get_current_user_id();
+        $library_group   = sanitize_key( isset( $_POST['library_group'] ) ? wp_unslash( $_POST['library_group'] ) : '' );
+        $record_id       = absint( isset( $_POST['record_id'] ) ? wp_unslash( $_POST['record_id'] ) : 0 );
+        $timestamp       = current_time( 'mysql' );
+        $media_table     = $wpdb->prefix . 'n88_supplier_media';
+        $materials_table = $wpdb->prefix . 'n88_supplier_materials';
+
+        if ( ! $record_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid record selected.' ), 400 );
+        }
+
+        if ( 'our_work' === $library_group ) {
+            $updated = $wpdb->update(
+                $media_table,
+                array(
+                    'title'       => sanitize_text_field( isset( $_POST['title'] ) ? wp_unslash( $_POST['title'] ) : '' ),
+                    'description' => sanitize_textarea_field( isset( $_POST['description'] ) ? wp_unslash( $_POST['description'] ) : '' ),
+                    'tags'        => wp_json_encode( $this->normalize_supplier_library_tags( isset( $_POST['tags'] ) ? wp_unslash( $_POST['tags'] ) : '' ) ),
+                    'updated_at'  => $timestamp,
+                ),
+                array( 'id' => $record_id, 'supplier_id' => $supplier_id ),
+                array( '%s', '%s', '%s', '%s' ),
+                array( '%d', '%d' )
+            );
+
+            if ( false === $updated ) {
+                wp_send_json_error( array( 'message' => 'Failed to update portfolio media.' ), 500 );
+            }
+
+            wp_send_json_success( array( 'message' => 'Our Work asset updated.' ) );
+        }
+
+        if ( 'material_samples' === $library_group ) {
+            $updated = $wpdb->update(
+                $materials_table,
+                array(
+                    'material_type' => sanitize_text_field( isset( $_POST['material_type'] ) ? wp_unslash( $_POST['material_type'] ) : '' ),
+                    'material_name' => sanitize_text_field( isset( $_POST['material_name'] ) ? wp_unslash( $_POST['material_name'] ) : '' ),
+                    'material_code' => sanitize_text_field( isset( $_POST['material_code'] ) ? wp_unslash( $_POST['material_code'] ) : '' ),
+                    'description'   => sanitize_textarea_field( isset( $_POST['description'] ) ? wp_unslash( $_POST['description'] ) : '' ),
+                    'tags'          => wp_json_encode( $this->normalize_supplier_library_tags( isset( $_POST['tags'] ) ? wp_unslash( $_POST['tags'] ) : '' ) ),
+                    'updated_at'    => $timestamp,
+                ),
+                array( 'id' => $record_id, 'supplier_id' => $supplier_id ),
+                array( '%s', '%s', '%s', '%s', '%s', '%s' ),
+                array( '%d', '%d' )
+            );
+
+            if ( false === $updated ) {
+                wp_send_json_error( array( 'message' => 'Failed to update material sample.' ), 500 );
+            }
+
+            wp_send_json_success( array( 'message' => 'Material sample updated.' ) );
+        }
+
+        wp_send_json_error( array( 'message' => 'Unknown media library section.' ), 400 );
+    }
+
+    public function ajax_toggle_supplier_media_asset() {
+        check_ajax_referer( 'n88_supplier_media_library', 'nonce' );
+
+        if ( ! $this->current_user_can_manage_supplier_library() ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        global $wpdb;
+
+        $this->ensure_supplier_media_library_support();
+
+        $supplier_id   = get_current_user_id();
+        $library_group = sanitize_key( isset( $_POST['library_group'] ) ? wp_unslash( $_POST['library_group'] ) : '' );
+        $record_id     = absint( isset( $_POST['record_id'] ) ? wp_unslash( $_POST['record_id'] ) : 0 );
+        $is_active     = isset( $_POST['is_active'] ) ? absint( $_POST['is_active'] ) : 0;
+        $timestamp     = current_time( 'mysql' );
+        $table_name    = 'material_samples' === $library_group ? $wpdb->prefix . 'n88_supplier_materials' : $wpdb->prefix . 'n88_supplier_media';
+
+        if ( ! $record_id ) {
+            wp_send_json_error( array( 'message' => 'Invalid record selected.' ), 400 );
+        }
+
+        $updated = $wpdb->update(
+            $table_name,
+            array(
+                'is_active'  => $is_active ? 1 : 0,
+                'updated_at' => $timestamp,
+            ),
+            array( 'id' => $record_id, 'supplier_id' => $supplier_id ),
+            array( '%d', '%s' ),
+            array( '%d', '%d' )
+        );
+
+        if ( false === $updated ) {
+            wp_send_json_error( array( 'message' => 'Failed to update media library asset.' ), 500 );
+        }
+
+        wp_send_json_success( array( 'message' => $is_active ? 'Asset enabled.' : 'Asset disabled.' ) );
     }
 
     /**
@@ -2760,6 +3567,7 @@ class N88_RFQ_Auth {
         $current_user = wp_get_current_user();
         $is_supplier = in_array( 'n88_supplier_admin', $current_user->roles, true );
         $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $this->ensure_supplier_media_library_support();
         
         if ( ! $is_supplier && ! $is_system_operator ) {
             wp_die( 'Access denied. Maker or System Operator account required.', 'Access Denied', array( 'response' => 403 ) );
@@ -3319,7 +4127,18 @@ class N88_RFQ_Auth {
                     </div>
                 </div>
             </div>
-            
+
+            <?php if ( $is_supplier ) : ?>
+            <div id="n88-supplier-media-library-panel" class="n88-supplier-queue-section" style="display:none;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                    <h2 class="n88-supplier-queue-section-title" style="margin:0;"><?php esc_html_e( 'Update Support Media', 'n88-rfq-platform' ); ?></h2>
+                    <button type="button" id="n88-close-media-library-panel" aria-label="<?php esc_attr_e( 'Close media library', 'n88-rfq-platform' ); ?>" style="width:36px; height:36px; border:1px solid #555; border-radius:999px; background:#222; color:#fff; font-size:20px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;">&times;</button>
+                </div>
+                <p class="n88-supplier-queue-items-desc"><?php esc_html_e( 'Keep your reusable Our Work and Material Samples library current from the supplier queue.', 'n88-rfq-platform' ); ?></p>
+                <?php echo $this->render_supplier_media_library_manager( $current_user->ID, 'queue' ); ?>
+            </div>
+            <?php endif; ?>
+             
             <!-- Filters Section -->
             <div class="n88-supplier-queue-section">
                 <h2 class="n88-supplier-queue-section-title">Supplier Queue - RFQs Requiring Action</h2>
@@ -3357,6 +4176,11 @@ class N88_RFQ_Auth {
                     <div class="n88-supplier-queue-search-wrap">
                         <input type="text" id="n88-supplier-search" value="<?php echo esc_attr( $search ); ?>" placeholder="Search item label / Item #">
                     </div>
+                    <?php if ( $is_supplier ) : ?>
+                    <button type="button" id="n88-open-media-library-panel" style="padding:10px 16px; border:1px solid #FF0065; border-radius:10px; background:#FF0065; color:#fff; font-size:12px; font-weight:700; font-family:'IBM Plex Mono', monospace; cursor:pointer; white-space:nowrap;">
+                        <?php esc_html_e( 'Manage Media Library', 'n88-rfq-platform' ); ?>
+                    </button>
+                    <?php endif; ?>
                 </div>
             </div>
             
@@ -4687,6 +5511,23 @@ class N88_RFQ_Auth {
                     document.addEventListener('click', function() {
                         userMenu.classList.remove('show');
                         userTrigger.setAttribute('aria-expanded', 'false');
+                    });
+                }
+                var mediaLibraryTrigger = document.getElementById('n88-open-media-library-panel');
+                var mediaLibraryPanel = document.getElementById('n88-supplier-media-library-panel');
+                var mediaLibraryClose = document.getElementById('n88-close-media-library-panel');
+                if (mediaLibraryTrigger && mediaLibraryPanel) {
+                    mediaLibraryTrigger.addEventListener('click', function() {
+                        var isHidden = mediaLibraryPanel.style.display === 'none' || mediaLibraryPanel.style.display === '';
+                        mediaLibraryPanel.style.display = isHidden ? 'block' : 'none';
+                        if (isHidden) {
+                            mediaLibraryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                }
+                if (mediaLibraryClose && mediaLibraryPanel) {
+                    mediaLibraryClose.addEventListener('click', function() {
+                        mediaLibraryPanel.style.display = 'none';
                     });
                 }
                 
@@ -12151,6 +12992,7 @@ class N88_RFQ_Auth {
 
         global $wpdb;
         $this->sync_supplier_onboarding_keyword_library();
+        $this->ensure_supplier_media_library_support();
         $categories_table = $wpdb->prefix . 'n88_categories';
         $supplier_profiles_table = $wpdb->prefix . 'n88_supplier_profiles';
         $supplier_keyword_map_table = $wpdb->prefix . 'n88_supplier_keyword_map';
@@ -12262,6 +13104,10 @@ class N88_RFQ_Auth {
                             <input type="number" id="n88-lead-time-max" name="lead_time_max_days" min="0" value="<?php echo $existing_profile && $existing_profile->lead_time_max_days ? esc_attr( $existing_profile->lead_time_max_days ) : ''; ?>" placeholder="Enter lead time max (days)">
                         </div>
                     </div>
+                </div>
+
+                <div class="n88-form-group">
+                    <?php echo $this->render_supplier_media_library_manager( $current_user->ID, 'onboarding' ); ?>
                 </div>
 
                 <div class="n88-form-group" style="margin-top: 24px;">
@@ -16198,6 +17044,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $bid['bid_id']
                     ) );
                 }
+                $supplier_library_payload = $this->get_supplier_media_library_payload( $supplier_id, false );
                 
                 // Commit 2.3.8: Calculate duty rate
                 $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
@@ -16294,6 +17141,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     }, is_array( $media_links ) ? $media_links : array() ),
                     'video_links_by_provider' => $video_links_by_provider,
                     'photo_urls' => $photo_urls,
+                    'supplier_library_media' => isset( $supplier_library_payload['our_work'] ) ? $supplier_library_payload['our_work'] : array(),
+                    'supplier_material_samples' => isset( $supplier_library_payload['material_samples'] ) ? $supplier_library_payload['material_samples'] : array(),
                     'smart_alternatives_suggestion' => $smart_alternatives_suggestion,
                     'smart_alternatives_enabled' => $smart_alternatives_enabled,
                     'smart_alternatives_note' => $smart_alternatives_note, // Item-level note (designer's note)
