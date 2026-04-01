@@ -80,6 +80,7 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_award_bid', array( $this, 'ajax_award_bid' ) );
         add_action( 'wp_ajax_n88_request_material_samples', array( $this, 'ajax_request_material_samples' ) );
         add_action( 'wp_ajax_n88_create_material_validation_request', array( $this, 'ajax_create_material_validation_request' ) );
+        add_action( 'wp_ajax_n88_track_supplier_media_view', array( $this, 'ajax_track_supplier_media_view' ) );
         add_action( 'wp_ajax_n88_submit_material_validation_payment', array( $this, 'ajax_submit_material_validation_payment' ) );
         add_action( 'wp_ajax_n88_supplier_submit_material_samples', array( $this, 'ajax_supplier_submit_material_samples' ) );
         add_action( 'wp_ajax_n88_mark_material_samples_received', array( $this, 'ajax_mark_material_samples_received' ) );
@@ -773,6 +774,49 @@ class N88_RFQ_Auth {
             'our_work'         => array_map( array( $this, 'format_supplier_media_library_item' ), (array) $portfolio_rows ),
             'material_samples' => array_map( array( $this, 'format_supplier_material_library_item' ), (array) $material_rows ),
         );
+    }
+
+    private function get_selected_supplier_material_library_items( $supplier_id, $material_ids ) {
+        $selected_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $material_ids ) ) ) );
+        if ( ! $supplier_id || empty( $selected_ids ) ) {
+            return array();
+        }
+
+        $payload      = $this->get_supplier_media_library_payload( $supplier_id, false );
+        $library_index = array();
+
+        foreach ( (array) $payload['our_work'] as $entry ) {
+            $entry_id = isset( $entry['id'] ) ? absint( $entry['id'] ) : 0;
+            if ( $entry_id ) {
+                $library_index[ $entry_id ] = array_merge(
+                    $entry,
+                    array(
+                        'library_group' => 'our_work',
+                    )
+                );
+            }
+        }
+
+        foreach ( (array) $payload['material_samples'] as $entry ) {
+            $entry_id = isset( $entry['material_id'] ) ? absint( $entry['material_id'] ) : ( isset( $entry['id'] ) ? absint( $entry['id'] ) : 0 );
+            if ( $entry_id ) {
+                $library_index[ $entry_id ] = array_merge(
+                    $entry,
+                    array(
+                        'library_group' => 'material_samples',
+                    )
+                );
+            }
+        }
+
+        $selected_entries = array();
+        foreach ( $selected_ids as $selected_id ) {
+            if ( isset( $library_index[ $selected_id ] ) ) {
+                $selected_entries[] = $library_index[ $selected_id ];
+            }
+        }
+
+        return $selected_entries;
     }
 
     private function render_supplier_media_library_manager( $supplier_id, $context = 'queue' ) {
@@ -4757,25 +4801,6 @@ class N88_RFQ_Auth {
                     addIssue('bid_photos', 'Use at most 5 photos.', photoTarget);
                 }
 
-                var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
-                var isPrototypeYes = prototypeYes && prototypeYes.checked;
-                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (isPrototypeYes && (!timeline || !timeline.value)) {
-                    addIssue('prototype_timeline_option', 'Select a prototype timeline.', timeline);
-                }
-
-                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (isPrototypeYes) {
-                    if (!prototypeCost || !prototypeCost.value) {
-                        addIssue('prototype_cost', 'Enter prototype cost.', prototypeCost);
-                    } else {
-                        var costValue = parseFloat(prototypeCost.value);
-                        if (isNaN(costValue) || costValue < 0) {
-                            addIssue('prototype_cost', 'Prototype cost must be 0 or more.', prototypeCost);
-                        }
-                    }
-                }
-
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
                     addIssue('production_lead_time_text', 'Select production lead time.', leadTime);
@@ -4839,21 +4864,6 @@ class N88_RFQ_Auth {
                         addIssue('video_links', 'Enter valid video URLs.', firstVideoField);
                     }
                 });
-
-                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (!timeline || !timeline.value) {
-                    addIssue('prototype_timeline_option', 'Select a prototype timeline.', timeline);
-                }
-
-                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (!prototypeCost || !prototypeCost.value) {
-                    addIssue('prototype_cost', 'Enter prototype cost.', prototypeCost);
-                } else {
-                    var costValue = parseFloat(prototypeCost.value);
-                    if (isNaN(costValue) || costValue < 0) {
-                        addIssue('prototype_cost', 'Prototype cost must be 0 or more.', prototypeCost);
-                    }
-                }
 
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
@@ -5342,7 +5352,6 @@ class N88_RFQ_Auth {
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">' +
                             '<input type="file" id="n88-batch-shared-files" multiple style="max-width:100%;" />' +
                             '<button type="button" id="n88-batch-shared-upload-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Upload shared files ]</button>' +
-                            '<button type="button" id="n88-batch-validate-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Validate all quoted ]</button>' +
                             '<button type="button" id="n88-batch-save-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Save draft for all ]</button>' +
                             '<button type="button" id="n88-batch-submit-all-btn" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ Submit all quoted ]</button>' +
                         '</div>' +
@@ -7468,11 +7477,30 @@ class N88_RFQ_Auth {
                             var req = validationState.request || {};
                             var supplier = validationState.supplier || {};
                             var files = supplier.files || [];
+                            var selectedMaterials = req.selected_materials || [];
                             var flashMessage = window.n88SupplierValidationFlash[itemId] || '';
                             var block = '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid ' + darkBorder + ';">';
                             block += '<div style="font-size: 12px; font-weight: 600; color: ' + green + '; margin-bottom: 8px;">Material Samples</div>';
                             if (req.sample_types && req.sample_types.length) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Sample type: ' + escHtml(req.sample_types.join(', ')) + '</div>';
                             if (req.sample_format) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px;">Format: ' + escHtml(req.sample_format) + '</div>';
+                            if (selectedMaterials.length) {
+                                block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 6px;">Designer selected these supplier materials</div>';
+                                block += '<div style="display:grid; gap:8px; margin-bottom:10px;">';
+                                for (var sm = 0; sm < selectedMaterials.length; sm++) {
+                                    var material = selectedMaterials[sm] || {};
+                                    var materialLabelParts = [];
+                                    if (material.material_name) materialLabelParts.push(material.material_name);
+                                    if (material.material_code) materialLabelParts.push(material.material_code);
+                                    if (material.material_type) materialLabelParts.push(material.material_type);
+                                    var materialImage = material.material_image_url || '';
+                                    block += '<div style="display:flex; gap:10px; align-items:center; padding:8px; border:1px solid ' + darkBorder + '; border-radius:4px; background:#111;">';
+                                    if (materialImage) {
+                                        block += '<img src="' + escHtml(materialImage) + '" alt="" style="width:54px; height:54px; object-fit:cover; border-radius:4px; border:1px solid ' + darkBorder + ';" />';
+                                    }
+                                    block += '<div style="font-size:11px; color:' + darkText + ';">' + escHtml(materialLabelParts.length ? materialLabelParts.join(' - ') : ('Material ' + (sm + 1))) + '</div></div>';
+                                }
+                                block += '</div>';
+                            }
                             if (req.instructions) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 4px; white-space: pre-wrap;">Instructions: ' + escHtml(req.instructions) + '</div>';
                             if (req.shipping_address) block += '<div style="font-size: 11px; color: ' + darkText + '; margin-bottom: 8px; white-space: pre-wrap;">Ship to: ' + escHtml(req.shipping_address) + '</div>';
                             if (req.reference_files && req.reference_files.length) {
@@ -8101,7 +8129,7 @@ class N88_RFQ_Auth {
                 }
                 
                 // Commit 2.3.5.4: Build bid form HTML - Remove images (shown only at top), remove Anonymous/No contact text
-                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace; display: block; width: 100%; overflow: visible;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
+                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace; display: block; width: 100%; overflow: visible;" onsubmit="return submitBidEmbedded(event, ' + itemId + ');">' +
                     // Commit 2.3.5.4: Images removed from bid form (only shown at top of modal)
                     
                     // BID FORM Title (Commit 2.3.5.4: Remove "Anonymous â€¢ No contact info allowed")
@@ -8150,25 +8178,6 @@ class N88_RFQ_Auth {
                         '</div>' +
                     '<div style="font-size: 10px; color: #FF0065; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
                     '<div id="n88-prototype-video-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                    // Prototype timeline - white subheading
-                        '<div style="margin-bottom: 12px;">' +
-                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Prototype timeline (Required):</label>' +
-                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
-                    '<option value="">[ Select timeline...  ]</option>' +
-                    '<option value="1-2w">1-2w</option>' +
-                    '<option value="2-4w">2-4w</option>' +
-                    '<option value="4-6w">4-6w</option>' +
-                    '<option value="6-8w">6-8w</option>' +
-                    '<option value="8-10w">8-10w</option>' +
-                    '</select>' +
-                    '<div id="n88-prototype-timeline-error-embedded-' + itemId + '" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
-                    // Prototype cost - white subheading
-                    '<div style="margin-bottom: 0;">' +
-                    '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #fff; font-family: monospace;">Prototype cost (Required):</label>' +
-                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
-                    '<div id="n88-prototype-cost-error-embedded-' + itemId + '" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
                         '</div>' +
                         
                     // 6. Production lead time (dropdown) - Commit 2.3.5.4: Field order 6
@@ -8326,9 +8335,7 @@ class N88_RFQ_Auth {
                     
                     // Footer buttons
                     '<div style="padding: 20px 0; border-top: 1px solid #FF0065; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
-                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                    // Commit 2.3.5.4: Buttons row - Validate, Cancel, Save for later
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Submit Proposal ]</button>' +
                     '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                     '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                         '</div>' +
@@ -8338,7 +8345,7 @@ class N88_RFQ_Auth {
             }
 
             function buildEmbeddedBidFormHTML(item, itemId) {
-                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace; display: block; width: 100%; overflow: visible;" onsubmit="return validateAndSubmitBidEmbedded(event, ' + itemId + ');">' +
+                var bidFormHTML = '<form id="n88-bid-form-embedded-' + itemId + '" style="font-family: monospace; display: block; width: 100%; overflow: visible;" onsubmit="return submitBidEmbedded(event, ' + itemId + ');">' +
                     '<input type="hidden" name="prototype_video_yes" value="1" />' +
                     '<div style="margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid #FF0065;">' +
                     '<h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #FF0065; font-family: monospace;">PROPOSAL FORM</h2>' +
@@ -8351,13 +8358,6 @@ class N88_RFQ_Auth {
                     '<select name="production_lead_time_text" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
                     '<option value="">[ Select lead time... ]</option><option value="2-4 weeks">2-4 weeks</option><option value="4-6 weeks">4-6 weeks</option><option value="6-8 weeks">6-8 weeks</option><option value="8-12 weeks">8-12 weeks</option><option value="12-16 weeks">12-16 weeks</option></select>' +
                     '<div id="n88-lead-time-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
-                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">3- prototype cost</label>' +
-                    '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidFormEmbedded(' + itemId + ');" />' +
-                    '<div id="n88-prototype-cost-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
-                    '<div><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">4- prototype timeline</label>' +
-                    '<select name="prototype_timeline_option" required style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidFormEmbedded(' + itemId + ');">' +
-                    '<option value="">[ Select timeline... ]</option><option value="1-2w">1-2w</option><option value="2-4w">2-4w</option><option value="4-6w">4-6w</option><option value="6-8w">6-8w</option><option value="8-10w">8-10w</option></select>' +
-                    '<div id="n88-prototype-timeline-error-embedded-' + itemId + '" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div></div>' +
                     '</div>' +
                     '<div style="margin-bottom: 24px; padding: 16px; background-color: #111; border-radius: 4px; border: 1px solid #222;">' +
                     '<label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">5- Media</label>' +
@@ -8376,8 +8376,7 @@ class N88_RFQ_Auth {
                     '<div style="margin-bottom: 24px;"><label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fff; font-family: monospace;">6- Notes</label>' +
                     '<textarea name="proposal_notes" rows="5" placeholder="Add notes..." style="width: 100%; padding: 10px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace; resize: vertical;" oninput="validateBidFormEmbedded(' + itemId + ');"></textarea></div>' +
                     '<div style="padding: 20px 0; border-top: 1px solid #FF0065; display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap;">' +
-                    '<button type="button" id="n88-validate-bid-btn-embedded-' + itemId + '" onclick="validateAndSubmitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                    '<button type="button" id="n88-submit-bid-btn-embedded-' + itemId + '" onclick="submitBidEmbedded(event, ' + itemId + ')" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Submit Proposal ]</button>' +
                     '<button type="button" onclick="toggleBidForm(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                     '<button type="button" onclick="saveBidDraftEmbedded(' + itemId + ')" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Save for later ]</button>' +
                     '</div></form>';
@@ -8633,7 +8632,7 @@ class N88_RFQ_Auth {
                             '</div>' +
                             '</div>' : '') +
                         
-                        '<form id="n88-bid-form" style="padding: 20px; font-family: monospace;" onsubmit="return validateAndSubmitBid(event);">' +
+                        '<form id="n88-bid-form" style="padding: 20px; font-family: monospace;" onsubmit="return submitBid(event);">' +
                         
                         // Image gallery: left reference images, center main image, right reference images
                         imageGalleryHTML +
@@ -8684,25 +8683,6 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<div style="font-size: 10px; color: #FF0065; margin-bottom: 12px; font-family: monospace; font-style: italic;">Helper: YES is required for this platform.</div>' +
                         '<div id="n88-prototype-video-error" style="margin-top: 6px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        // Prototype timeline
-                        '<div style="margin-bottom: 12px;">' +
-                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace;">Prototype timeline (Required):</label>' +
-                        '<select name="prototype_timeline_option" required style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; cursor: pointer; font-family: monospace;" onchange="validateBidForm();">' +
-                        '<option value="">[ Select timeline... v ]</option>' +
-                        '<option value="1-2w">1-2w</option>' +
-                        '<option value="2-4w">2-4w</option>' +
-                        '<option value="4-6w">4-6w</option>' +
-                        '<option value="6-8w">6-8w</option>' +
-                        '<option value="8-10w">8-10w</option>' +
-                        '</select>' +
-                        '<div id="n88-prototype-timeline-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
-                        // Prototype cost
-                        '<div style="margin-bottom: 0;">' +
-                        '<label style="display: block; font-size: 11px; margin-bottom: 4px; color: #FF0065; font-family: monospace;">Prototype cost (Required):</label>' +
-                        '<input type="number" name="prototype_cost" step="0.01" min="0" required placeholder="0.00" style="width: 100%; padding: 8px 12px; border: none; border-radius: 2px; font-size: 12px; background-color: #1a1a1a; color: #fff; font-family: monospace;" oninput="validateBidForm();" />' +
-                        '<div id="n88-prototype-cost-error" style="margin-top: 4px; font-size: 11px; color: #ff0000; display: none; font-family: monospace;"></div>' +
-                        '</div>' +
                         '</div>' +
                         
                         // 3. Production lead time - Commit 2.3.5.2: Dark theme
@@ -8868,8 +8848,7 @@ class N88_RFQ_Auth {
                         '</div>' +
                         '<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">' +
                         '<div style="font-size: 11px; color: #FF0065; font-family: monospace; margin-right: 8px;">ACTIONS:</div>' +
-                        '<button type="button" id="n88-validate-bid-btn" onclick="validateAndSubmitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Validate Bid ]</button>' +
-                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="display: none; padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: monospace;">[ Submit Proposal ]</button>' +
+                        '<button type="button" id="n88-submit-bid-btn" onclick="submitBid(event)" disabled style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: not-allowed; font-family: monospace; opacity: 0.5;">[ Submit Proposal ]</button>' +
                         '<button type="button" onclick="closeBidFormModal()" style="padding: 10px 20px; background-color: #1a1a1a; color: #FF0065; border: none; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: monospace;">[ Cancel ]</button>' +
                         '</div>' +
                         '</div>';
@@ -8886,20 +8865,15 @@ class N88_RFQ_Auth {
                         validateBidForm();
                     }, 100);
                     
-                    // Commit 2.3.5.5: Reset button states - Validate button visible, Submit button hidden
+                    // Reset submit button state for the direct-submit flow.
                     setTimeout(function() {
-                        var validateBtn = document.getElementById('n88-validate-bid-btn');
                         var submitBtn = document.getElementById('n88-submit-bid-btn');
-                        if (validateBtn) {
-                            validateBtn.style.display = 'inline-block';
-                            validateBtn.disabled = true;
-                            validateBtn.style.opacity = '0.5';
-                        }
                         if (submitBtn) {
-                            submitBtn.style.display = 'none';
                             submitBtn.disabled = true;
+                            submitBtn.style.opacity = '0.5';
+                            submitBtn.style.cursor = 'not-allowed';
                         }
-                        // Run validation to enable/disable validate button
+                        // Run validation to enable/disable the submit button
                         if (typeof validateBidForm === 'function') {
                             validateBidForm();
                         }
@@ -9256,10 +9230,7 @@ class N88_RFQ_Auth {
                 if (!form) return false;
                 
                 var isValid = true;
-                // Commit 2.3.5.5: Get the correct button - Validate button for enabling/disabling, Submit button for after validation
-                var validateBtn = isEmbedded ? 
-                    document.getElementById('n88-validate-bid-btn-embedded-' + itemId) : 
-                    document.getElementById('n88-validate-bid-btn');
+                // Keep the direct submit button in sync with client-side validity.
                 var submitBtn = isEmbedded ? 
                     document.getElementById('n88-submit-bid-btn-embedded-' + itemId) : 
                     document.getElementById('n88-submit-bid-btn');
@@ -9384,78 +9355,6 @@ class N88_RFQ_Auth {
                     prototypeError.style.display = 'none';
                 }
                 
-                // 3. Prototype timeline required ONLY if prototype is YES
-                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (isPrototypeYes) {
-                    if (!timeline || !timeline.value) {
-                        isValid = false;
-                        var timelineError = isEmbedded ? 
-                            document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
-                            document.getElementById('n88-prototype-timeline-error');
-                        if (timelineError) {
-                            timelineError.textContent = 'Prototype timeline is required.';
-                            timelineError.style.display = 'block';
-                        }
-                    } else {
-                        var timelineError = isEmbedded ? 
-                            document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
-                            document.getElementById('n88-prototype-timeline-error');
-                        if (timelineError) {
-                            timelineError.style.display = 'none';
-                        }
-                    }
-                } else {
-                    // Clear timeline error if prototype is NO
-                    var timelineError = isEmbedded ? 
-                        document.getElementById('n88-prototype-timeline-error-embedded-' + itemId) : 
-                        document.getElementById('n88-prototype-timeline-error');
-                    if (timelineError) {
-                        timelineError.style.display = 'none';
-                    }
-                }
-                
-                // 4. Prototype cost required ONLY if prototype is YES
-                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (isPrototypeYes) {
-                    if (prototypeCost && prototypeCost.value) {
-                        var costValue = parseFloat(prototypeCost.value);
-                        if (isNaN(costValue) || costValue < 0) {
-                            isValid = false;
-                            var costError = isEmbedded ? 
-                                document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
-                                document.getElementById('n88-prototype-cost-error');
-                            if (costError) {
-                                costError.textContent = 'Prototype cost must be a valid number >= 0.';
-                                costError.style.display = 'block';
-                            }
-                        } else {
-                            var costError = isEmbedded ? 
-                                document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
-                                document.getElementById('n88-prototype-cost-error');
-                            if (costError) {
-                                costError.style.display = 'none';
-                            }
-                        }
-                    } else {
-                        isValid = false;
-                        var costError = isEmbedded ? 
-                            document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
-                            document.getElementById('n88-prototype-cost-error');
-                        if (costError) {
-                            costError.textContent = 'Prototype cost is required.';
-                            costError.style.display = 'block';
-                        }
-                    }
-                } else {
-                    // Clear cost error if prototype is NO
-                    var costError = isEmbedded ? 
-                        document.getElementById('n88-prototype-cost-error-embedded-' + itemId) : 
-                        document.getElementById('n88-prototype-cost-error');
-                    if (costError) {
-                        costError.style.display = 'none';
-                    }
-                }
-                
                 // 5. Production lead time: non-empty
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
@@ -9508,16 +9407,15 @@ class N88_RFQ_Auth {
                     }
                 }
                 
-                // Commit 2.3.5.5: Enable/disable Validate button based on form validity
-                if (validateBtn) {
+                if (submitBtn) {
                     if (isValid) {
-                        validateBtn.disabled = false;
-                        validateBtn.style.opacity = '1';
-                        validateBtn.style.cursor = 'pointer';
+                        submitBtn.disabled = false;
+                        submitBtn.style.opacity = '1';
+                        submitBtn.style.cursor = 'pointer';
                     } else {
-                        validateBtn.disabled = true;
-                        validateBtn.style.opacity = '0.5';
-                        validateBtn.style.cursor = 'not-allowed';
+                        submitBtn.disabled = true;
+                        submitBtn.style.opacity = '0.5';
+                        submitBtn.style.cursor = 'not-allowed';
                     }
                 }
                 
@@ -9526,8 +9424,6 @@ class N88_RFQ_Auth {
                     console.log('Bid form validation:', {
                         validVideoLinks: validVideoLinks,
                         prototypeYes: prototypeYes ? prototypeYes.checked : false,
-                        timeline: timeline ? timeline.value : '',
-                        prototypeCost: prototypeCost ? prototypeCost.value : '',
                         leadTime: leadTime ? leadTime.value : '',
                         unitPrice: unitPrice ? unitPrice.value : '',
                         isValid: isValid
@@ -9537,184 +9433,9 @@ class N88_RFQ_Auth {
                 return isValid;
             }
             
-            // Validate and submit bid (server-side validation)
+            // Legacy alias kept for compatibility; direct submit now owns validation + submission.
             function validateAndSubmitBid(event) {
-                if (event) {
-                    event.preventDefault();
-                }
-                
-                var form = document.getElementById('n88-bid-form');
-                if (!form) return false;
-                
-                // Client-side validation
-                if (!validateBidForm()) {
-                    alert('Please complete all required fields correctly.');
-                    return false;
-                }
-                
-                var modal = document.getElementById('n88-supplier-bid-form-modal');
-                var itemId = modal ? modal.getAttribute('data-item-id') : null;
-                
-                if (!itemId) {
-                    alert('Item ID not found.');
-                    return false;
-                }
-                
-                // Collect form data
-                var formData = new FormData();
-                formData.append('action', 'n88_validate_supplier_bid');
-                formData.append('item_id', itemId);
-                
-                // Video links
-                var videoLinks = form.querySelectorAll('.n88-video-link-input');
-                var videoLinksArray = [];
-                videoLinks.forEach(function(input) {
-                    var url = input.value.trim();
-                    if (url) {
-                        videoLinksArray.push(url);
-                    }
-                });
-                formData.append('video_links', JSON.stringify(videoLinksArray));
-                
-                // Commit 2.3.5.1: Bid photos (required) - use uploaded photo IDs
-                var bidPhotoIds = [];
-                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
-                photoIdInputs.forEach(function(input) {
-                    var photoId = parseInt(input.value);
-                    if (!isNaN(photoId) && photoId > 0) {
-                        bidPhotoIds.push(photoId);
-                    }
-                });
-                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
-                
-                // Other fields
-                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
-                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
-                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
-                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
-                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
-                formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
-                var sampleRequiredField = form.querySelector('input[name="sample_required"]:checked');
-                formData.append('sample_required', sampleRequiredField ? sampleRequiredField.value : '');
-                formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
-                appendBatchFormContext(formData, itemId);
-                
-                // Smart Alternatives suggestion (if enabled and ANY field is filled)
-                var smartAltCategory = form.querySelector('select[name="smart_alt_category"]');
-                var smartAltFrom = form.querySelector('select[name="smart_alt_from"]');
-                var smartAltTo = form.querySelector('select[name="smart_alt_to"]');
-                var smartAltPrice = form.querySelector('select[name="smart_alt_price_impact"]');
-                var smartAltLeadTime = form.querySelector('select[name="smart_alt_lead_time_impact"]');
-                var smartAltComparisons = form.querySelectorAll('input[name="smart_alt_comparison[]"]:checked');
-                
-                // Check if ANY Smart Alternatives field has a value
-                var hasCategory = smartAltCategory && smartAltCategory.value;
-                var hasFrom = smartAltFrom && smartAltFrom.value;
-                var hasTo = smartAltTo && smartAltTo.value;
-                var hasPrice = smartAltPrice && smartAltPrice.value;
-                var hasLeadTime = smartAltLeadTime && smartAltLeadTime.value;
-                var hasComparisons = smartAltComparisons && smartAltComparisons.length > 0;
-                
-                if (hasCategory || hasFrom || hasTo || hasPrice || hasLeadTime || hasComparisons) {
-                    var smartAltData = {
-                        category: hasCategory ? smartAltCategory.value : '',
-                        from: hasFrom ? smartAltFrom.value : '',
-                        to: hasTo ? smartAltTo.value : '',
-                        comparison_points: hasComparisons ? Array.from(smartAltComparisons).map(function(cb) { return cb.value; }) : [],
-                        price_impact: hasPrice ? smartAltPrice.value : '',
-                        lead_time_impact: hasLeadTime ? smartAltLeadTime.value : ''
-                    };
-                    formData.append('smart_alternatives_suggestion', JSON.stringify(smartAltData));
-                }
-                
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
-                
-                // Disable submit button during validation
-                var submitBtn = document.getElementById('n88-validate-bid-btn');
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Validating...';
-                }
-                
-                // Submit to server for validation
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(response) {
-                    return response.json();
-                })
-                .then(function(data) {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Validate Bid';
-                    }
-                    
-                    if (!data.success) {
-                        // Show validation errors
-                        if (data.data && data.data.errors) {
-                            var errorHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
-                                '<strong style="color: #d32f2f;">Validation Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
-                            for (var field in data.data.errors) {
-                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
-                            }
-                            errorHtml += '</ul></div>';
-                            
-                            var form = document.getElementById('n88-bid-form');
-                            if (form) {
-                                var existingError = form.querySelector('.n88-validation-errors');
-                                if (existingError) {
-                                    existingError.remove();
-                                }
-                                form.insertAdjacentHTML('afterbegin', errorHtml);
-                                
-                                // Scroll to top
-                                form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }
-                        } else {
-                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
-                        }
-                    } else {
-                        // Validation passed - show Submit Bid button (Commit 2.3.5)
-                        var validateBtn = document.getElementById('n88-validate-bid-btn');
-                        var submitBtn = document.getElementById('n88-submit-bid-btn');
-                        
-                        if (validateBtn && submitBtn) {
-                            validateBtn.style.display = 'none';
-                            submitBtn.style.display = 'inline-block';
-                            submitBtn.disabled = false;
-                        }
-                        if (typeof window.n88BatchProposalRefreshItemState === 'function') {
-                            window.n88BatchProposalRefreshItemState(itemId);
-                        }
-                        
-                        // Show success message
-                        var form = document.getElementById('n88-bid-form');
-                        if (form) {
-                            var existingError = form.querySelector('.n88-validation-errors');
-                            if (existingError) {
-                                existingError.remove();
-                            }
-                            var successHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;">' +
-                                '<strong> Validation successful!</strong> Click "Submit Proposal" to save your bid.' +
-                                '</div>';
-                            form.insertAdjacentHTML('afterbegin', successHtml);
-                            
-                            // Scroll to top
-                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                    }
-                })
-                .catch(function(error) {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Validate Bid';
-                    }
-                    alert('Error validating bid. Please try again.');
-                    console.error('Validation error:', error);
-                });
-                
-                return false;
+                return submitBid(event);
             }
             
             // Commit 2.3.5: Submit bid function
@@ -9723,6 +9444,11 @@ class N88_RFQ_Auth {
                 
                 var form = document.getElementById('n88-bid-form');
                 if (!form) return false;
+                
+                if (!validateBidForm()) {
+                    alert('Please complete all required fields correctly.');
+                    return false;
+                }
                 
                 var modal = document.getElementById('n88-supplier-bid-form-modal');
                 var itemId = modal ? modal.getAttribute('data-item-id') : null;
@@ -9761,8 +9487,8 @@ class N88_RFQ_Auth {
                 
                 // Other fields
                 formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
-                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
-                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]') ? form.querySelector('input[name="prototype_cost"]').value : '');
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
@@ -10061,7 +9787,7 @@ class N88_RFQ_Auth {
                 if (!form) return false;
                 
                 var isValid = true;
-                var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
                 clearBatchFieldHighlights(itemId);
                 
                 // 1. Video links: required min 1, max 3
@@ -10147,47 +9873,6 @@ class N88_RFQ_Auth {
                 // 2. Prototype video (optional - YES or NO)
                 var prototypeYes = form.querySelector('input[name="prototype_video_yes"][value="1"]');
                 var isPrototypeYes = prototypeYes && prototypeYes.checked;
-                var timelineError = document.getElementById('n88-prototype-timeline-error-embedded-' + itemId);
-                var costError = document.getElementById('n88-prototype-cost-error-embedded-' + itemId);
-                
-                // 3. Prototype timeline required ONLY if prototype is YES
-                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                if (isPrototypeYes && (!timeline || !timeline.value)) {
-                    isValid = false;
-                    if (timelineError) {
-                        timelineError.textContent = 'Prototype timeline is required.';
-                        timelineError.style.display = 'block';
-                    }
-                    markBatchFieldHighlight(timeline);
-                } else if (timelineError) {
-                    timelineError.style.display = 'none';
-                }
-                
-                // 4. Prototype cost required ONLY if prototype is YES
-                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                if (isPrototypeYes) {
-                    if (prototypeCost && prototypeCost.value) {
-                        var costValue = parseFloat(prototypeCost.value);
-                        if (isNaN(costValue) || costValue < 0) {
-                            isValid = false;
-                            if (costError) {
-                                costError.textContent = 'Prototype cost must be 0 or more.';
-                                costError.style.display = 'block';
-                            }
-                            markBatchFieldHighlight(prototypeCost);
-                        }
-                    } else {
-                        isValid = false;
-                        if (costError) {
-                            costError.textContent = 'Prototype cost is required.';
-                            costError.style.display = 'block';
-                        }
-                        markBatchFieldHighlight(prototypeCost);
-                    }
-                } else if (costError) {
-                    costError.style.display = 'none';
-                }
-                
                 // 5. Production lead time: non-empty
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 var leadTimeError = document.getElementById('n88-lead-time-error-embedded-' + itemId);
@@ -10231,15 +9916,15 @@ class N88_RFQ_Auth {
                 }
                 
                 // Enable/disable validate button
-                if (validateBtn) {
+                if (submitBtn) {
                     if (isValid) {
-                        validateBtn.disabled = false;
-                        validateBtn.style.opacity = '1';
-                        validateBtn.style.cursor = 'pointer';
+                        submitBtn.disabled = false;
+                        submitBtn.style.opacity = '1';
+                        submitBtn.style.cursor = 'pointer';
                     } else {
-                        validateBtn.disabled = true;
-                        validateBtn.style.opacity = '0.5';
-                        validateBtn.style.cursor = 'not-allowed';
+                        submitBtn.disabled = true;
+                        submitBtn.style.opacity = '0.5';
+                        submitBtn.style.cursor = 'not-allowed';
                     }
                 }
 
@@ -10466,7 +10151,7 @@ class N88_RFQ_Auth {
                 if (!form) return false;
 
                 var isValid = true;
-                var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
+                var submitBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
                 clearBatchFieldHighlights(itemId);
 
                 var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
@@ -10505,42 +10190,6 @@ class N88_RFQ_Auth {
                     videoError.style.display = 'none';
                 }
 
-                var timeline = form.querySelector('select[name="prototype_timeline_option"]');
-                var timelineError = document.getElementById('n88-prototype-timeline-error-embedded-' + itemId);
-                if (!timeline || !timeline.value) {
-                    isValid = false;
-                    if (timelineError) {
-                        timelineError.textContent = 'Prototype timeline is required.';
-                        timelineError.style.display = 'block';
-                    }
-                    markBatchFieldHighlight(timeline);
-                } else if (timelineError) {
-                    timelineError.style.display = 'none';
-                }
-
-                var prototypeCost = form.querySelector('input[name="prototype_cost"]');
-                var costError = document.getElementById('n88-prototype-cost-error-embedded-' + itemId);
-                if (!prototypeCost || prototypeCost.value === '') {
-                    isValid = false;
-                    if (costError) {
-                        costError.textContent = 'Prototype cost is required.';
-                        costError.style.display = 'block';
-                    }
-                    markBatchFieldHighlight(prototypeCost);
-                } else {
-                    var costValue = parseFloat(prototypeCost.value);
-                    if (isNaN(costValue) || costValue < 0) {
-                        isValid = false;
-                        if (costError) {
-                            costError.textContent = 'Prototype cost must be 0 or more.';
-                            costError.style.display = 'block';
-                        }
-                        markBatchFieldHighlight(prototypeCost);
-                    } else if (costError) {
-                        costError.style.display = 'none';
-                    }
-                }
-
                 var leadTime = form.querySelector('select[name="production_lead_time_text"]');
                 var leadTimeError = document.getElementById('n88-lead-time-error-embedded-' + itemId);
                 if (!leadTime || !leadTime.value || !leadTime.value.trim()) {
@@ -10577,15 +10226,15 @@ class N88_RFQ_Auth {
                     }
                 }
 
-                if (validateBtn) {
+                if (submitBtn) {
                     if (isValid) {
-                        validateBtn.disabled = false;
-                        validateBtn.style.opacity = '1';
-                        validateBtn.style.cursor = 'pointer';
+                        submitBtn.disabled = false;
+                        submitBtn.style.opacity = '1';
+                        submitBtn.style.cursor = 'pointer';
                     } else {
-                        validateBtn.disabled = true;
-                        validateBtn.style.opacity = '0.5';
-                        validateBtn.style.cursor = 'not-allowed';
+                        submitBtn.disabled = true;
+                        submitBtn.style.opacity = '0.5';
+                        submitBtn.style.cursor = 'not-allowed';
                     }
                 }
 
@@ -10808,6 +10457,10 @@ class N88_RFQ_Auth {
             }
             
             function validateAndSubmitBidEmbedded(event, itemId, options) {
+                return submitBidEmbedded(event, itemId, options);
+            }
+            
+            function submitBidEmbedded(event, itemId, options) {
                 options = options || {};
                 var silent = !!options.silent;
                 if (event) {
@@ -10824,145 +10477,6 @@ class N88_RFQ_Auth {
                         alert('Please complete all required fields correctly.');
                     }
                     return Promise.resolve({ success: false, itemId: itemId, message: 'Please complete all required fields correctly.' });
-                }
-                
-                if (!itemId) {
-                    if (!silent) {
-                        alert('Item ID not found.');
-                    }
-                    return Promise.resolve({ success: false, itemId: itemId, message: 'Item ID not found.' });
-                }
-                
-                var formData = new FormData();
-                formData.append('action', 'n88_validate_supplier_bid');
-                formData.append('item_id', itemId);
-                
-                var videoLinks = form.querySelectorAll('.n88-video-link-input-embedded');
-                var videoLinksArray = [];
-                videoLinks.forEach(function(input) {
-                    var url = input.value.trim();
-                    if (url) {
-                        videoLinksArray.push(url);
-                    }
-                });
-                formData.append('video_links', JSON.stringify(videoLinksArray));
-                
-                var bidPhotoIds = [];
-                var photoIdInputs = form.querySelectorAll('input[name="bid_photo_ids[]"]');
-                photoIdInputs.forEach(function(input) {
-                    var photoId = parseInt(input.value, 10);
-                    if (!isNaN(photoId) && photoId > 0) {
-                        bidPhotoIds.push(photoId);
-                    }
-                });
-                formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
-                
-                formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
-                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
-                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
-                formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
-                formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
-                formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
-                var sampleRequiredSubmitField = form.querySelector('input[name="sample_required"]:checked');
-                formData.append('sample_required', sampleRequiredSubmitField ? sampleRequiredSubmitField.value : '');
-                formData.append('proposal_notes', form.querySelector('textarea[name="proposal_notes"]') ? form.querySelector('textarea[name="proposal_notes"]').value : '');
-                appendBatchFormContext(formData, itemId);
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_validate_supplier_bid' ); ?>');
-                
-                var submitBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Validating...';
-                }
-                
-                return fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(response) {
-                    return response.json();
-                })
-                .then(function(data) {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Validate Bid';
-                    }
-                    
-                    if (!data.success) {
-                        if (data.data && data.data.errors) {
-                            var errorHtml = '<div class="n88-validation-errors" style="padding: 12px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 20px;">' +
-                                '<strong style="color: #d32f2f;">Validation Errors:</strong><ul style="margin: 8px 0 0 20px; padding: 0;">';
-                            for (var field in data.data.errors) {
-                                errorHtml += '<li style="color: #d32f2f; margin: 4px 0;">' + data.data.errors[field] + '</li>';
-                            }
-                            errorHtml += '</ul></div>';
-                            var existingError = form.querySelector('.n88-validation-errors');
-                            if (existingError) {
-                                existingError.remove();
-                            }
-                            form.insertAdjacentHTML('afterbegin', errorHtml);
-                            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        } else if (!silent) {
-                            alert(data.data && data.data.message ? data.data.message : 'Validation failed. Please check your inputs.');
-                        }
-                        return {
-                            success: false,
-                            itemId: itemId,
-                            data: data.data || {},
-                            message: data.data && data.data.message ? data.data.message : 'Validation failed.'
-                        };
-                    }
-                    
-                    var validateBtn = document.getElementById('n88-validate-bid-btn-embedded-' + itemId);
-                    var submitActionBtn = document.getElementById('n88-submit-bid-btn-embedded-' + itemId);
-                    if (validateBtn && submitActionBtn) {
-                        validateBtn.style.display = 'none';
-                        submitActionBtn.style.display = 'inline-block';
-                        submitActionBtn.disabled = false;
-                    }
-                    
-                    var existingSummary = form.querySelector('.n88-validation-errors');
-                    if (existingSummary) {
-                        existingSummary.remove();
-                    }
-                    form.insertAdjacentHTML('afterbegin', '<div class="n88-validation-errors" style="padding: 12px; background-color: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; margin-bottom: 20px; color: #2e7d32;"><strong> Validation successful!</strong> Click \"Submit Proposal\" to save your bid.</div>');
-                    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    clearBatchFieldHighlights(itemId);
-                    persistBatchItemState(itemId, 'quote', 'ready', (window.n88SupplierBatchState.itemData[itemId] || {}).bid_id || null);
-                    return {
-                        success: true,
-                        itemId: itemId,
-                        data: data.data || {},
-                        message: data.data && data.data.message ? data.data.message : 'Validation successful.'
-                    };
-                })
-                .catch(function(error) {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Validate Bid';
-                    }
-                    if (!silent) {
-                        alert('Error validating bid. Please try again.');
-                    }
-                    console.error('Validation error:', error);
-                    return {
-                        success: false,
-                        itemId: itemId,
-                        message: error && error.message ? error.message : 'Error validating bid. Please try again.'
-                    };
-                });
-            }
-            
-            function submitBidEmbedded(event, itemId, options) {
-                options = options || {};
-                var silent = !!options.silent;
-                if (event) {
-                    event.preventDefault();
-                }
-                
-                var form = document.getElementById('n88-bid-form-embedded-' + itemId);
-                if (!form) {
-                    return Promise.resolve({ success: false, itemId: itemId, message: 'Bid form not found.' });
                 }
                 
                 if (!itemId) {
@@ -10997,8 +10511,8 @@ class N88_RFQ_Auth {
                 formData.append('bid_photo_ids', JSON.stringify(bidPhotoIds));
                 
                 formData.append('prototype_video_yes', getEmbeddedPrototypeVideoValue(form));
-                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]').value);
-                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]').value);
+                formData.append('prototype_timeline_option', form.querySelector('select[name="prototype_timeline_option"]') ? form.querySelector('select[name="prototype_timeline_option"]').value : '');
+                formData.append('prototype_cost', form.querySelector('input[name="prototype_cost"]') ? form.querySelector('input[name="prototype_cost"]').value : '');
                 formData.append('production_lead_time_text', form.querySelector('select[name="production_lead_time_text"]').value);
                 formData.append('unit_price', form.querySelector('input[name="unit_price"]').value);
                 formData.append('material_included', form.querySelector('select[name="material_included"]') ? form.querySelector('select[name="material_included"]').value : '');
@@ -12050,11 +11564,6 @@ class N88_RFQ_Auth {
                     var closeBtn = e.target && e.target.closest ? e.target.closest('#n88-close-batch-proposal-modal') : null;
                     if (closeBtn) {
                         closeBatchProposalModal();
-                        return;
-                    }
-                    var validateAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-validate-all-btn') : null;
-                    if (validateAllBtn) {
-                        runBatchProposalAction('validate');
                         return;
                     }
                     var saveAllBtn = e.target && e.target.closest ? e.target.closest('#n88-batch-save-all-btn') : null;
@@ -16652,8 +16161,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'request'                    => array(
                 'sample_types'          => isset( $request['sample_types'] ) && is_array( $request['sample_types'] ) ? array_values( array_map( 'sanitize_text_field', $request['sample_types'] ) ) : array(),
                 'sample_format'         => isset( $request['sample_format'] ) ? sanitize_text_field( $request['sample_format'] ) : '',
+                'evaluation_type'       => isset( $request['evaluation_type'] ) ? sanitize_key( $request['evaluation_type'] ) : '',
                 'instructions'          => isset( $request['instructions'] ) ? sanitize_textarea_field( $request['instructions'] ) : '',
                 'shipping_address'      => isset( $request['shipping_address'] ) ? sanitize_textarea_field( $request['shipping_address'] ) : '',
+                'selected_material_ids' => isset( $request['selected_material_ids'] ) && is_array( $request['selected_material_ids'] ) ? array_values( array_map( 'absint', $request['selected_material_ids'] ) ) : array(),
+                'selected_materials'    => $this->get_selected_supplier_material_library_items( $supplier_id, isset( $request['selected_material_ids'] ) ? $request['selected_material_ids'] : array() ),
                 'reference_files'       => $this->get_validation_attachment_entries( isset( $request['reference_file_ids'] ) ? $request['reference_file_ids'] : array() ),
                 'requested_at'          => isset( $request['requested_at'] ) ? $request['requested_at'] : null,
                 'payment_submitted_at'  => isset( $request['payment_submitted_at'] ) ? $request['payment_submitted_at'] : null,
@@ -16906,13 +16418,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     ), ARRAY_A );
                     
                     if ( $delivery_context ) {
-                        // Only show delivery cost for US
+                        // Only show delivery cost for US/CA
                         $delivery_country = isset( $delivery_context['delivery_country_code'] ) ? strtoupper( trim( $delivery_context['delivery_country_code'] ) ) : '';
-                        if ( $delivery_country === 'US' ) {
+                        if ( in_array( $delivery_country, array( 'US', 'CA' ), true ) ) {
                             $delivery_cost_data = isset( $delivery_context['delivery_cost_usd'] ) ? floatval( $delivery_context['delivery_cost_usd'] ) : null;
                             $delivery_shipping_mode = isset( $delivery_context['shipping_mode'] ) ? $delivery_context['shipping_mode'] : null;
                             
-                            // Commit 2.3.10: If delivery cost is NULL but country is US, try to calculate it on-the-fly
+                            // Commit 2.3.10: If delivery cost is NULL but country is US/CA, try to calculate it on-the-fly
                             if ( ( $delivery_cost_data === null || $delivery_cost_data === 0 ) && class_exists( 'N88_RFQ_Pricing' ) ) {
                                 $calculation_result = N88_RFQ_Pricing::calculate_and_store_delivery_cost( $item_id );
                                 if ( $calculation_result && isset( $calculation_result['delivery_cost_usd'] ) && $calculation_result['delivery_cost_usd'] !== null ) {
@@ -17778,18 +17290,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // 2. Prototype video commitment
         $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 1;
 
-        // 3. Prototype timeline (required)
+        // 3. Prototype timeline (optional)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
         $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+        if ( '' !== $prototype_timeline_option && ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
             $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
         }
 
-        // 4. Prototype cost (required)
+        // 4. Prototype cost (optional)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( empty( $prototype_cost ) ) {
-            $errors['prototype_cost'] = 'Prototype cost is required.';
-        } else {
+        $prototype_cost_float = null;
+        if ( '' !== $prototype_cost ) {
             $prototype_cost_float = floatval( $prototype_cost );
             if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
                 $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
@@ -17990,18 +17501,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         // 2. Prototype video commitment
         $prototype_video_yes = isset( $_POST['prototype_video_yes'] ) ? intval( $_POST['prototype_video_yes'] ) : 1;
 
-        // 3. Prototype timeline (required)
+        // 3. Prototype timeline (optional)
         $prototype_timeline_option = isset( $_POST['prototype_timeline_option'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_timeline_option'] ) ) : '';
         $allowed_timelines = array( '1-2w', '2-4w', '4-6w', '6-8w', '8-10w' );
-        if ( empty( $prototype_timeline_option ) || ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
+        if ( '' !== $prototype_timeline_option && ! in_array( $prototype_timeline_option, $allowed_timelines, true ) ) {
             $errors['prototype_timeline_option'] = 'Please select a valid prototype timeline.';
         }
 
-        // 4. Prototype cost (required)
+        // 4. Prototype cost (optional)
         $prototype_cost = isset( $_POST['prototype_cost'] ) ? sanitize_text_field( wp_unslash( $_POST['prototype_cost'] ) ) : '';
-        if ( empty( $prototype_cost ) ) {
-            $errors['prototype_cost'] = 'Prototype cost is required.';
-        } else {
+        $prototype_cost_float = null;
+        if ( '' !== $prototype_cost ) {
             $prototype_cost_float = floatval( $prototype_cost );
             if ( ! is_numeric( $prototype_cost ) || $prototype_cost_float < 0 ) {
                 $errors['prototype_cost'] = 'Prototype cost must be a number greater than or equal to 0.';
@@ -19336,14 +18846,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         global $wpdb;
-        $item_id         = absint( $_POST['item_id'] ?? 0 );
-        $bid_id          = absint( $_POST['bid_id'] ?? 0 );
-        $supplier_id     = absint( $_POST['supplier_id'] ?? 0 );
-        $sample_types    = isset( $_POST['sample_types'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['sample_types'] ) ) ) ) : array();
-        $sample_format   = sanitize_text_field( wp_unslash( $_POST['sample_format'] ?? '' ) );
-        $instructions    = sanitize_textarea_field( wp_unslash( $_POST['instructions'] ?? '' ) );
-        $shipping_address = sanitize_textarea_field( wp_unslash( $_POST['shipping_address'] ?? '' ) );
-        $payment_mode    = sanitize_key( wp_unslash( $_POST['payment_mode'] ?? '' ) );
+        $item_id                = absint( $_POST['item_id'] ?? 0 );
+        $bid_id                 = absint( $_POST['bid_id'] ?? 0 );
+        $supplier_id            = absint( $_POST['supplier_id'] ?? 0 );
+        $sample_types           = isset( $_POST['sample_types'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['sample_types'] ) ) ) ) : array();
+        $sample_format          = sanitize_text_field( wp_unslash( $_POST['sample_format'] ?? '' ) );
+        $instructions           = sanitize_textarea_field( wp_unslash( $_POST['instructions'] ?? '' ) );
+        $shipping_address       = sanitize_textarea_field( wp_unslash( $_POST['shipping_address'] ?? '' ) );
+        $payment_mode           = sanitize_key( wp_unslash( $_POST['payment_mode'] ?? '' ) );
+        $selected_material_ids  = isset( $_POST['selected_supplier_material_ids'] ) ? array_values( array_unique( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['selected_supplier_material_ids'] ) ) ) ) ) : array();
         $approve_without_samples = ! empty( $_POST['approve_without_samples'] );
 
         if ( ! $item_id || ! $bid_id || ! $supplier_id ) {
@@ -19369,6 +18880,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $wireframe_supplier = (int) $supplier_id === (int) $this->get_default_wireframe_supplier_id();
         if ( ! $payment_mode ) {
             $payment_mode = $wireframe_supplier ? 'wireframe_managed' : 'external';
+        }
+        if ( empty( $selected_material_ids ) && ! $approve_without_samples ) {
+            wp_send_json_error( array( 'message' => 'Please select at least one supplier material sample.' ) );
         }
 
         $meta       = $this->get_item_meta_array( $item_id );
@@ -19406,8 +18920,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $validation['request']           = array(
             'sample_types'           => ! empty( $sample_types ) ? $sample_types : array( 'Mixed Kit' ),
             'sample_format'          => $sample_format ? $sample_format : 'Physical',
+            'evaluation_type'        => 'material_samples',
             'instructions'           => $instructions,
             'shipping_address'       => $shipping_address,
+            'selected_material_ids'  => $selected_material_ids,
             'reference_file_ids'     => $reference_file_ids,
             'payment_mode'           => $payment_mode,
             'payment_status'         => $approve_without_samples ? 'not_required' : 'pending',
@@ -19434,6 +18950,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $approve_without_samples ) {
             $meta['validation_notes'] = 'Approved for validation without sample request.';
         }
+        $meta['active_supplier_id']         = $supplier_id;
+        $meta['active_supplier_bid_id']     = $bid_id;
+        $meta['supplier_selection_locked']  = 1;
+        $meta['supplier_selection_locked_at'] = $now;
 
         $updated = $this->update_item_meta_array( $item_id, $meta );
         if ( false === $updated ) {
@@ -19450,8 +18970,51 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     'supplier_id'   => $supplier_id,
                     'payment_mode'  => $payment_mode,
                     'sample_types'  => ! empty( $sample_types ) ? $sample_types : array( 'Mixed Kit' ),
+                    'material_ids'  => $selected_material_ids,
+                    'reference_upload_ids' => $reference_file_ids,
+                    'notes'         => $instructions,
                     'approved_directly' => $approve_without_samples,
                     'timestamp'     => $now,
+                ),
+            ) );
+            n88_log_event( 'materials_requested', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id,
+                'payload_json' => array(
+                    'item_id'              => $item_id,
+                    'bid_id'               => $bid_id,
+                    'supplier_id'          => $supplier_id,
+                    'material_ids'         => $selected_material_ids,
+                    'reference_upload_ids' => $reference_file_ids,
+                    'notes'                => $instructions,
+                    'timestamp'            => $now,
+                ),
+            ) );
+            n88_log_event( 'supplier_selected', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id,
+                'payload_json' => array(
+                    'item_id'              => $item_id,
+                    'bid_id'               => $bid_id,
+                    'supplier_id'          => $supplier_id,
+                    'material_ids'         => $selected_material_ids,
+                    'reference_upload_ids' => $reference_file_ids,
+                    'notes'                => $instructions,
+                    'timestamp'            => $now,
+                ),
+            ) );
+            n88_log_event( 'evaluation_started', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id,
+                'payload_json' => array(
+                    'item_id'              => $item_id,
+                    'bid_id'               => $bid_id,
+                    'supplier_id'          => $supplier_id,
+                    'evaluation_type'      => 'material_samples',
+                    'material_ids'         => $selected_material_ids,
+                    'reference_upload_ids' => $reference_file_ids,
+                    'notes'                => $instructions,
+                    'timestamp'            => $now,
                 ),
             ) );
         }
@@ -19460,6 +19023,37 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'message'          => $approve_without_samples ? 'Validation approved without sample request.' : 'Material sample request created.',
             'validation_state' => $this->build_material_validation_state( $item_id, $meta ),
         ) );
+    }
+
+    public function ajax_track_supplier_media_view() {
+        check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( array( 'message' => 'Authentication required.' ), 401 );
+        }
+
+        $item_id     = absint( $_POST['item_id'] ?? 0 );
+        $supplier_id = absint( $_POST['supplier_id'] ?? 0 );
+        $bid_id      = absint( $_POST['bid_id'] ?? 0 );
+
+        if ( ! $item_id || ! $supplier_id || ! $this->user_is_designer_owner_of_item( $item_id ) ) {
+            wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        if ( function_exists( 'n88_log_event' ) ) {
+            n88_log_event( 'media_viewed', 'item', array(
+                'item_id'      => $item_id,
+                'object_id'    => $bid_id ? $bid_id : $supplier_id,
+                'payload_json' => array(
+                    'item_id'     => $item_id,
+                    'bid_id'      => $bid_id,
+                    'supplier_id' => $supplier_id,
+                    'timestamp'   => current_time( 'mysql' ),
+                ),
+            ) );
+        }
+
+        wp_send_json_success( array( 'message' => 'Media view tracked.' ) );
     }
 
     public function ajax_submit_material_validation_payment() {
