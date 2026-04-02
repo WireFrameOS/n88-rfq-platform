@@ -16360,24 +16360,39 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     public function ajax_get_item_rfq_state() {
+        $buffer_level = ob_get_level();
+        ob_start();
+        $flush_json_error = function( $payload, $status_code = null ) use ( $buffer_level ) {
+            while ( ob_get_level() > $buffer_level ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( $payload, $status_code );
+        };
+        $flush_json_success = function( $payload, $status_code = null ) use ( $buffer_level ) {
+            while ( ob_get_level() > $buffer_level ) {
+                ob_end_clean();
+            }
+            wp_send_json_success( $payload, $status_code );
+        };
         check_ajax_referer( 'n88_get_item_rfq_state', '_ajax_nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( array( 'message' => 'Authentication required.' ) );
+            $flush_json_error( array( 'message' => 'Authentication required.' ) );
         }
 
         $current_user = wp_get_current_user();
         $is_designer = in_array( 'n88_designer', $current_user->roles, true ) || in_array( 'designer', $current_user->roles, true );
         $is_system_operator = in_array( 'n88_system_operator', $current_user->roles, true );
+        $is_admin = current_user_can( 'manage_options' );
         
-        if ( ! $is_designer && ! $is_system_operator ) {
-            wp_send_json_error( array( 'message' => 'Access denied. Designer account required.' ) );
+        if ( ! $is_designer && ! $is_system_operator && ! $is_admin ) {
+            $flush_json_error( array( 'message' => 'Access denied. Designer, operator, or admin account required.' ) );
         }
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
         
         if ( ! $item_id ) {
-            wp_send_json_error( array( 'message' => 'Invalid item ID.' ) );
+            $flush_json_error( array( 'message' => 'Invalid item ID.' ) );
         }
 
         global $wpdb;
@@ -16393,11 +16408,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         ), ARRAY_A );
 
         // Check if item exists and user owns it (unless system operator)
-        if ( ! $is_system_operator ) {
+        if ( ! $is_system_operator && ! $is_admin ) {
             $item_owner = $item_owner_row && isset( $item_owner_row['owner_user_id'] ) ? (int) $item_owner_row['owner_user_id'] : 0;
             
             if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
-                wp_send_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
+                $flush_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
             }
         }
 
@@ -17245,7 +17260,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             }
         }
 
-        wp_send_json_success( array(
+        $flush_json_success( array(
             'has_rfq' => $has_rfq,
             'has_bids' => $has_bids,
             'has_awarded_bid' => $has_awarded_bid, // Commit 2.4.1: Check if any bid is awarded

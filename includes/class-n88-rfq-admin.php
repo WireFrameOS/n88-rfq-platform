@@ -11395,6 +11395,8 @@ class N88_RFQ_Admin {
                     var prototypeHelperText = matrixProps.prototypeHelperText || 'Review supplier support media first, then request material samples to start evaluation.';
                     var batchActionMode = !!matrixProps.batchActionMode;
                     var lockedSupplierId = matrixProps.lockedSupplierId ? parseInt(matrixProps.lockedSupplierId, 10) : 0;
+                    var sampleRequestLocked = !!matrixProps.sampleRequestLocked;
+                    var sampleRequestLockedLabel = matrixProps.sampleRequestLockedLabel || 'Sample Requested';
                     var genericCtaLabels = Array.isArray(matrixProps.genericCtaLabels) && matrixProps.genericCtaLabels.length === 3 ? matrixProps.genericCtaLabels : ['VIEW SUPPORT MEDIA', 'REQUEST SAMPLES', 'SELECT THIS SUPPLIER'];
                     var onViewSupportMediaBid = typeof matrixProps.onViewSupportMediaBid === 'function' ? matrixProps.onViewSupportMediaBid : null;
                     var onRequestSampleBid = typeof matrixProps.onRequestSampleBid === 'function' ? matrixProps.onRequestSampleBid : null;
@@ -11946,7 +11948,7 @@ class N88_RFQ_Admin {
                                         fontFamily: 'monospace'
                                     };
                                 };
-                                var sampleDisabledSingle = !bid || !bid.bid_id || (lockedSupplierId && parseInt(bid.supplier_id || 0, 10) !== lockedSupplierId);
+                                var sampleDisabledSingle = !bid || !bid.bid_id || sampleRequestLocked || (lockedSupplierId && parseInt(bid.supplier_id || 0, 10) !== lockedSupplierId);
                                 var awardDisabledSingle = !bid || !bid.bid_id || !bid.can_award || bid.is_awarded || bid.is_declined;
                                 return React.createElement('div', { style: { marginTop: '12px', marginBottom: '8px', padding: '0 12px 12px' } },
                                     React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
@@ -11955,7 +11957,7 @@ class N88_RFQ_Admin {
                                             disabled: sampleDisabledSingle,
                                             onClick: sampleDisabledSingle ? undefined : function() { triggerSampleRequest(bid); },
                                             style: actionButtonStyleSingle(false, sampleDisabledSingle)
-                                        }, 'Request Sample'),
+                                        }, sampleRequestLocked ? sampleRequestLockedLabel : 'Request Sample'),
                                         React.createElement('button', {
                                             type: 'button',
                                             disabled: awardDisabledSingle,
@@ -13028,7 +13030,7 @@ class N88_RFQ_Admin {
                                                 fontFamily: 'monospace'
                                             };
                                         };
-                                        var sampleDisabled = !bid || !bid.bid_id || (lockedSupplierId && parseInt(bid.supplier_id || 0, 10) !== lockedSupplierId);
+                                        var sampleDisabled = !bid || !bid.bid_id || sampleRequestLocked || (lockedSupplierId && parseInt(bid.supplier_id || 0, 10) !== lockedSupplierId);
                                         var awardDisabled = !bid || !bid.bid_id || !bid.can_award || bid.is_awarded || bid.is_declined;
                                         return React.createElement('div', {
                                             key: 'award-' + bid.bid_id,
@@ -13040,7 +13042,7 @@ class N88_RFQ_Admin {
                                                     disabled: sampleDisabled,
                                                     onClick: sampleDisabled ? undefined : function() { triggerSampleRequest(bid); },
                                                     style: actionButtonStyle(false, sampleDisabled)
-                                                }, 'Request Sample'),
+                                                }, sampleRequestLocked ? sampleRequestLockedLabel : 'Request Sample'),
                                                 React.createElement('button', {
                                                     type: 'button',
                                                     disabled: awardDisabled,
@@ -22681,6 +22683,8 @@ class N88_RFQ_Admin {
                     var _proposalContextState = React.useState({ mode: 'selected', source: 'board', anchorItemId: 0, groupId: 0 });
                     var proposalContext = _proposalContextState[0];
                     var setProposalContext = _proposalContextState[1];
+                    var proposalStateCacheRef = React.useRef({});
+                    var proposalStateRequestRef = React.useRef({});
                     var _batchActionSelectionModalState = React.useState(false);
                     var batchActionSelectionModalOpen = _batchActionSelectionModalState[0];
                     var setBatchActionSelectionModalOpen = _batchActionSelectionModalState[1];
@@ -22750,8 +22754,43 @@ class N88_RFQ_Admin {
                             prototype_payment_status: null,
                             prototype_payment_bid_id: null,
                             prototype_payment_supplier_id: null,
-                            prototype_status: null
+                            prototype_status: null,
+                            validation_state: null,
+                            is_loading: false
                         };
+                    };
+                    var getCachedProposalState = function(itemId) {
+                        var numericItemId = parseInt(itemId, 10) || 0;
+                        if (!(numericItemId > 0)) return null;
+                        if (!proposalStateCacheRef.current || !proposalStateCacheRef.current[numericItemId]) return null;
+                        return Object.assign({}, getDefaultProposalState(), proposalStateCacheRef.current[numericItemId]);
+                    };
+                    var primeProposalItemsFromCache = function(candidateItems, stateTransformer) {
+                        var cachedEntries = (candidateItems || []).map(function(it) {
+                            var cachedState = getCachedProposalState(toNumericItemId(it && it.id));
+                            if (!cachedState) return null;
+                            return {
+                                item: it,
+                                state: typeof stateTransformer === 'function' ? stateTransformer(cachedState, it) : cachedState,
+                                error: ''
+                            };
+                        }).filter(function(entry) {
+                            return !!entry && !!entry.item;
+                        });
+                        if (cachedEntries.length) {
+                            setProposalItems(cachedEntries);
+                        }
+                        return cachedEntries;
+                    };
+                    var fetchProposalStatesBatch = function(candidateItems) {
+                        candidateItems = Array.isArray(candidateItems) ? candidateItems : [];
+                        return Promise.all(candidateItems.map(function(it) {
+                            return fetchItemProposalState(toNumericItemId(it && it.id)).then(function(state) {
+                                return { item: it, state: state, error: '' };
+                            }).catch(function(err) {
+                                return { item: it, state: getDefaultProposalState(), error: err && err.message ? err.message : 'Failed to load proposal state.' };
+                            });
+                        }));
                     };
                     var getItemMeta = function(item) {
                         return item && item.meta && typeof item.meta === 'object' ? item.meta : {};
@@ -23653,38 +23692,67 @@ class N88_RFQ_Admin {
                         setBatchError('');
                         setBatchModalOpen(true);
                     };
-                    var fetchItemProposalState = function(itemId) {
-                        return new Promise(function(resolve, reject) {
-                            var numericItemId = parseInt(itemId, 10) || 0;
-                            if (!(numericItemId > 0)) {
-                                resolve(getDefaultProposalState());
-                                return;
+                    var fetchItemProposalState = function(itemId, options) {
+                        options = options || {};
+                        var numericItemId = parseInt(itemId, 10) || 0;
+                        if (!(numericItemId > 0)) {
+                            return Promise.resolve(getDefaultProposalState());
+                        }
+                        if (options.useCache !== false) {
+                            var cachedState = getCachedProposalState(numericItemId);
+                            if (cachedState) {
+                                return Promise.resolve(cachedState);
                             }
-                            var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
-                            var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
-                            if (!ajaxUrl || !nonce) {
-                                reject(new Error('Missing proposal review credentials.'));
-                                return;
-                            }
-                            var formData = new FormData();
-                            formData.append('action', 'n88_get_item_rfq_state');
-                            formData.append('item_id', String(numericItemId));
-                            formData.append('_ajax_nonce', nonce);
-                            fetch(ajaxUrl, {
-                                method: 'POST',
-                                body: formData,
-                                credentials: 'same-origin'
-                            })
-                            .then(function(response) { return response.json(); })
-                            .then(function(data) {
-                                if (data && data.success && data.data) {
-                                    resolve(Object.assign({}, getDefaultProposalState(), data.data));
-                                    return;
+                        }
+                        if (proposalStateRequestRef.current && proposalStateRequestRef.current[numericItemId]) {
+                            return proposalStateRequestRef.current[numericItemId];
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || (typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php');
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
+                        if (!ajaxUrl || !nonce) {
+                            return Promise.reject(new Error('Missing proposal review credentials.'));
+                        }
+                        var formData = new FormData();
+                        formData.append('action', 'n88_get_item_rfq_state');
+                        formData.append('item_id', String(numericItemId));
+                        formData.append('_ajax_nonce', nonce);
+                        var parseJsonResponseSafe = function(response) {
+                            return response.text().then(function(rawText) {
+                                var text = typeof rawText === 'string' ? rawText.trim() : '';
+                                if (!text) {
+                                    throw new Error('Empty response received for item #' + numericItemId + '.');
                                 }
-                                reject(new Error((data && data.data && data.data.message) ? data.data.message : ('Failed to load proposal state for item #' + numericItemId)));
-                            })
-                            .catch(reject);
+                                try {
+                                    return JSON.parse(text);
+                                } catch (parseError) {
+                                    var preview = text.slice(0, 160).replace(/\s+/g, ' ');
+                                    if (preview.charAt(0) === '<') {
+                                        throw new Error('Server returned HTML instead of JSON for item #' + numericItemId + '. Please refresh and try again.');
+                                    }
+                                    throw new Error('Invalid JSON response for item #' + numericItemId + ': ' + preview);
+                                }
+                            });
+                        };
+                        proposalStateRequestRef.current[numericItemId] = fetch(ajaxUrl, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        })
+                        .then(parseJsonResponseSafe)
+                        .then(function(data) {
+                            if (data && data.success && data.data) {
+                                var resolvedState = Object.assign({}, getDefaultProposalState(), data.data);
+                                proposalStateCacheRef.current[numericItemId] = resolvedState;
+                                return resolvedState;
+                            }
+                            throw new Error((data && data.data && data.data.message) ? data.data.message : ('Failed to load proposal state for item #' + numericItemId));
+                        })
+                        .finally(function() {
+                            if (proposalStateRequestRef.current) {
+                                delete proposalStateRequestRef.current[numericItemId];
+                            }
                         });
+                        return proposalStateRequestRef.current[numericItemId];
                     };
                     var getBidProposalGroupId = function(bid) {
                         if (!bid) return 0;
@@ -23703,11 +23771,25 @@ class N88_RFQ_Admin {
                             has_bids: filteredBids.length > 0
                         });
                     };
+                    var getStateProposalGroupIds = function(state) {
+                        var bids = state && Array.isArray(state.bids) ? state.bids : [];
+                        return Array.from(new Set(
+                            bids.map(getBidProposalGroupId).filter(function(id) { return id > 0; })
+                        ));
+                    };
                     var openGroupedProposalModal = function(options) {
                         options = options || {};
                         if (proposalLoading) return false;
                         var anchorItemId = toNumericItemId(options.anchorItemId || 0);
                         var requestedGroupId = parseInt(options.groupId, 10) || 0;
+                        var anchorItem = (items || []).find(function(it) {
+                            return toNumericItemId(it && it.id) === anchorItemId;
+                        }) || null;
+                        var initialResolvedGroupIds = requestedGroupId > 0 ? [requestedGroupId] : [];
+                        if (!initialResolvedGroupIds.length && anchorItem && Array.isArray(anchorItem.batch_proposal_group_ids)) {
+                            initialResolvedGroupIds = anchorItem.batch_proposal_group_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; });
+                            initialResolvedGroupIds = Array.from(new Set(initialResolvedGroupIds));
+                        }
                         var candidateItems = (items || []).filter(function(it) {
                             if (!it) return false;
                             if (anchorItemId && toNumericItemId(it.id) === anchorItemId) return true;
@@ -23730,7 +23812,6 @@ class N88_RFQ_Admin {
 
                         setProposalLoading(true);
                         setProposalError('');
-                        setProposalItems([]);
                         setExpandedProposalSuppliers({});
                         setProposalContext({
                             mode: 'grouped',
@@ -23739,52 +23820,53 @@ class N88_RFQ_Admin {
                             groupId: requestedGroupId
                         });
                         setProposalModalOpen(true);
-
-                        Promise.all(candidateItems.map(function(it) {
-                            return fetchItemProposalState(toNumericItemId(it.id)).then(function(state) {
-                                return { item: it, state: state, error: '' };
-                            }).catch(function(err) {
-                                return { item: it, state: getDefaultProposalState(), error: err && err.message ? err.message : 'Failed to load proposal state.' };
+                        setProposalItems([]);
+                        fetchProposalStatesBatch(candidateItems).then(function(results) {
+                            var resolvedGroupIds = initialResolvedGroupIds.slice();
+                            var allGroupedResults = results.map(function(entry) {
+                                return Object.assign({}, entry, {
+                                    state: filterProposalStateToBatchGroups(entry.state, [])
+                                });
+                            }).filter(function(entry) {
+                                return entry.state && Array.isArray(entry.state.bids) && entry.state.bids.length > 0;
                             });
-                        })).then(function(results) {
-                            var resolvedGroupIds = requestedGroupId > 0 ? [requestedGroupId] : [];
                             if (!resolvedGroupIds.length && anchorItemId > 0) {
                                 var anchorEntry = results.find(function(entry) { return toNumericItemId(entry.item && entry.item.id) === anchorItemId; });
-                                var anchorItem = anchorEntry && anchorEntry.item ? anchorEntry.item : null;
-                                if (anchorItem && Array.isArray(anchorItem.batch_proposal_group_ids) && anchorItem.batch_proposal_group_ids.length) {
-                                    resolvedGroupIds = anchorItem.batch_proposal_group_ids.map(function(id) { return parseInt(id, 10) || 0; }).filter(function(id) { return id > 0; });
-                                }
                                 if (!resolvedGroupIds.length && anchorEntry && anchorEntry.state) {
-                                    resolvedGroupIds = (anchorEntry.state.bids || []).map(getBidProposalGroupId).filter(function(id) { return id > 0; });
+                                    resolvedGroupIds = getStateProposalGroupIds(anchorEntry.state);
                                 }
                                 resolvedGroupIds = Array.from(new Set(resolvedGroupIds));
                             }
-
-                            var filteredResults = results.map(function(entry) {
+                            if (!resolvedGroupIds.length && allGroupedResults.length) {
+                                resolvedGroupIds = Array.from(new Set(allGroupedResults.reduce(function(acc, entry) {
+                                    return acc.concat(getStateProposalGroupIds(entry.state));
+                                }, [])));
+                            }
+                            var filteredResults = resolvedGroupIds.length ? results.map(function(entry) {
                                 return Object.assign({}, entry, {
                                     state: filterProposalStateToBatchGroups(entry.state, resolvedGroupIds)
                                 });
                             }).filter(function(entry) {
                                 return entry.state && Array.isArray(entry.state.bids) && entry.state.bids.length > 0;
-                            });
-
-                            var errors = results.filter(function(entry) { return !!entry.error; }).map(function(entry) {
-                                return (entry.item && entry.item.title ? entry.item.title : ('Item ' + toNumericItemId(entry.item && entry.item.id))) + ': ' + entry.error;
-                            });
-
+                            }) : allGroupedResults;
+                            if (!filteredResults.length && allGroupedResults.length) {
+                                filteredResults = allGroupedResults;
+                                resolvedGroupIds = Array.from(new Set(allGroupedResults.reduce(function(acc, entry) {
+                                    return acc.concat(getStateProposalGroupIds(entry.state));
+                                }, [])));
+                            }
                             if (!filteredResults.length) {
                                 setProposalItems([]);
-                                setProposalError(errors.length ? errors.join('\n') : 'No grouped proposals matched this entry point.');
+                                setProposalError('No grouped proposals matched this entry point.');
                                 return;
                             }
-
                             setProposalItems(filteredResults);
-                            setProposalContext(function(prev) {
-                                return Object.assign({}, prev, {
+                            setProposalError('');
+                            setProposalContext(function(prevContext) {
+                                return Object.assign({}, prevContext || {}, {
                                     groupId: resolvedGroupIds.length === 1 ? resolvedGroupIds[0] : 0
                                 });
                             });
-                            setProposalError(errors.length ? ('Some proposal data could not be loaded completely:\n' + errors.join('\n')) : '');
                         }).catch(function(err) {
                             setProposalItems([]);
                             setProposalError(err && err.message ? err.message : 'Failed to load grouped proposals.');
@@ -23803,22 +23885,13 @@ class N88_RFQ_Admin {
                         if (!selectedItems.length) return;
                         setProposalLoading(true);
                         setProposalError('');
-                        setProposalItems([]);
                         setExpandedProposalSuppliers({});
                         setProposalContext({ mode: 'selected', source: 'selection', anchorItemId: 0, groupId: 0 });
                         setProposalModalOpen(true);
-                        Promise.all(selectedItems.map(function(it) {
-                            return fetchItemProposalState(toNumericItemId(it.id)).then(function(state) {
-                                return { item: it, state: state, error: '' };
-                            }).catch(function(err) {
-                                return { item: it, state: getDefaultProposalState(), error: err && err.message ? err.message : 'Failed to load proposal state.' };
-                            });
-                        })).then(function(results) {
-                            var errors = results.filter(function(entry) { return !!entry.error; }).map(function(entry) {
-                                return (entry.item && entry.item.title ? entry.item.title : ('Item ' + toNumericItemId(entry.item && entry.item.id))) + ': ' + entry.error;
-                            });
+                        setProposalItems([]);
+                        fetchProposalStatesBatch(selectedItems).then(function(results) {
                             setProposalItems(results);
-                            setProposalError(errors.length ? ('Some items could not be loaded completely:\n' + errors.join('\n')) : '');
+                            setProposalError('');
                         }).catch(function(err) {
                             setProposalError(err && err.message ? err.message : 'Failed to load selected proposals.');
                         }).finally(function() {
@@ -23930,6 +24003,37 @@ class N88_RFQ_Admin {
                     var proposalItemGroups = proposalReviewData.itemGroups;
                     var proposalSupplierCount = proposalReviewData.supplierCount;
                     var proposalBatchGroups = proposalReviewData.batchGroups || [];
+                    var proposalItemsStillLoading = false;
+                    React.useEffect(function() {
+                        var proposalCandidates = (items || []).filter(function(it) {
+                            if (!it) return false;
+                            return isTruthyValue(it.has_batch_proposals) || !!it.has_bids || !!it.has_awarded_bid;
+                        }).slice(0, 16);
+                        if (!proposalCandidates.length) return;
+                        var idleHandle = null;
+                        var timeoutHandle = null;
+                        var runPrefetch = function() {
+                            proposalCandidates.forEach(function(it) {
+                                var itemId = toNumericItemId(it.id);
+                                if (!(itemId > 0)) return;
+                                if (getCachedProposalState(itemId)) return;
+                                fetchItemProposalState(itemId).catch(function() {});
+                            });
+                        };
+                        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                            idleHandle = window.requestIdleCallback(runPrefetch, { timeout: 1200 });
+                        } else {
+                            timeoutHandle = window.setTimeout(runPrefetch, 250);
+                        }
+                        return function() {
+                            if (typeof window !== 'undefined' && idleHandle !== null && typeof window.cancelIdleCallback === 'function') {
+                                window.cancelIdleCallback(idleHandle);
+                            }
+                            if (timeoutHandle !== null) {
+                                window.clearTimeout(timeoutHandle);
+                            }
+                        };
+                    }, [items]);
                     var toggleProposalSupplierPanel = function(panelKey) {
                         setExpandedProposalSuppliers(function(prev) {
                             var next = Object.assign({}, prev || {});
@@ -24522,7 +24626,7 @@ class N88_RFQ_Admin {
                                 padding: '6px'
                             },
                             onClick: function(e) {
-                                if (e.target === e.currentTarget && !proposalLoading) setProposalModalOpen(false);
+                                if (e.target === e.currentTarget) setProposalModalOpen(false);
                             }
                         }, React.createElement('div', {
                             className: 'n88-board-modal-box n88-batch-proposal-modal',
@@ -24530,7 +24634,9 @@ class N88_RFQ_Admin {
                                 width: 'min(980px, 96vw)',
                                 maxWidth: 'min(980px, 96vw)',
                                 maxHeight: '94vh',
-                                overflow: 'auto',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
                                 background: '#323232',
                                 color: '#fff',
                                 border: '1px solid rgba(255,255,255,0.12)',
@@ -24548,15 +24654,14 @@ class N88_RFQ_Admin {
                                 : ('Selected Items: ' + selectedCount + ' | Suppliers: ' + proposalSupplierCount))
                         ), React.createElement('button', {
                             type: 'button',
-                            disabled: proposalLoading,
-                            onClick: function() { if (!proposalLoading) setProposalModalOpen(false); },
-                            style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: proposalLoading ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
+                            onClick: function() { setProposalModalOpen(false); },
+                            style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer', lineHeight: 1, padding: '2px 6px' }
                         }, 'x')),
-                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px' } },
+                        React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 } },
                             proposalError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.45)', borderRadius: '6px', color: '#ffd8a8', fontSize: '13px' } }, proposalError) : null,
-                            proposalLoading ? React.createElement('div', { style: { padding: '28px 0', textAlign: 'center', fontSize: '14px', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'Loading batch proposal sheet...' : 'Loading selected proposals...') : null,
-                            !proposalLoading && proposalItemGroups.length === 0 ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'No grouped proposals were found for this entry point yet.' : 'No proposals received for the selected items yet.') : null,
-                            !proposalLoading ? (function() {
+                            null,
+                            proposalItemGroups.length === 0 && !proposalItemsStillLoading ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'Loading proposals...' : 'No proposals received for the selected items yet.') : null,
+                            proposalItemGroups.length ? (function() {
                                 var modalSharedCtaLabels = ['REQUEST SAMPLES', 'REQUEST PROTOTYPE', 'SELECT THIS SUPPLIER'];
                                 return React.createElement(React.Fragment, null,
                                     proposalItemGroups.map(function(group) {
@@ -24564,15 +24669,23 @@ class N88_RFQ_Admin {
                                 var currentItemId = toNumericItemId(currentItem.id);
                                 var itemLabel = currentItem.title || ('Item ' + currentItemId);
                                 var isAnchorItem = proposalContext && proposalContext.anchorItemId && proposalContext.anchorItemId === currentItemId;
+                                var currentValidationState = getProposalGroupValidationState(group);
+                                var hasSampleRequest = proposalGroupHasSampleRequest(group);
+                                var currentGroupStatus = getProposalGroupStatusText(group);
+                                var itemStateLoading = !!(group && group.state && group.state.is_loading);
                                 return React.createElement('div', { id: 'n88-batch-proposal-anchor-item-' + currentItemId, key: 'proposal-item-' + currentItemId, style: { marginBottom: '18px', border: isAnchorItem ? '1px solid #FF0065' : '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', background: isAnchorItem ? '#33212a' : '#2a2a2a', boxShadow: isAnchorItem ? '0 0 0 2px rgba(255,0,101,0.18)' : 'none' } },
                                     React.createElement('div', { style: { padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', background: '#2f2f2f' } },
                                         React.createElement('div', null,
                                             React.createElement('div', { style: { fontSize: '16px', fontWeight: 600, color: '#fff' } }, itemLabel),
                                             React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + currentItemId + (currentItem.quantity ? (' | Qty: ' + currentItem.quantity) : '') + (isAnchorItem ? ' | Opened from this item' : ''))
                                         ),
-                                        React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: group.suppliers.length ? 'rgba(76,175,80,0.18)' : 'rgba(255,152,0,0.18)', border: group.suppliers.length ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,152,0,0.4)', color: group.suppliers.length ? '#9cffb2' : '#ffd8a8' } }, group.suppliers.length ? ('Quoted by ' + group.suppliers.length + ' supplier' + (group.suppliers.length === 1 ? '' : 's')) : 'Not Quoted')
+                                        React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' } },
+                                            React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: itemStateLoading ? 'rgba(255,255,255,0.10)' : (group.suppliers.length ? 'rgba(76,175,80,0.18)' : 'rgba(255,152,0,0.18)'), border: itemStateLoading ? '1px solid rgba(255,255,255,0.18)' : (group.suppliers.length ? '1px solid rgba(76,175,80,0.4)' : '1px solid rgba(255,152,0,0.4)'), color: itemStateLoading ? '#e6e6e6' : (group.suppliers.length ? '#9cffb2' : '#ffd8a8') } }, itemStateLoading ? 'Loading quotes...' : (group.suppliers.length ? ('Quoted by ' + group.suppliers.length + ' supplier' + (group.suppliers.length === 1 ? '' : 's')) : 'Not Quoted')),
+                                            React.createElement('div', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', background: hasSampleRequest ? 'rgba(255,0,101,0.14)' : 'rgba(255,255,255,0.06)', border: hasSampleRequest ? '1px solid rgba(255,0,101,0.38)' : '1px solid rgba(255,255,255,0.12)', color: hasSampleRequest ? '#ff9ac3' : '#d9d9d9' } }, currentGroupStatus)
+                                        )
                                     ),
                                     React.createElement('div', { style: { padding: '16px' } },
+                                        null,
                                         group.suppliers.length ? (function() {
                                             var orderedSupplierEntries = group.suppliers.slice().sort(function(a, b) {
                                                 var aBid = a && a.bid ? a.bid : {};
@@ -24602,7 +24715,9 @@ class N88_RFQ_Admin {
                                                     itemDimsCm: currentItem && currentItem.dims_cm,
                                                     hidePrototypeHelperText: true,
                                                     batchActionMode: true,
-                                                    lockedSupplierId: currentItem && currentItem.validation_state && currentItem.validation_state.supplier_id ? parseInt(currentItem.validation_state.supplier_id, 10) : 0,
+                                                    lockedSupplierId: currentValidationState && currentValidationState.supplier_id ? parseInt(currentValidationState.supplier_id, 10) : 0,
+                                                    sampleRequestLocked: hasSampleRequest,
+                                                    sampleRequestLockedLabel: currentGroupStatus,
                                                     onViewSupportMediaBid: function(selectedBid) {
                                                         try {
                                                             window.dispatchEvent(new CustomEvent('n88-open-support-media-for-item', {
@@ -24676,7 +24791,7 @@ class N88_RFQ_Admin {
                                 );
                             }),
                                     proposalItemGroups.length ? React.createElement('div', {
-                                        style: { marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }
+                                        style: { position: 'sticky', bottom: '-16px', zIndex: 3, marginTop: '18px', marginLeft: '-20px', marginRight: '-20px', marginBottom: '-16px', padding: '14px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', background: 'rgba(35,35,35,0.96)', backdropFilter: 'blur(8px)', boxShadow: '0 -10px 24px rgba(0,0,0,0.24)' }
                                     },
                                         React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } },
                                             'Batch actions now start with item selection. Sample requests open a separated accordion modal with one Step 02 form per item.'
@@ -24722,7 +24837,7 @@ class N88_RFQ_Admin {
                             ),
                             React.createElement('div', { style: { padding: '16px 20px' } },
                                 batchActionError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.45)', borderRadius: '6px', color: '#ffb3b3', fontSize: '13px' } }, batchActionError) : null,
-                                !(batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).length ? React.createElement('div', { style: { padding: '20px', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.18)', color: '#ddd', fontSize: '13px' } }, batchActionMode === 'award' ? 'No eligible quoted items are available for batch award.' : 'No eligible quoted items are available for batch sample requests.') : null,
+                                !(batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).length ? React.createElement('div', { style: { padding: '20px', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.18)', color: '#ddd', fontSize: '13px', lineHeight: 1.6 } }, batchActionMode === 'award' ? 'No eligible quoted items are available for batch award.' : 'No eligible quoted items are available for batch sample requests. Items with an existing sample request stay visible in the Batch Proposal Sheet but are locked from duplicate requests.') : null,
                                 (batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).map(function(group) {
                                     var itemId = toNumericItemId(group && group.item && group.item.id);
                                     var options = getProposalGroupSupplierOptions(group);
@@ -24778,7 +24893,7 @@ class N88_RFQ_Admin {
                             onClick: function(e) { if (e.target === e.currentTarget && !batchActionSubmitting) setBatchActionDetailModalOpen(false); }
                         }, React.createElement('div', {
                             className: 'n88-board-modal-box',
-                            style: { width: 'min(1180px, 96vw)', maxHeight: '94vh', overflow: 'auto', background: '#323232', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' },
+                            style: { width: 'min(1180px, 96vw)', maxHeight: '94vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#323232', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' },
                             onClick: function(e) { e.stopPropagation(); }
                         },
                             React.createElement('div', { style: { padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -24793,7 +24908,7 @@ class N88_RFQ_Admin {
                                     style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
                                 }, 'x')
                             ),
-                            React.createElement('div', { style: { padding: '16px 20px' } },
+                            React.createElement('div', { style: { padding: '16px 20px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 } },
                                 batchActionMessage ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px 12px', backgroundColor: '#102410', border: '1px solid ' + boardCanvasGreenAccent, borderRadius: '4px', fontSize: '12px', color: boardCanvasGreenAccent } }, batchActionMessage) : null,
                                 batchActionError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.45)', borderRadius: '6px', color: '#ffb3b3', fontSize: '13px' } }, batchActionError) : null,
                                 batchActionSampleRows.map(function(row) {
@@ -24943,7 +25058,7 @@ class N88_RFQ_Admin {
                                         ) : null
                                     );
                                 }),
-                                React.createElement('div', { style: { marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+                                React.createElement('div', { style: { position: 'sticky', bottom: '-16px', zIndex: 3, marginTop: '16px', marginLeft: '-20px', marginRight: '-20px', marginBottom: '-16px', padding: '14px 20px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.12)', background: 'rgba(35,35,35,0.96)', backdropFilter: 'blur(8px)', boxShadow: '0 -10px 24px rgba(0,0,0,0.24)' } },
                                     React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf' } }, 'Submit will create item-level Step 02 sample requests for all selected accordion items.'),
                                     React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
                                         React.createElement('button', {
