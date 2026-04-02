@@ -173,6 +173,131 @@ class N88_RFQ_Admin {
         return ! empty( $parts ) ? implode( ', ', $parts ) : 'Address pending from supplier.';
     }
 
+    private function get_address_region_options() {
+        return array(
+            'AL' => 'Alabama',
+            'AK' => 'Alaska',
+            'AZ' => 'Arizona',
+            'AR' => 'Arkansas',
+            'CA' => 'California',
+            'CO' => 'Colorado',
+            'CT' => 'Connecticut',
+            'DE' => 'Delaware',
+            'FL' => 'Florida',
+            'GA' => 'Georgia',
+            'HI' => 'Hawaii',
+            'ID' => 'Idaho',
+            'IL' => 'Illinois',
+            'IN' => 'Indiana',
+            'IA' => 'Iowa',
+            'KS' => 'Kansas',
+            'KY' => 'Kentucky',
+            'LA' => 'Louisiana',
+            'ME' => 'Maine',
+            'MD' => 'Maryland',
+            'MA' => 'Massachusetts',
+            'MI' => 'Michigan',
+            'MN' => 'Minnesota',
+            'MS' => 'Mississippi',
+            'MO' => 'Missouri',
+            'MT' => 'Montana',
+            'NE' => 'Nebraska',
+            'NV' => 'Nevada',
+            'NH' => 'New Hampshire',
+            'NJ' => 'New Jersey',
+            'NM' => 'New Mexico',
+            'NY' => 'New York',
+            'NC' => 'North Carolina',
+            'ND' => 'North Dakota',
+            'OH' => 'Ohio',
+            'OK' => 'Oklahoma',
+            'OR' => 'Oregon',
+            'PA' => 'Pennsylvania',
+            'RI' => 'Rhode Island',
+            'SC' => 'South Carolina',
+            'SD' => 'South Dakota',
+            'TN' => 'Tennessee',
+            'TX' => 'Texas',
+            'UT' => 'Utah',
+            'VT' => 'Vermont',
+            'VA' => 'Virginia',
+            'WA' => 'Washington',
+            'WV' => 'West Virginia',
+            'WI' => 'Wisconsin',
+            'WY' => 'Wyoming',
+            'DC' => 'District of Columbia',
+            'AB' => 'Alberta',
+            'BC' => 'British Columbia',
+            'MB' => 'Manitoba',
+            'NB' => 'New Brunswick',
+            'NL' => 'Newfoundland and Labrador',
+            'NS' => 'Nova Scotia',
+            'NT' => 'Northwest Territories',
+            'NU' => 'Nunavut',
+            'ON' => 'Ontario',
+            'PE' => 'Prince Edward Island',
+            'QC' => 'Quebec',
+            'SK' => 'Saskatchewan',
+            'YT' => 'Yukon',
+        );
+    }
+
+    private function normalize_structured_address( $address, $fallback_name = '' ) {
+        $normalized = array(
+            'name'         => '',
+            'address_line' => '',
+            'city'         => '',
+            'state'        => '',
+            'country'      => '',
+            'postal_code'  => '',
+        );
+
+        if ( is_array( $address ) ) {
+            $normalized['name']         = isset( $address['name'] ) ? sanitize_text_field( $address['name'] ) : '';
+            $normalized['address_line'] = isset( $address['address_line'] ) ? sanitize_text_field( $address['address_line'] ) : ( isset( $address['address_line1'] ) ? sanitize_text_field( $address['address_line1'] ) : '' );
+            $normalized['city']         = isset( $address['city'] ) ? sanitize_text_field( $address['city'] ) : '';
+            $normalized['state']        = isset( $address['state'] ) ? strtoupper( sanitize_text_field( $address['state'] ) ) : '';
+            $normalized['country']      = isset( $address['country'] ) ? sanitize_text_field( $address['country'] ) : '';
+            $normalized['postal_code']  = isset( $address['postal_code'] ) ? sanitize_text_field( $address['postal_code'] ) : ( isset( $address['zip_code'] ) ? sanitize_text_field( $address['zip_code'] ) : '' );
+        } elseif ( is_string( $address ) && '' !== trim( $address ) ) {
+            $normalized['address_line'] = sanitize_textarea_field( $address );
+        }
+
+        if ( ! $normalized['name'] && $fallback_name ) {
+            $normalized['name'] = sanitize_text_field( $fallback_name );
+        }
+
+        return $normalized;
+    }
+
+    private function format_structured_address( $address, $multiline = false ) {
+        $address = $this->normalize_structured_address( $address );
+        $lines   = array();
+
+        if ( ! empty( $address['name'] ) ) {
+            $lines[] = $address['name'];
+        }
+        if ( ! empty( $address['address_line'] ) ) {
+            $lines[] = $address['address_line'];
+        }
+
+        $locality = array_filter(
+            array(
+                $address['city'],
+                $address['state'],
+                $address['postal_code'],
+            )
+        );
+        if ( ! empty( $locality ) ) {
+            $lines[] = implode( ', ', $locality );
+        }
+        if ( ! empty( $address['country'] ) ) {
+            $lines[] = $address['country'];
+        }
+
+        return implode( $multiline ? "\n" : ', ', $lines );
+    }
+
     private function get_item_validation_card_status( $item_meta ) {
         $validation = isset( $item_meta['material_validation'] ) && is_array( $item_meta['material_validation'] )
             ? $item_meta['material_validation']
@@ -183,13 +308,17 @@ class N88_RFQ_Admin {
         $commitment = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
 
         $sample_status = isset( $validation['sample_status'] ) ? sanitize_key( $validation['sample_status'] ) : '';
+        $supplier_status = isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '';
+        if ( ( ! $sample_status || 'sample_requested' === $sample_status ) && $supplier_status ) {
+            $sample_status = $supplier_status;
+        }
         if ( ! $sample_status ) {
             if ( ! empty( $review['approved_at'] ) ) {
                 $sample_status = 'samples_approved';
             } elseif ( ! empty( $review['samples_received_at'] ) ) {
                 $sample_status = 'samples_received';
-            } elseif ( ! empty( $supplier['status'] ) ) {
-                $sample_status = sanitize_key( $supplier['status'] );
+            } elseif ( ! empty( $supplier_status ) ) {
+                $sample_status = $supplier_status;
             } elseif ( ! empty( $request['requested_at'] ) ) {
                 $sample_status = 'sample_requested';
             }
@@ -203,9 +332,22 @@ class N88_RFQ_Admin {
         $fabric_supplied_flag = isset( $item_meta['rfq_fabric_supplied_flag'] ) ? $item_meta['rfq_fabric_supplied_flag'] : '';
         $com_applicable       = in_array( strtolower( (string) $fabric_supplied_flag ), array( 'yes', '1', 'true' ), true );
 
-        if ( empty( $commitment['com_delivery_address'] ) && $supplier_id ) {
-            $commitment['com_delivery_address'] = $this->get_validation_supplier_company_address( $supplier_id );
+        $request_shipping_address = $this->normalize_structured_address(
+            isset( $request['shipping_address_fields'] ) ? $request['shipping_address_fields'] : ( isset( $request['shipping_address'] ) ? $request['shipping_address'] : array() )
+        );
+        $request_shipping_address_text = $this->format_structured_address( $request_shipping_address, true );
+
+        $commitment_address = $this->normalize_structured_address(
+            isset( $commitment['com_delivery_address_fields'] ) ? $commitment['com_delivery_address_fields'] : ( isset( $commitment['com_delivery_address'] ) ? $commitment['com_delivery_address'] : array() )
+        );
+        if ( ! $this->format_structured_address( $commitment_address ) && $supplier_id ) {
+            $commitment_address = $this->normalize_structured_address(
+                array(
+                    'address_line' => $this->get_validation_supplier_company_address( $supplier_id ),
+                )
+            );
         }
+        $commitment['com_delivery_address'] = $this->format_structured_address( $commitment_address );
 
         $supplier_files    = $this->get_item_validation_attachment_entries( isset( $supplier['sample_file_ids'] ) ? $supplier['sample_file_ids'] : array() );
         $po_uploaded       = ! empty( $commitment['po_file_id'] );
@@ -223,52 +365,44 @@ class N88_RFQ_Admin {
         $readiness         = array(
             'validation_complete' => $samples_approved,
             'awaiting_po'         => $has_awarded_bid && $samples_approved && ! $po_uploaded,
-            'awaiting_com'        => $has_awarded_bid && $samples_approved && $po_uploaded && $com_applicable && ! $com_completed,
-            'awaiting_deposit'    => $has_awarded_bid && $samples_approved && $po_uploaded && $com_completed && ! $deposit_confirmed,
+            'awaiting_deposit'    => $has_awarded_bid && $samples_approved && $po_uploaded && ! $deposit_confirmed,
+            'awaiting_com'        => $has_awarded_bid && $samples_approved && $po_uploaded && $deposit_confirmed && $com_applicable && ! $com_completed,
         );
-        $can_commit        = $has_awarded_bid && $samples_approved && $po_uploaded && $com_completed && $deposit_confirmed;
+        $can_commit        = $has_awarded_bid && $samples_approved && $po_uploaded && $deposit_confirmed && $com_completed;
 
         $card_status_text  = '';
-        $card_status_color = '#2196f3';
+        $card_status_color = '#f4b400';
 
         if ( $can_commit ) {
             $card_status_text  = 'Ready for Production';
-            $card_status_color = '#4caf50';
+            $card_status_color = '#2e7d32';
         } elseif ( 'samples_approved' === $sample_status ) {
             $card_status_text  = $has_awarded_bid ? 'Awaiting PO' : 'Samples Approved';
-            $card_status_color = $has_awarded_bid ? '#ff9800' : '#4caf50';
+            $card_status_color = $has_awarded_bid ? '#2e7d32' : '#f4b400';
         } elseif ( $readiness['awaiting_deposit'] ) {
             $card_status_text  = 'Awaiting Deposit';
-            $card_status_color = '#ff9800';
+            $card_status_color = '#2e7d32';
         } elseif ( $readiness['awaiting_com'] ) {
             $card_status_text  = 'Awaiting COM';
-            $card_status_color = '#ff9800';
+            $card_status_color = '#2e7d32';
         } elseif ( $readiness['awaiting_po'] ) {
             $card_status_text  = 'Awaiting PO';
-            $card_status_color = '#ff9800';
+            $card_status_color = '#2e7d32';
         } elseif ( 'samples_received' === $sample_status ) {
             $card_status_text  = 'Samples Received';
-            $card_status_color = '#2196f3';
-        } elseif ( in_array( $sample_status, array( 'under_review', 'delivered' ), true ) ) {
-            $card_status_text  = $is_physical_sample_request ? 'Samples Shipped' : 'Review Samples';
-            $card_status_color = '#2196f3';
-        } elseif ( in_array( $sample_status, array( 'shipped', 'in_transit' ), true ) ) {
-            $card_status_text  = 'Samples In Transit';
-            $card_status_color = '#2196f3';
+            $card_status_color = '#f4b400';
+        } elseif ( in_array( $sample_status, array( 'delivered', 'shipped', 'in_transit' ), true ) ) {
+            $card_status_text  = 'Samples Shipped';
+            $card_status_color = '#f4b400';
+        } elseif ( 'under_review' === $sample_status ) {
+            $card_status_text  = 'Review Samples';
+            $card_status_color = '#f4b400';
         } elseif ( 'in_preparation' === $sample_status ) {
             $card_status_text  = 'Samples In Preparation';
-            $card_status_color = '#2196f3';
+            $card_status_color = '#f4b400';
         } elseif ( 'sample_requested' === $sample_status ) {
-            if ( in_array( $payment_status, array( 'approved', 'recorded' ), true ) ) {
-                $card_status_text  = 'Sample Payment Approved';
-                $card_status_color = '#4caf50';
-            } elseif ( 'submitted' === $payment_status ) {
-                $card_status_text  = 'Sample Payment Sent';
-                $card_status_color = '#ff9800';
-            } else {
-                $card_status_text  = 'Sample Requested';
-                $card_status_color = '#2196f3';
-            }
+            $card_status_text  = 'Sample Requested';
+            $card_status_color = '#f4b400';
         }
 
         return array(
@@ -284,7 +418,8 @@ class N88_RFQ_Admin {
                 'sample_types'         => isset( $request['sample_types'] ) && is_array( $request['sample_types'] ) ? array_values( array_map( 'sanitize_text_field', $request['sample_types'] ) ) : array(),
                 'sample_format'        => isset( $request['sample_format'] ) ? sanitize_text_field( $request['sample_format'] ) : '',
                 'instructions'         => isset( $request['instructions'] ) ? sanitize_textarea_field( $request['instructions'] ) : '',
-                'shipping_address'     => isset( $request['shipping_address'] ) ? sanitize_textarea_field( $request['shipping_address'] ) : '',
+                'shipping_address'     => $request_shipping_address_text,
+                'shipping_address_fields' => $request_shipping_address,
                 'reference_files'      => $this->get_item_validation_attachment_entries( isset( $request['reference_file_ids'] ) ? $request['reference_file_ids'] : array() ),
                 'requested_at'         => isset( $request['requested_at'] ) ? $request['requested_at'] : null,
                 'payment_submitted_at' => isset( $request['payment_submitted_at'] ) ? $request['payment_submitted_at'] : null,
@@ -316,7 +451,8 @@ class N88_RFQ_Admin {
                 'com_applicable'        => $com_applicable,
                 'com_required'          => ! empty( $commitment['com_required'] ) || $com_applicable,
                 'com_qty'               => isset( $commitment['com_qty'] ) ? sanitize_text_field( $commitment['com_qty'] ) : '',
-                'com_delivery_address'  => isset( $commitment['com_delivery_address'] ) ? sanitize_text_field( $commitment['com_delivery_address'] ) : '',
+                'com_delivery_address'  => $this->format_structured_address( $commitment_address, true ),
+                'com_delivery_address_fields' => $commitment_address,
                 'com_tracking_number'   => isset( $commitment['com_tracking_number'] ) ? sanitize_text_field( $commitment['com_tracking_number'] ) : '',
                 'com_status'            => $com_status,
                 'com_shipped_at'        => isset( $commitment['com_shipped_at'] ) ? $commitment['com_shipped_at'] : null,
@@ -4510,29 +4646,29 @@ class N88_RFQ_Admin {
                             }
                             if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
                                 $step456_status_text = 'Step 6 Completed';
-                                $step456_status_color = '#00ff00';
+                                $step456_status_color = '#111111';
                             } elseif ( $latest_step_status === 'completed' ) {
                                 $step456_status_text = 'Step ' . $latest_step_num . ' Completed';
-                                $step456_status_color = '#00ff00';
+                                $step456_status_color = '#111111';
                             } elseif ( $latest_step_status === 'in_progress' ) {
                                 $step456_status_text = 'Step ' . $latest_step_num . ' In Progress';
-                                $step456_status_color = '#2196f3';
+                                $step456_status_color = '#2e7d32';
                             }
                             if ( ! $step456_status_text && $has_designer_comment ) {
                                 $step456_status_text = 'Designer commented';
-                                $step456_status_color = '#ff9800';
+                                $step456_status_color = '#f57c00';
                             }
                             if ( ! $step456_status_text && $has_operator_video ) {
                                 $step456_status_text = 'Operator video added';
-                                $step456_status_color = '#2196f3';
+                                $step456_status_color = '#2e7d32';
                             }
                             if ( ! $step456_status_text && $has_supplier_video ) {
                                 $step456_status_text = 'Supplier video received';
-                                $step456_status_color = '#4caf50';
+                                $step456_status_color = '#2e7d32';
                             }
                             if ( ! $step456_status_text && ( $latest_step_status === 'pending' || $latest_step_num ) ) {
                                 $step456_status_text = 'Step 4–6 Pending';
-                                $step456_status_color = '#999';
+                                $step456_status_color = '#2e7d32';
                             }
                         }
                         
@@ -4921,18 +5057,18 @@ class N88_RFQ_Admin {
                             }
                             if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
                                 $step456_status_text_else = 'Step 6 Completed';
-                                $step456_status_color_else = '#00ff00';
+                                $step456_status_color_else = '#111111';
                             } elseif ( $latest_step_status === 'completed' ) {
                                 $step456_status_text_else = 'Step ' . $latest_step_num . ' Completed';
-                                $step456_status_color_else = '#00ff00';
+                                $step456_status_color_else = '#111111';
                             } elseif ( $latest_step_status === 'in_progress' ) {
                                 $step456_status_text_else = 'Step ' . $latest_step_num . ' In Progress';
-                                $step456_status_color_else = '#2196f3';
+                                $step456_status_color_else = '#2e7d32';
                             }
-                            if ( ! $step456_status_text_else && $has_designer_comment ) { $step456_status_text_else = 'Designer commented'; $step456_status_color_else = '#ff9800'; }
-                            if ( ! $step456_status_text_else && $has_operator_video ) { $step456_status_text_else = 'Operator video added'; $step456_status_color_else = '#2196f3'; }
-                            if ( ! $step456_status_text_else && $has_supplier_video ) { $step456_status_text_else = 'Supplier video received'; $step456_status_color_else = '#4caf50'; }
-                            if ( ! $step456_status_text_else ) { $step456_status_text_else = 'Step 4–6 Pending'; $step456_status_color_else = '#999'; }
+                            if ( ! $step456_status_text_else && $has_designer_comment ) { $step456_status_text_else = 'Designer commented'; $step456_status_color_else = '#f57c00'; }
+                            if ( ! $step456_status_text_else && $has_operator_video ) { $step456_status_text_else = 'Operator video added'; $step456_status_color_else = '#2e7d32'; }
+                            if ( ! $step456_status_text_else && $has_supplier_video ) { $step456_status_text_else = 'Supplier video received'; $step456_status_color_else = '#2e7d32'; }
+                            if ( ! $step456_status_text_else ) { $step456_status_text_else = 'Step 4–6 Pending'; $step456_status_color_else = '#2e7d32'; }
                         }
                         
                         // Calculate position for new items - arrange in grid side-by-side
@@ -7092,7 +7228,7 @@ class N88_RFQ_Admin {
                         </div>
                     </form>
                     <div class="n88-add-item-footer">
-                        <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add Item ]">[ Add Item ]</button>
+                        <button type="button" id="n88-modal-add-item-submit" class="n88-btn-add-item" data-default-text="[ Add to Workspace ]">[ Add to Workspace ]</button>
                         <button type="button" id="n88-modal-add-another-item" class="n88-btn-add-another">[ + Add Another Item ]</button>
                         <div id="n88-add-item-modal-result" class="n88-result"></div>
                     </div>
@@ -8431,7 +8567,9 @@ class N88_RFQ_Admin {
                                     added.appendChild(document.createTextNode(countText));
                                     
                                     var list = document.createElement('ul');
-                                    for (var li = 0; li < payloadTitles.length && li < 3; li++) {
+                                    list.style.maxHeight = '220px';
+                                    list.style.overflowY = 'auto';
+                                    for (var li = 0; li < payloadTitles.length; li++) {
                                         var liEl = document.createElement('li');
                                         liEl.textContent = payloadTitles[li] || 'Untitled Item';
                                         list.appendChild(liEl);
@@ -8443,7 +8581,7 @@ class N88_RFQ_Admin {
                                     footer.className = 'n88-postsave-footer';
                                     
                                     var goBtn = document.createElement('button');
-                                    goBtn.textContent = '[ Go to Board ]';
+                                    goBtn.textContent = '[ Go to Workspace ]';
                                     
                                     var rfqBtn = document.createElement('button');
                                     rfqBtn.textContent = isSingle ? '[ Request Quote Now ]' : '[ Request Quotes Now ]';
@@ -10317,13 +10455,17 @@ class N88_RFQ_Admin {
                     // Calculate item status based on available data (order must match BoardItem.jsx: Action Required, then prototype workflow, then Bid Awarded, then Proposals Received)
                     var truthy = function(v) { return v === true || v === 'true' || v === 1 || v === '1' || (typeof v === 'string' && v.toLowerCase() === 'true'); };
                     var getItemStatus = function() {
-                        var rfqReadyColor = '#4caf50';
-                        var standbyColor = '#ff9800';
-                        var rfqSentColor = '#2196f3';
-                        var workflowColor = '#8e44ad';
+                        var standbyColor = '#5f6368';
+                        var actionRequiredColor = '#f57c00';
+                        var rfqReadyColor = '#f57c00';
+                        var rfqSentColor = '#1e88e5';
+                        var proposalColor = '#8e24aa';
+                        var evaluationColor = '#f4b400';
+                        var executionColor = '#2e7d32';
+                        var completedColor = '#111111';
                         var validationState = item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null;
                         var validationCardText = validationState && validationState.card_status_text ? String(validationState.card_status_text).trim() : (item.validation_card_status_text ? String(item.validation_card_status_text).trim() : '');
-                        var validationCardColor = validationState && validationState.card_status_color ? validationState.card_status_color : (item.validation_card_status_color || '#2196f3');
+                        var validationCardColor = validationState && validationState.card_status_color ? validationState.card_status_color : (item.validation_card_status_color || '#f4b400');
                         var hasUnreadOperatorMessages = truthy(item.has_unread_operator_messages);
                         var hasUnreadSupplierMessages = truthy(item.has_unread_supplier_messages) || (parseInt(item.unread_supplier_messages || 0, 10) > 0);
                         var psRaw = item.prototype_status || '';
@@ -10344,10 +10486,10 @@ class N88_RFQ_Admin {
 
                         // Priority 1: Action Required (unread operator messages); or supplier submitted prototype video - show View Prototype video
                         if (hasUnreadOperatorMessages || hasUnreadSupplierMessages) {
-                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                            return { text: 'Action Required', color: actionRequiredColor, dot: actionRequiredColor };
                         }
                         if (ps === 'submitted' || (ps == null && hasPrototypeVideoSubmitted)) {
-                            return { text: 'View Prototype video', color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'View Prototype video', color: evaluationColor, dot: evaluationColor };
                         }
                         if (validationCardText) {
                             return { text: validationCardText, color: validationCardColor, dot: validationCardColor };
@@ -10357,62 +10499,62 @@ class N88_RFQ_Admin {
                             if (ps === 'approved') {
                                 // After deposit / production start
                                 if (inProduction) {
-                                    return { text: 'In Production', color: workflowColor, dot: workflowColor };
+                                    return { text: 'In Production', color: executionColor, dot: executionColor };
                                 }
                                 // After award but before deposit
                                 if (hasAwardedBid) {
                                     if (item.official_quote_status === 'submitted') {
-                                        return { text: 'Awarded - Quote File Submitted', color: workflowColor, dot: workflowColor };
+                                        return { text: 'Awarded - Quote File Submitted', color: executionColor, dot: executionColor };
                                     }
                                     if (item.deposit_status === 'sent_by_designer') {
                                         var isOpStatus = (window.n88BoardData && window.n88BoardData.isOperator) === true;
-                                        return { text: isOpStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: workflowColor, dot: workflowColor };
+                                        return { text: isOpStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: executionColor, dot: executionColor };
                                     }
-                                    return { text: 'Project Awarded \u2014 Awaiting Deposit', color: workflowColor, dot: workflowColor };
+                                    return { text: 'Project Awarded \u2014 Awaiting Deposit', color: executionColor, dot: executionColor };
                                 }
                                 // Prototype approved, no award yet
-                                return { text: 'Prototype Approved \u2014 Awaiting Award', color: workflowColor, dot: workflowColor };
+                                return { text: 'Prototype Approved \u2014 Awaiting Award', color: proposalColor, dot: proposalColor };
                             }
                             if (ps === 'changes_requested') {
-                                return { text: 'Video Changes Requested', color: workflowColor, dot: workflowColor };
+                                return { text: 'Video Changes Requested', color: evaluationColor, dot: evaluationColor };
                             }
                             if (cadStatus === 'approved' && ps !== 'approved') {
-                                return { text: 'Pending Prototype Video', color: workflowColor, dot: workflowColor };
+                                return { text: 'Pending Prototype Video', color: evaluationColor, dot: evaluationColor };
                             }
                             if (prototypePaymentStatus === 'requested' && hasPaymentReceiptUploaded) {
-                                return { text: 'Awaiting payment confirmation', color: workflowColor, dot: workflowColor };
+                                return { text: 'Awaiting payment confirmation', color: evaluationColor, dot: evaluationColor };
                             }
                             if (prototypePaymentStatus === 'requested') {
-                                return { text: 'CAD Requested', color: workflowColor, dot: workflowColor };
+                                return { text: 'CAD Requested', color: evaluationColor, dot: evaluationColor };
                             }
                             if (prototypePaymentStatus === 'marked_received') {
                                 if (cadStatus === 'approved' && ps !== 'approved') {
-                                    return { text: 'Pending Prototype Video', color: workflowColor, dot: workflowColor };
+                                    return { text: 'Pending Prototype Video', color: evaluationColor, dot: evaluationColor };
                                 }
                                 var cadVersion = Number(item.cad_current_version) || 0;
                                 var operatorSentCad = cadStatus === 'uploaded' || cadStatus === 'revision_requested' || (cadVersion > 0 && cadStatus !== 'approved');
                                 if (operatorSentCad) {
-                                    return { text: 'Review CAD', color: workflowColor, dot: workflowColor };
+                                    return { text: 'Review CAD', color: evaluationColor, dot: evaluationColor };
                                 }
                                 if (cadStatus && cadStatus !== 'approved') {
-                                    return { text: 'Preparing CAD', color: workflowColor, dot: workflowColor };
+                                    return { text: 'Preparing CAD', color: evaluationColor, dot: evaluationColor };
                                 }
-                                return { text: 'Payment received', color: workflowColor, dot: workflowColor };
+                                return { text: 'Payment received', color: evaluationColor, dot: evaluationColor };
                             }
                         }
                         // Priority 3: Bid Awarded
                         if (hasAwardedBid) {
                             if (inProduction) {
-                                return { text: 'In Production', color: workflowColor, dot: workflowColor };
+                                return { text: 'In Production', color: executionColor, dot: executionColor };
                             }
                             if (item.official_quote_status === 'submitted') {
-                                return { text: 'Awarded - Quote File Submitted', color: workflowColor, dot: workflowColor };
+                                return { text: 'Awarded - Quote File Submitted', color: executionColor, dot: executionColor };
                             }
                             if (item.deposit_status === 'sent_by_designer') {
                                 var isOperatorStatus = (window.n88BoardData && window.n88BoardData.isOperator) === true;
-                                return { text: isOperatorStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: workflowColor, dot: workflowColor };
+                                return { text: isOperatorStatus ? 'Review payment proof' : 'Project awarded \u2014 Awaiting approval deposit', color: executionColor, dot: executionColor };
                             }
-                            return { text: 'Project Awarded \u2014 Awaiting Deposit', color: workflowColor, dot: workflowColor };
+                            return { text: 'Project Awarded \u2014 Awaiting Deposit', color: executionColor, dot: executionColor };
                         }
                         // Priority 4: Proposals Received
                         var validBidCountEarly = 0;
@@ -10437,20 +10579,20 @@ class N88_RFQ_Admin {
                         if (isNaN(batchProposalBidCount) || batchProposalBidCount < 0) batchProposalBidCount = 0;
                         if (!isNaN(validBidCountEarly) && validBidCountEarly > 0 && truthy(item.has_batch_proposals)) {
                             var earlyBatchCount = batchProposalBidCount > 0 ? batchProposalBidCount : validBidCountEarly;
-                            return { text: 'Batch Proposal Received' + (earlyBatchCount > 0 ? ' (' + earlyBatchCount + ')' : ''), color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Batch Proposal Received' + (earlyBatchCount > 0 ? ' (' + earlyBatchCount + ')' : ''), color: proposalColor, dot: proposalColor };
                         }
                         if (!isNaN(validBidCountEarly) && validBidCountEarly > 0) {
-                            return { text: 'Proposals Received' + (validBidCountEarly > 0 ? ' (' + validBidCountEarly + ')' : ''), color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Proposals Received' + (validBidCountEarly > 0 ? ' (' + validBidCountEarly + ')' : ''), color: proposalColor, dot: proposalColor };
                         }
                         // Priority 5+: rest of fallbacks (In Production, Action Required flag, etc.)
                         // Priority 7: Check if item has award_set (In Production) as fallback
                         if (inProduction) {
-                            return { text: 'In Production', color: workflowColor, dot: workflowColor };
+                            return { text: 'In Production', color: executionColor, dot: executionColor };
                         }
                         // Safeguard: when backend sets action_required (CAD/operator interaction), show Action Required so we don't show Proposals received
                         var actionRequiredFlag = item.action_required === true || item.action_required === 'true' || item.action_required === 1;
                         if (actionRequiredFlag) {
-                            return { text: 'Action Required', color: '#ff0000', dot: '#ff0000' };
+                            return { text: 'Action Required', color: actionRequiredColor, dot: actionRequiredColor };
                         }
                         // Get valid bid count - only bids with status = 'submitted' and matching current revision
                         // For now, we'll use bid_count from backend which should already filter valid bids
@@ -10495,10 +10637,10 @@ class N88_RFQ_Admin {
                         // This takes priority - if supplier resubmitted, we have valid bids
                         if (hasValidBids && truthy(item.has_batch_proposals)) {
                             var groupedBidCount = batchProposalBidCount > 0 ? batchProposalBidCount : validBidCount;
-                            return { text: 'Batch Proposal Received (' + groupedBidCount + ')', color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Batch Proposal Received (' + groupedBidCount + ')', color: proposalColor, dot: proposalColor };
                         }
                         if (hasValidBids) {
-                            return { text: 'Proposals Received (' + validBidCount + ')', color: '#2196f3', dot: '#2196f3' };
+                            return { text: 'Proposals Received (' + validBidCount + ')', color: proposalColor, dot: proposalColor };
                         }
                         
                         // Priority 3: If no valid bids but stale bids exist (specs changed after proposals received), show Standby
@@ -11490,11 +11632,14 @@ class N88_RFQ_Admin {
                                 var title = entry && entry.title ? entry.title : (options.defaultTitlePrefix || 'Media') + ' ' + (idx + 1);
                                 var thumbUrl = entry && (entry.thumbnail_url || entry.media_url || entry.material_image_url) ? (entry.thumbnail_url || entry.media_url || entry.material_image_url) : '';
                                 var mediaUrl = entry && (entry.media_url || entry.material_image_url || entry.thumbnail_url) ? (entry.media_url || entry.material_image_url || entry.thumbnail_url) : '';
-                                var isSelected = !!(options.selectedIds && options.selectedIds.indexOf(String(entry.material_id || entry.id || '')) !== -1);
-                                var entrySelectable = typeof options.isEntrySelectable === 'function' ? !!options.isEntrySelectable(entry) : !!options.selectable;
                                 var materialId = String(entry.material_id || entry.id || '');
+                                var selectionId = typeof options.getEntrySelectionId === 'function'
+                                    ? String(options.getEntrySelectionId(entry, idx) || materialId)
+                                    : materialId;
+                                var isSelected = !!(options.selectedIds && options.selectedIds.indexOf(selectionId) !== -1);
+                                var entrySelectable = typeof options.isEntrySelectable === 'function' ? !!options.isEntrySelectable(entry) : !!options.selectable;
                                 return React.createElement('div', {
-                                    key: (options.keyPrefix || 'support-media-') + materialId + '-' + idx,
+                                    key: (options.keyPrefix || 'support-media-') + selectionId + '-' + idx,
                                      style: {
                                         width: '100%',
                                         minWidth: 0,
@@ -11505,7 +11650,7 @@ class N88_RFQ_Admin {
                                         cursor: entrySelectable ? 'pointer' : 'default',
                                         opacity: entry && entry.is_active === false ? 0.55 : 1
                                     },
-                                    onClick: entrySelectable ? function() { options.onToggle && options.onToggle(materialId); } : undefined
+                                    onClick: entrySelectable ? function() { options.onToggle && options.onToggle(selectionId, entry); } : undefined
                                 },
                                     React.createElement('div', {
                                         style: { position: 'relative', height: '140px', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }
@@ -13210,6 +13355,76 @@ class N88_RFQ_Admin {
                         return null;
                     };
                     var itemId = getItemId();
+                    var addressRegionOptions = <?php echo wp_json_encode( $this->get_address_region_options() ); ?>;
+                    var normalizeAddressFields = function(value) {
+                        var source = value && typeof value === 'object' ? value : {};
+                        if ((!source || Array.isArray(source)) && typeof value === 'string') {
+                            return {
+                                name: '',
+                                address_line: value,
+                                city: '',
+                                state: '',
+                                country: '',
+                                postal_code: ''
+                            };
+                        }
+                        return {
+                            name: source.name || '',
+                            address_line: source.address_line || source.address_line1 || '',
+                            city: source.city || '',
+                            state: source.state || '',
+                            country: source.country || '',
+                            postal_code: source.postal_code || source.zip_code || ''
+                        };
+                    };
+                    var formatAddressFields = function(value) {
+                        var normalized = normalizeAddressFields(value);
+                        var lines = [];
+                        var locality = [];
+                        if (normalized.name) lines.push(normalized.name);
+                        if (normalized.address_line) lines.push(normalized.address_line);
+                        if (normalized.city) locality.push(normalized.city);
+                        if (normalized.state) locality.push(normalized.state);
+                        if (normalized.postal_code) locality.push(normalized.postal_code);
+                        if (locality.length) lines.push(locality.join(', '));
+                        if (normalized.country) lines.push(normalized.country);
+                        return lines.join('\n');
+                    };
+                    var hasAddressFieldsValue = function(value) {
+                        var normalized = normalizeAddressFields(value);
+                        return !!(normalized.name || normalized.address_line || normalized.city || normalized.state || normalized.country || normalized.postal_code);
+                    };
+                    var renderStructuredAddressFields = function(label, value, setValue, disabled, placeholders) {
+                        var normalized = normalizeAddressFields(value);
+                        var updateField = function(key, fieldValue) {
+                            setValue(function(prev) {
+                                var next = normalizeAddressFields(prev);
+                                next[key] = fieldValue || '';
+                                return next;
+                            });
+                        };
+                        var inputStyle = { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' };
+                        return React.createElement('div', { style: { marginBottom: '12px' } },
+                            React.createElement('label', { style: { display: 'block', fontSize: '12px', color: darkText, marginBottom: '6px' } }, label),
+                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr', gap: '8px' } },
+                                React.createElement('input', { type: 'text', value: normalized.name, disabled: disabled, onChange: function(e) { updateField('name', e.target.value); }, placeholder: placeholders && placeholders.name ? placeholders.name : 'Name', style: inputStyle }),
+                                React.createElement('input', { type: 'text', value: normalized.address_line, disabled: disabled, onChange: function(e) { updateField('address_line', e.target.value); }, placeholder: placeholders && placeholders.address_line ? placeholders.address_line : 'Address', style: inputStyle }),
+                                React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                                    React.createElement('input', { type: 'text', value: normalized.city, disabled: disabled, onChange: function(e) { updateField('city', e.target.value); }, placeholder: placeholders && placeholders.city ? placeholders.city : 'City', style: inputStyle }),
+                                    React.createElement('select', { value: normalized.state, disabled: disabled, onChange: function(e) { updateField('state', String(e.target.value || '').toUpperCase()); }, style: inputStyle },
+                                        React.createElement('option', { value: '' }, 'Select State / Province'),
+                                        Object.keys(addressRegionOptions || {}).map(function(code) {
+                                            return React.createElement('option', { key: 'region-' + code, value: code }, addressRegionOptions[code]);
+                                        })
+                                    )
+                                ),
+                                React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                                    React.createElement('input', { type: 'text', value: normalized.country, disabled: disabled, onChange: function(e) { updateField('country', e.target.value); }, placeholder: placeholders && placeholders.country ? placeholders.country : 'Country', style: inputStyle }),
+                                    React.createElement('input', { type: 'text', value: normalized.postal_code, disabled: disabled, onChange: function(e) { updateField('postal_code', e.target.value); }, placeholder: placeholders && placeholders.postal_code ? placeholders.postal_code : 'ZIP / Postal Code', style: inputStyle })
+                                )
+                            )
+                        );
+                    };
                     var initialValidationMeta = item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null;
                     var initialValidationState = item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null;
                     var initialValidationRequest = initialValidationState && initialValidationState.request && typeof initialValidationState.request === 'object' ? initialValidationState.request : {};
@@ -13223,8 +13438,8 @@ class N88_RFQ_Admin {
                         (initialValidationMetaSupplier && initialValidationMetaSupplier.updated_at)
                     );
                     
-                    // Item state (RFQ and bids)
-                    var _itemStateState = React.useState({
+                    var initialPreloadedRfqState = item && item.rfq_state && typeof item.rfq_state === 'object' ? item.rfq_state : null;
+                    var initialItemState = Object.assign({
                         has_rfq: false,
                         has_bids: false,
                         has_awarded_bid: false,
@@ -13263,9 +13478,18 @@ class N88_RFQ_Admin {
                         deposit_amount: null,
                         deposit_calculated_at: null,
                         deposit_received_at: null
+                    }, initialPreloadedRfqState || {}, {
+                        validation_state: initialPreloadedRfqState && initialPreloadedRfqState.validation_state
+                            ? initialPreloadedRfqState.validation_state
+                            : initialValidationState,
+                        loading: initialPreloadedRfqState ? false : true
                     });
+                    
+                    // Item state (RFQ and bids)
+                    var _itemStateState = React.useState(initialItemState);
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
+                    var itemStateRequestRef = React.useRef(null);
                     var _selectedDirectSupplierIdState = React.useState(null);
                     var selectedDirectSupplierId = _selectedDirectSupplierIdState[0];
                     var setSelectedDirectSupplierId = _selectedDirectSupplierIdState[1];
@@ -13285,9 +13509,9 @@ class N88_RFQ_Admin {
                     var _sampleRequestInstructionsState = React.useState('');
                     var sampleRequestInstructions = _sampleRequestInstructionsState[0];
                     var setSampleRequestInstructions = _sampleRequestInstructionsState[1];
-                    var _sampleRequestShippingAddressState = React.useState('');
-                    var sampleRequestShippingAddress = _sampleRequestShippingAddressState[0];
-                    var setSampleRequestShippingAddress = _sampleRequestShippingAddressState[1];
+                    var _sampleRequestShippingAddressFieldsState = React.useState(normalizeAddressFields({}));
+                    var sampleRequestShippingAddressFields = _sampleRequestShippingAddressFieldsState[0];
+                    var setSampleRequestShippingAddressFields = _sampleRequestShippingAddressFieldsState[1];
                     var _sampleRequestPaymentModeState = React.useState('external');
                     var sampleRequestPaymentMode = _sampleRequestPaymentModeState[0];
                     var setSampleRequestPaymentMode = _sampleRequestPaymentModeState[1];
@@ -13365,9 +13589,9 @@ class N88_RFQ_Admin {
                     var _validationComQtyState = React.useState('');
                     var validationComQty = _validationComQtyState[0];
                     var setValidationComQty = _validationComQtyState[1];
-                    var _validationComDeliveryAddressState = React.useState('');
-                    var validationComDeliveryAddress = _validationComDeliveryAddressState[0];
-                    var setValidationComDeliveryAddress = _validationComDeliveryAddressState[1];
+                    var _validationComDeliveryAddressFieldsState = React.useState(normalizeAddressFields({}));
+                    var validationComDeliveryAddressFields = _validationComDeliveryAddressFieldsState[0];
+                    var setValidationComDeliveryAddressFields = _validationComDeliveryAddressFieldsState[1];
                     var _validationComTrackingNumberState = React.useState('');
                     var validationComTrackingNumber = _validationComTrackingNumberState[0];
                     var setValidationComTrackingNumber = _validationComTrackingNumberState[1];
@@ -13930,7 +14154,7 @@ class N88_RFQ_Admin {
                         }
                         if (requestSampleContextProp && isOpen) {
                             setActiveTab('timeline');
-                            setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 0);
+                            setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 1);
                             return;
                         }
                         if (itemState.loading) return;
@@ -13984,6 +14208,7 @@ class N88_RFQ_Admin {
                             validationCardTextAuto === 'ready for production'
                         );
                         var sampleReviewStepTwo = sampleSupplierResponseReceived ||
+                            validationSampleStatusAuto === 'sample_requested' ||
                             validationReviewAuto.samples_received_at ||
                             validationReviewAuto.approved_at ||
                             validationSampleStatusAuto === 'delivered' ||
@@ -13992,6 +14217,8 @@ class N88_RFQ_Admin {
                             validationSampleStatusAuto === 'samples_received' ||
                             validationSampleStatusAuto === 'under_review' ||
                             validationSampleStatusAuto === 'samples_approved' ||
+                            validationCardTextAuto === 'sample requested' ||
+                            validationCardTextAuto === 'samples requested' ||
                             validationCardTextAuto === 'review samples' ||
                             validationCardTextAuto === 'samples received' ||
                             validationCardTextAuto === 'samples approved';
@@ -14303,6 +14530,31 @@ class N88_RFQ_Admin {
                             setSelectedDirectSupplierId(null);
                             return;
                         }
+                        var isAwardedWorkflowThread = ['step_3_commitment', 'step_4_production', 'step_5_quality'].indexOf(activeMessageContextType) !== -1;
+                        var awardedSupplierId = null;
+                        if (isAwardedWorkflowThread && Array.isArray(itemState.bids)) {
+                            for (var bidIdx = 0; bidIdx < itemState.bids.length; bidIdx++) {
+                                var awardedBid = itemState.bids[bidIdx];
+                                if (!awardedBid) {
+                                    continue;
+                                }
+                                var bidIsAwarded = !!awardedBid.is_awarded || String(awardedBid.status || awardedBid.bid_status || '').toLowerCase() === 'awarded';
+                                if (!bidIsAwarded || !awardedBid.supplier_id) {
+                                    continue;
+                                }
+                                var matchedAwardedOption = options.some(function(opt) {
+                                    return String(opt.supplier_id) === String(awardedBid.supplier_id);
+                                });
+                                if (matchedAwardedOption) {
+                                    awardedSupplierId = String(awardedBid.supplier_id);
+                                    break;
+                                }
+                            }
+                        }
+                        if (awardedSupplierId && String(selectedDirectSupplierId || '') !== awardedSupplierId) {
+                            setSelectedDirectSupplierId(awardedSupplierId);
+                            return;
+                        }
                         if (selectedDirectSupplierId && options.some(function(opt) { return String(opt.supplier_id) === String(selectedDirectSupplierId); })) {
                             return;
                         }
@@ -14313,7 +14565,7 @@ class N88_RFQ_Admin {
                         if (options.length === 1) {
                             setSelectedDirectSupplierId(options[0].supplier_id);
                         }
-                    }, [itemState.has_rfq, itemState.direct_supplier_id, itemState.direct_supplier_options, selectedDirectSupplierId]);
+                    }, [itemState.has_rfq, itemState.direct_supplier_id, itemState.direct_supplier_options, itemState.bids, selectedDirectSupplierId, activeMessageContextType]);
 
                     // Commit 2.3.9.1C-a: Send Designer Message (with required tags + optional attachments)
                     var sendDesignerMessage = React.useCallback(function(e) {
@@ -14541,7 +14793,8 @@ class N88_RFQ_Admin {
                     };
 
                     // Fetch item RFQ/bid state when modal opens
-                    var fetchItemState = function() {
+                    var fetchItemState = function(forceRefresh) {
+                        if (forceRefresh === undefined) forceRefresh = false;
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
@@ -14580,7 +14833,11 @@ class N88_RFQ_Admin {
                         formData.append('item_id', String(itemId));
                         formData.append('_ajax_nonce', nonce);
                         
-                        fetch(ajaxUrl, {
+                        if (!forceRefresh && itemStateRequestRef.current) {
+                            return itemStateRequestRef.current;
+                        }
+
+                        itemStateRequestRef.current = fetch(ajaxUrl, {
                             method: 'POST',
                             body: formData,
                         })
@@ -14632,7 +14889,7 @@ class N88_RFQ_Admin {
                                         workflow_milestones: data.data.workflow_milestones || null,
                                         validation_state: mergedValidationState,
                                         validation_card_status_text: mergedValidationState && mergedValidationState.card_status_text ? mergedValidationState.card_status_text : (previousState.validation_card_status_text || ''),
-                                        validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#2196f3'),
+                                        validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#f4b400'),
                                         deposit_status: (data.data.deposit_status !== undefined && data.data.deposit_status !== null) ? data.data.deposit_status : '',
                                         deposit_amount: (data.data.deposit_amount !== undefined && data.data.deposit_amount !== null) ? data.data.deposit_amount : null,
                                         deposit_calculated_at: data.data.deposit_calculated_at || null,
@@ -14659,7 +14916,9 @@ class N88_RFQ_Admin {
                                         );
                                     }
                                     if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_text !== undefined) cardUpdates.validation_card_status_text = cardUpdates.validation_state.card_status_text || '';
-                                    if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = cardUpdates.validation_state.card_status_color || '#2196f3';
+                                    if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = cardUpdates.validation_state.card_status_color || '#f4b400';
+                                    cardUpdates.rfq_state = data.data;
+                                    cardUpdates.rfq_state_fetched_at = Date.now();
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
                                 }
                                 // When all bids withdrawn: item is State A; reset Request Quote to show "Request Quote" (fresh form)
@@ -14678,7 +14937,11 @@ class N88_RFQ_Admin {
                                 setItemState(function(prev) {
                                     return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
                             });
+                        })
+                        .finally(function() {
+                            itemStateRequestRef.current = null;
                         });
+                        return itemStateRequestRef.current;
                     };
                     
                     // Fetch item state when modal opens; reset Message Operator to collapsed to avoid carry-over from previous item
@@ -14686,9 +14949,30 @@ class N88_RFQ_Admin {
                         if (isOpen && itemId && itemId > 0) {
                             setShowDesignerMessageForm(false);
                             setPinnedTimelineStep(null);
+                            if (item && item.rfq_state && typeof item.rfq_state === 'object') {
+                                var cachedAt = item && item.rfq_state_fetched_at ? parseInt(item.rfq_state_fetched_at, 10) : 0;
+                                var cacheIsFresh = cachedAt > 0 && (Date.now() - cachedAt) < 30000;
+                                setItemState(function(prev) {
+                                    var previousState = prev && typeof prev === 'object' ? prev : {};
+                                    var previousValidationState = previousState.validation_state
+                                        || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null)
+                                        || (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null);
+                                    var mergedValidationState = mergeValidationState(previousValidationState, item.rfq_state.validation_state || null);
+                                    return Object.assign({}, previousState, item.rfq_state, {
+                                        validation_state: mergedValidationState,
+                                        validation_card_status_text: mergedValidationState && mergedValidationState.card_status_text ? mergedValidationState.card_status_text : (previousState.validation_card_status_text || ''),
+                                        validation_card_status_color: mergedValidationState && mergedValidationState.card_status_color ? mergedValidationState.card_status_color : (previousState.validation_card_status_color || '#f4b400'),
+                                        loading: false
+                                    });
+                                });
+                                if (!cacheIsFresh) {
+                                    window.setTimeout(function() { fetchItemState(true); }, 0);
+                                }
+                                return;
+                            }
                             fetchItemState();
                         }
-                    }, [isOpen, itemId]);
+                    }, [isOpen, itemId, item && item.rfq_state]);
                     React.useEffect(function() {
                         if (!isOpen || !requestSampleContextProp) return;
                         if (requestSampleContextProp.bidId) {
@@ -14705,7 +14989,7 @@ class N88_RFQ_Admin {
                         setSampleRequestPanelDismissed(false);
                         setSampleRequestInlineOpen(true);
                         setActiveTab('timeline');
-                        setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 0);
+                        setSelectedStepIndex(initialTimelineStepProp !== null ? initialTimelineStepProp : 1);
                     }, [isOpen, requestSampleContextProp, initialTimelineStepProp]);
                     React.useEffect(function() {
                         if (!isOpen || !selectedSupportMediaBid) return;
@@ -14781,14 +15065,18 @@ class N88_RFQ_Admin {
                         if (requestState.payment_mode) {
                             setSampleRequestPaymentMode(requestState.payment_mode);
                         }
-                        if (requestState.selected_material_ids && requestState.selected_material_ids.length) {
+                        if (requestState.selected_material_refs && requestState.selected_material_refs.length) {
+                            setSelectedSupplierSampleIds(requestState.selected_material_refs.map(function(ref) { return String(ref); }));
+                        } else if (requestState.selected_material_ids && requestState.selected_material_ids.length) {
                             setSelectedSupplierSampleIds(requestState.selected_material_ids.map(function(id) { return String(id); }));
                         }
                         if (typeof requestState.instructions === 'string') {
                             setSampleRequestInstructions(requestState.instructions);
                         }
-                        if (typeof requestState.shipping_address === 'string') {
-                            setSampleRequestShippingAddress(requestState.shipping_address);
+                        if (requestState.shipping_address_fields && typeof requestState.shipping_address_fields === 'object') {
+                            setSampleRequestShippingAddressFields(normalizeAddressFields(requestState.shipping_address_fields));
+                        } else if (typeof requestState.shipping_address === 'string') {
+                            setSampleRequestShippingAddressFields(normalizeAddressFields(requestState.shipping_address));
                         }
                     }, [itemState.validation_state]);
                     var selectedSampleRequestBid = itemState.bids && itemState.bids.length
@@ -14860,11 +15148,20 @@ class N88_RFQ_Admin {
                             fd.append('sample_types[]', sampleType);
                         });
                         fd.append('sample_format', 'Physical');
-                        fd.append('payment_mode', 'external');
                         fd.append('instructions', sampleRequestInstructions || '');
-                        fd.append('shipping_address', sampleRequestShippingAddress || '');
-                        selectedSupplierSampleIds.forEach(function(materialId) {
-                            fd.append('selected_supplier_material_ids[]', materialId);
+                        fd.append('shipping_address', formatAddressFields(sampleRequestShippingAddressFields) || '');
+                        fd.append('shipping_contact_name', sampleRequestShippingAddressFields.name || '');
+                        fd.append('shipping_address_line1', sampleRequestShippingAddressFields.address_line || '');
+                        fd.append('shipping_city', sampleRequestShippingAddressFields.city || '');
+                        fd.append('shipping_state', sampleRequestShippingAddressFields.state || '');
+                        fd.append('shipping_country', sampleRequestShippingAddressFields.country || '');
+                        fd.append('shipping_postal_code', sampleRequestShippingAddressFields.postal_code || '');
+                        selectedSupplierSampleIds.forEach(function(selectionId) {
+                            var rawId = String(selectionId || '');
+                            var idParts = rawId.split(':');
+                            var numericId = idParts.length > 1 ? idParts.slice(1).join(':') : rawId;
+                            fd.append('selected_supplier_media_refs[]', rawId);
+                            fd.append('selected_supplier_material_ids[]', numericId);
                         });
                         if (approveWithoutSamples) {
                             fd.append('approve_without_samples', '1');
@@ -14891,6 +15188,7 @@ class N88_RFQ_Admin {
                                 if (samplePaymentProofInputRef && samplePaymentProofInputRef.current) {
                                     samplePaymentProofInputRef.current.value = '';
                                 }
+                                try { localStorage.removeItem('n88-sample-request-address-' + String(itemId || '')); } catch (e) {}
                                 if (data.data && data.data.validation_state) {
                                     setItemState(function(prev) {
                                         return Object.assign({}, prev, { validation_state: data.data.validation_state });
@@ -14996,11 +15294,47 @@ class N88_RFQ_Admin {
                         }
                         setValidationComRequired(!!commitmentStateForReview.com_required);
                         setValidationComQty(typeof commitmentStateForReview.com_qty === 'string' ? commitmentStateForReview.com_qty : '');
-                        setValidationComDeliveryAddress(typeof commitmentStateForReview.com_delivery_address === 'string' ? commitmentStateForReview.com_delivery_address : '');
+                        if (commitmentStateForReview.com_delivery_address_fields && typeof commitmentStateForReview.com_delivery_address_fields === 'object') {
+                            setValidationComDeliveryAddressFields(normalizeAddressFields(commitmentStateForReview.com_delivery_address_fields));
+                        } else if (typeof commitmentStateForReview.com_delivery_address === 'string') {
+                            setValidationComDeliveryAddressFields(normalizeAddressFields(commitmentStateForReview.com_delivery_address));
+                        }
                         setValidationComTrackingNumber(typeof commitmentStateForReview.com_tracking_number === 'string' ? commitmentStateForReview.com_tracking_number : '');
                         setValidationDepositSupplierName(typeof commitmentStateForReview.deposit_supplier_name === 'string' ? commitmentStateForReview.deposit_supplier_name : '');
                         setValidationDepositAmount(commitmentStateForReview.deposit_amount !== null && commitmentStateForReview.deposit_amount !== undefined ? String(commitmentStateForReview.deposit_amount) : '');
                     }, [itemState.validation_state]);
+                    React.useEffect(function() {
+                        if (!itemId) return;
+                        var storageKey = 'n88-sample-request-address-' + String(itemId);
+                        try {
+                            var raw = localStorage.getItem(storageKey);
+                            if (raw && !hasAddressFieldsValue(sampleRequestShippingAddressFields)) {
+                                setSampleRequestShippingAddressFields(normalizeAddressFields(JSON.parse(raw)));
+                            }
+                        } catch (e) {}
+                    }, [itemId]);
+                    React.useEffect(function() {
+                        if (!itemId) return;
+                        try {
+                            localStorage.setItem('n88-sample-request-address-' + String(itemId), JSON.stringify(normalizeAddressFields(sampleRequestShippingAddressFields)));
+                        } catch (e) {}
+                    }, [itemId, sampleRequestShippingAddressFields]);
+                    React.useEffect(function() {
+                        if (!itemId) return;
+                        var storageKey = 'n88-validation-com-address-' + String(itemId);
+                        try {
+                            var raw = localStorage.getItem(storageKey);
+                            if (raw && !hasAddressFieldsValue(validationComDeliveryAddressFields)) {
+                                setValidationComDeliveryAddressFields(normalizeAddressFields(JSON.parse(raw)));
+                            }
+                        } catch (e) {}
+                    }, [itemId]);
+                    React.useEffect(function() {
+                        if (!itemId) return;
+                        try {
+                            localStorage.setItem('n88-validation-com-address-' + String(itemId), JSON.stringify(normalizeAddressFields(validationComDeliveryAddressFields)));
+                        } catch (e) {}
+                    }, [itemId, validationComDeliveryAddressFields]);
                     
                     // Commit 2.3.9.2A: Designer CAD actions (Request Revision / Approve CAD) - defined after fetchItemState
                     var requestCadRevision = React.useCallback(function(files) {
@@ -16609,10 +16943,13 @@ class N88_RFQ_Admin {
                                 var thumbUrl = entry && (entry.thumbnail_url || entry.media_url || entry.material_image_url) ? (entry.thumbnail_url || entry.media_url || entry.material_image_url) : '';
                                 var mediaUrl = entry && (entry.media_url || entry.material_image_url || entry.thumbnail_url) ? (entry.media_url || entry.material_image_url || entry.thumbnail_url) : '';
                                 var materialId = String(entry.material_id || entry.id || '');
-                                var isSelected = !!(options.selectedIds && options.selectedIds.indexOf(materialId) !== -1);
+                                var selectionId = typeof options.getEntrySelectionId === 'function'
+                                    ? String(options.getEntrySelectionId(entry, idx) || materialId)
+                                    : materialId;
+                                var isSelected = !!(options.selectedIds && options.selectedIds.indexOf(selectionId) !== -1);
                                 var entrySelectable = typeof options.isEntrySelectable === 'function' ? !!options.isEntrySelectable(entry) : !!options.selectable;
                                 return React.createElement('div', {
-                                    key: (options.keyPrefix || 'support-media-') + materialId + '-' + idx,
+                                    key: (options.keyPrefix || 'support-media-') + selectionId + '-' + idx,
                                      style: {
                                         width: '100%',
                                         minWidth: 0,
@@ -16623,7 +16960,7 @@ class N88_RFQ_Admin {
                                         cursor: entrySelectable ? 'pointer' : 'default',
                                         opacity: entry && entry.is_active === false ? 0.55 : 1
                                     },
-                                    onClick: entrySelectable ? function() { if (options.onToggle) options.onToggle(materialId); } : undefined
+                                    onClick: entrySelectable ? function() { if (options.onToggle) options.onToggle(selectionId, entry); } : undefined
                                 },
                                     React.createElement('div', {
                                         style: { position: 'relative', height: '140px', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }
@@ -19514,96 +19851,12 @@ class N88_RFQ_Admin {
                                                                         'Supplier: ' + (validationState.supplier_name || (selectedBidForRequest ? (selectedBidForRequest.supplier_name || ('Supplier #' + selectedBidForRequest.supplier_id)) : '-')),
                                                                         mergedValidationRequest.requested_at ? React.createElement(React.Fragment, null, React.createElement('br'), 'Requested: ' + formatWorkflowDateTime(mergedValidationRequest.requested_at)) : null,
                                                                         mergedValidationStatus ? React.createElement(React.Fragment, null, React.createElement('br'), 'Status: ' + String(mergedValidationStatus).replace(/_/g, ' ')) : null,
-                                                                        mergedValidationRequest.payment_mode ? React.createElement(React.Fragment, null, React.createElement('br'), 'Payment Mode: ' + String(mergedValidationRequest.payment_mode).replace(/_/g, ' ')) : null,
-                                                                        mergedValidationRequest.payment_status ? React.createElement(React.Fragment, null, React.createElement('br'), 'Payment Status: ' + String(mergedValidationRequest.payment_status).replace(/_/g, ' ')) : null
+                                                                        null
                                                                     ),
                                                                     mergedValidationRequest.selected_materials && mergedValidationRequest.selected_materials.length ? React.createElement('div', { style: { marginTop: '10px' } },
                                                                         React.createElement('div', { style: { fontSize: '10px', color: '#999', marginBottom: '6px' } }, 'Selected supplier materials'),
                                                                         renderSupportMediaCards(mergedValidationRequest.selected_materials, { keyPrefix: 'request-material-', defaultTitlePrefix: 'Material' })
                                                                     ) : null
-                                                                ) : null,
-                                                                (showSampleRequestStep && hasSampleRequest && mergedValidationRequest.requested_at && mergedValidationRequest.payment_status !== 'not_required' && !showSupplierResponse && !mergedValidationReview.samples_received_at && !mergedValidationReview.approved_at && ['approved', 'recorded', 'submitted'].indexOf(String(mergedValidationRequest.payment_status || '').toLowerCase()) === -1 && !mergedValidationRequest.payment_submitted_at) ? React.createElement('div', {
-                                                                    style: { marginBottom: '14px', padding: '12px', backgroundColor: '#0a0a14', border: '1px solid #335', borderRadius: '4px' }
-                                                                },
-                                                                    React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '8px' } }, 'Sample Payment'),
-                                                                    React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.6, marginBottom: '10px' } },
-                                                                        mergedValidationRequest.payment_mode === 'wireframe_managed'
-                                                                            ? 'Wireframe-managed supplier. Submit proof or mark payment sent here before sample fulfillment.'
-                                                                            : 'External supplier payment. Mark the payment as recorded and optionally attach proof.'
-                                                                    ),
-                                                                    mergedValidationRequest.payment_submitted_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '8px' } }, 'Submitted: ' + formatWorkflowDateTime(mergedValidationRequest.payment_submitted_at)) : null,
-                                                                    mergedValidationRequest.payment_proof_files && mergedValidationRequest.payment_proof_files.length ? React.createElement('div', { style: { marginBottom: '10px' } },
-                                                                        React.createElement('div', { style: { fontSize: '10px', color: '#999', marginBottom: '4px' } }, 'Payment Proof'),
-                                                                        mergedValidationRequest.payment_proof_files.map(function(file, fileIdx) {
-                                                                            return React.createElement('div', { key: 'sample-payment-proof-' + fileIdx, style: { marginBottom: '4px' } },
-                                                                                React.createElement('a', { href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '11px' } }, file.title || file.name || ('Payment Proof ' + (fileIdx + 1)))
-                                                                            );
-                                                                        })
-                                                                    ) : null,
-                                                                    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginBottom: '10px' } },
-                                                                        React.createElement('div', null,
-                                                                            React.createElement('label', { style: { display: 'block', fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Payment Mode'),
-                                                                            React.createElement('select', {
-                                                                                value: sampleRequestPaymentMode || 'external',
-                                                                                disabled: samplePaymentSubmitting,
-                                                                                onChange: function(e) { setSampleRequestPaymentMode(e.target.value || 'external'); },
-                                                                                style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', fontFamily: 'monospace' }
-                                                                            },
-                                                                                React.createElement('option', { value: 'wireframe_managed' }, 'Wireframe Managed'),
-                                                                                React.createElement('option', { value: 'external' }, 'External')
-                                                                            )
-                                                                        ),
-                                                                        React.createElement('div', null,
-                                                                            React.createElement('label', { style: { display: 'block', fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Proof Upload (optional)'),
-                                                                            React.createElement('input', {
-                                                                                ref: samplePaymentProofInputRef,
-                                                                                type: 'file',
-                                                                                disabled: samplePaymentSubmitting,
-                                                                                onChange: function(e) { setSamplePaymentProofFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); },
-                                                                                style: { width: '100%', padding: '6px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', boxSizing: 'border-box' }
-                                                                            })
-                                                                        )
-                                                                    ),
-                                                                    samplePaymentProofFile ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent, marginBottom: '8px' } }, 'Selected proof: ' + samplePaymentProofFile.name) : null,
-                                                                    React.createElement('button', {
-                                                                        type: 'button',
-                                                                        disabled: samplePaymentSubmitting,
-                                                                        onClick: function() {
-                                                                            setSamplePaymentSubmitting(true);
-                                                                            setSampleRequestError('');
-                                                                            setSampleRequestMessage('');
-                                                                            submitMaterialValidationAction('n88_submit_material_validation_payment', {
-                                                                                payment_mode: sampleRequestPaymentMode || 'external'
-                                                                            }, samplePaymentProofFile ? {
-                                                                                payment_proof: samplePaymentProofFile
-                                                                            } : {})
-                                                                                .then(function(res) {
-                                                                                    if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'Payment approved.');
-                                                                                        setSamplePaymentProofFile(null);
-                                                                                        if (samplePaymentProofInputRef && samplePaymentProofInputRef.current) samplePaymentProofInputRef.current.value = '';
-                                                                                        if (res.data && res.data.validation_state) {
-                                                                                            setItemState(function(prev) {
-                                                                                                var nextState = prev && typeof prev === 'object' ? Object.assign({}, prev) : {};
-                                                                                                nextState.validation_state = mergeValidationState(nextState.validation_state, res.data.validation_state);
-                                                                                                nextState.validation_card_status_text = (nextState.validation_state && nextState.validation_state.card_status_text) ? nextState.validation_state.card_status_text : '';
-                                                                                                return nextState;
-                                                                                            });
-                                                                                        }
-                                                                                        fetchItemState();
-                                                                                    } else {
-                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save payment submission.');
-                                                                                    }
-                                                                                })
-                                                                                .catch(function(err) {
-                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to save payment submission.');
-                                                                                })
-                                                                                .finally(function() {
-                                                                                    setSamplePaymentSubmitting(false);
-                                                                                });
-                                                                        },
-                                                                        style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: samplePaymentSubmitting ? 'not-allowed' : 'pointer', fontSize: '11px', fontFamily: 'monospace', opacity: samplePaymentSubmitting ? 0.55 : 1 }
-                                                                    }, samplePaymentSubmitting ? 'Saving...' : (sampleRequestPaymentMode === 'external' ? 'Mark External Payment' : 'Submit Payment'))
                                                                 ) : null,
                                                                 (showSampleResponseStep && hasSampleRequest && !showSupplierResponse) ? React.createElement('div', {
                                                                     style: { marginBottom: '14px', padding: '12px', backgroundColor: 'rgba(255,152,0,0.08)', border: '1px solid #ff9800', borderRadius: '4px' }
@@ -19661,8 +19914,17 @@ class N88_RFQ_Admin {
                                                                             keyPrefix: 'sample-select-',
                                                                             emptyText: 'This supplier has not uploaded any support media yet.',
                                                                             defaultTitlePrefix: 'Material',
+                                                                            getEntrySelectionId: function(entry) {
+                                                                                var libraryGroup = entry && entry._library_group ? String(entry._library_group) : 'material_samples';
+                                                                                var entryId = String((entry && (entry.material_id || entry.id)) || '');
+                                                                                return libraryGroup + ':' + entryId;
+                                                                            },
                                                                             onToggle: function(materialId) {
-                                                                                var selectedEntry = visibleLibraryItems.find(function(entry) { return String(entry.material_id || entry.id || '') === String(materialId); });
+                                                                                var selectedEntry = visibleLibraryItems.find(function(entry) {
+                                                                                    var libraryGroup = entry && entry._library_group ? String(entry._library_group) : 'material_samples';
+                                                                                    var entryId = String((entry && (entry.material_id || entry.id)) || '');
+                                                                                    return (libraryGroup + ':' + entryId) === String(materialId);
+                                                                                });
                                                                                 if (!selectedEntry || sampleRequestSubmitting) return;
                                                                                 setSelectedSupplierSampleIds(function(prev) {
                                                                                     return prev.indexOf(materialId) !== -1 ? prev.filter(function(entry) { return entry !== materialId; }) : prev.concat([materialId]);
@@ -19719,17 +19981,13 @@ class N88_RFQ_Admin {
                                                                         style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
                                                                     })
                                                                 ),
-                                                                React.createElement('div', { style: { marginBottom: '12px' } },
-                                                                    React.createElement('label', { style: { display: 'block', fontSize: '12px', color: darkText, marginBottom: '6px' } }, 'Shipping Address'),
-                                                                    React.createElement('textarea', {
-                                                                        value: sampleRequestShippingAddress,
-                                                                        disabled: sampleRequestSubmitting,
-                                                                        onChange: function(e) { setSampleRequestShippingAddress(e.target.value || ''); },
-                                                                        rows: 3,
-                                                                        placeholder: 'Enter shipping address for material samples',
-                                                                        style: { width: '100%', padding: '8px', backgroundColor: darkBg, border: '1px solid ' + darkBorder, borderRadius: '4px', color: darkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
-                                                                    })
-                                                                ),
+                                                                renderStructuredAddressFields('Shipping Address', sampleRequestShippingAddressFields, setSampleRequestShippingAddressFields, sampleRequestSubmitting, {
+                                                                    name: 'Recipient Name',
+                                                                    address_line: 'Address',
+                                                                    city: 'City',
+                                                                    country: 'Country',
+                                                                    postal_code: 'ZIP / Postal Code'
+                                                                }),
                         React.createElement('button', {
                             type: 'button',
                             onClick: function() { submitSampleRequest(false); },
@@ -19744,6 +20002,10 @@ class N88_RFQ_Admin {
                                                                     mergedValidationSupplier.status ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Status: ' + (String(mergedValidationSupplier.status).toLowerCase() === 'delivered' ? 'shipped' : String(mergedValidationSupplier.status).replace(/_/g, ' '))) : null,
                                                                     mergedValidationSupplier.updated_at ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Updated: ' + formatWorkflowDateTime(mergedValidationSupplier.updated_at)) : null,
                                                                     mergedValidationSupplier.tracking_number ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '4px' } }, 'Tracking: ' + mergedValidationSupplier.tracking_number) : null,
+                                                                    mergedValidationRequest.shipping_address ? React.createElement('div', { style: { marginBottom: '8px' } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '4px' } }, 'Shipping address'),
+                                                                        React.createElement('div', { style: { fontSize: '11px', color: darkText, whiteSpace: 'pre-wrap' } }, mergedValidationRequest.shipping_address)
+                                                                    ) : null,
                                                                     mergedValidationSupplier.note ? React.createElement('div', { style: { fontSize: '11px', color: darkText, marginBottom: '8px', whiteSpace: 'pre-wrap' } }, mergedValidationSupplier.note) : null,
                                                                     mergedValidationRequest.selected_materials && mergedValidationRequest.selected_materials.length ? React.createElement('div', { style: { marginBottom: '10px' } },
                                                                         React.createElement('div', { style: { fontSize: '11px', color: '#999', marginBottom: '6px' } }, 'Designer selected these supplier materials'),
@@ -20176,6 +20438,38 @@ class N88_RFQ_Admin {
                                                                 return null;
                                                             }
                                                             return React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px' } },
+                                                                step3Readiness.awaiting_po ? React.createElement('div', { style: { display: 'grid', gap: '8px', marginBottom: '14px', padding: '14px', border: '1px solid ' + darkBorder, borderRadius: '4px', background: '#060606' } },
+                                                                    React.createElement('div', { style: { fontSize: '16px', lineHeight: 1.2, color: '#fff', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Upload PO'),
+                                                                    React.createElement('input', { ref: validationPoInputRef, type: 'file', onChange: function(e) { setValidationPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff' } }),
+                                                                    validationPoFile ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, validationPoFile.name) : null,
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        disabled: validationPoSubmitting || !validationPoFile,
+                                                                        onClick: function() {
+                                                                            setValidationPoSubmitting(true);
+                                                                            setSampleRequestError('');
+                                                                            setSampleRequestMessage('');
+                                                                            submitMaterialValidationAction('n88_upload_validation_po', {}, { po_file: validationPoFile })
+                                                                                .then(function(res) {
+                                                                                    if (res && res.success) {
+                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'PO uploaded.');
+                                                                                        setValidationPoFile(null);
+                                                                                        if (validationPoInputRef && validationPoInputRef.current) validationPoInputRef.current.value = '';
+                                                                                        fetchItemState();
+                                                                                    } else {
+                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to upload PO.');
+                                                                                    }
+                                                                                })
+                                                                                .catch(function(err) {
+                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to upload PO.');
+                                                                                })
+                                                                                .finally(function() {
+                                                                                    setValidationPoSubmitting(false);
+                                                                                });
+                                                                        },
+                                                                        style: { padding: '12px 18px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationPoSubmitting || !validationPoFile) ? 'not-allowed' : 'pointer', opacity: (validationPoSubmitting || !validationPoFile) ? 0.55 : 1, fontSize: '14px', fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                                    }, validationPoSubmitting ? 'Uploading...' : 'UPLOAD PO')
+                                                                ) : null,
                                                                 React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent, marginBottom: '10px' } }, 'Validation Approved'),
                                                                 step3Review.samples_received_at ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent, marginBottom: '10px' } }, 'Samples received: ' + formatWorkflowDateTime(step3Review.samples_received_at)) : null,
                                                                 step3Supplier.files && step3Supplier.files.length ? React.createElement('div', { style: { marginBottom: '12px' } },
@@ -20297,16 +20591,7 @@ class N88_RFQ_Admin {
                                                                         (step3Commitment.po_file && step3Commitment.po_file.url) ? React.createElement('a', { href: step3Commitment.po_file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, 'Open PO') : React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'PO is already saved in this workflow.'),
                                                                         step3Commitment.po_uploaded_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Uploaded: ' + formatWorkflowDateTime(step3Commitment.po_uploaded_at)) : null
                                                                     ) : null,
-                                                                    (step3HasPoSuccess && step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
-                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasComSuccess ? greenAccent : '#ffb347' } }, step3HasComSuccess ? 'COM Completed' : 'COM Pending'),
-                                                                        step3Commitment.com_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.com_status).replace(/_/g, ' ')) : null,
-                                                                        step3Commitment.com_tracking_number ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Tracking: ' + step3Commitment.com_tracking_number) : null,
-                                                                        step3Commitment.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Delivered: ' + formatWorkflowDateTime(step3Commitment.com_delivered_at)) : null,
-                                                                        (step3HasComSuccess && !step3Commitment.com_status && !step3Commitment.com_delivered_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'COM stage is already completed.') : null
-                                                                    ) : (step3HasPoSuccess && !step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
-                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'COM Not Required')
-                                                                    ) : null,
-                                                                    ((step3HasPoSuccess && (!step3ComApplicable || step3HasComSuccess)) && (step3HasDepositSuccess || step3AwaitingDeposit)) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                    (step3HasPoSuccess && (step3HasDepositSuccess || step3AwaitingDeposit)) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasDepositSuccess ? greenAccent : '#ffb347' } }, step3HasDepositSuccess ? 'Deposit Confirmed' : 'Awaiting Deposit'),
                                                                         step3Commitment.deposit_amount ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Amount: ' + step3Commitment.deposit_amount) : null,
                                                                         step3Commitment.deposit_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.deposit_status).replace(/_/g, ' ')) : null,
@@ -20315,6 +20600,15 @@ class N88_RFQ_Admin {
                                                                         step3Commitment.deposit_receipt_files && step3Commitment.deposit_receipt_files.length ? React.createElement('div', { style: { display: 'grid', gap: '3px' } }, step3Commitment.deposit_receipt_files.map(function(file, fileIdx) {
                                                                             return React.createElement('a', { key: 'step3-deposit-receipt-' + fileIdx, href: file.url || '#', target: '_blank', rel: 'noopener noreferrer', style: { color: greenAccent, textDecoration: 'none', fontSize: '10px' } }, file.title || ('Deposit Receipt ' + (fileIdx + 1)));
                                                                         })) : null
+                                                                    ) : null,
+                                                                    (step3HasPoSuccess && step3HasDepositSuccess && step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: step3HasComSuccess ? greenAccent : '#ffb347' } }, step3HasComSuccess ? 'COM Completed' : 'COM Pending'),
+                                                                        step3Commitment.com_status ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Status: ' + String(step3Commitment.com_status).replace(/_/g, ' ')) : null,
+                                                                        step3Commitment.com_tracking_number ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Tracking: ' + step3Commitment.com_tracking_number) : null,
+                                                                        step3Commitment.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'Delivered: ' + formatWorkflowDateTime(step3Commitment.com_delivered_at)) : null,
+                                                                        (step3HasComSuccess && !step3Commitment.com_status && !step3Commitment.com_delivered_at) ? React.createElement('div', { style: { fontSize: '10px', color: darkText } }, 'COM stage is already completed.') : null
+                                                                    ) : (step3HasPoSuccess && step3HasDepositSuccess && !step3ComApplicable) ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
+                                                                        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', color: greenAccent } }, 'COM Not Required')
                                                                     ) : null,
                                                                     step3IsReadyForProduction ? React.createElement('div', { style: { display: 'grid', gap: '4px', paddingTop: '8px', borderTop: '1px solid ' + darkBorder } },
                                                                         React.createElement('div', { style: { fontSize: '11px', fontWeight: '700', color: greenAccent } }, 'Ready for Production'),
@@ -20372,8 +20666,8 @@ class N88_RFQ_Admin {
                                                             return React.createElement('div', { style: { marginTop: '12px', padding: '16px', backgroundColor: '#101010', border: '1px solid ' + darkBorder, borderRadius: '4px', display: 'grid', gap: '10px' } },
                                                             React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', color: greenAccent } }, 'Validation Readiness'),
                                                             React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.7 } }, 'Only pending actions are shown below. Completed sections are hidden automatically.'),
-                                                            step3AwaitingPoReadiness ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
-                                                                React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'Upload PO'),
+                                                            false && step3AwaitingPoReadiness ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { fontSize: '16px', lineHeight: 1.2, color: '#fff', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Upload PO'),
                                                                 React.createElement('input', { ref: validationPoInputRef, type: 'file', onChange: function(e) { setValidationPoFile((e.target.files && e.target.files[0]) ? e.target.files[0] : null); }, style: { fontSize: '11px', color: '#fff' } }),
                                                                 validationPoFile ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, validationPoFile.name) : null,
                                                                 React.createElement('button', {
@@ -20401,80 +20695,11 @@ class N88_RFQ_Admin {
                                                                                 setValidationPoSubmitting(false);
                                                                             });
                                                                     },
-                                                                    style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationPoSubmitting || !validationPoFile) ? 'not-allowed' : 'pointer', opacity: (validationPoSubmitting || !validationPoFile) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                }, validationPoSubmitting ? 'Uploading...' : 'Upload PO')
+                                                                    style: { padding: '12px 18px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationPoSubmitting || !validationPoFile) ? 'not-allowed' : 'pointer', opacity: (validationPoSubmitting || !validationPoFile) ? 0.55 : 1, fontSize: '14px', fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase', alignSelf: 'start' }
+                                                                }, validationPoSubmitting ? 'Uploading...' : 'UPLOAD PO')
                                                             ) : null,
-                                                            (step3CommitmentReadiness.po_file && step3ComApplicableReadiness && (step3AwaitingComReadiness || step3CommitmentReadiness.com_status || step3CommitmentReadiness.com_delivered_at)) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
-                                                                React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'COM (Customer-Owned Material)'),
-                                                                !step3ComCompletedReadiness ? React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: darkText } },
-                                                                    React.createElement('input', { type: 'checkbox', checked: validationComRequired, onChange: function(e) { setValidationComRequired(!!e.target.checked); } }),
-                                                                    'Confirm COM requirement'
-                                                                ) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComQty, onChange: function(e) { setValidationComQty(e.target.value); }, placeholder: 'Required COM quantity', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('textarea', { value: validationComDeliveryAddress, onChange: function(e) { setValidationComDeliveryAddress(e.target.value); }, rows: 2, placeholder: 'Supplier delivery address', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComTrackingNumber, onChange: function(e) { setValidationComTrackingNumber(e.target.value); }, placeholder: 'COM shipping tracking', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
-                                                                step3CommitmentReadiness.com_status ? React.createElement('div', { style: { fontSize: '11px', color: step3ComCompletedReadiness ? greenAccent : darkText } }, 'COM Status: ' + String(step3CommitmentReadiness.com_status).replace(/_/g, ' ')) : null,
-                                                                !step3ComCompletedReadiness ? React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                                                                    React.createElement('button', {
-                                                                        type: 'button',
-                                                                        disabled: validationComSubmitting || !validationComTrackingNumber,
-                                                                        onClick: function() {
-                                                                            setValidationComSubmitting(true);
-                                                                            setSampleRequestError('');
-                                                                            setSampleRequestMessage('');
-                                                                            submitMaterialValidationAction('n88_submit_validation_com', {
-                                                                                com_required: validationComRequired ? '1' : '',
-                                                                                com_qty: validationComQty,
-                                                                                com_delivery_address: validationComDeliveryAddress,
-                                                                                com_tracking_number: validationComTrackingNumber
-                                                                            }, {})
-                                                                                .then(function(res) {
-                                                                                    if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM shipment recorded.');
-                                                                                        fetchItemState();
-                                                                                    } else {
-                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save COM details.');
-                                                                                    }
-                                                                                })
-                                                                                .catch(function(err) {
-                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to save COM details.');
-                                                                                })
-                                                                                .finally(function() {
-                                                                                    setValidationComSubmitting(false);
-                                                                                });
-                                                                        },
-                                                                        style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationComSubmitting || !validationComTrackingNumber) ? 'not-allowed' : 'pointer', opacity: (validationComSubmitting || !validationComTrackingNumber) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                    }, validationComSubmitting ? 'Saving...' : 'Upload COM Tracking'),
-                                                                    (step3CommitmentReadiness.com_status === 'com_in_transit' || step3CommitmentReadiness.com_status === 'awaiting_com') ? React.createElement('button', {
-                                                                        type: 'button',
-                                                                        disabled: validationComSubmitting,
-                                                                        onClick: function() {
-                                                                            setValidationComSubmitting(true);
-                                                                            setSampleRequestError('');
-                                                                            setSampleRequestMessage('');
-                                                                            submitMaterialValidationAction('n88_mark_validation_com_delivered', {}, {})
-                                                                                .then(function(res) {
-                                                                                    if (res && res.success) {
-                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM marked delivered.');
-                                                                                        fetchItemState();
-                                                                                    } else {
-                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to mark COM delivered.');
-                                                                                    }
-                                                                                })
-                                                                                .catch(function(err) {
-                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to mark COM delivered.');
-                                                                                })
-                                                                                .finally(function() {
-                                                                                    setValidationComSubmitting(false);
-                                                                                });
-                                                                        },
-                                                                        style: { padding: '9px 12px', background: 'transparent', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: validationComSubmitting ? 'not-allowed' : 'pointer', opacity: validationComSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                    }, 'Mark COM Delivered') : null
-                                                                ) : null,
-                                                                step3CommitmentReadiness.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, 'Delivered: ' + formatWorkflowDateTime(step3CommitmentReadiness.com_delivered_at)) : null
-                                                            ) : null,
-                                                            (step3CommitmentReadiness.po_file && (!step3ComApplicableReadiness || step3ComCompletedReadiness) && (step3AwaitingDepositReadiness || step3DepositConfirmedReadiness || (step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length))) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
-                                                                React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'Deposit Readiness'),
+                                                            (step3CommitmentReadiness.po_file && (step3AwaitingDepositReadiness || step3DepositConfirmedReadiness || (step3CommitmentReadiness.deposit_receipt_files && step3CommitmentReadiness.deposit_receipt_files.length))) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { fontSize: '16px', lineHeight: 1.2, color: '#fff', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Upload Deposit Receipt'),
                                                                 !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'text', value: validationDepositSupplierName, onChange: function(e) { setValidationDepositSupplierName(e.target.value); }, placeholder: 'Supplier / payee name', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('input', { type: 'number', step: '0.01', value: validationDepositAmount, onChange: function(e) { setValidationDepositAmount(e.target.value); }, placeholder: 'Deposit amount', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
                                                                 !step3DepositConfirmedReadiness ? React.createElement('input', { ref: validationDepositInputRef, type: 'file', multiple: true, onChange: function(e) { setValidationDepositReceipts(Array.from(e.target.files || [])); }, style: { fontSize: '11px', color: '#fff' } }) : null,
@@ -20513,9 +20738,91 @@ class N88_RFQ_Admin {
                                                                                 setValidationDepositSubmitting(false);
                                                                             });
                                                                     },
-                                                                    style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationDepositSubmitting || !validationDepositSupplierName || !validationDepositAmount) ? 'not-allowed' : 'pointer', opacity: (validationDepositSubmitting || !validationDepositSupplierName || !validationDepositAmount) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
-                                                                }, validationDepositSubmitting ? 'Saving...' : 'Save Deposit') : null,
+                                                                    style: { padding: '12px 18px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationDepositSubmitting || !validationDepositSupplierName || !validationDepositAmount) ? 'not-allowed' : 'pointer', opacity: (validationDepositSubmitting || !validationDepositSupplierName || !validationDepositAmount) ? 0.55 : 1, fontSize: '14px', fontFamily: 'monospace', fontWeight: '700', textTransform: 'uppercase' }
+                                                                }, validationDepositSubmitting ? 'Saving...' : 'UPLOAD DEPOSIT RECEIPT') : null,
                                                                 step3ValidationStateReadiness.can_commit ? React.createElement('div', { style: { fontSize: '11px', color: greenAccent } }, 'Validation complete. Item is ready for commitment.') : null
+                                                            ) : null,
+                                                            (step3CommitmentReadiness.po_file && step3DepositConfirmedReadiness && step3ComApplicableReadiness && (step3AwaitingComReadiness || step3CommitmentReadiness.com_status || step3CommitmentReadiness.com_delivered_at)) ? React.createElement('div', { style: { display: 'grid', gap: '8px', paddingTop: '10px', borderTop: '1px solid ' + darkBorder } },
+                                                                React.createElement('div', { style: { fontSize: '12px', color: '#fff', fontWeight: '600' } }, 'COM (Customer-Owned Material)'),
+                                                                !step3ComCompletedReadiness ? React.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: darkText } },
+                                                                    React.createElement('input', { type: 'checkbox', checked: validationComRequired, onChange: function(e) { setValidationComRequired(!!e.target.checked); } }),
+                                                                    'Confirm COM requirement'
+                                                                ) : null,
+                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComQty, onChange: function(e) { setValidationComQty(e.target.value); }, placeholder: 'Required COM quantity', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                !step3ComCompletedReadiness ? renderStructuredAddressFields('Delivery Address', validationComDeliveryAddressFields, setValidationComDeliveryAddressFields, false, {
+                                                                    name: 'Recipient Name',
+                                                                    address_line: 'Address',
+                                                                    city: 'City',
+                                                                    country: 'Country',
+                                                                    postal_code: 'ZIP / Postal Code'
+                                                                }) : null,
+                                                                !step3ComCompletedReadiness ? React.createElement('input', { type: 'text', value: validationComTrackingNumber, onChange: function(e) { setValidationComTrackingNumber(e.target.value); }, placeholder: 'COM shipping tracking', style: { width: '100%', padding: '8px', background: '#000', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', fontFamily: 'monospace', boxSizing: 'border-box' } }) : null,
+                                                                step3CommitmentReadiness.com_status ? React.createElement('div', { style: { fontSize: '11px', color: step3ComCompletedReadiness ? greenAccent : darkText } }, 'COM Status: ' + String(step3CommitmentReadiness.com_status).replace(/_/g, ' ')) : null,
+                                                                !step3ComCompletedReadiness ? React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                                                                    React.createElement('button', {
+                                                                        type: 'button',
+                                                                        disabled: validationComSubmitting || !validationComTrackingNumber,
+                                                                        onClick: function() {
+                                                                            setValidationComSubmitting(true);
+                                                                            setSampleRequestError('');
+                                                                            setSampleRequestMessage('');
+                                                                            submitMaterialValidationAction('n88_submit_validation_com', {
+                                                                                com_required: validationComRequired ? '1' : '',
+                                                                                com_qty: validationComQty,
+                                                                                com_delivery_address: formatAddressFields(validationComDeliveryAddressFields),
+                                                                                com_contact_name: validationComDeliveryAddressFields.name,
+                                                                                com_address_line1: validationComDeliveryAddressFields.address_line,
+                                                                                com_city: validationComDeliveryAddressFields.city,
+                                                                                com_state: validationComDeliveryAddressFields.state,
+                                                                                com_country: validationComDeliveryAddressFields.country,
+                                                                                com_postal_code: validationComDeliveryAddressFields.postal_code,
+                                                                                com_tracking_number: validationComTrackingNumber
+                                                                            }, {})
+                                                                                .then(function(res) {
+                                                                                    if (res && res.success) {
+                                                                                        try { localStorage.removeItem('n88-validation-com-address-' + String(itemId || '')); } catch (e) {}
+                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM shipment recorded.');
+                                                                                        fetchItemState();
+                                                                                    } else {
+                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to save COM details.');
+                                                                                    }
+                                                                                })
+                                                                                .catch(function(err) {
+                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to save COM details.');
+                                                                                })
+                                                                                .finally(function() {
+                                                                                    setValidationComSubmitting(false);
+                                                                                });
+                                                                        },
+                                                                        style: { padding: '9px 12px', background: '#111', color: '#fff', border: '1px solid ' + darkBorder, borderRadius: '4px', cursor: (validationComSubmitting || !validationComTrackingNumber) ? 'not-allowed' : 'pointer', opacity: (validationComSubmitting || !validationComTrackingNumber) ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
+                                                                    }, validationComSubmitting ? 'Saving...' : 'Mark COM Shipped'),
+                                                                    (step3CommitmentReadiness.com_status === 'com_in_transit' || step3CommitmentReadiness.com_status === 'awaiting_com') ? React.createElement('button', {
+                                                                        type: 'button',
+                                                                        disabled: validationComSubmitting,
+                                                                        onClick: function() {
+                                                                            setValidationComSubmitting(true);
+                                                                            setSampleRequestError('');
+                                                                            setSampleRequestMessage('');
+                                                                            submitMaterialValidationAction('n88_mark_validation_com_delivered', {}, {})
+                                                                                .then(function(res) {
+                                                                                    if (res && res.success) {
+                                                                                        setSampleRequestMessage(res.data && res.data.message ? res.data.message : 'COM marked delivered.');
+                                                                                        fetchItemState();
+                                                                                    } else {
+                                                                                        setSampleRequestError((res && res.data && res.data.message) ? res.data.message : 'Failed to mark COM delivered.');
+                                                                                    }
+                                                                                })
+                                                                                .catch(function(err) {
+                                                                                    setSampleRequestError(err && err.message ? err.message : 'Failed to mark COM delivered.');
+                                                                                })
+                                                                                .finally(function() {
+                                                                                    setValidationComSubmitting(false);
+                                                                                });
+                                                                        },
+                                                                        style: { padding: '9px 12px', background: 'transparent', color: greenAccent, border: '1px solid ' + greenAccent, borderRadius: '4px', cursor: validationComSubmitting ? 'not-allowed' : 'pointer', opacity: validationComSubmitting ? 0.55 : 1, fontSize: '11px', fontFamily: 'monospace' }
+                                                                    }, 'Mark COM Delivered') : null
+                                                                ) : null,
+                                                                step3CommitmentReadiness.com_delivered_at ? React.createElement('div', { style: { fontSize: '10px', color: greenAccent } }, 'Delivered: ' + formatWorkflowDateTime(step3CommitmentReadiness.com_delivered_at)) : null
                                                             ) : null
                                                         );
                                                         })() : null,
@@ -22374,6 +22681,36 @@ class N88_RFQ_Admin {
                     var _proposalContextState = React.useState({ mode: 'selected', source: 'board', anchorItemId: 0, groupId: 0 });
                     var proposalContext = _proposalContextState[0];
                     var setProposalContext = _proposalContextState[1];
+                    var _batchActionSelectionModalState = React.useState(false);
+                    var batchActionSelectionModalOpen = _batchActionSelectionModalState[0];
+                    var setBatchActionSelectionModalOpen = _batchActionSelectionModalState[1];
+                    var _batchActionDetailModalState = React.useState(false);
+                    var batchActionDetailModalOpen = _batchActionDetailModalState[0];
+                    var setBatchActionDetailModalOpen = _batchActionDetailModalState[1];
+                    var _batchActionModeState = React.useState('');
+                    var batchActionMode = _batchActionModeState[0];
+                    var setBatchActionMode = _batchActionModeState[1];
+                    var _batchActionSelectionState = React.useState({});
+                    var batchActionSelection = _batchActionSelectionState[0];
+                    var setBatchActionSelection = _batchActionSelectionState[1];
+                    var _batchActionSelectedBidIdsState = React.useState({});
+                    var batchActionSelectedBidIds = _batchActionSelectedBidIdsState[0];
+                    var setBatchActionSelectedBidIds = _batchActionSelectedBidIdsState[1];
+                    var _batchActionSampleRowsState = React.useState([]);
+                    var batchActionSampleRows = _batchActionSampleRowsState[0];
+                    var setBatchActionSampleRows = _batchActionSampleRowsState[1];
+                    var _batchActionExpandedState = React.useState({});
+                    var batchActionExpanded = _batchActionExpandedState[0];
+                    var setBatchActionExpanded = _batchActionExpandedState[1];
+                    var _batchActionSubmittingState = React.useState(false);
+                    var batchActionSubmitting = _batchActionSubmittingState[0];
+                    var setBatchActionSubmitting = _batchActionSubmittingState[1];
+                    var _batchActionMessageState = React.useState('');
+                    var batchActionMessage = _batchActionMessageState[0];
+                    var setBatchActionMessage = _batchActionMessageState[1];
+                    var _batchActionErrorState = React.useState('');
+                    var batchActionError = _batchActionErrorState[0];
+                    var setBatchActionError = _batchActionErrorState[1];
                     var boardCanvasDarkBg = '#000000';
                     var boardCanvasDarkText = '#d3d3d3';
                     var boardCanvasGreenAccent = '#FF0065';
@@ -22488,6 +22825,449 @@ class N88_RFQ_Admin {
                             expanded: true
                         };
                     };
+                    var boardCanvasNormalizeAddressFields = function(value) {
+                        var source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+                        if ((!source || Array.isArray(source)) && typeof value === 'string') {
+                            return {
+                                name: '',
+                                address_line: value,
+                                city: '',
+                                state: '',
+                                country: '',
+                                postal_code: ''
+                            };
+                        }
+                        return {
+                            name: source.name || '',
+                            address_line: source.address_line || source.address_line1 || '',
+                            city: source.city || '',
+                            state: source.state || '',
+                            country: source.country || '',
+                            postal_code: source.postal_code || source.zip_code || ''
+                        };
+                    };
+                    var boardCanvasFormatAddressFields = function(value) {
+                        var normalized = boardCanvasNormalizeAddressFields(value);
+                        var lines = [];
+                        var locality = [];
+                        if (normalized.name) lines.push(normalized.name);
+                        if (normalized.address_line) lines.push(normalized.address_line);
+                        if (normalized.city) locality.push(normalized.city);
+                        if (normalized.state) locality.push(normalized.state);
+                        if (normalized.postal_code) locality.push(normalized.postal_code);
+                        if (locality.length) lines.push(locality.join(', '));
+                        if (normalized.country) lines.push(normalized.country);
+                        return lines.join('\n');
+                    };
+                    var getProposalGroupValidationState = function(group) {
+                        if (group && group.state && group.state.validation_state && typeof group.state.validation_state === 'object') {
+                            return group.state.validation_state;
+                        }
+                        if (group && group.item && group.item.validation_state && typeof group.item.validation_state === 'object') {
+                            return group.item.validation_state;
+                        }
+                        if (group && group.item && group.item.rfq_state && group.item.rfq_state.validation_state && typeof group.item.rfq_state.validation_state === 'object') {
+                            return group.item.rfq_state.validation_state;
+                        }
+                        return {};
+                    };
+                    var proposalGroupHasSampleRequest = function(group) {
+                        var validationState = getProposalGroupValidationState(group);
+                        var requestState = validationState && validationState.request && typeof validationState.request === 'object' ? validationState.request : {};
+                        var supplierState = validationState && validationState.supplier && typeof validationState.supplier === 'object' ? validationState.supplier : {};
+                        return !!(
+                            (validationState && (validationState.enabled || validationState.bid_id || validationState.sample_status)) ||
+                            (requestState && requestState.requested_at) ||
+                            (supplierState && supplierState.updated_at)
+                        );
+                    };
+                    var proposalGroupIsAwarded = function(group) {
+                        var state = group && group.state ? group.state : {};
+                        var item = group && group.item ? group.item : {};
+                        if (state && (state.has_awarded_bid || state.awarded_bid_id)) return true;
+                        if (item && item.has_awarded_bid) return true;
+                        var bids = group && Array.isArray(group.suppliers) ? group.suppliers : [];
+                        return bids.some(function(entry) {
+                            return entry && entry.bid && entry.bid.status === 'awarded';
+                        });
+                    };
+                    var getProposalGroupStatusText = function(group) {
+                        if (proposalGroupIsAwarded(group)) return 'Project Awarded';
+                        var validationState = getProposalGroupValidationState(group);
+                        var validationStatus = validationState && validationState.sample_status ? String(validationState.sample_status) : '';
+                        if (validationStatus === 'sample_requested') return 'Samples Requested';
+                        if (validationStatus === 'supplier_submitted' || validationStatus === 'samples_shipped') return 'Samples Shipped';
+                        if (validationStatus === 'samples_received') return 'Samples Received';
+                        if (validationStatus === 'samples_approved') return 'Samples Approved';
+                        if (proposalGroupHasSampleRequest(group)) return 'Sample Request Created';
+                        if (group && Array.isArray(group.suppliers) && group.suppliers.length) return 'Quoted';
+                        return 'Not Quoted';
+                    };
+                    var getProposalGroupSupplierOptions = function(group) {
+                        var suppliers = group && Array.isArray(group.suppliers) ? group.suppliers : [];
+                        return suppliers.map(function(entry, idx) {
+                            var bid = entry && entry.bid ? entry.bid : {};
+                            var supplierId = parseInt(bid.supplier_id || entry.supplierId, 10) || 0;
+                            var bidId = parseInt(bid.bid_id, 10) || 0;
+                            var supplierName = bid.supplier_name || entry.supplierDisplayLabel || ('Supplier ' + (idx + 1));
+                            return {
+                                bidId: bidId,
+                                supplierId: supplierId,
+                                supplierName: supplierName,
+                                label: supplierName + (bidId ? (' | Bid #' + bidId) : ''),
+                                bid: bid
+                            };
+                        }).filter(function(option) {
+                            return option.bidId > 0 && option.supplierId > 0;
+                        });
+                    };
+                    var getProposalGroupDefaultBidId = function(group) {
+                        var validationState = getProposalGroupValidationState(group);
+                        var requestedBidId = parseInt(validationState && validationState.bid_id, 10) || 0;
+                        var supplierOptions = getProposalGroupSupplierOptions(group);
+                        if (requestedBidId > 0 && supplierOptions.some(function(option) { return option.bidId === requestedBidId; })) {
+                            return requestedBidId;
+                        }
+                        return supplierOptions.length ? supplierOptions[0].bidId : 0;
+                    };
+                    var getBatchActionQuotedGroups = function(mode) {
+                        return (proposalItemGroups || []).filter(function(group) {
+                            if (!group || !Array.isArray(group.suppliers) || !group.suppliers.length) return false;
+                            if (mode === 'sample') {
+                                return !proposalGroupHasSampleRequest(group) && !proposalGroupIsAwarded(group);
+                            }
+                            if (mode === 'award') {
+                                return !proposalGroupIsAwarded(group);
+                            }
+                            return true;
+                        });
+                    };
+                    var renderBoardCanvasAddressFields = function(value, onChange, disabled) {
+                        var normalized = boardCanvasNormalizeAddressFields(value);
+                        var updateField = function(key, nextValue) {
+                            onChange(function(prev) {
+                                var next = boardCanvasNormalizeAddressFields(prev);
+                                next[key] = nextValue || '';
+                                return next;
+                            });
+                        };
+                        var addressInputStyle = {
+                            width: '100%',
+                            padding: '8px',
+                            backgroundColor: boardCanvasDarkBg,
+                            border: '1px solid ' + boardCanvasDarkBorder,
+                            borderRadius: '4px',
+                            color: boardCanvasDarkText,
+                            fontSize: '11px',
+                            boxSizing: 'border-box',
+                            fontFamily: 'monospace'
+                        };
+                        return React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr', gap: '8px' } },
+                            React.createElement('input', { type: 'text', value: normalized.name, disabled: disabled, onChange: function(e) { updateField('name', e.target.value); }, placeholder: 'Recipient Name', style: addressInputStyle }),
+                            React.createElement('input', { type: 'text', value: normalized.address_line, disabled: disabled, onChange: function(e) { updateField('address_line', e.target.value); }, placeholder: 'Address Line', style: addressInputStyle }),
+                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                                React.createElement('input', { type: 'text', value: normalized.city, disabled: disabled, onChange: function(e) { updateField('city', e.target.value); }, placeholder: 'City', style: addressInputStyle }),
+                                React.createElement('input', { type: 'text', value: normalized.state, disabled: disabled, onChange: function(e) { updateField('state', e.target.value); }, placeholder: 'State / Province', style: addressInputStyle })
+                            ),
+                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                                React.createElement('input', { type: 'text', value: normalized.country, disabled: disabled, onChange: function(e) { updateField('country', e.target.value); }, placeholder: 'Country', style: addressInputStyle }),
+                                React.createElement('input', { type: 'text', value: normalized.postal_code, disabled: disabled, onChange: function(e) { updateField('postal_code', e.target.value); }, placeholder: 'ZIP / Postal Code', style: addressInputStyle })
+                            )
+                        );
+                    };
+                    var renderBoardCanvasSupportMediaCards = function(mediaItems, options) {
+                        mediaItems = Array.isArray(mediaItems) ? mediaItems : [];
+                        options = options || {};
+                        if (!mediaItems.length) {
+                            return React.createElement('div', {
+                                style: { padding: '14px', border: '1px dashed ' + boardCanvasDarkBorder, borderRadius: '6px', color: boardCanvasDarkText, fontSize: '11px', textAlign: 'center' }
+                            }, options.emptyText || 'No support media uploaded yet.');
+                        }
+                        return React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px' } },
+                            mediaItems.map(function(entry, idx) {
+                                var mediaType = entry && entry.media_type ? String(entry.media_type).toLowerCase() : 'image';
+                                var title = entry && (entry.title || entry.material_name) ? (entry.title || entry.material_name) : ((options.defaultTitlePrefix || 'Media') + ' ' + (idx + 1));
+                                var thumbUrl = entry && (entry.thumbnail_url || entry.media_url || entry.material_image_url) ? (entry.thumbnail_url || entry.media_url || entry.material_image_url) : '';
+                                var mediaUrl = entry && (entry.media_url || entry.material_image_url || entry.thumbnail_url) ? (entry.media_url || entry.material_image_url || entry.thumbnail_url) : '';
+                                var entryId = String((entry && (entry.material_id || entry.id)) || '');
+                                var selectionId = typeof options.getEntrySelectionId === 'function' ? String(options.getEntrySelectionId(entry, idx) || entryId) : entryId;
+                                var isSelected = !!(options.selectedIds && options.selectedIds.indexOf(selectionId) !== -1);
+                                return React.createElement('div', {
+                                    key: (options.keyPrefix || 'batch-support-media-') + selectionId + '-' + idx,
+                                    onClick: options.selectable ? function() { if (options.onToggle) options.onToggle(selectionId, entry); } : undefined,
+                                    style: {
+                                        border: '1px solid ' + (isSelected ? boardCanvasGreenAccent : boardCanvasDarkBorder),
+                                        borderRadius: '8px',
+                                        overflow: 'hidden',
+                                        backgroundColor: isSelected ? 'rgba(255,0,101,0.08)' : '#0a0a0a',
+                                        cursor: options.selectable ? 'pointer' : 'default'
+                                    }
+                                },
+                                    React.createElement('div', { style: { position: 'relative', height: '124px', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+                                        thumbUrl ? React.createElement('img', {
+                                            src: thumbUrl,
+                                            alt: title,
+                                            loading: 'lazy',
+                                            onClick: function(e) {
+                                                e.stopPropagation();
+                                                if (mediaUrl) window.open(mediaUrl, '_blank', 'noopener,noreferrer');
+                                            },
+                                            style: { width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000', cursor: mediaUrl ? 'pointer' : 'default' }
+                                        }) : React.createElement('div', { style: { fontSize: '11px', color: boardCanvasDarkText } }, 'No preview'),
+                                        options.selectable ? React.createElement('div', {
+                                            style: {
+                                                position: 'absolute',
+                                                top: '10px',
+                                                right: '10px',
+                                                width: '22px',
+                                                height: '22px',
+                                                borderRadius: '999px',
+                                                border: '1px solid ' + (isSelected ? boardCanvasGreenAccent : '#fff'),
+                                                backgroundColor: isSelected ? boardCanvasGreenAccent : 'rgba(0,0,0,0.55)',
+                                                color: isSelected ? '#000' : '#fff',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '12px',
+                                                fontWeight: '700'
+                                            }
+                                        }, isSelected ? '✓' : '') : null,
+                                        mediaType === 'video' ? React.createElement('div', {
+                                            style: { position: 'absolute', bottom: '8px', left: '8px', fontSize: '10px', padding: '4px 8px', borderRadius: '999px', backgroundColor: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid rgba(255,255,255,0.35)' }
+                                        }, 'Video') : null
+                                    ),
+                                    React.createElement('div', { style: { padding: '10px', display: 'grid', gap: '6px' } },
+                                        React.createElement('div', { style: { fontSize: '12px', fontWeight: '600', color: '#fff' } }, title),
+                                        entry && (entry.material_code || entry.material_type) ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasDarkText } }, [entry.material_code, entry.material_type].filter(Boolean).join(' • ')) : null,
+                                        entry && entry.description ? React.createElement('div', { style: { fontSize: '10px', color: boardCanvasDarkText, lineHeight: 1.5 } }, entry.description) : null
+                                    )
+                                );
+                            })
+                        );
+                    };
+                    var buildBatchSampleRowFromGroup = function(group, selectedBidId) {
+                        var validationState = getProposalGroupValidationState(group);
+                        var validationRequest = validationState && validationState.request && typeof validationState.request === 'object' ? validationState.request : {};
+                        var supplierOptions = getProposalGroupSupplierOptions(group);
+                        var resolvedBidId = parseInt(selectedBidId, 10) || getProposalGroupDefaultBidId(group);
+                        var matchedOption = supplierOptions.find(function(option) { return option.bidId === resolvedBidId; }) || supplierOptions[0] || null;
+                        var selectedMaterialRefs = Array.isArray(validationRequest.selected_material_refs) ? validationRequest.selected_material_refs.map(function(ref) { return String(ref); }) : [];
+                        if (!selectedMaterialRefs.length && Array.isArray(validationRequest.selected_material_ids)) {
+                            selectedMaterialRefs = validationRequest.selected_material_ids.map(function(id) { return 'material_samples:' + String(parseInt(id, 10) || 0); }).filter(function(ref) { return ref !== 'material_samples:0'; });
+                        }
+                        return {
+                            itemId: toNumericItemId(group && group.item && group.item.id),
+                            itemTitle: group && group.item && group.item.title ? group.item.title : ('Item ' + toNumericItemId(group && group.item && group.item.id)),
+                            statusText: getProposalGroupStatusText(group),
+                            supplierOptions: supplierOptions,
+                            selectedBidId: matchedOption ? matchedOption.bidId : 0,
+                            selectedSupplierId: matchedOption ? matchedOption.supplierId : 0,
+                            selectedMaterialRefs: selectedMaterialRefs,
+                            instructions: typeof validationRequest.instructions === 'string' ? validationRequest.instructions : '',
+                            shippingAddressFields: boardCanvasNormalizeAddressFields(validationRequest.shipping_address_fields || validationRequest.shipping_address || {}),
+                            referenceFiles: [],
+                            validationState: validationState,
+                            isLocked: proposalGroupHasSampleRequest(group)
+                        };
+                    };
+                    var getBatchSampleRowSelectionIssues = function(row) {
+                        var issues = [];
+                        if (!row || !row.selectedBidId || !row.selectedSupplierId) issues.push('Supplier');
+                        if (!row || !Array.isArray(row.selectedMaterialRefs) || !row.selectedMaterialRefs.length) issues.push('Materials');
+                        return issues;
+                    };
+                    var updateBatchSampleRow = function(itemId, updater) {
+                        setBatchActionSampleRows(function(prev) {
+                            return (prev || []).map(function(row) {
+                                if (!row || row.itemId !== itemId) return row;
+                                return typeof updater === 'function' ? updater(row) : Object.assign({}, row, updater || {});
+                            });
+                        });
+                    };
+                    var openBatchActionSelectionModal = function(mode) {
+                        var availableGroups = getBatchActionQuotedGroups(mode);
+                        var initialBidMap = {};
+                        availableGroups.forEach(function(group) {
+                            var itemId = toNumericItemId(group && group.item && group.item.id);
+                            if (itemId > 0) {
+                                initialBidMap[itemId] = getProposalGroupDefaultBidId(group);
+                            }
+                        });
+                        setBatchActionMode(mode || '');
+                        setBatchActionSelection({});
+                        setBatchActionSelectedBidIds(initialBidMap);
+                        setBatchActionSampleRows([]);
+                        setBatchActionExpanded({});
+                        setBatchActionMessage('');
+                        setBatchActionError('');
+                        setBatchActionSubmitting(false);
+                        setBatchActionDetailModalOpen(false);
+                        setBatchActionSelectionModalOpen(true);
+                    };
+                    var toggleBatchActionSelectionItem = function(itemId) {
+                        setBatchActionSelection(function(prev) {
+                            var next = Object.assign({}, prev || {});
+                            if (next[itemId]) delete next[itemId];
+                            else next[itemId] = true;
+                            return next;
+                        });
+                    };
+                    var selectedBatchActionCount = Object.keys(batchActionSelection || {}).length;
+                    var startBatchSampleAccordionFlow = function() {
+                        var selectedGroups = getBatchActionQuotedGroups('sample').filter(function(group) {
+                            return !!batchActionSelection[toNumericItemId(group && group.item && group.item.id)];
+                        });
+                        if (!selectedGroups.length) {
+                            setBatchActionError('Select at least one quoted item to request samples.');
+                            return;
+                        }
+                        var nextRows = selectedGroups.map(function(group, idx) {
+                            var itemId = toNumericItemId(group && group.item && group.item.id);
+                            return buildBatchSampleRowFromGroup(group, batchActionSelectedBidIds[itemId]);
+                        });
+                        var nextExpanded = {};
+                        nextRows.forEach(function(row, idx) {
+                            nextExpanded[row.itemId] = idx === 0;
+                        });
+                        setBatchActionSampleRows(nextRows);
+                        setBatchActionExpanded(nextExpanded);
+                        setBatchActionMessage('');
+                        setBatchActionError('');
+                        setBatchActionSelectionModalOpen(false);
+                        setBatchActionDetailModalOpen(true);
+                    };
+                    var submitBatchAwardSelection = function() {
+                        var selectedGroups = getBatchActionQuotedGroups('award').filter(function(group) {
+                            return !!batchActionSelection[toNumericItemId(group && group.item && group.item.id)];
+                        });
+                        if (!selectedGroups.length) {
+                            setBatchActionError('Select at least one quoted item to award.');
+                            return;
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                        if (!nonce) {
+                            setBatchActionError('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        setBatchActionSubmitting(true);
+                        setBatchActionMessage('');
+                        setBatchActionError('');
+                        var successes = 0;
+                        var failures = [];
+                        var chain = Promise.resolve();
+                        selectedGroups.forEach(function(group) {
+                            chain = chain.then(function() {
+                                var itemId = toNumericItemId(group && group.item && group.item.id);
+                                var bidId = parseInt(batchActionSelectedBidIds[itemId], 10) || 0;
+                                if (!(itemId > 0) || !(bidId > 0)) {
+                                    failures.push((group && group.item && group.item.title ? group.item.title : ('Item ' + itemId)) + ': supplier selection missing.');
+                                    return null;
+                                }
+                                var fd = new FormData();
+                                fd.append('action', 'n88_award_bid');
+                                fd.append('item_id', String(itemId));
+                                fd.append('bid_id', String(bidId));
+                                fd.append('_ajax_nonce', nonce);
+                                return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                                    .then(function(response) { return response.json(); })
+                                    .then(function(data) {
+                                        if (data && data.success) {
+                                            successes++;
+                                            return;
+                                        }
+                                        failures.push((group && group.item && group.item.title ? group.item.title : ('Item ' + itemId)) + ': ' + ((data && data.data && data.data.message) ? data.data.message : 'Failed to award bid.'));
+                                    })
+                                    .catch(function(error) {
+                                        failures.push((group && group.item && group.item.title ? group.item.title : ('Item ' + itemId)) + ': ' + (error && error.message ? error.message : 'Failed to award bid.'));
+                                    });
+                            });
+                        });
+                        chain.finally(function() {
+                            setBatchActionSubmitting(false);
+                            if (successes > 0) {
+                                alert((successes === 1 ? '1 item awarded.' : (successes + ' items awarded.')) + (failures.length ? ('\n\nSome items failed:\n' + failures.join('\n')) : ''));
+                                window.location.reload();
+                                return;
+                            }
+                            setBatchActionError(failures.length ? failures.join('\n') : 'Failed to award selected items.');
+                        });
+                    };
+                    var submitBatchSampleRequests = function() {
+                        var rows = batchActionSampleRows || [];
+                        if (!rows.length) {
+                            setBatchActionError('No batch sample request rows were prepared.');
+                            return;
+                        }
+                        var notReadyRows = rows.filter(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; });
+                        if (notReadyRows.length) {
+                            setBatchActionError('Complete all selected items before submitting sample requests.');
+                            return;
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || (window.n88 && window.n88.nonce) || '';
+                        if (!nonce) {
+                            setBatchActionError('Security token missing. Please refresh the page and try again.');
+                            return;
+                        }
+                        setBatchActionSubmitting(true);
+                        setBatchActionMessage('');
+                        setBatchActionError('');
+                        var successes = 0;
+                        var failures = [];
+                        var chain = Promise.resolve();
+                        rows.forEach(function(row) {
+                            chain = chain.then(function() {
+                                var fd = new FormData();
+                                fd.append('action', 'n88_create_material_validation_request');
+                                fd.append('item_id', String(row.itemId));
+                                fd.append('bid_id', String(row.selectedBidId));
+                                fd.append('supplier_id', String(row.selectedSupplierId));
+                                fd.append('sample_types[]', 'Mixed Kit');
+                                fd.append('sample_format', 'Physical');
+                                fd.append('instructions', row.instructions || '');
+                                fd.append('shipping_address', boardCanvasFormatAddressFields(row.shippingAddressFields) || '');
+                                fd.append('shipping_contact_name', row.shippingAddressFields && row.shippingAddressFields.name ? row.shippingAddressFields.name : '');
+                                fd.append('shipping_address_line1', row.shippingAddressFields && row.shippingAddressFields.address_line ? row.shippingAddressFields.address_line : '');
+                                fd.append('shipping_city', row.shippingAddressFields && row.shippingAddressFields.city ? row.shippingAddressFields.city : '');
+                                fd.append('shipping_state', row.shippingAddressFields && row.shippingAddressFields.state ? row.shippingAddressFields.state : '');
+                                fd.append('shipping_country', row.shippingAddressFields && row.shippingAddressFields.country ? row.shippingAddressFields.country : '');
+                                fd.append('shipping_postal_code', row.shippingAddressFields && row.shippingAddressFields.postal_code ? row.shippingAddressFields.postal_code : '');
+                                (row.selectedMaterialRefs || []).forEach(function(selectionId) {
+                                    var rawId = String(selectionId || '');
+                                    var idParts = rawId.split(':');
+                                    var numericId = idParts.length > 1 ? idParts.slice(1).join(':') : rawId;
+                                    fd.append('selected_supplier_media_refs[]', rawId);
+                                    fd.append('selected_supplier_material_ids[]', numericId);
+                                });
+                                (row.referenceFiles || []).forEach(function(file) {
+                                    fd.append('reference_files[]', file);
+                                });
+                                fd.append('_ajax_nonce', nonce);
+                                return fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                                    .then(function(response) { return response.json(); })
+                                    .then(function(data) {
+                                        if (data && data.success) {
+                                            successes++;
+                                            return;
+                                        }
+                                        failures.push(row.itemTitle + ': ' + ((data && data.data && data.data.message) ? data.data.message : 'Failed to create sample request.'));
+                                    })
+                                    .catch(function(error) {
+                                        failures.push(row.itemTitle + ': ' + (error && error.message ? error.message : 'Failed to create sample request.'));
+                                    });
+                            });
+                        });
+                        chain.finally(function() {
+                            setBatchActionSubmitting(false);
+                            if (successes > 0) {
+                                alert((successes === 1 ? '1 sample request created.' : (successes + ' sample requests created.')) + (failures.length ? ('\n\nSome items failed:\n' + failures.join('\n')) : ''));
+                                window.location.reload();
+                                return;
+                            }
+                            setBatchActionError(failures.length ? failures.join('\n') : 'Failed to create sample requests.');
+                        });
+                    };
                     
                     // Subscribe to unsynced state changes from the hook
                     // The hook's state updates don't automatically trigger parent re-renders,
@@ -22559,7 +23339,7 @@ class N88_RFQ_Admin {
                                                 step456_status_color: row.step456_status_color,
                                                 validation_state: row.validation_state || null,
                                                 validation_card_status_text: row.validation_card_status_text || '',
-                                                validation_card_status_color: row.validation_card_status_color || '#2196f3',
+                                                validation_card_status_color: row.validation_card_status_color || '#f4b400',
                                             });
                                         }
                                     });
@@ -22586,6 +23366,101 @@ class N88_RFQ_Admin {
                         window.addEventListener('n88-board-refresh-status', onRefreshEvent);
                         return function() { window.removeEventListener('n88-board-refresh-status', onRefreshEvent); };
                     }, [boardId, refreshBoardItemsStatus]);
+                    React.useEffect(function() {
+                        if (!boardId || boardId <= 0 || !Array.isArray(items) || !items.length || typeof updateLayout !== 'function') return;
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';
+                        if (!ajaxUrl || !nonce) return;
+
+                        window.n88BoardRfqStateCache = window.n88BoardRfqStateCache || {};
+                        window.n88BoardRfqStatePending = window.n88BoardRfqStatePending || {};
+
+                        var queue = [];
+                        items.forEach(function(boardItem) {
+                            var numericItemId = toNumericItemId(boardItem && boardItem.id);
+                            if (!numericItemId) return;
+
+                            if (boardItem && boardItem.rfq_state && typeof boardItem.rfq_state === 'object') {
+                                if (!window.n88BoardRfqStateCache[numericItemId]) {
+                                    window.n88BoardRfqStateCache[numericItemId] = boardItem.rfq_state;
+                                }
+                                return;
+                            }
+
+                            if (window.n88BoardRfqStateCache[numericItemId]) {
+                                updateLayout(boardItem.id, {
+                                    rfq_state: window.n88BoardRfqStateCache[numericItemId],
+                                    rfq_state_fetched_at: boardItem && boardItem.rfq_state_fetched_at ? boardItem.rfq_state_fetched_at : Date.now()
+                                });
+                                return;
+                            }
+
+                            if (!window.n88BoardRfqStatePending[numericItemId]) {
+                                queue.push({ itemId: numericItemId, itemKey: boardItem.id });
+                            }
+                        });
+
+                        if (!queue.length) return;
+
+                        var cancelled = false;
+                        var concurrency = 4;
+                        var nextIndex = 0;
+
+                        var applyPayloadToStore = function(itemKey, payload) {
+                            if (!payload || typeof payload !== 'object') return;
+                            updateLayout(itemKey, {
+                                rfq_state: payload,
+                                rfq_state_fetched_at: Date.now(),
+                                has_rfq: payload.has_rfq === true || payload.has_rfq === 1 || payload.has_rfq === '1' || payload.has_rfq === 'true',
+                                has_bids: payload.has_bids === true || payload.has_bids === 1 || payload.has_bids === '1' || payload.has_bids === 'true',
+                                has_awarded_bid: !!payload.has_awarded_bid,
+                                prototype_payment_status: payload.prototype_payment_status || null,
+                                cad_status: payload.cad_status || null,
+                                cad_current_version: (payload.cad_current_version !== undefined && payload.cad_current_version !== null) ? payload.cad_current_version : null,
+                                prototype_status: payload.prototype_status || null,
+                                validation_state: payload.validation_state || null,
+                                validation_card_status_text: payload.validation_state && payload.validation_state.card_status_text ? payload.validation_state.card_status_text : '',
+                                validation_card_status_color: payload.validation_state && payload.validation_state.card_status_color ? payload.validation_state.card_status_color : '#f4b400',
+                                deposit_status: payload.deposit_status || '',
+                                action_required: !!payload.action_required
+                            });
+                        };
+
+                        var runNext = function() {
+                            if (cancelled || nextIndex >= queue.length) return Promise.resolve();
+                            var current = queue[nextIndex++];
+                            if (!current || !current.itemId) return runNext();
+
+                            var formData = new FormData();
+                            formData.append('action', 'n88_get_item_rfq_state');
+                            formData.append('item_id', String(current.itemId));
+                            formData.append('_ajax_nonce', nonce);
+
+                            var request = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+                                .then(function(response) { return response.json(); })
+                                .then(function(data) {
+                                    if (cancelled || !data || !data.success || !data.data) return;
+                                    window.n88BoardRfqStateCache[current.itemId] = data.data;
+                                    applyPayloadToStore(current.itemKey, data.data);
+                                })
+                                .catch(function() {})
+                                .finally(function() {
+                                    delete window.n88BoardRfqStatePending[current.itemId];
+                                });
+
+                            window.n88BoardRfqStatePending[current.itemId] = request;
+                            return request.then(runNext);
+                        };
+
+                        var workers = [];
+                        for (var workerIndex = 0; workerIndex < concurrency && workerIndex < queue.length; workerIndex++) {
+                            workers.push(runNext());
+                        }
+
+                        return function() {
+                            cancelled = true;
+                        };
+                    }, [boardId, items, updateLayout]);
 
                     React.useEffect(function() {
                         var createBtn = document.getElementById('n88-create-batch-rfq-btn');
@@ -22610,6 +23485,8 @@ class N88_RFQ_Admin {
                             setBatchSelected({});
                             setBatchModalOpen(false);
                             setProposalModalOpen(false);
+                            setBatchActionSelectionModalOpen(false);
+                            setBatchActionDetailModalOpen(false);
                             setBatchRows([]);
                             setProposalItems([]);
                             setBatchError('');
@@ -22633,6 +23510,8 @@ class N88_RFQ_Admin {
                             setBatchSelected({});
                             setBatchModalOpen(false);
                             setProposalModalOpen(false);
+                            setBatchActionSelectionModalOpen(false);
+                            setBatchActionDetailModalOpen(false);
                             setBatchRows([]);
                             setProposalItems([]);
                             setBatchError('');
@@ -22661,10 +23540,10 @@ class N88_RFQ_Admin {
                         }
                     }, [items, selectionMode, batchSelected, isRfqSelectionMode]);
                     React.useEffect(function() {
-                        if (batchModalOpen || proposalModalOpen) document.body.classList.add('n88-modal-open');
+                        if (batchModalOpen || proposalModalOpen || batchActionSelectionModalOpen || batchActionDetailModalOpen) document.body.classList.add('n88-modal-open');
                         else document.body.classList.remove('n88-modal-open');
                         return function() { document.body.classList.remove('n88-modal-open'); };
-                    }, [batchModalOpen, proposalModalOpen]);
+                    }, [batchModalOpen, proposalModalOpen, batchActionSelectionModalOpen, batchActionDetailModalOpen]);
                     React.useEffect(function() {
                         if (!proposalModalOpen || !proposalContext || proposalContext.mode !== 'grouped' || !proposalContext.anchorItemId) return;
                         var timer = setTimeout(function() {
@@ -23795,9 +24674,294 @@ class N88_RFQ_Admin {
                                         null
                                     )
                                 );
-                            }));
+                            }),
+                                    proposalItemGroups.length ? React.createElement('div', {
+                                        style: { marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }
+                                    },
+                                        React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } },
+                                            'Batch actions now start with item selection. Sample requests open a separated accordion modal with one Step 02 form per item.'
+                                        ),
+                                        React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                                            React.createElement('button', {
+                                                type: 'button',
+                                                onClick: function() { openBatchActionSelectionModal('sample'); },
+                                                style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }
+                                            }, 'Batch Request Sample'),
+                                            React.createElement('button', {
+                                                type: 'button',
+                                                onClick: function() { openBatchActionSelectionModal('award'); },
+                                                style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }
+                                            }, 'Batch Award Project')
+                                        )
+                                    ) : null
+                                );
                             })() : null
                         ))), document.body) : null,
+                        batchActionSelectionModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
+                            className: 'n88-board-modal-backdrop n88-modal-open',
+                            style: { position: 'fixed', inset: 0, backgroundColor: 'rgb(17 43 74 / 0%)', backdropFilter: 'blur(3px)', zIndex: 10000004, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px' },
+                            onClick: function(e) { if (e.target === e.currentTarget && !batchActionSubmitting) setBatchActionSelectionModalOpen(false); }
+                        }, React.createElement('div', {
+                            className: 'n88-board-modal-box',
+                            style: { width: 'min(880px, 95vw)', maxHeight: '92vh', overflow: 'auto', background: '#323232', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' },
+                            onClick: function(e) { e.stopPropagation(); }
+                        },
+                            React.createElement('div', { style: { padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+                                React.createElement('div', null,
+                                    React.createElement('div', { style: { fontSize: '18px', fontWeight: 600 } }, batchActionMode === 'award' ? 'Select Items To Award' : 'Select Items For Sample Requests'),
+                                    React.createElement('div', { style: { fontSize: '12px', opacity: 0.85, marginTop: '2px' } },
+                                        (batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).length + ' quoted items available'
+                                    )
+                                ),
+                                React.createElement('button', {
+                                    type: 'button',
+                                    disabled: batchActionSubmitting,
+                                    onClick: function() { if (!batchActionSubmitting) setBatchActionSelectionModalOpen(false); },
+                                    style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
+                                }, 'x')
+                            ),
+                            React.createElement('div', { style: { padding: '16px 20px' } },
+                                batchActionError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.45)', borderRadius: '6px', color: '#ffb3b3', fontSize: '13px' } }, batchActionError) : null,
+                                !(batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).length ? React.createElement('div', { style: { padding: '20px', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.18)', color: '#ddd', fontSize: '13px' } }, batchActionMode === 'award' ? 'No eligible quoted items are available for batch award.' : 'No eligible quoted items are available for batch sample requests.') : null,
+                                (batchActionMode === 'award' ? getBatchActionQuotedGroups('award') : getBatchActionQuotedGroups('sample')).map(function(group) {
+                                    var itemId = toNumericItemId(group && group.item && group.item.id);
+                                    var options = getProposalGroupSupplierOptions(group);
+                                    return React.createElement('div', { key: 'batch-action-select-' + itemId, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '14px', marginBottom: '12px', background: '#2a2a2a' } },
+                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' } },
+                                            React.createElement('label', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', flex: 1 } },
+                                                React.createElement('input', { type: 'checkbox', checked: !!batchActionSelection[itemId], onChange: function() { toggleBatchActionSelectionItem(itemId); }, style: { marginTop: '3px', accentColor: boardCanvasGreenAccent } }),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', { style: { fontSize: '14px', fontWeight: '600', color: '#fff' } }, group && group.item && group.item.title ? group.item.title : ('Item ' + itemId)),
+                                                    React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + itemId + ' | ' + getProposalGroupStatusText(group) + ' | ' + options.length + ' supplier option' + (options.length === 1 ? '' : 's'))
+                                                )
+                                            ),
+                                            batchActionMode === 'award' ? React.createElement('select', {
+                                                value: batchActionSelectedBidIds[itemId] || '',
+                                                disabled: !batchActionSelection[itemId],
+                                                onChange: function(e) {
+                                                    var nextBidId = parseInt(e.target.value, 10) || 0;
+                                                    setBatchActionSelectedBidIds(function(prev) {
+                                                        var next = Object.assign({}, prev || {});
+                                                        next[itemId] = nextBidId;
+                                                        return next;
+                                                    });
+                                                },
+                                                style: { minWidth: '230px', padding: '10px 12px', backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: '#fff', fontSize: '12px' }
+                                            }, options.map(function(option) {
+                                                return React.createElement('option', { key: 'award-option-' + itemId + '-' + option.bidId, value: option.bidId }, option.label);
+                                            })) : null
+                                        )
+                                    );
+                                }),
+                                React.createElement('div', { style: { marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf' } }, 'Selected Items: ' + selectedBatchActionCount),
+                                    React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: batchActionSubmitting,
+                                            onClick: function() { if (!batchActionSubmitting) setBatchActionSelectionModalOpen(false); },
+                                            style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', fontSize: '12px' }
+                                        }, 'Cancel'),
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: batchActionSubmitting || !selectedBatchActionCount,
+                                            onClick: function() { batchActionMode === 'award' ? submitBatchAwardSelection() : startBatchSampleAccordionFlow(); },
+                                            style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchActionSubmitting || !selectedBatchActionCount) ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '600' }
+                                        }, batchActionMode === 'award' ? (batchActionSubmitting ? 'Awarding...' : 'Award Selected Items') : 'Continue to Sample Forms')
+                                    )
+                                )
+                            )
+                        )), document.body) : null,
+                        batchActionDetailModalOpen && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(React.createElement('div', {
+                            className: 'n88-board-modal-backdrop n88-modal-open',
+                            style: { position: 'fixed', inset: 0, backgroundColor: 'rgb(17 43 74 / 0%)', backdropFilter: 'blur(3px)', zIndex: 10000005, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px' },
+                            onClick: function(e) { if (e.target === e.currentTarget && !batchActionSubmitting) setBatchActionDetailModalOpen(false); }
+                        }, React.createElement('div', {
+                            className: 'n88-board-modal-box',
+                            style: { width: 'min(1180px, 96vw)', maxHeight: '94vh', overflow: 'auto', background: '#323232', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' },
+                            onClick: function(e) { e.stopPropagation(); }
+                        },
+                            React.createElement('div', { style: { padding: '14px 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+                                React.createElement('div', null,
+                                    React.createElement('div', { style: { fontSize: '18px', fontWeight: 600 } }, 'Batch Sample Request'),
+                                    React.createElement('div', { style: { fontSize: '12px', opacity: 0.85, marginTop: '2px' } }, 'Separated accordion layout. Ready to Send: ' + batchActionSampleRows.filter(function(row) { return getBatchSampleRowSelectionIssues(row).length === 0; }).length + ' | Not Ready: ' + batchActionSampleRows.filter(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; }).length)
+                                ),
+                                React.createElement('button', {
+                                    type: 'button',
+                                    disabled: batchActionSubmitting,
+                                    onClick: function() { if (!batchActionSubmitting) setBatchActionDetailModalOpen(false); },
+                                    style: { background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', lineHeight: 1, padding: '2px 6px' }
+                                }, 'x')
+                            ),
+                            React.createElement('div', { style: { padding: '16px 20px' } },
+                                batchActionMessage ? React.createElement('div', { style: { marginBottom: '12px', padding: '10px 12px', backgroundColor: '#102410', border: '1px solid ' + boardCanvasGreenAccent, borderRadius: '4px', fontSize: '12px', color: boardCanvasGreenAccent } }, batchActionMessage) : null,
+                                batchActionError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.45)', borderRadius: '6px', color: '#ffb3b3', fontSize: '13px' } }, batchActionError) : null,
+                                batchActionSampleRows.map(function(row) {
+                                    var selectedOption = (row.supplierOptions || []).find(function(option) { return option.bidId === row.selectedBidId; }) || null;
+                                    var selectedBid = selectedOption ? selectedOption.bid : null;
+                                    var selectedOurWork = selectedBid && Array.isArray(selectedBid.supplier_library_media) ? selectedBid.supplier_library_media.map(function(entry) { return Object.assign({}, entry, { _library_group: 'our_work' }); }) : [];
+                                    var selectedMaterialSamples = selectedBid && Array.isArray(selectedBid.supplier_material_samples) ? selectedBid.supplier_material_samples.map(function(entry) { return Object.assign({}, entry, { _library_group: 'material_samples' }); }) : [];
+                                    var visibleLibraryItems = selectedOurWork.concat(selectedMaterialSamples);
+                                    var readyIssues = getBatchSampleRowSelectionIssues(row);
+                                    var isExpanded = !!batchActionExpanded[row.itemId];
+                                    return React.createElement('div', { key: 'batch-sample-row-' + row.itemId, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden', marginBottom: '14px' } },
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            onClick: function() {
+                                                setBatchActionExpanded(function(prev) {
+                                                    var next = Object.assign({}, prev || {});
+                                                    next[row.itemId] = !next[row.itemId];
+                                                    return next;
+                                                });
+                                            },
+                                            style: { width: '100%', padding: '14px 16px', border: 'none', background: '#2f2f2f', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', cursor: 'pointer', textAlign: 'left' }
+                                        },
+                                            React.createElement('div', null,
+                                                React.createElement('div', { style: { fontSize: '14px', fontWeight: '600' } }, row.itemTitle),
+                                                React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf', marginTop: '4px' } }, 'Item #' + row.itemId + ' | ' + row.statusText)
+                                            ),
+                                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' } },
+                                                React.createElement('span', { style: { fontSize: '11px', padding: '4px 10px', borderRadius: '999px', border: readyIssues.length ? '1px solid rgba(255,152,0,0.4)' : '1px solid rgba(76,175,80,0.4)', background: readyIssues.length ? 'rgba(255,152,0,0.18)' : 'rgba(76,175,80,0.18)', color: readyIssues.length ? '#ffd8a8' : '#9cffb2' } }, readyIssues.length ? 'Not Ready' : 'Ready to Send'),
+                                                React.createElement('span', { style: { fontSize: '16px', lineHeight: 1 } }, isExpanded ? '−' : '+')
+                                            )
+                                        ),
+                                        isExpanded ? React.createElement('div', { style: { padding: '16px' } },
+                                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' } },
+                                                React.createElement('div', null,
+                                                    React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Supplier'),
+                                                    React.createElement('select', {
+                                                        value: row.selectedBidId || '',
+                                                        disabled: batchActionSubmitting || row.isLocked,
+                                                        onChange: function(e) {
+                                                            var nextBidId = parseInt(e.target.value, 10) || 0;
+                                                            var nextOption = (row.supplierOptions || []).find(function(option) { return option.bidId === nextBidId; }) || null;
+                                                            updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                                return Object.assign({}, currentRow, {
+                                                                    selectedBidId: nextBidId,
+                                                                    selectedSupplierId: nextOption ? nextOption.supplierId : 0,
+                                                                    selectedMaterialRefs: []
+                                                                });
+                                                            });
+                                                        },
+                                                        style: { width: '100%', padding: '10px 12px', backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: '#fff', fontSize: '12px' }
+                                                    }, (row.supplierOptions || []).map(function(option) {
+                                                        return React.createElement('option', { key: 'sample-row-option-' + row.itemId + '-' + option.bidId, value: option.bidId }, option.label);
+                                                    }))
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Selection Summary'),
+                                                    React.createElement('div', { style: { padding: '10px 12px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', background: '#111', fontSize: '11px', color: '#ddd', lineHeight: 1.6 } },
+                                                        'Mode: Mixed Kit / Physical',
+                                                        React.createElement('br'),
+                                                        'Selected Materials: ' + ((row.selectedMaterialRefs || []).length || 0),
+                                                        readyIssues.length ? React.createElement(React.Fragment, null, React.createElement('br'), 'Missing: ' + readyIssues.join(', ')) : null
+                                                    )
+                                                )
+                                            ),
+                                            React.createElement('div', { style: { marginBottom: '14px' } },
+                                                React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '8px' } }, 'Select Supplier Materials'),
+                                                renderBoardCanvasSupportMediaCards(visibleLibraryItems, {
+                                                    selectable: true,
+                                                    selectedIds: row.selectedMaterialRefs || [],
+                                                    keyPrefix: 'batch-sample-media-' + row.itemId + '-',
+                                                    emptyText: 'This supplier has not uploaded any support media yet.',
+                                                    defaultTitlePrefix: 'Material',
+                                                    getEntrySelectionId: function(entry) {
+                                                        var libraryGroup = entry && entry._library_group ? String(entry._library_group) : 'material_samples';
+                                                        var entryId = String((entry && (entry.material_id || entry.id)) || '');
+                                                        return libraryGroup + ':' + entryId;
+                                                    },
+                                                    onToggle: function(selectionId) {
+                                                        if (batchActionSubmitting || row.isLocked) return;
+                                                        updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                            var existingIds = Array.isArray(currentRow.selectedMaterialRefs) ? currentRow.selectedMaterialRefs.slice() : [];
+                                                            return Object.assign({}, currentRow, {
+                                                                selectedMaterialRefs: existingIds.indexOf(selectionId) !== -1 ? existingIds.filter(function(entry) { return entry !== selectionId; }) : existingIds.concat([selectionId])
+                                                            });
+                                                        });
+                                                    }
+                                                })
+                                            ),
+                                            React.createElement('div', { style: { marginBottom: '14px' } },
+                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Reference Files'),
+                                                React.createElement('input', {
+                                                    type: 'file',
+                                                    multiple: true,
+                                                    disabled: batchActionSubmitting || row.isLocked,
+                                                    onChange: function(e) {
+                                                        var nextFiles = Array.from((e.target && e.target.files) || []);
+                                                        if (!nextFiles.length) return;
+                                                        updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                            var existingFiles = Array.isArray(currentRow.referenceFiles) ? currentRow.referenceFiles.slice() : [];
+                                                            return Object.assign({}, currentRow, { referenceFiles: existingFiles.concat(nextFiles) });
+                                                        });
+                                                        if (e.target) e.target.value = '';
+                                                    },
+                                                    style: { display: 'block', width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box' }
+                                                }),
+                                                row.referenceFiles && row.referenceFiles.length ? React.createElement('div', { style: { marginTop: '8px', display: 'grid', gap: '6px' } },
+                                                    row.referenceFiles.map(function(file, fileIdx) {
+                                                        return React.createElement('div', { key: 'batch-row-file-' + row.itemId + '-' + fileIdx, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', backgroundColor: '#0a0a0a', border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', fontSize: '11px', color: boardCanvasDarkText } },
+                                                            React.createElement('span', null, file.name),
+                                                            React.createElement('button', {
+                                                                type: 'button',
+                                                                disabled: batchActionSubmitting || row.isLocked,
+                                                                onClick: function() {
+                                                                    updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                                        return Object.assign({}, currentRow, {
+                                                                            referenceFiles: (currentRow.referenceFiles || []).filter(function(_, currentIdx) { return currentIdx !== fileIdx; })
+                                                                        });
+                                                                    });
+                                                                },
+                                                                style: { background: 'none', border: 'none', color: '#ff6666', cursor: (batchActionSubmitting || row.isLocked) ? 'not-allowed' : 'pointer', fontSize: '14px' }
+                                                            }, 'x')
+                                                        );
+                                                    })
+                                                ) : null
+                                            ),
+                                            React.createElement('div', { style: { marginBottom: '14px' } },
+                                                React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Instructions'),
+                                                React.createElement('textarea', {
+                                                    value: row.instructions || '',
+                                                    disabled: batchActionSubmitting || row.isLocked,
+                                                    onChange: function(e) { updateBatchSampleRow(row.itemId, { instructions: e.target.value || '' }); },
+                                                    rows: 3,
+                                                    placeholder: 'Add notes for the supplier sample request',
+                                                    style: { width: '100%', padding: '8px', backgroundColor: boardCanvasDarkBg, border: '1px solid ' + boardCanvasDarkBorder, borderRadius: '4px', color: boardCanvasDarkText, fontSize: '11px', boxSizing: 'border-box', fontFamily: 'monospace' }
+                                                })
+                                            ),
+                                            React.createElement('div', null,
+                                                React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Shipping Address'),
+                                                renderBoardCanvasAddressFields(row.shippingAddressFields, function(nextValue) {
+                                                    updateBatchSampleRow(row.itemId, function(currentRow) {
+                                                        return Object.assign({}, currentRow, {
+                                                            shippingAddressFields: typeof nextValue === 'function' ? nextValue(currentRow.shippingAddressFields) : nextValue
+                                                        });
+                                                    });
+                                                }, batchActionSubmitting || row.isLocked)
+                                            )
+                                        ) : null
+                                    );
+                                }),
+                                React.createElement('div', { style: { marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf' } }, 'Submit will create item-level Step 02 sample requests for all selected accordion items.'),
+                                    React.createElement('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: batchActionSubmitting,
+                                            onClick: function() { if (!batchActionSubmitting) setBatchActionDetailModalOpen(false); },
+                                            style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: batchActionSubmitting ? 'not-allowed' : 'pointer', fontSize: '12px' }
+                                        }, 'Cancel'),
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            disabled: batchActionSubmitting || batchActionSampleRows.some(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; }),
+                                            onClick: submitBatchSampleRequests,
+                                            style: { padding: '10px 14px', borderRadius: '4px', border: '1px solid ' + boardCanvasGreenAccent, background: 'transparent', color: '#fff', cursor: (batchActionSubmitting || batchActionSampleRows.some(function(row) { return getBatchSampleRowSelectionIssues(row).length > 0; })) ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '600' }
+                                        }, batchActionSubmitting ? 'Submitting...' : 'Submit Sample Requests')
+                                    )
+                                )
+                            )
+                        )), document.body) : null,
                         // Welcome Modal - shown once per user
                         React.createElement(WelcomeModal, { userId: currentUserId }),
                         // UnsyncedToast removed - no longer showing "Changes not saved" notification
@@ -24291,29 +25455,29 @@ class N88_RFQ_Admin {
                 }
                 if ( $latest_step_status === 'completed' && $latest_step_num === 6 ) {
                     $step456_status_text = 'Step 6 Completed';
-                    $step456_status_color = '#00ff00';
+                    $step456_status_color = '#111111';
                 } elseif ( $latest_step_status === 'completed' ) {
                     $step456_status_text = 'Step ' . $latest_step_num . ' Completed';
-                    $step456_status_color = '#00ff00';
+                    $step456_status_color = '#111111';
                 } elseif ( $latest_step_status === 'in_progress' ) {
                     $step456_status_text = 'Step ' . $latest_step_num . ' In Progress';
-                    $step456_status_color = '#2196f3';
+                    $step456_status_color = '#2e7d32';
                 }
                 if ( ! $step456_status_text && $has_designer_comment ) {
                     $step456_status_text = 'Designer commented';
-                    $step456_status_color = '#ff9800';
+                    $step456_status_color = '#f57c00';
                 }
                 if ( ! $step456_status_text && $has_operator_video ) {
                     $step456_status_text = 'Operator video added';
-                    $step456_status_color = '#2196f3';
+                    $step456_status_color = '#2e7d32';
                 }
                 if ( ! $step456_status_text && $has_supplier_video ) {
                     $step456_status_text = 'Supplier video received';
-                    $step456_status_color = '#4caf50';
+                    $step456_status_color = '#2e7d32';
                 }
                 if ( ! $step456_status_text && ( $latest_step_status === 'pending' || $latest_step_num ) ) {
                     $step456_status_text = 'Step 4–6 Pending';
-                    $step456_status_color = '#999';
+                    $step456_status_color = '#2e7d32';
                 }
             }
             $items_status[] = array(
@@ -24340,7 +25504,7 @@ class N88_RFQ_Admin {
                 'step456_status_color' => $step456_status_color,
                 'validation_state' => $validation_card_state,
                 'validation_card_status_text' => isset( $validation_card_state['card_status_text'] ) ? $validation_card_state['card_status_text'] : '',
-                'validation_card_status_color' => isset( $validation_card_state['card_status_color'] ) ? $validation_card_state['card_status_color'] : '#2196f3',
+                'validation_card_status_color' => isset( $validation_card_state['card_status_color'] ) ? $validation_card_state['card_status_color'] : '#f4b400',
                 'deposit_status' => isset( $item_meta_for_deposit['deposit_status'] ) ? $item_meta_for_deposit['deposit_status'] : '',
                 'deposit_amount' => isset( $item_meta_for_deposit['deposit_amount'] ) ? floatval( $item_meta_for_deposit['deposit_amount'] ) : null,
                 'deposit_received_at' => isset( $item_meta_for_deposit['deposit_received_at'] ) ? $item_meta_for_deposit['deposit_received_at'] : null,

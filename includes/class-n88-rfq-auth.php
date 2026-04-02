@@ -19,6 +19,8 @@ class N88_RFQ_Auth {
      */
     const N88_SYSTEM_INVITED_EXPIRY_SECONDS = 172800; // 60 minutes for testing (change to 172800 for 48 hours)
     const N88_DEFAULT_WIREFRAME_SUPPLIER_EMAIL = 'wireframestudioos@gmail.com';
+    private static $n88_table_exists_cache = array();
+    private static $n88_table_columns_cache = array();
 
     public function __construct() {
         // Register shortcodes
@@ -200,6 +202,36 @@ class N88_RFQ_Auth {
         // Route guards (Commit 2.2.1)
         add_action( 'template_redirect', array( $this, 'enforce_route_guards' ) );
         add_action( 'admin_init', array( $this, 'enforce_admin_route_guards' ) );
+    }
+
+    private function table_exists_cached( $table_name ) {
+        global $wpdb;
+
+        $table_name = (string) $table_name;
+        if ( isset( self::$n88_table_exists_cache[ $table_name ] ) ) {
+            return self::$n88_table_exists_cache[ $table_name ];
+        }
+
+        self::$n88_table_exists_cache[ $table_name ] = ( $wpdb->get_var( "SHOW TABLES LIKE '{$table_name}'" ) === $table_name );
+        return self::$n88_table_exists_cache[ $table_name ];
+    }
+
+    private function table_columns_cached( $table_name ) {
+        global $wpdb;
+
+        $table_name = (string) $table_name;
+        if ( isset( self::$n88_table_columns_cache[ $table_name ] ) ) {
+            return self::$n88_table_columns_cache[ $table_name ];
+        }
+
+        if ( ! $this->table_exists_cached( $table_name ) ) {
+            self::$n88_table_columns_cache[ $table_name ] = array();
+            return self::$n88_table_columns_cache[ $table_name ];
+        }
+
+        $columns = $wpdb->get_col( "DESCRIBE {$table_name}" );
+        self::$n88_table_columns_cache[ $table_name ] = is_array( $columns ) ? $columns : array();
+        return self::$n88_table_columns_cache[ $table_name ];
     }
 
     /**
@@ -776,43 +808,69 @@ class N88_RFQ_Auth {
         );
     }
 
-    private function get_selected_supplier_material_library_items( $supplier_id, $material_ids ) {
-        $selected_ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $material_ids ) ) ) );
-        if ( ! $supplier_id || empty( $selected_ids ) ) {
+    private function get_selected_supplier_material_library_items( $supplier_id, $material_refs = array(), $material_ids = array() ) {
+        $selected_refs = array();
+        foreach ( (array) $material_refs as $raw_ref ) {
+            $raw_ref = sanitize_text_field( $raw_ref );
+            if ( ! preg_match( '/^(our_work|material_samples):(\d+)$/', $raw_ref, $matches ) ) {
+                continue;
+            }
+            $selected_refs[] = $matches[1] . ':' . absint( $matches[2] );
+        }
+        $selected_refs = array_values( array_unique( array_filter( $selected_refs ) ) );
+        $selected_ids  = array_values( array_unique( array_filter( array_map( 'absint', (array) $material_ids ) ) ) );
+
+        if ( ! $supplier_id || ( empty( $selected_refs ) && empty( $selected_ids ) ) ) {
             return array();
         }
 
-        $payload      = $this->get_supplier_media_library_payload( $supplier_id, false );
+        $payload       = $this->get_supplier_media_library_payload( $supplier_id, false );
         $library_index = array();
+        $legacy_index  = array();
 
         foreach ( (array) $payload['our_work'] as $entry ) {
             $entry_id = isset( $entry['id'] ) ? absint( $entry['id'] ) : 0;
             if ( $entry_id ) {
-                $library_index[ $entry_id ] = array_merge(
+                $normalized_entry = array_merge(
                     $entry,
                     array(
                         'library_group' => 'our_work',
                     )
                 );
+                $library_index[ 'our_work:' . $entry_id ] = $normalized_entry;
+                if ( ! isset( $legacy_index[ $entry_id ] ) ) {
+                    $legacy_index[ $entry_id ] = $normalized_entry;
+                }
             }
         }
 
         foreach ( (array) $payload['material_samples'] as $entry ) {
             $entry_id = isset( $entry['material_id'] ) ? absint( $entry['material_id'] ) : ( isset( $entry['id'] ) ? absint( $entry['id'] ) : 0 );
             if ( $entry_id ) {
-                $library_index[ $entry_id ] = array_merge(
+                $normalized_entry = array_merge(
                     $entry,
                     array(
                         'library_group' => 'material_samples',
                     )
                 );
+                $library_index[ 'material_samples:' . $entry_id ] = $normalized_entry;
+                $legacy_index[ $entry_id ] = $normalized_entry;
             }
         }
 
         $selected_entries = array();
+        if ( ! empty( $selected_refs ) ) {
+            foreach ( $selected_refs as $selected_ref ) {
+                if ( isset( $library_index[ $selected_ref ] ) ) {
+                    $selected_entries[] = $library_index[ $selected_ref ];
+                }
+            }
+            return $selected_entries;
+        }
+
         foreach ( $selected_ids as $selected_id ) {
-            if ( isset( $library_index[ $selected_id ] ) ) {
-                $selected_entries[] = $library_index[ $selected_id ];
+            if ( isset( $legacy_index[ $selected_id ] ) ) {
+                $selected_entries[] = $legacy_index[ $selected_id ];
             }
         }
 
@@ -3947,6 +4005,18 @@ class N88_RFQ_Auth {
             $is_action_required = false;
             $cad_released = ! empty( $cad_released_to_supplier_at ) && trim( (string) $cad_released_to_supplier_at ) !== '';
             $has_prototype_payment = $prototype_payment_status !== null && $prototype_payment_status !== '';
+            $validation_sample_status    = isset( $validation_state['sample_status'] ) ? strtolower( (string) $validation_state['sample_status'] ) : '';
+            $validation_review_state     = isset( $validation_state['review'] ) && is_array( $validation_state['review'] ) ? $validation_state['review'] : array();
+            $validation_commitment_state = isset( $validation_state['commitment'] ) && is_array( $validation_state['commitment'] ) ? $validation_state['commitment'] : array();
+            $validation_samples_approved = ! empty( $validation_review_state['approved_at'] ) || 'samples_approved' === $validation_sample_status;
+            $validation_samples_received = ! empty( $validation_review_state['samples_received_at'] ) || 'samples_received' === $validation_sample_status;
+            $validation_samples_shipped  = in_array( $validation_sample_status, array( 'delivered', 'shipped', 'in_transit' ), true );
+            $validation_samples_under_review = 'under_review' === $validation_sample_status;
+            $validation_po_uploaded      = ! empty( $validation_commitment_state['po_uploaded_at'] ) || ! empty( $validation_commitment_state['po_file'] ) || ! empty( $validation_commitment_state['po_file_id'] );
+            $validation_deposit_status   = isset( $validation_commitment_state['deposit_status'] ) ? sanitize_key( (string) $validation_commitment_state['deposit_status'] ) : '';
+            $validation_deposit_confirmed = ! empty( $validation_commitment_state['deposit_confirmed_at'] ) || in_array( $validation_deposit_status, array( 'confirmed', 'paid', 'recorded' ), true );
+            $validation_com_status       = isset( $validation_commitment_state['com_status'] ) ? sanitize_key( (string) $validation_commitment_state['com_status'] ) : '';
+            $validation_com_shipped      = ! empty( $validation_commitment_state['com_shipped_at'] ) || in_array( $validation_com_status, array( 'com_in_transit', 'shipped', 'in_transit' ), true );
 
             if ( $has_unread_designer_messages ) {
                 $status_note = sprintf(
@@ -3980,20 +4050,44 @@ class N88_RFQ_Auth {
                 $award_set             = isset( $meta_for_status['award_set'] ) ? (bool) $meta_for_status['award_set'] : false;
                 $official_quote_status = isset( $meta_for_status['official_quote_status'] ) ? $meta_for_status['official_quote_status'] : '';
 
-                if ( $award_set || $deposit_status === 'received' ) {
-                    // Deposit confirmed - production started
-                    $status_label = __( 'In Production', 'n88-rfq-platform' );
+                if ( $validation_com_shipped ) {
+                    $status_label = __( 'COM Shipped', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $validation_deposit_confirmed || $award_set || $deposit_status === 'received' ) {
+                    $status_label = __( 'Deposit Confirmed', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $validation_po_uploaded ) {
+                    $status_label = __( 'PO Uploaded', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
                 } elseif ( $official_quote_status === 'submitted' ) {
-                    // Official quote PDF submitted  supplier sees "Quote File Submitted", not "Awaiting Deposit"
-                    $status_label = __( 'Awarded - Quote File Submitted', 'n88-rfq-platform' );
+                    $status_label = __( 'Project Awarded', 'n88-rfq-platform' );
                     $status_color = '#00ff00';
+                } elseif ( $validation_samples_approved ) {
+                    $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
+                    $status_color = '#00ff00';
+                } elseif ( $validation_samples_received ) {
+                    $status_label = __( 'Samples Received', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
+                } elseif ( $validation_samples_shipped ) {
+                    $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
+                    $status_color = '#66aaff';
                 } else {
-                    // Awarded, but supplier still must submit Official Quote PDF  Action Required, distinct color
-                    $status_label = __( 'Awarded  Quote PDF Required', 'n88-rfq-platform' );
+                    $status_label = __( 'Project Awarded - Quote PDF Required', 'n88-rfq-platform' );
                     $status_color = '#ff8800';
                     $is_action_required = true;
                 }
+            } elseif ( $validation_samples_approved ) {
+                $status_label = __( 'Samples Approved', 'n88-rfq-platform' );
+                $status_color = '#00ff00';
+            } elseif ( $validation_samples_received ) {
+                $status_label = __( 'Samples Received', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $validation_samples_shipped ) {
+                $status_label = __( 'Samples Shipped', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
+            } elseif ( $validation_samples_under_review ) {
+                $status_label = __( 'Samples Under Review', 'n88-rfq-platform' );
+                $status_color = '#66aaff';
             } elseif ( $action_badge === 'expired' ) {
                 $status_label = __( 'Expired', 'n88-rfq-platform' );
                 $status_color = '#999';
@@ -4524,13 +4618,32 @@ class N88_RFQ_Auth {
                 sharedUploads: [],
                 detailPromises: {},
                 detailCache: {},
+                detailCacheMeta: {},
                 formLoaded: {},
                 formLoadPromises: {}
             };
 
-            function fetchSupplierItemDetails(itemId) {
-                var state = window.n88SupplierBatchState;
+            function invalidateSupplierItemDetailsCache(itemId) {
+                var state = window.n88SupplierBatchState || {};
+                if (!state) return;
+                if (state.detailPromises && state.detailPromises[itemId]) {
+                    delete state.detailPromises[itemId];
+                }
                 if (state.detailCache && state.detailCache[itemId]) {
+                    delete state.detailCache[itemId];
+                }
+                if (state.detailCacheMeta && state.detailCacheMeta[itemId]) {
+                    delete state.detailCacheMeta[itemId];
+                }
+            }
+
+            function fetchSupplierItemDetails(itemId, options) {
+                var state = window.n88SupplierBatchState;
+                options = options || {};
+                var forceRefresh = !!options.forceRefresh;
+                var cacheTtlMs = typeof options.cacheTtlMs === 'number' ? options.cacheTtlMs : 15000;
+                var cachedAt = state.detailCacheMeta && state.detailCacheMeta[itemId] ? state.detailCacheMeta[itemId] : 0;
+                if (!forceRefresh && state.detailCache && state.detailCache[itemId] && cachedAt && (Date.now() - cachedAt) < cacheTtlMs) {
                     return Promise.resolve({
                         success: true,
                         data: state.detailCache[itemId]
@@ -4552,6 +4665,7 @@ class N88_RFQ_Auth {
                 }).then(function(result) {
                     if (result && result.success && result.data) {
                         state.detailCache[itemId] = result.data;
+                        state.detailCacheMeta[itemId] = Date.now();
                     }
                     return result;
                 }).finally(function() {
@@ -6192,6 +6306,7 @@ class N88_RFQ_Auth {
                                     var modal = document.getElementById('n88-supplier-bid-modal');
                                     if (modal) {
                                         modal.style.display = 'none';
+                                        invalidateSupplierItemDetailsCache(itemId);
                                         setTimeout(function() {
                                             openBidModal(itemId);
                                         }, 300);
@@ -6254,33 +6369,7 @@ class N88_RFQ_Auth {
                 modal.style.setProperty('backdrop-filter', 'blur(0.6px)', 'important');
                 document.body.style.overflow = 'hidden';
                 
-                // Fetch item details via AJAX (Commit 2.3.2)
-                var formData = new FormData();
-                formData.append('action', 'n88_get_supplier_item_details');
-                formData.append('item_id', itemId);
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
-                
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData,
-                    credentials: 'same-origin'
-                })
-                .then(function(response) {
-                    return response.text().then(function(text) {
-                        try {
-                            var data = JSON.parse(text);
-                            if (!response.ok) {
-                                return { success: false, data: { message: (data.data && data.data.message) ? data.data.message : ('Request failed: ' + response.status) } };
-                            }
-                            return data;
-                        } catch (e) {
-                            if (!response.ok) {
-                                return { success: false, data: { message: 'Request failed (' + response.status + '). Please try again.' } };
-                            }
-                            throw e;
-                        }
-                    });
-                })
+                fetchSupplierItemDetails(itemId)
                 .then(function(data) {
                     if (!data.success) {
                         modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
@@ -7259,6 +7348,7 @@ class N88_RFQ_Auth {
                                                         var modal = document.getElementById('n88-supplier-bid-modal');
                                                         if (modal) {
                                                             modal.style.display = 'none';
+                                                            invalidateSupplierItemDetailsCache(itemId);
                                                             setTimeout(function() {
                                                                 openBidModal(itemId);
                                                             }, 300);
@@ -7490,9 +7580,11 @@ class N88_RFQ_Auth {
                                     var material = selectedMaterials[sm] || {};
                                     var materialLabelParts = [];
                                     if (material.material_name) materialLabelParts.push(material.material_name);
+                                    if (material.title) materialLabelParts.push(material.title);
                                     if (material.material_code) materialLabelParts.push(material.material_code);
                                     if (material.material_type) materialLabelParts.push(material.material_type);
-                                    var materialImage = material.material_image_url || '';
+                                    if (material.library_group) materialLabelParts.push(String(material.library_group).replace(/_/g, ' '));
+                                    var materialImage = material.material_image_url || material.thumbnail_url || material.media_url || '';
                                     block += '<div style="display:flex; gap:10px; align-items:center; padding:8px; border:1px solid ' + darkBorder + '; border-radius:4px; background:#111;">';
                                     if (materialImage) {
                                         block += '<img src="' + escHtml(materialImage) + '" alt="" style="width:54px; height:54px; object-fit:cover; border-radius:4px; border:1px solid ' + darkBorder + ';" />';
@@ -7530,7 +7622,7 @@ class N88_RFQ_Auth {
                             block += '<input type="text" id="n88-validation-tracking-' + itemId + '" value="' + escHtml(supplier.tracking_number || '') + '" placeholder="Tracking number" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px;" />';
                             block += '<textarea id="n88-validation-note-' + itemId + '" rows="3" placeholder="Supplier note" style="padding: 8px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 12px; font-family: monospace;">' + escHtml(supplier.note || '') + '</textarea>';
                             block += '<input type="file" id="n88-validation-files-' + itemId + '" multiple style="padding: 6px; background: #111; color: #fff; border: 1px solid ' + darkBorder + '; border-radius: 4px; font-size: 11px;" />';
-                            block += '<button type="button" id="n88-validation-submit-' + itemId + '" onclick="n88SupplierSubmitMaterialSamples(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Submit Samples</button>';
+                            block += '<button type="button" id="n88-validation-submit-' + itemId + '" onclick="n88SupplierSubmitMaterialSamples(' + itemId + ')" style="padding: 8px 12px; font-size: 11px; background: ' + green + '; color: #000; border: none; border-radius: 4px; cursor: pointer; font-family: monospace;">Material Samples Shipped</button>';
                             block += '</div></div>';
                             return block;
                         }
@@ -7644,7 +7736,7 @@ class N88_RFQ_Auth {
                                     if (!data.success) {
                                         if (submitBtn) {
                                             submitBtn.disabled = false;
-                                            submitBtn.textContent = 'Submit Samples';
+                                            submitBtn.textContent = 'Material Samples Shipped';
                                             submitBtn.style.opacity = '1';
                                             submitBtn.style.cursor = 'pointer';
                                         }
@@ -7663,7 +7755,7 @@ class N88_RFQ_Auth {
                                 .catch(function() {
                                     if (submitBtn) {
                                         submitBtn.disabled = false;
-                                        submitBtn.textContent = 'Submit Samples';
+                                        submitBtn.textContent = 'Material Samples Shipped';
                                         submitBtn.style.opacity = '1';
                                         submitBtn.style.cursor = 'pointer';
                                     }
@@ -8387,17 +8479,7 @@ class N88_RFQ_Auth {
             // Commit 2.3.3: Open bid form modal
             function openBidFormModal(itemId) {
                 // Check if bid already submitted (Commit 2.3.5)
-                var formData = new FormData();
-                formData.append('action', 'n88_get_supplier_item_details');
-                formData.append('item_id', itemId);
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
-                
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData,
-                    credentials: 'same-origin'
-                })
-                .then(function(response) { return response.json(); })
+                fetchSupplierItemDetails(itemId)
                 .then(function(data) {
                     // Allow opening form if:
                     // 1. No bid exists yet
@@ -8437,19 +8519,7 @@ class N88_RFQ_Auth {
                 modal.style.display = 'block';
                 document.body.style.overflow = 'hidden';
                 
-                // Fetch item details to get images
-                var formData = new FormData();
-                formData.append('action', 'n88_get_supplier_item_details');
-                formData.append('item_id', itemId);
-                formData.append('_ajax_nonce', '<?php echo wp_create_nonce( 'n88_get_supplier_item_details' ); ?>');
-                
-                fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(response) {
-                    return response.json();
-                })
+                fetchSupplierItemDetails(itemId)
                 .then(function(data) {
                     if (!data.success) {
                         modalContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #d32f2f;">' + 
@@ -13774,10 +13844,11 @@ class N88_RFQ_Auth {
         if ( ! $is_system_operator ) {
             if ( $is_designer ) {
                 // Designer can view their own items - check ownership
-                $item_owner = $wpdb->get_var( $wpdb->prepare(
-                    "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
-                    $item_id
-                ) );
+        $item_owner_row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT owner_user_id, meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ), ARRAY_A );
+        $item_owner = $item_owner_row && isset( $item_owner_row['owner_user_id'] ) ? (int) $item_owner_row['owner_user_id'] : 0;
                 
                 if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
                     wp_send_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
@@ -13809,7 +13880,7 @@ class N88_RFQ_Auth {
 
         // Fetch item data
         // Check if meta_json column exists
-        $items_columns = $wpdb->get_col( "DESCRIBE {$items_table}" );
+        $items_columns = $this->table_columns_cached( $items_table );
         $has_meta_json = in_array( 'meta_json', $items_columns, true );
         
         // Build SELECT query - include owner_user_id and meta_json if column exists
@@ -13914,7 +13985,7 @@ class N88_RFQ_Auth {
         }
 
         // Get delivery context (including quantity and dimensions from RFQ submission)
-        $delivery_columns = $wpdb->get_col( "DESCRIBE {$item_delivery_context_table}" );
+        $delivery_columns = $this->table_columns_cached( $item_delivery_context_table );
         $has_quantity = in_array( 'quantity', $delivery_columns, true );
         $has_dimensions = in_array( 'dimensions_json', $delivery_columns, true );
         
@@ -14201,7 +14272,7 @@ class N88_RFQ_Auth {
         $item_level_payment_notification = null; // Commit 2.3.9.2: Prototype tab  always send when supplier has prototype request
         if ( ! $is_system_operator ) {
             // Check if meta_json column exists in bids table
-            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+            $bids_columns = $this->table_columns_cached( $item_bids_table );
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             
             // G) Check for revision column in bids table
@@ -16053,6 +16124,62 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         return ! empty( $parts ) ? implode( ', ', $parts ) : 'Address pending from supplier.';
     }
 
+    private function normalize_structured_address( $address, $fallback_name = '' ) {
+        $normalized = array(
+            'name'         => '',
+            'address_line' => '',
+            'city'         => '',
+            'state'        => '',
+            'country'      => '',
+            'postal_code'  => '',
+        );
+
+        if ( is_array( $address ) ) {
+            $normalized['name']         = isset( $address['name'] ) ? sanitize_text_field( $address['name'] ) : '';
+            $normalized['address_line'] = isset( $address['address_line'] ) ? sanitize_text_field( $address['address_line'] ) : ( isset( $address['address_line1'] ) ? sanitize_text_field( $address['address_line1'] ) : '' );
+            $normalized['city']         = isset( $address['city'] ) ? sanitize_text_field( $address['city'] ) : '';
+            $normalized['state']        = isset( $address['state'] ) ? strtoupper( sanitize_text_field( $address['state'] ) ) : '';
+            $normalized['country']      = isset( $address['country'] ) ? sanitize_text_field( $address['country'] ) : '';
+            $normalized['postal_code']  = isset( $address['postal_code'] ) ? sanitize_text_field( $address['postal_code'] ) : ( isset( $address['zip_code'] ) ? sanitize_text_field( $address['zip_code'] ) : '' );
+        } elseif ( is_string( $address ) && '' !== trim( $address ) ) {
+            $normalized['address_line'] = sanitize_textarea_field( $address );
+        }
+
+        if ( ! $normalized['name'] && $fallback_name ) {
+            $normalized['name'] = sanitize_text_field( $fallback_name );
+        }
+
+        return $normalized;
+    }
+
+    private function format_structured_address( $address, $multiline = false ) {
+        $address = $this->normalize_structured_address( $address );
+        $lines   = array();
+
+        if ( ! empty( $address['name'] ) ) {
+            $lines[] = $address['name'];
+        }
+        if ( ! empty( $address['address_line'] ) ) {
+            $lines[] = $address['address_line'];
+        }
+
+        $locality = array_filter(
+            array(
+                $address['city'],
+                $address['state'],
+                $address['postal_code'],
+            )
+        );
+        if ( ! empty( $locality ) ) {
+            $lines[] = implode( ', ', $locality );
+        }
+        if ( ! empty( $address['country'] ) ) {
+            $lines[] = $address['country'];
+        }
+
+        return implode( $multiline ? "\n" : ', ', $lines );
+    }
+
     private function build_material_validation_state( $item_id, $meta = null ) {
         $item_id = absint( $item_id );
         $meta    = is_array( $meta ) ? $meta : $this->get_item_meta_array( $item_id );
@@ -16067,13 +16194,17 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $commitment = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
 
         $sample_status = isset( $validation['sample_status'] ) ? sanitize_key( $validation['sample_status'] ) : '';
+        $supplier_status = isset( $supplier['status'] ) ? sanitize_key( $supplier['status'] ) : '';
+        if ( ( ! $sample_status || 'sample_requested' === $sample_status ) && $supplier_status ) {
+            $sample_status = $supplier_status;
+        }
         if ( ! $sample_status ) {
             if ( ! empty( $review['approved_at'] ) ) {
                 $sample_status = 'samples_approved';
             } elseif ( ! empty( $review['samples_received_at'] ) ) {
                 $sample_status = 'samples_received';
-            } elseif ( ! empty( $supplier['status'] ) ) {
-                $sample_status = sanitize_key( $supplier['status'] );
+            } elseif ( ! empty( $supplier_status ) ) {
+                $sample_status = $supplier_status;
             } elseif ( ! empty( $request['requested_at'] ) ) {
                 $sample_status = 'sample_requested';
             }
@@ -16086,9 +16217,22 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $fabric_supplied_flag = isset( $meta['rfq_fabric_supplied_flag'] ) ? $meta['rfq_fabric_supplied_flag'] : '';
         $com_applicable       = in_array( strtolower( (string) $fabric_supplied_flag ), array( 'yes', '1', 'true' ), true );
 
-        if ( empty( $commitment['com_delivery_address'] ) && $supplier_id ) {
-            $commitment['com_delivery_address'] = $this->get_supplier_company_address( $supplier_id );
+        $request_shipping_address = $this->normalize_structured_address(
+            isset( $request['shipping_address_fields'] ) ? $request['shipping_address_fields'] : ( isset( $request['shipping_address'] ) ? $request['shipping_address'] : array() )
+        );
+        $request_shipping_address_text = $this->format_structured_address( $request_shipping_address, true );
+
+        $commitment_address = $this->normalize_structured_address(
+            isset( $commitment['com_delivery_address_fields'] ) ? $commitment['com_delivery_address_fields'] : ( isset( $commitment['com_delivery_address'] ) ? $commitment['com_delivery_address'] : array() )
+        );
+        if ( ! $this->format_structured_address( $commitment_address ) && $supplier_id ) {
+            $commitment_address = $this->normalize_structured_address(
+                array(
+                    'address_line' => $this->get_supplier_company_address( $supplier_id ),
+                )
+            );
         }
+        $commitment['com_delivery_address'] = $this->format_structured_address( $commitment_address );
 
         $po_uploaded     = ! empty( $commitment['po_file_id'] );
         $samples_approved = ! empty( $review['approved_at'] );
@@ -16100,11 +16244,11 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $readiness = array(
             'validation_complete' => $samples_approved,
             'awaiting_po'         => $samples_approved && ! $po_uploaded,
-            'awaiting_com'        => $samples_approved && $po_uploaded && $com_applicable && ! $com_completed,
-            'awaiting_deposit'    => $samples_approved && $po_uploaded && $com_completed && ! $deposit_confirmed,
+            'awaiting_deposit'    => $samples_approved && $po_uploaded && ! $deposit_confirmed,
+            'awaiting_com'        => $samples_approved && $po_uploaded && $deposit_confirmed && $com_applicable && ! $com_completed,
         );
 
-        $can_commit = $samples_approved && $po_uploaded && $com_completed && $deposit_confirmed;
+        $can_commit = $samples_approved && $po_uploaded && $deposit_confirmed && $com_completed;
 
         $card_status_text  = '';
         $card_status_color = '#2196f3';
@@ -16126,26 +16270,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         } elseif ( $sample_status === 'samples_received' ) {
             $card_status_text  = 'Samples Received';
             $card_status_color = '#2196f3';
-        } elseif ( in_array( $sample_status, array( 'under_review', 'delivered' ), true ) ) {
-            $card_status_text  = 'Review Samples';
-            $card_status_color = '#2196f3';
-        } elseif ( in_array( $sample_status, array( 'shipped', 'in_transit' ), true ) ) {
-            $card_status_text  = 'Samples In Transit';
+        } elseif ( in_array( $sample_status, array( 'under_review', 'delivered', 'shipped', 'in_transit' ), true ) ) {
+            $card_status_text  = 'Samples Shipped';
             $card_status_color = '#2196f3';
         } elseif ( $sample_status === 'in_preparation' ) {
             $card_status_text  = 'Samples In Preparation';
             $card_status_color = '#2196f3';
         } elseif ( $sample_status === 'sample_requested' ) {
-            if ( in_array( $payment_status, array( 'approved', 'recorded' ), true ) ) {
-                $card_status_text  = 'Sample Payment Approved';
-                $card_status_color = '#4caf50';
-            } elseif ( $payment_status === 'submitted' ) {
-                $card_status_text  = 'Sample Payment Sent';
-                $card_status_color = '#ff9800';
-            } else {
-                $card_status_text  = 'Samples Requested';
-                $card_status_color = '#2196f3';
-            }
+            $card_status_text  = 'Samples Requested';
+            $card_status_color = '#2196f3';
         }
 
         return array(
@@ -16163,9 +16296,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'sample_format'         => isset( $request['sample_format'] ) ? sanitize_text_field( $request['sample_format'] ) : '',
                 'evaluation_type'       => isset( $request['evaluation_type'] ) ? sanitize_key( $request['evaluation_type'] ) : '',
                 'instructions'          => isset( $request['instructions'] ) ? sanitize_textarea_field( $request['instructions'] ) : '',
-                'shipping_address'      => isset( $request['shipping_address'] ) ? sanitize_textarea_field( $request['shipping_address'] ) : '',
+                'shipping_address'      => $request_shipping_address_text,
+                'shipping_address_fields' => $request_shipping_address,
                 'selected_material_ids' => isset( $request['selected_material_ids'] ) && is_array( $request['selected_material_ids'] ) ? array_values( array_map( 'absint', $request['selected_material_ids'] ) ) : array(),
-                'selected_materials'    => $this->get_selected_supplier_material_library_items( $supplier_id, isset( $request['selected_material_ids'] ) ? $request['selected_material_ids'] : array() ),
+                'selected_material_refs' => isset( $request['selected_material_refs'] ) && is_array( $request['selected_material_refs'] ) ? array_values( array_map( 'sanitize_text_field', $request['selected_material_refs'] ) ) : array(),
+                'selected_materials'    => $this->get_selected_supplier_material_library_items(
+                    $supplier_id,
+                    isset( $request['selected_material_refs'] ) ? $request['selected_material_refs'] : array(),
+                    isset( $request['selected_material_ids'] ) ? $request['selected_material_ids'] : array()
+                ),
                 'reference_files'       => $this->get_validation_attachment_entries( isset( $request['reference_file_ids'] ) ? $request['reference_file_ids'] : array() ),
                 'requested_at'          => isset( $request['requested_at'] ) ? $request['requested_at'] : null,
                 'payment_submitted_at'  => isset( $request['payment_submitted_at'] ) ? $request['payment_submitted_at'] : null,
@@ -16197,7 +16336,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 'com_applicable'        => $com_applicable,
                 'com_required'          => ! empty( $commitment['com_required'] ) || $com_applicable,
                 'com_qty'               => isset( $commitment['com_qty'] ) ? sanitize_text_field( $commitment['com_qty'] ) : '',
-                'com_delivery_address'  => isset( $commitment['com_delivery_address'] ) ? sanitize_text_field( $commitment['com_delivery_address'] ) : '',
+                'com_delivery_address'  => $this->format_structured_address( $commitment_address, true ),
+                'com_delivery_address_fields' => $commitment_address,
                 'com_tracking_number'   => isset( $commitment['com_tracking_number'] ) ? sanitize_text_field( $commitment['com_tracking_number'] ) : '',
                 'com_status'            => $com_status,
                 'com_shipped_at'        => isset( $commitment['com_shipped_at'] ) ? $commitment['com_shipped_at'] : null,
@@ -16247,13 +16387,14 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $items_table = $wpdb->prefix . 'n88_items';
         $users_table = $wpdb->users;
         $default_wireframe_supplier_id = $this->get_default_wireframe_supplier_id();
+        $item_owner_row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT owner_user_id, meta_json FROM {$items_table} WHERE id = %d",
+            $item_id
+        ), ARRAY_A );
 
         // Check if item exists and user owns it (unless system operator)
         if ( ! $is_system_operator ) {
-            $item_owner = $wpdb->get_var( $wpdb->prepare(
-                "SELECT owner_user_id FROM {$items_table} WHERE id = %d",
-                $item_id
-            ) );
+            $item_owner = $item_owner_row && isset( $item_owner_row['owner_user_id'] ) ? (int) $item_owner_row['owner_user_id'] : 0;
             
             if ( ! $item_owner || intval( $item_owner ) !== $current_user->ID ) {
                 wp_send_json_error( array( 'message' => 'Access denied. You can only view your own items.' ), 403 );
@@ -16261,10 +16402,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         }
 
         // Get item meta for Smart Alternatives (item-level setting, same for all bids)
-        $item_meta = $wpdb->get_var( $wpdb->prepare(
-            "SELECT meta_json FROM {$items_table} WHERE id = %d",
-            $item_id
-        ) );
+        $item_meta = $item_owner_row && array_key_exists( 'meta_json', $item_owner_row ) ? $item_owner_row['meta_json'] : null;
         
         $smart_alternatives_enabled = false;
         $smart_alternatives_note = '';
@@ -16364,7 +16502,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         if ( $has_bids ) {
             // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
             // Check if meta_json and rfq_revision_at_submit columns exist
-            $bids_columns = $wpdb->get_col( "DESCRIBE {$item_bids_table}" );
+            $bids_columns = $this->table_columns_cached( $item_bids_table );
             $has_bid_meta_json = in_array( 'meta_json', $bids_columns, true );
             $has_revision_column = in_array( 'rfq_revision_at_submit', $bids_columns, true );
             
@@ -16397,9 +16535,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $delivery_cost_data = null;
             $delivery_shipping_mode = null;
             
-            $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$delivery_context_table}'" ) === $delivery_context_table;
+            $table_exists = $this->table_exists_cached( $delivery_context_table );
             if ( $table_exists ) {
-                $columns = $wpdb->get_col( "DESCRIBE {$delivery_context_table}" );
+                $columns = $this->table_columns_cached( $delivery_context_table );
                 $has_delivery_cost = in_array( 'delivery_cost_usd', $columns, true );
                 $has_shipping_mode = in_array( 'shipping_mode', $columns, true );
                 
@@ -16439,6 +16577,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
             $bid_media_files_table = $wpdb->prefix . 'n88_bid_media_files';
 
+            $supplier_profile_cache = array();
+            $supplier_media_payload_cache = array();
             foreach ( $bids_data as $bid ) {
                 // Get media links for this bid with provider information
                 $media_links = $wpdb->get_results( $wpdb->prepare(
@@ -16531,12 +16671,15 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 $duty_rate_override = null;
                 
                 if ( $supplier_id > 0 ) {
-                    $supplier_profile = $wpdb->get_row( $wpdb->prepare(
-                        "SELECT origin_region, duty_rate_override 
-                        FROM {$supplier_profiles_table} 
-                        WHERE supplier_id = %d",
-                        $supplier_id
-                    ), ARRAY_A );
+                    if ( ! array_key_exists( $supplier_id, $supplier_profile_cache ) ) {
+                        $supplier_profile_cache[ $supplier_id ] = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT origin_region, duty_rate_override 
+                            FROM {$supplier_profiles_table} 
+                            WHERE supplier_id = %d",
+                            $supplier_id
+                        ), ARRAY_A );
+                    }
+                    $supplier_profile = $supplier_profile_cache[ $supplier_id ];
                     
                     if ( $supplier_profile ) {
                         $origin_region = isset( $supplier_profile['origin_region'] ) ? $supplier_profile['origin_region'] : null;
@@ -16556,7 +16699,10 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $bid['bid_id']
                     ) );
                 }
-                $supplier_library_payload = $this->get_supplier_media_library_payload( $supplier_id, false );
+                if ( ! array_key_exists( $supplier_id, $supplier_media_payload_cache ) ) {
+                    $supplier_media_payload_cache[ $supplier_id ] = $this->get_supplier_media_library_payload( $supplier_id, false );
+                }
+                $supplier_library_payload = $supplier_media_payload_cache[ $supplier_id ];
                 
                 // Commit 2.3.8: Calculate duty rate
                 $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );
@@ -18852,10 +18998,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $sample_types           = isset( $_POST['sample_types'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['sample_types'] ) ) ) ) : array();
         $sample_format          = sanitize_text_field( wp_unslash( $_POST['sample_format'] ?? '' ) );
         $instructions           = sanitize_textarea_field( wp_unslash( $_POST['instructions'] ?? '' ) );
-        $shipping_address       = sanitize_textarea_field( wp_unslash( $_POST['shipping_address'] ?? '' ) );
+        $shipping_address_fields = $this->normalize_structured_address(
+            array(
+                'name'         => wp_unslash( $_POST['shipping_contact_name'] ?? '' ),
+                'address_line' => wp_unslash( $_POST['shipping_address_line1'] ?? '' ),
+                'city'         => wp_unslash( $_POST['shipping_city'] ?? '' ),
+                'state'        => wp_unslash( $_POST['shipping_state'] ?? '' ),
+                'country'      => wp_unslash( $_POST['shipping_country'] ?? '' ),
+                'postal_code'  => wp_unslash( $_POST['shipping_postal_code'] ?? '' ),
+            )
+        );
+        $shipping_address       = $this->format_structured_address(
+            $this->format_structured_address( $shipping_address_fields ) ? $shipping_address_fields : sanitize_textarea_field( wp_unslash( $_POST['shipping_address'] ?? '' ) ),
+            true
+        );
         $payment_mode           = sanitize_key( wp_unslash( $_POST['payment_mode'] ?? '' ) );
+        $selected_material_refs = isset( $_POST['selected_supplier_media_refs'] ) ? array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['selected_supplier_media_refs'] ) ) ) ) ) : array();
         $selected_material_ids  = isset( $_POST['selected_supplier_material_ids'] ) ? array_values( array_unique( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['selected_supplier_material_ids'] ) ) ) ) ) : array();
         $approve_without_samples = ! empty( $_POST['approve_without_samples'] );
+
+        if ( empty( $selected_material_ids ) && ! empty( $selected_material_refs ) ) {
+            foreach ( $selected_material_refs as $selected_material_ref ) {
+                if ( preg_match( '/^(our_work|material_samples):(\d+)$/', $selected_material_ref, $matches ) ) {
+                    $selected_material_ids[] = absint( $matches[2] );
+                }
+            }
+            $selected_material_ids = array_values( array_unique( array_filter( $selected_material_ids ) ) );
+        }
 
         if ( ! $item_id || ! $bid_id || ! $supplier_id ) {
             wp_send_json_error( array( 'message' => 'Item, bid, and supplier are required.' ) );
@@ -18878,9 +19047,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $supplier_name = $wpdb->get_var( $wpdb->prepare( "SELECT display_name FROM {$users_table} WHERE ID = %d", $supplier_id ) );
         $wireframe_supplier = (int) $supplier_id === (int) $this->get_default_wireframe_supplier_id();
-        if ( ! $payment_mode ) {
-            $payment_mode = $wireframe_supplier ? 'wireframe_managed' : 'external';
-        }
+        $payment_mode = '';
         if ( empty( $selected_material_ids ) && ! $approve_without_samples ) {
             wp_send_json_error( array( 'message' => 'Please select at least one supplier material sample.' ) );
         }
@@ -18923,10 +19090,12 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             'evaluation_type'        => 'material_samples',
             'instructions'           => $instructions,
             'shipping_address'       => $shipping_address,
+            'shipping_address_fields' => $shipping_address_fields,
             'selected_material_ids'  => $selected_material_ids,
+            'selected_material_refs' => $selected_material_refs,
             'reference_file_ids'     => $reference_file_ids,
             'payment_mode'           => $payment_mode,
-            'payment_status'         => $approve_without_samples ? 'not_required' : 'pending',
+            'payment_status'         => 'not_required',
             'requested_at'           => $now,
             'requested_by'           => (int) $current_user->ID,
             'payment_submitted_at'   => null,
@@ -19315,7 +19484,21 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $validation['commitment'] = isset( $validation['commitment'] ) && is_array( $validation['commitment'] ) ? $validation['commitment'] : array();
         $validation['commitment']['com_required']         = ! empty( $_POST['com_required'] );
         $validation['commitment']['com_qty']              = sanitize_text_field( wp_unslash( $_POST['com_qty'] ?? '' ) );
-        $validation['commitment']['com_delivery_address'] = sanitize_text_field( wp_unslash( $_POST['com_delivery_address'] ?? ( $validation['commitment']['com_delivery_address'] ?? '' ) ) );
+        $com_delivery_address_fields                      = $this->normalize_structured_address(
+            array(
+                'name'         => wp_unslash( $_POST['com_contact_name'] ?? '' ),
+                'address_line' => wp_unslash( $_POST['com_address_line1'] ?? '' ),
+                'city'         => wp_unslash( $_POST['com_city'] ?? '' ),
+                'state'        => wp_unslash( $_POST['com_state'] ?? '' ),
+                'country'      => wp_unslash( $_POST['com_country'] ?? '' ),
+                'postal_code'  => wp_unslash( $_POST['com_postal_code'] ?? '' ),
+            )
+        );
+        $validation['commitment']['com_delivery_address_fields'] = $com_delivery_address_fields;
+        $validation['commitment']['com_delivery_address'] = $this->format_structured_address(
+            $this->format_structured_address( $com_delivery_address_fields ) ? $com_delivery_address_fields : sanitize_text_field( wp_unslash( $_POST['com_delivery_address'] ?? ( $validation['commitment']['com_delivery_address'] ?? '' ) ) ),
+            true
+        );
         $validation['commitment']['com_tracking_number']  = sanitize_text_field( wp_unslash( $_POST['com_tracking_number'] ?? '' ) );
         $validation['commitment']['com_status']           = 'com_in_transit';
         $validation['commitment']['com_shipped_at']       = current_time( 'mysql' );
