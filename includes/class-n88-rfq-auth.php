@@ -808,6 +808,77 @@ class N88_RFQ_Auth {
         );
     }
 
+    private function get_supplier_media_library_group_payload( $supplier_id, $group_key, $include_inactive = false, $page = 1, $per_page = 12 ) {
+        global $wpdb;
+
+        $this->ensure_supplier_media_library_support();
+
+        $supplier_id = absint( $supplier_id );
+        $group_key   = sanitize_key( $group_key );
+        $page        = max( 1, absint( $page ) );
+        $per_page    = max( 1, min( 24, absint( $per_page ) ) );
+
+        if ( ! $supplier_id || ! in_array( $group_key, array( 'our_work', 'material_samples' ), true ) ) {
+            return array(
+                'group'       => $group_key,
+                'items'       => array(),
+                'page'        => $page,
+                'per_page'    => $per_page,
+                'total'       => 0,
+                'count'       => 0,
+                'has_more'    => false,
+                'next_page'   => null,
+            );
+        }
+
+        $active_condition = $include_inactive ? '' : ' AND is_active = 1';
+        $offset           = ( $page - 1 ) * $per_page;
+
+        if ( 'our_work' === $group_key ) {
+            $table          = $wpdb->prefix . 'n88_supplier_media';
+            $count_sql      = "SELECT COUNT(*) FROM {$table} WHERE supplier_id = %d{$active_condition}";
+            $query_sql      = "SELECT * FROM {$table} WHERE supplier_id = %d{$active_condition} ORDER BY is_active DESC, updated_at DESC, id DESC LIMIT %d OFFSET %d";
+            $formatter      = array( $this, 'format_supplier_media_library_item' );
+        } else {
+            $table          = $wpdb->prefix . 'n88_supplier_materials';
+            $count_sql      = "SELECT COUNT(*) FROM {$table} WHERE supplier_id = %d{$active_condition}";
+            $query_sql      = "SELECT * FROM {$table} WHERE supplier_id = %d{$active_condition} ORDER BY is_active DESC, updated_at DESC, id DESC LIMIT %d OFFSET %d";
+            $formatter      = array( $this, 'format_supplier_material_library_item' );
+        }
+
+        $total = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                $count_sql,
+                $supplier_id
+            )
+        );
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                $query_sql,
+                $supplier_id,
+                $per_page,
+                $offset
+            ),
+            ARRAY_A
+        );
+
+        $items    = array_map( $formatter, (array) $rows );
+        $count    = count( $items );
+        $has_more = ( $offset + $count ) < $total;
+
+        return array(
+            'group'       => $group_key,
+            'items'       => array_values( $items ),
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'count'       => $count,
+            'has_more'    => $has_more,
+            'next_page'   => $has_more ? ( $page + 1 ) : null,
+        );
+    }
+
     private function get_selected_supplier_material_library_items( $supplier_id, $material_refs = array(), $material_ids = array() ) {
         $selected_refs = array();
         foreach ( (array) $material_refs as $raw_ref ) {
@@ -1202,11 +1273,31 @@ class N88_RFQ_Auth {
         $current_user = wp_get_current_user();
         $requested_supplier_id = absint( isset( $_POST['supplier_id'] ) ? wp_unslash( $_POST['supplier_id'] ) : 0 );
         $target_supplier_id    = $requested_supplier_id ? $requested_supplier_id : get_current_user_id();
+        $library_group         = sanitize_key( isset( $_POST['library_group'] ) ? wp_unslash( $_POST['library_group'] ) : '' );
+        $page                  = max( 1, absint( isset( $_POST['page'] ) ? wp_unslash( $_POST['page'] ) : 1 ) );
+        $per_page              = max( 1, min( 24, absint( isset( $_POST['per_page'] ) ? wp_unslash( $_POST['per_page'] ) : 12 ) ) );
         $is_supplier_self      = in_array( 'n88_supplier_admin', (array) $current_user->roles, true ) && $target_supplier_id === get_current_user_id();
         $can_read_other        = current_user_can( 'manage_options' ) || in_array( 'n88_system_operator', (array) $current_user->roles, true ) || in_array( 'n88_designer', (array) $current_user->roles, true ) || in_array( 'designer', (array) $current_user->roles, true );
 
         if ( ! $is_supplier_self && ! $can_read_other ) {
             wp_send_json_error( array( 'message' => 'Access denied.' ), 403 );
+        }
+
+        if ( in_array( $library_group, array( 'our_work', 'material_samples' ), true ) ) {
+            $group_payload = $this->get_supplier_media_library_group_payload( $target_supplier_id, $library_group, $is_supplier_self, $page, $per_page );
+            wp_send_json_success(
+                array(
+                    'supplier_id' => $target_supplier_id,
+                    'group'       => $library_group,
+                    'page'        => $group_payload['page'],
+                    'per_page'    => $group_payload['per_page'],
+                    'total'       => $group_payload['total'],
+                    'count'       => $group_payload['count'],
+                    'has_more'    => $group_payload['has_more'],
+                    'next_page'   => $group_payload['next_page'],
+                    'items'       => $group_payload['items'],
+                )
+            );
         }
 
         wp_send_json_success( $this->get_supplier_media_library_payload( $target_supplier_id, $is_supplier_self ) );

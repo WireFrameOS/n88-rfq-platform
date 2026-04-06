@@ -10062,16 +10062,8 @@ class N88_RFQ_Admin {
                     return false;
                 }
                 // Framer Motion can expose as window.motion or window.framerMotion
-                // Check multiple possible locations
+                // Check multiple possible locations. If unavailable, fall back to plain elements so the board still renders.
                 var framerMotion = window.motion || window.framerMotion || window.Motion || (window.framer && window.framer.motion);
-                if (!framerMotion) {
-                    updateDebug('Waiting for Framer Motion... (checking window.motion, window.framerMotion, window.Motion)');
-                    console.log('Framer Motion check - window.motion:', window.motion);
-                    console.log('Framer Motion check - window.framerMotion:', window.framerMotion);
-                    console.log('Framer Motion check - window.Motion:', window.Motion);
-                    console.log('Framer Motion check - window.framer:', window.framer);
-                    return false;
-                }
                 // Zustand might expose as window.zustand or window.zustand.default
                 var zustandModule = window.zustand;
                 if (!zustandModule) {
@@ -10095,14 +10087,50 @@ class N88_RFQ_Admin {
                     return false;
                 }
                 
+                const React = window.React;
+
+                if (!framerMotion) {
+                    console.warn('Framer Motion not available. Falling back to static components.');
+                    framerMotion = {
+                        motion: new Proxy({}, {
+                            get: function(_, tag) {
+                                return function(props) {
+                                    var nextProps = Object.assign({}, props || {});
+                                    var children = nextProps.children;
+                                    delete nextProps.children;
+                                    return React.createElement(tag, nextProps, children);
+                                };
+                            }
+                        }),
+                        AnimatePresence: function(props) {
+                            return props && props.children ? props.children : null;
+                        },
+                        useMotionValue: function(initialValue) {
+                            var ref = React.useRef(initialValue);
+                            return {
+                                get: function() { return ref.current; },
+                                set: function(nextValue) { ref.current = nextValue; }
+                            };
+                        }
+                    };
+                    updateDebug('Framer Motion unavailable. Using fallback renderer...');
+                }
+
                 if (typeof window.N88StudioOS.useDebouncedSave === 'undefined') {
-                    updateDebug('Waiting for useDebouncedSave...');
-                    return false;
+                    console.warn('useDebouncedSave not available. Falling back to no-op save hook.');
+                    window.N88StudioOS.useDebouncedSave = function() {
+                        return {
+                            unsynced: false,
+                            triggerSave: function() {},
+                            clearUnsynced: function() {},
+                            saveNow: function() { return Promise.resolve(); }
+                        };
+                    };
+                    updateDebug('useDebouncedSave unavailable. Using fallback save hook...');
                 }
 
                 updateDebug('All dependencies loaded!');
 
-                const React = window.React;
                 const ReactDOM = window.ReactDOM;
                 
                 // Extract motion components - Framer Motion UMD exposes as an object
@@ -26179,26 +26207,56 @@ class N88_RFQ_Admin {
                     return false;
                 }
                 
-                var framerMotion = window.motion || window.framerMotion || window.Motion;
-                if (!framerMotion) {
-                    updateDebug('Waiting for Framer Motion...');
-                    return false;
-                }
-                
                 if (typeof window.N88StudioOS === 'undefined' || typeof window.N88StudioOS.useBoardStore === 'undefined') {
                     updateDebug('Waiting for useBoardStore...');
                     return false;
                 }
-                
-                if (typeof window.N88StudioOS.useDebouncedSave === 'undefined') {
-                    updateDebug('Waiting for useDebouncedSave...');
-                    return false;
-                }
-
-                updateDebug('All dependencies loaded!');
 
                 const React = window.React;
                 const ReactDOM = window.ReactDOM;
+                var framerMotion = window.motion || window.framerMotion || window.Motion;
+
+                if (!framerMotion) {
+                    console.warn('Real board: Framer Motion not available. Falling back to static components.');
+                    framerMotion = {
+                        motion: new Proxy({}, {
+                            get: function(_, tag) {
+                                return function(props) {
+                                    var nextProps = Object.assign({}, props || {});
+                                    var children = nextProps.children;
+                                    delete nextProps.children;
+                                    return React.createElement(tag, nextProps, children);
+                                };
+                            }
+                        }),
+                        AnimatePresence: function(props) {
+                            return props && props.children ? props.children : null;
+                        },
+                        useMotionValue: function(initialValue) {
+                            var ref = React.useRef(initialValue);
+                            return {
+                                get: function() { return ref.current; },
+                                set: function(nextValue) { ref.current = nextValue; }
+                            };
+                        }
+                    };
+                    updateDebug('Framer Motion unavailable. Using fallback renderer...');
+                }
+
+                if (typeof window.N88StudioOS.useDebouncedSave === 'undefined') {
+                    console.warn('Real board: useDebouncedSave not available. Falling back to no-op save hook.');
+                    window.N88StudioOS.useDebouncedSave = function() {
+                        return {
+                            unsynced: false,
+                            triggerSave: function() {},
+                            clearUnsynced: function() {},
+                            saveNow: function() { return Promise.resolve(); }
+                        };
+                    };
+                    updateDebug('useDebouncedSave unavailable. Using fallback save hook...');
+                }
+
+                updateDebug('All dependencies loaded!');
                 
                 var motion = framerMotion.motion || framerMotion;
                 var AnimatePresence = framerMotion.AnimatePresence || window.AnimatePresence;
