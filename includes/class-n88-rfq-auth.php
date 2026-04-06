@@ -16391,12 +16391,13 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $item_id = isset( $_POST['item_id'] ) ? intval( $_POST['item_id'] ) : 0;
         $requested_section = isset( $_POST['section'] ) ? sanitize_key( wp_unslash( $_POST['section'] ) ) : 'full';
-        if ( ! in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids' ), true ) ) {
+        if ( ! in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids', 'bids_summary' ), true ) ) {
             $requested_section = 'full';
         }
-        $load_summary  = in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids' ), true );
+        $load_summary  = in_array( $requested_section, array( 'full', 'summary', 'details', 'workflow', 'bids', 'bids_summary' ), true );
         $load_workflow = in_array( $requested_section, array( 'full', 'workflow' ), true );
-        $load_bids     = in_array( $requested_section, array( 'full', 'bids' ), true );
+        $load_bids     = in_array( $requested_section, array( 'full', 'bids', 'bids_summary' ), true );
+        $load_compact_bid_support = ( 'bids_summary' === $requested_section );
         
         if ( ! $item_id ) {
             $flush_json_error( array( 'message' => 'Invalid item ID.' ) );
@@ -16522,7 +16523,9 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $bids = array();
         $proposal_group_workspaces = array();
         if ( $load_bids && $has_bids ) {
-            $proposal_group_workspaces = $this->get_item_proposal_group_workspace_states( $item_id );
+            if ( ! $load_compact_bid_support ) {
+                $proposal_group_workspaces = $this->get_item_proposal_group_workspace_states( $item_id );
+            }
             // Commit 2.3.6: Get all submitted bids with CAD flag, prototype commitment, and photos
             // Check if meta_json and rfq_revision_at_submit columns exist
             $bids_columns = $this->table_columns_cached( $item_bids_table );
@@ -16603,44 +16606,47 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
             $supplier_profile_cache = array();
             $supplier_media_payload_cache = array();
             foreach ( $bids_data as $bid ) {
-                // Get media links for this bid with provider information
-                $media_links = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT url, provider 
-                    FROM {$bid_media_links_table}
-                    WHERE bid_id = %d
-                    ORDER BY sort_order ASC, id ASC",
-                    $bid['bid_id']
-                ), ARRAY_A );
-
-                // Commit 2.3.6: Get bid photos from n88_bid_media_files
-                $bid_photos = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT file_url 
-                    FROM {$bid_media_files_table}
-                    WHERE bid_id = %d
-                    ORDER BY sort_order ASC, id ASC",
-                    $bid['bid_id']
-                ), ARRAY_A );
-
-                // Organize video links by provider
                 $video_links_by_provider = array(
                     'youtube' => array(),
                     'vimeo' => array(),
                     'loom' => array(),
                 );
-                
-                foreach ( $media_links as $link ) {
-                    $provider = isset( $link['provider'] ) ? strtolower( $link['provider'] ) : 'youtube';
-                    $url = esc_url_raw( $link['url'] );
-                    
-                    if ( in_array( $provider, array( 'youtube', 'vimeo', 'loom' ), true ) ) {
-                        $video_links_by_provider[ $provider ][] = $url;
-                    }
-                }
+                $media_links = array();
+                $photo_urls  = array();
 
-                // Commit 2.3.6: Extract photo URLs (no metadata/filenames to prevent identity leakage)
-                $photo_urls = array_map( function( $photo ) {
-                    return esc_url_raw( $photo['file_url'] );
-                }, $bid_photos );
+                if ( ! $load_compact_bid_support ) {
+                    // Get media links for this bid with provider information
+                    $media_links = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT url, provider 
+                        FROM {$bid_media_links_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid['bid_id']
+                    ), ARRAY_A );
+
+                    // Commit 2.3.6: Get bid photos from n88_bid_media_files
+                    $bid_photos = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT file_url 
+                        FROM {$bid_media_files_table}
+                        WHERE bid_id = %d
+                        ORDER BY sort_order ASC, id ASC",
+                        $bid['bid_id']
+                    ), ARRAY_A );
+
+                    foreach ( $media_links as $link ) {
+                        $provider = isset( $link['provider'] ) ? strtolower( $link['provider'] ) : 'youtube';
+                        $url = esc_url_raw( $link['url'] );
+
+                        if ( in_array( $provider, array( 'youtube', 'vimeo', 'loom' ), true ) ) {
+                            $video_links_by_provider[ $provider ][] = $url;
+                        }
+                    }
+
+                    // Commit 2.3.6: Extract photo URLs (no metadata/filenames to prevent identity leakage)
+                    $photo_urls = array_map( function( $photo ) {
+                        return esc_url_raw( $photo['file_url'] );
+                    }, $bid_photos );
+                }
 
                 // Get Smart Alternatives suggestion and note from meta_json if available
                 $smart_alternatives_suggestion = null;
@@ -16671,7 +16677,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                     }
                 }
 
-                if ( $proposal_group_id > 0 ) {
+                if ( ! $load_compact_bid_support && $proposal_group_id > 0 ) {
                     $batch_shared_uploads = $this->get_supplier_proposal_group_uploads( $proposal_group_id, $batch_shared_upload_user_id );
                 }
 
@@ -16722,10 +16728,16 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                         $bid['bid_id']
                     ) );
                 }
-                if ( ! array_key_exists( $supplier_id, $supplier_media_payload_cache ) ) {
-                    $supplier_media_payload_cache[ $supplier_id ] = $this->get_supplier_media_library_payload( $supplier_id, false );
+                $supplier_library_payload = array(
+                    'our_work'         => array(),
+                    'material_samples' => array(),
+                );
+                if ( ! $load_compact_bid_support ) {
+                    if ( ! array_key_exists( $supplier_id, $supplier_media_payload_cache ) ) {
+                        $supplier_media_payload_cache[ $supplier_id ] = $this->get_supplier_media_library_payload( $supplier_id, false );
+                    }
+                    $supplier_library_payload = $supplier_media_payload_cache[ $supplier_id ];
                 }
-                $supplier_library_payload = $supplier_media_payload_cache[ $supplier_id ];
                 
                 // Commit 2.3.8: Calculate duty rate
                 $duty_rate = N88_RFQ_Helpers::n88_calculate_duty_rate( $origin_region, $duty_rate_override );

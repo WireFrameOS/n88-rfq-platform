@@ -11398,6 +11398,7 @@ class N88_RFQ_Admin {
                     var sampleRequestLocked = !!matrixProps.sampleRequestLocked;
                     var sampleRequestLockedLabel = matrixProps.sampleRequestLockedLabel || 'Sample Requested';
                     var genericCtaLabels = Array.isArray(matrixProps.genericCtaLabels) && matrixProps.genericCtaLabels.length === 3 ? matrixProps.genericCtaLabels : ['VIEW SUPPORT MEDIA', 'REQUEST SAMPLES', 'SELECT THIS SUPPLIER'];
+                    var summaryMode = !!matrixProps.summaryMode;
                     var onViewSupportMediaBid = typeof matrixProps.onViewSupportMediaBid === 'function' ? matrixProps.onViewSupportMediaBid : null;
                     var onRequestSampleBid = typeof matrixProps.onRequestSampleBid === 'function' ? matrixProps.onRequestSampleBid : null;
                     var onAwardProjectBid = typeof matrixProps.onAwardProjectBid === 'function' ? matrixProps.onAwardProjectBid : null;
@@ -11896,10 +11897,10 @@ class N88_RFQ_Admin {
                                     }, 'View Support Media')
                                 )
                             ),
-                            React.createElement('tr', { key: 'cap-h' }, React.createElement('td', { colSpan: 2, style: sectionHeaderStylePHP }, 'Capability')),
-                            mediaLinksSingle ? React.createElement('tr', { key: 'ref-video' }, React.createElement('td', { style: rowLabelStylePHP }, 'Reference Video'), React.createElement('td', { style: rowValueStylePHP }, mediaLinksSingle)) : null,
-                            (bid.photo_urls && bid.photo_urls.length > 0) ? React.createElement('tr', { key: 'photos' }, React.createElement('td', { style: rowLabelStylePHP }, 'Similar Project Photos'), React.createElement('td', { style: rowValueStylePHP }, React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } }, bid.photo_urls.slice(0, 6).map(function(url, i) { return React.createElement('img', { key: 'p-' + i, src: url, alt: '', onClick: function(e) { e.stopPropagation(); if (onImageClick) onImageClick(url); else window.open(url, '_blank'); }, style: { width: '40px', height: '40px', objectFit: 'cover', cursor: 'pointer', border: '1px solid ' + darkBorder, borderRadius: '2px' } }); })))) : null,
-                            (bid.batch_shared_uploads && bid.batch_shared_uploads.length > 0) ? React.createElement('tr', { key: 'batch-shared' }, React.createElement('td', { style: rowLabelStylePHP }, 'Batch Shared Files'), React.createElement('td', { style: rowValueStylePHP }, renderBatchSharedUploads(bid, false))) : null,
+                            !summaryMode ? React.createElement('tr', { key: 'cap-h' }, React.createElement('td', { colSpan: 2, style: sectionHeaderStylePHP }, 'Capability')) : null,
+                            (!summaryMode && mediaLinksSingle) ? React.createElement('tr', { key: 'ref-video' }, React.createElement('td', { style: rowLabelStylePHP }, 'Reference Video'), React.createElement('td', { style: rowValueStylePHP }, mediaLinksSingle)) : null,
+                            (!summaryMode && bid.photo_urls && bid.photo_urls.length > 0) ? React.createElement('tr', { key: 'photos' }, React.createElement('td', { style: rowLabelStylePHP }, 'Similar Project Photos'), React.createElement('td', { style: rowValueStylePHP }, React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } }, bid.photo_urls.slice(0, 6).map(function(url, i) { return React.createElement('img', { key: 'p-' + i, src: url, alt: '', onClick: function(e) { e.stopPropagation(); if (onImageClick) onImageClick(url); else window.open(url, '_blank'); }, style: { width: '40px', height: '40px', objectFit: 'cover', cursor: 'pointer', border: '1px solid ' + darkBorder, borderRadius: '2px' } }); })))) : null,
+                            (!summaryMode && bid.batch_shared_uploads && bid.batch_shared_uploads.length > 0) ? React.createElement('tr', { key: 'batch-shared' }, React.createElement('td', { style: rowLabelStylePHP }, 'Batch Shared Files'), React.createElement('td', { style: rowValueStylePHP }, renderBatchSharedUploads(bid, false))) : null,
                             React.createElement('tr', { key: 'prod-h' }, React.createElement('td', { colSpan: 2, style: sectionHeaderStylePHP }, 'Production')),
                             bid.production_lead_time ? React.createElement('tr', { key: 'leadtime' }, React.createElement('td', { style: rowLabelStylePHP }, 'Project Workflow'), React.createElement('td', { style: rowValueStylePHP }, bid.production_lead_time)) : null,
                             bid.unit_price !== null ? React.createElement('tr', { key: 'unitprice' }, React.createElement('td', { style: rowLabelStylePHP }, 'Unit Price'), React.createElement('td', { style: rowValueStylePHP }, '$' + (typeof bid.unit_price === 'number' ? bid.unit_price : parseFloat(bid.unit_price)).toFixed(2) + (bid.total_price && bid.item_quantity > 1 ? ' (Total: $' + parseFloat(bid.total_price).toFixed(2) + ')' : ''))) : null,
@@ -12386,8 +12387,7 @@ class N88_RFQ_Admin {
                                     }, mediaLinks || React.createElement('span', { style: { color: darkText } }, '-'));
                                 })
                             ),
-                            // Photos Row
-                            React.createElement('div', {
+                            !summaryMode ? React.createElement('div', {
                                 style: {
                                     display: 'grid',
                                     gridTemplateColumns: labelWidth + ' ' + valueCols,
@@ -12442,9 +12442,8 @@ class N88_RFQ_Admin {
                                         })
                                     ) : React.createElement('span', { style: { color: darkText } }, '-'));
                                 })
-                            ),
-                            // Batch Shared Files Row
-                            React.createElement('div', {
+                            ) : null,
+                            !summaryMode ? React.createElement('div', {
                                 style: {
                                     display: 'grid',
                                     gridTemplateColumns: labelWidth + ' ' + valueCols,
@@ -12478,7 +12477,7 @@ class N88_RFQ_Admin {
                                         }
                                     }, sharedUploads || React.createElement('span', { style: { color: darkText } }, '-'));
                                 })
-                            ),
+                            ) : null,
                             // Production section header
                             React.createElement('div', {
                                 style: {
@@ -13585,6 +13584,26 @@ class N88_RFQ_Admin {
                     var sampleLibraryFilters = _sampleLibraryFiltersState[0];
                     var setSampleLibraryFilters = _sampleLibraryFiltersState[1];
                     var supportMediaSectionRef = React.useRef ? React.useRef(null) : { current: null };
+                    var supplierMediaLibraryCacheRef = React.useRef ? React.useRef({}) : { current: {} };
+                    var supplierMediaLibraryRequestRef = React.useRef ? React.useRef({}) : { current: {} };
+                    var _supportMediaLibraryState = React.useState({ our_work: [], material_samples: [] });
+                    var supportMediaLibrary = _supportMediaLibraryState[0];
+                    var setSupportMediaLibrary = _supportMediaLibraryState[1];
+                    var _supportMediaLibraryLoadingState = React.useState(false);
+                    var supportMediaLibraryLoading = _supportMediaLibraryLoadingState[0];
+                    var setSupportMediaLibraryLoading = _supportMediaLibraryLoadingState[1];
+                    var _supportMediaLibraryErrorState = React.useState('');
+                    var supportMediaLibraryError = _supportMediaLibraryErrorState[0];
+                    var setSupportMediaLibraryError = _supportMediaLibraryErrorState[1];
+                    var _sampleRequestLibraryState = React.useState({ our_work: [], material_samples: [] });
+                    var sampleRequestLibrary = _sampleRequestLibraryState[0];
+                    var setSampleRequestLibrary = _sampleRequestLibraryState[1];
+                    var _sampleRequestLibraryLoadingState = React.useState(false);
+                    var sampleRequestLibraryLoading = _sampleRequestLibraryLoadingState[0];
+                    var setSampleRequestLibraryLoading = _sampleRequestLibraryLoadingState[1];
+                    var _sampleRequestLibraryErrorState = React.useState('');
+                    var sampleRequestLibraryError = _sampleRequestLibraryErrorState[0];
+                    var setSampleRequestLibraryError = _sampleRequestLibraryErrorState[1];
                     var _approvedSampleImagesState = React.useState([]);
                     var approvedSampleImages = _approvedSampleImagesState[0];
                     var setApprovedSampleImages = _approvedSampleImagesState[1];
@@ -15192,6 +15211,60 @@ class N88_RFQ_Admin {
                         ? itemState.bids.find(function(bid) { return parseInt(bid.bid_id, 10) === parseInt(supportMediaBidId, 10); }) || null
                         : null;
                     var selectedSupportMediaSupplierId = selectedSupportMediaBid && selectedSupportMediaBid.supplier_id ? parseInt(selectedSupportMediaBid.supplier_id, 10) : 0;
+                    var getEmptySupplierMediaLibrary = function() {
+                        return { our_work: [], material_samples: [] };
+                    };
+                    var getCachedSupplierMediaLibrary = function(supplierId) {
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        if (!(numericSupplierId > 0)) return getEmptySupplierMediaLibrary();
+                        var cachedLibrary = supplierMediaLibraryCacheRef && supplierMediaLibraryCacheRef.current ? supplierMediaLibraryCacheRef.current[numericSupplierId] : null;
+                        if (!cachedLibrary || typeof cachedLibrary !== 'object') return getEmptySupplierMediaLibrary();
+                        return cachedLibrary;
+                    };
+                    var hasCachedSupplierMediaLibrary = function(supplierId) {
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        return numericSupplierId > 0 && supplierMediaLibraryCacheRef && supplierMediaLibraryCacheRef.current && Object.prototype.hasOwnProperty.call(supplierMediaLibraryCacheRef.current, numericSupplierId);
+                    };
+                    var fetchSupplierMediaLibrary = function(supplierId, forceRefresh) {
+                        if (forceRefresh === undefined) forceRefresh = false;
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        if (!(numericSupplierId > 0)) {
+                            return Promise.resolve(getEmptySupplierMediaLibrary());
+                        }
+                        if (!forceRefresh && hasCachedSupplierMediaLibrary(numericSupplierId)) {
+                            var cachedLibrary = getCachedSupplierMediaLibrary(numericSupplierId);
+                            return Promise.resolve(cachedLibrary);
+                        }
+                        if (!forceRefresh && supplierMediaLibraryRequestRef.current[numericSupplierId]) {
+                            return supplierMediaLibraryRequestRef.current[numericSupplierId];
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_supplier_media_library) || (window.n88BoardData && window.n88BoardData.nonce_supplier_media_library) || '<?php echo esc_js( wp_create_nonce( 'n88_supplier_media_library' ) ); ?>';
+                        if (!ajaxUrl || !nonce) {
+                            return Promise.reject(new Error('Support media request could not be authenticated.'));
+                        }
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_supplier_media_library');
+                        fd.append('supplier_id', String(numericSupplierId));
+                        fd.append('nonce', nonce);
+                        supplierMediaLibraryRequestRef.current[numericSupplierId] = fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (!data || !data.success || !data.data) {
+                                    throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to load supplier media.');
+                                }
+                                var nextLibrary = {
+                                    our_work: Array.isArray(data.data.our_work) ? data.data.our_work : [],
+                                    material_samples: Array.isArray(data.data.material_samples) ? data.data.material_samples : []
+                                };
+                                supplierMediaLibraryCacheRef.current[numericSupplierId] = nextLibrary;
+                                return nextLibrary;
+                            })
+                            .finally(function() {
+                                delete supplierMediaLibraryRequestRef.current[numericSupplierId];
+                            });
+                        return supplierMediaLibraryRequestRef.current[numericSupplierId];
+                    };
                     var trackSupportMediaView = function(bid) {
                         if (!bid || !bid.bid_id || !itemId) return;
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || '/wp-admin/admin-ajax.php';
@@ -15217,6 +15290,56 @@ class N88_RFQ_Admin {
                             }
                         }, 180);
                     };
+                    React.useEffect(function() {
+                        if (!isOpen || !selectedSupportMediaSupplierId) {
+                            setSupportMediaLibrary(getEmptySupplierMediaLibrary());
+                            setSupportMediaLibraryLoading(false);
+                            setSupportMediaLibraryError('');
+                            return;
+                        }
+                        var cancelled = false;
+                        setSupportMediaLibrary(getCachedSupplierMediaLibrary(selectedSupportMediaSupplierId));
+                        setSupportMediaLibraryLoading(true);
+                        setSupportMediaLibraryError('');
+                        fetchSupplierMediaLibrary(selectedSupportMediaSupplierId)
+                            .then(function(libraryData) {
+                                if (cancelled) return;
+                                setSupportMediaLibrary(libraryData);
+                            })
+                            .catch(function(error) {
+                                if (cancelled) return;
+                                setSupportMediaLibraryError(error && error.message ? error.message : 'Failed to load support media.');
+                            })
+                            .finally(function() {
+                                if (!cancelled) setSupportMediaLibraryLoading(false);
+                            });
+                        return function() { cancelled = true; };
+                    }, [isOpen, selectedSupportMediaSupplierId]);
+                    React.useEffect(function() {
+                        if (!isOpen || !sampleRequestInlineOpen || !selectedSampleRequestSupplierId) {
+                            setSampleRequestLibrary(getEmptySupplierMediaLibrary());
+                            setSampleRequestLibraryLoading(false);
+                            setSampleRequestLibraryError('');
+                            return;
+                        }
+                        var cancelled = false;
+                        setSampleRequestLibrary(getCachedSupplierMediaLibrary(selectedSampleRequestSupplierId));
+                        setSampleRequestLibraryLoading(true);
+                        setSampleRequestLibraryError('');
+                        fetchSupplierMediaLibrary(selectedSampleRequestSupplierId)
+                            .then(function(libraryData) {
+                                if (cancelled) return;
+                                setSampleRequestLibrary(libraryData);
+                            })
+                            .catch(function(error) {
+                                if (cancelled) return;
+                                setSampleRequestLibraryError(error && error.message ? error.message : 'Failed to load supplier materials.');
+                            })
+                            .finally(function() {
+                                if (!cancelled) setSampleRequestLibraryLoading(false);
+                            });
+                        return function() { cancelled = true; };
+                    }, [isOpen, sampleRequestInlineOpen, selectedSampleRequestSupplierId]);
                     var handleSampleRequestFilesSelected = function(fileList) {
                         var nextFiles = Array.from(fileList || []);
                         if (!nextFiles.length) return;
@@ -19795,8 +19918,8 @@ class N88_RFQ_Admin {
                                                                 React.createElement(BidComparisonMatrixInline, { bids: itemState.bids, darkBorder: darkBorder, greenAccent: greenAccent, darkText: darkText, darkBg: darkBg, onImageClick: setLightboxImage, smartAlternativesEnabled: smartAlternativesEnabled, itemId: itemId, itemQuantity: item && (item.quantity != null ? item.quantity : (item.meta && item.meta.quantity)), itemCbm: item && item.cbm, itemDimsCm: item && item.dims_cm, batchActionMode: true, lockedSupplierId: itemState.validation_state && itemState.validation_state.supplier_id ? parseInt(itemState.validation_state.supplier_id, 10) : 0, onViewSupportMediaBid: function(selectedBid) { openSupportMediaForBid(selectedBid); }, onRequestSampleBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; setSampleRequestBidId(parseInt(selectedBid.bid_id, 10) || null); setSupportMediaBidId(parseInt(selectedBid.bid_id, 10) || null); setSelectedSupplierSampleIds([]); setSampleRequestFiles([]); if (sampleRequestFileInputRef && sampleRequestFileInputRef.current) { sampleRequestFileInputRef.current.value = ''; } setSampleRequestMessage(''); setSampleRequestError(''); setSampleRequestPanelDismissed(false); setSampleRequestInlineOpen(true); if (activeTab !== 'timeline') { setActiveTab('timeline'); } if (selectedStepIndex !== 1) { setSelectedStepIndex(1); } }, onAwardProjectBid: function(selectedBid) { if (!selectedBid || !selectedBid.bid_id) return; if (!window.confirm('Are you sure you want to award this bid? All other bids will be declined.')) return; var ajaxUrl = window.n88BoardData && window.n88BoardData.ajaxUrl ? window.n88BoardData.ajaxUrl : (window.n88 && window.n88.ajaxUrl ? window.n88.ajaxUrl : '/wp-admin/admin-ajax.php'); var nonce = ''; if (window.n88BoardNonce && window.n88BoardNonce.nonce_award_bid) { nonce = window.n88BoardNonce.nonce_award_bid; } else if (window.n88BoardData && window.n88BoardData.nonce) { nonce = window.n88BoardData.nonce; } else if (window.n88 && window.n88.nonce) { nonce = window.n88.nonce; } if (!nonce) { alert('Security token missing. Please refresh the page and try again.'); return; } var formData = new FormData(); formData.append('action', 'n88_award_bid'); formData.append('item_id', itemId); formData.append('bid_id', selectedBid.bid_id); formData.append('_ajax_nonce', nonce); fetch(ajaxUrl, { method: 'POST', body: formData }).then(function(response) { return response.json(); }).then(function(data) { if (data.success) { alert('Bid awarded successfully!'); window.location.reload(); } else { alert('Error: ' + (data.data && data.data.message ? data.data.message : 'Failed to award bid')); } }).catch(function(error) { console.error('Error awarding bid:', error); alert('Error awarding bid. Please try again.'); }); } }),
                                                                 selectedSupportMediaBid ? (function() {
                                                                     var supportMediaGroups = {
-                                                                        our_work: Array.isArray(selectedSupportMediaBid.supplier_library_media) ? selectedSupportMediaBid.supplier_library_media : [],
-                                                                        material_samples: Array.isArray(selectedSupportMediaBid.supplier_material_samples) ? selectedSupportMediaBid.supplier_material_samples : []
+                                                                        our_work: Array.isArray(supportMediaLibrary.our_work) ? supportMediaLibrary.our_work : [],
+                                                                        material_samples: Array.isArray(supportMediaLibrary.material_samples) ? supportMediaLibrary.material_samples : []
                                                                     };
                                                                     var activeSupportMediaItems = (supportMediaGroups[supportMediaFilter] || []).filter(function(entry) {
                                                                         return mediaMatchesSearch(entry, supportMediaSearch);
@@ -19829,7 +19952,7 @@ class N88_RFQ_Admin {
                                                                             })
                                                                         ),
                                                                         React.createElement('div', null,
-                                                                            renderSupportMediaCards(activeSupportMediaItems, { emptyText: supportMediaEmptyText, defaultTitlePrefix: supportMediaFilter === 'material_samples' ? 'Material' : 'Work', keyPrefix: 'supplier-' + supportMediaFilter + '-' })
+                                                                            supportMediaLibraryLoading ? React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' } }, 'Loading support media...') : (supportMediaLibraryError ? React.createElement('div', { style: { padding: '14px', border: '1px solid rgba(255,82,82,0.35)', borderRadius: '6px', color: '#ff9d9d', fontSize: '11px', backgroundColor: 'rgba(255,82,82,0.08)' } }, supportMediaLibraryError) : renderSupportMediaCards(activeSupportMediaItems, { emptyText: supportMediaEmptyText, defaultTitlePrefix: supportMediaFilter === 'material_samples' ? 'Material' : 'Work', keyPrefix: 'supplier-' + supportMediaFilter + '-' }))
                                                                         )
                                                                     )
                                                                 ); })() : null,
@@ -19981,8 +20104,8 @@ class N88_RFQ_Admin {
                                                                     React.createElement('div', { style: { fontSize: '11px', color: darkText, lineHeight: 1.5 } }, 'Sample request has been sent. Supplier response will appear here in Step 02 once files/details are uploaded.')
                                                                 ) : null,
                                                                 (showSampleRequestStep && (!hasSampleRequest || openedFromSampleRequestAction)) ? (function() {
-                                                                    var selectedBidOurWork = selectedBidForRequest && Array.isArray(selectedBidForRequest.supplier_library_media) ? selectedBidForRequest.supplier_library_media : [];
-                                                                    var selectedBidMaterialSamples = selectedBidForRequest && Array.isArray(selectedBidForRequest.supplier_material_samples) ? selectedBidForRequest.supplier_material_samples : [];
+                                                                    var selectedBidOurWork = Array.isArray(sampleRequestLibrary.our_work) ? sampleRequestLibrary.our_work : [];
+                                                                    var selectedBidMaterialSamples = Array.isArray(sampleRequestLibrary.material_samples) ? sampleRequestLibrary.material_samples : [];
                                                                     var visibleLibraryItems = [];
                                                                     if (sampleLibraryFilters.indexOf('our_work') !== -1) {
                                                                         visibleLibraryItems = visibleLibraryItems.concat(selectedBidOurWork.map(function(entry) {
@@ -20024,7 +20147,7 @@ class N88_RFQ_Admin {
                                                                     ),
                                                                     React.createElement('div', null,
                                                                         React.createElement('div', { style: { fontSize: '12px', color: darkText, marginBottom: '6px' } }, 'Select Supplier Materials'),
-                                                                        selectedBidForRequest ? renderSupportMediaCards(visibleLibraryItems, {
+                                                                        !selectedBidForRequest ? React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' } }, 'Select a supplier to load support media.') : (sampleRequestLibraryLoading ? React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' } }, 'Loading supplier materials...') : (sampleRequestLibraryError ? React.createElement('div', { style: { padding: '14px', border: '1px solid rgba(255,82,82,0.35)', borderRadius: '6px', color: '#ff9d9d', fontSize: '11px', backgroundColor: 'rgba(255,82,82,0.08)' } }, sampleRequestLibraryError) : renderSupportMediaCards(visibleLibraryItems, {
                                                                             selectable: true,
                                                                             selectedIds: selectedSupplierSampleIds,
                                                                             keyPrefix: 'sample-select-',
@@ -20046,7 +20169,7 @@ class N88_RFQ_Admin {
                                                                                     return prev.indexOf(materialId) !== -1 ? prev.filter(function(entry) { return entry !== materialId; }) : prev.concat([materialId]);
                                                                                 });
                                                                             }
-                                                                        }) : React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + darkBorder, borderRadius: '6px', color: darkText, fontSize: '11px', textAlign: 'center' } }, 'Select a supplier to load support media.'),
+                                                                        }))),
                                                                     React.createElement('div', { style: { position: 'sticky', bottom: '0', marginTop: '10px', padding: '10px 12px', border: '1px solid ' + darkBorder, borderRadius: '6px', backgroundColor: '#050505', fontSize: '11px', color: selectedSupplierSampleIds.length ? '#fff' : darkText } },
                                                                         selectedSupplierSampleIds.length ? ('Selected materials: ' + selectedSupplierSampleIds.length) : 'No supplier materials selected yet.'
                                                                     )
@@ -22799,6 +22922,8 @@ class N88_RFQ_Admin {
                     var setProposalContext = _proposalContextState[1];
                     var proposalStateCacheRef = React.useRef({});
                     var proposalStateRequestRef = React.useRef({});
+                    var batchSupplierMediaCacheRef = React.useRef({});
+                    var batchSupplierMediaRequestRef = React.useRef({});
                     var _batchActionSelectionModalState = React.useState(false);
                     var batchActionSelectionModalOpen = _batchActionSelectionModalState[0];
                     var setBatchActionSelectionModalOpen = _batchActionSelectionModalState[1];
@@ -22872,6 +22997,60 @@ class N88_RFQ_Admin {
                             validation_state: null,
                             is_loading: false
                         };
+                    };
+                    var getEmptyBoardCanvasSupplierMediaLibrary = function() {
+                        return { our_work: [], material_samples: [] };
+                    };
+                    var getCachedBoardCanvasSupplierMediaLibrary = function(supplierId) {
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        if (!(numericSupplierId > 0)) return getEmptyBoardCanvasSupplierMediaLibrary();
+                        var cachedLibrary = batchSupplierMediaCacheRef.current[numericSupplierId];
+                        if (!cachedLibrary || typeof cachedLibrary !== 'object') return getEmptyBoardCanvasSupplierMediaLibrary();
+                        return cachedLibrary;
+                    };
+                    var hasCachedBoardCanvasSupplierMediaLibrary = function(supplierId) {
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        return numericSupplierId > 0 && Object.prototype.hasOwnProperty.call(batchSupplierMediaCacheRef.current, numericSupplierId);
+                    };
+                    var fetchBoardCanvasSupplierMediaLibrary = function(supplierId, forceRefresh) {
+                        if (forceRefresh === undefined) forceRefresh = false;
+                        var numericSupplierId = parseInt(supplierId, 10) || 0;
+                        if (!(numericSupplierId > 0)) {
+                            return Promise.resolve(getEmptyBoardCanvasSupplierMediaLibrary());
+                        }
+                        if (!forceRefresh && hasCachedBoardCanvasSupplierMediaLibrary(numericSupplierId)) {
+                            var cachedLibrary = getCachedBoardCanvasSupplierMediaLibrary(numericSupplierId);
+                            return Promise.resolve(cachedLibrary);
+                        }
+                        if (!forceRefresh && batchSupplierMediaRequestRef.current[numericSupplierId]) {
+                            return batchSupplierMediaRequestRef.current[numericSupplierId];
+                        }
+                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || (window.n88 && window.n88.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
+                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_supplier_media_library) || (window.n88BoardData && window.n88BoardData.nonce_supplier_media_library) || '<?php echo esc_js( wp_create_nonce( 'n88_supplier_media_library' ) ); ?>';
+                        if (!ajaxUrl || !nonce) {
+                            return Promise.reject(new Error('Support media request could not be authenticated.'));
+                        }
+                        var fd = new FormData();
+                        fd.append('action', 'n88_get_supplier_media_library');
+                        fd.append('supplier_id', String(numericSupplierId));
+                        fd.append('nonce', nonce);
+                        batchSupplierMediaRequestRef.current[numericSupplierId] = fetch(ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function(response) { return response.json(); })
+                            .then(function(data) {
+                                if (!data || !data.success || !data.data) {
+                                    throw new Error((data && data.data && data.data.message) ? data.data.message : 'Failed to load supplier media.');
+                                }
+                                var nextLibrary = {
+                                    our_work: Array.isArray(data.data.our_work) ? data.data.our_work : [],
+                                    material_samples: Array.isArray(data.data.material_samples) ? data.data.material_samples : []
+                                };
+                                batchSupplierMediaCacheRef.current[numericSupplierId] = nextLibrary;
+                                return nextLibrary;
+                            })
+                            .finally(function() {
+                                delete batchSupplierMediaRequestRef.current[numericSupplierId];
+                            });
+                        return batchSupplierMediaRequestRef.current[numericSupplierId];
                     };
                     var getCachedProposalState = function(itemId) {
                         var numericItemId = parseInt(itemId, 10) || 0;
@@ -23219,6 +23398,9 @@ class N88_RFQ_Admin {
                             instructions: typeof validationRequest.instructions === 'string' ? validationRequest.instructions : '',
                             shippingAddressFields: boardCanvasNormalizeAddressFields(validationRequest.shipping_address_fields || validationRequest.shipping_address || {}),
                             referenceFiles: [],
+                            supportMediaLibrary: getCachedBoardCanvasSupplierMediaLibrary(matchedOption ? matchedOption.supplierId : 0),
+                            supportMediaLibraryLoading: false,
+                            supportMediaLibraryError: '',
                             validationState: validationState,
                             isLocked: proposalGroupHasSampleRequest(group)
                         };
@@ -23289,6 +23471,49 @@ class N88_RFQ_Admin {
                         setBatchActionSelectionModalOpen(false);
                         setBatchActionDetailModalOpen(true);
                     };
+                    React.useEffect(function() {
+                        if (!batchActionDetailModalOpen) return;
+                        (batchActionSampleRows || []).forEach(function(row) {
+                            var supplierId = row && row.selectedSupplierId ? parseInt(row.selectedSupplierId, 10) : 0;
+                            if (!(supplierId > 0) || row.supportMediaLibraryLoading) return;
+                            var cachedLibrary = getCachedBoardCanvasSupplierMediaLibrary(supplierId);
+                            if (hasCachedBoardCanvasSupplierMediaLibrary(supplierId)) {
+                                if (!row.supportMediaLibrary || row.supportMediaLibrary !== cachedLibrary) {
+                                    updateBatchSampleRow(row.itemId, {
+                                        supportMediaLibrary: cachedLibrary,
+                                        supportMediaLibraryLoading: false,
+                                        supportMediaLibraryError: ''
+                                    });
+                                }
+                                return;
+                            }
+                            updateBatchSampleRow(row.itemId, {
+                                supportMediaLibrary: cachedLibrary,
+                                supportMediaLibraryLoading: true,
+                                supportMediaLibraryError: ''
+                            });
+                            fetchBoardCanvasSupplierMediaLibrary(supplierId)
+                                .then(function(libraryData) {
+                                    updateBatchSampleRow(row.itemId, function(currentRow) {
+                                        if (!currentRow || parseInt(currentRow.selectedSupplierId, 10) !== supplierId) return currentRow;
+                                        return Object.assign({}, currentRow, {
+                                            supportMediaLibrary: libraryData,
+                                            supportMediaLibraryLoading: false,
+                                            supportMediaLibraryError: ''
+                                        });
+                                    });
+                                })
+                                .catch(function(error) {
+                                    updateBatchSampleRow(row.itemId, function(currentRow) {
+                                        if (!currentRow || parseInt(currentRow.selectedSupplierId, 10) !== supplierId) return currentRow;
+                                        return Object.assign({}, currentRow, {
+                                            supportMediaLibraryLoading: false,
+                                            supportMediaLibraryError: error && error.message ? error.message : 'Failed to load supplier materials.'
+                                        });
+                                    });
+                                });
+                        });
+                    }, [batchActionDetailModalOpen, batchActionSampleRows]);
                     var submitBatchAwardSelection = function() {
                         var selectedGroups = getBatchActionQuotedGroups('award').filter(function(group) {
                             return !!batchActionSelection[toNumericItemId(group && group.item && group.item.id)];
@@ -23587,6 +23812,7 @@ class N88_RFQ_Admin {
                             var formData = new FormData();
                             formData.append('action', 'n88_get_item_rfq_state');
                             formData.append('item_id', String(current.itemId));
+                            formData.append('section', 'summary');
                             formData.append('_ajax_nonce', nonce);
 
                             var request = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
@@ -23829,6 +24055,7 @@ class N88_RFQ_Admin {
                         var formData = new FormData();
                         formData.append('action', 'n88_get_item_rfq_state');
                         formData.append('item_id', String(numericItemId));
+                        formData.append('section', 'bids_summary');
                         formData.append('_ajax_nonce', nonce);
                         var parseJsonResponseSafe = function(response) {
                             return response.text().then(function(rawText) {
@@ -24827,6 +25054,7 @@ class N88_RFQ_Admin {
                                                     itemQuantity: currentItem && (currentItem.quantity != null ? currentItem.quantity : (currentItem.meta && currentItem.meta.quantity)),
                                                     itemCbm: currentItem && currentItem.cbm,
                                                     itemDimsCm: currentItem && currentItem.dims_cm,
+                                                    summaryMode: true,
                                                     hidePrototypeHelperText: true,
                                                     batchActionMode: true,
                                                     lockedSupplierId: currentValidationState && currentValidationState.supplier_id ? parseInt(currentValidationState.supplier_id, 10) : 0,
@@ -25027,9 +25255,9 @@ class N88_RFQ_Admin {
                                 batchActionError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,82,82,0.12)', border: '1px solid rgba(255,82,82,0.45)', borderRadius: '6px', color: '#ffb3b3', fontSize: '13px' } }, batchActionError) : null,
                                 batchActionSampleRows.map(function(row) {
                                     var selectedOption = (row.supplierOptions || []).find(function(option) { return option.bidId === row.selectedBidId; }) || null;
-                                    var selectedBid = selectedOption ? selectedOption.bid : null;
-                                    var selectedOurWork = selectedBid && Array.isArray(selectedBid.supplier_library_media) ? selectedBid.supplier_library_media.map(function(entry) { return Object.assign({}, entry, { _library_group: 'our_work' }); }) : [];
-                                    var selectedMaterialSamples = selectedBid && Array.isArray(selectedBid.supplier_material_samples) ? selectedBid.supplier_material_samples.map(function(entry) { return Object.assign({}, entry, { _library_group: 'material_samples' }); }) : [];
+                                    var selectedLibrary = row && row.supportMediaLibrary && typeof row.supportMediaLibrary === 'object' ? row.supportMediaLibrary : getEmptyBoardCanvasSupplierMediaLibrary();
+                                    var selectedOurWork = Array.isArray(selectedLibrary.our_work) ? selectedLibrary.our_work.map(function(entry) { return Object.assign({}, entry, { _library_group: 'our_work' }); }) : [];
+                                    var selectedMaterialSamples = Array.isArray(selectedLibrary.material_samples) ? selectedLibrary.material_samples.map(function(entry) { return Object.assign({}, entry, { _library_group: 'material_samples' }); }) : [];
                                     var visibleLibraryItems = selectedOurWork.concat(selectedMaterialSamples);
                                     var readyIssues = getBatchSampleRowSelectionIssues(row);
                                     var isExpanded = !!batchActionExpanded[row.itemId];
@@ -25068,7 +25296,10 @@ class N88_RFQ_Admin {
                                                                 return Object.assign({}, currentRow, {
                                                                     selectedBidId: nextBidId,
                                                                     selectedSupplierId: nextOption ? nextOption.supplierId : 0,
-                                                                    selectedMaterialRefs: []
+                                                                    selectedMaterialRefs: [],
+                                                                    supportMediaLibrary: getCachedBoardCanvasSupplierMediaLibrary(nextOption ? nextOption.supplierId : 0),
+                                                                    supportMediaLibraryLoading: false,
+                                                                    supportMediaLibraryError: ''
                                                                 });
                                                             });
                                                         },
@@ -25089,7 +25320,7 @@ class N88_RFQ_Admin {
                                             ),
                                             React.createElement('div', { style: { marginBottom: '14px' } },
                                                 React.createElement('div', { style: { fontSize: '12px', color: '#bfbfbf', marginBottom: '8px' } }, 'Select Supplier Materials'),
-                                                renderBoardCanvasSupportMediaCards(visibleLibraryItems, {
+                                                row.supportMediaLibraryLoading ? React.createElement('div', { style: { padding: '14px', border: '1px dashed ' + boardCanvasDarkBorder, borderRadius: '6px', color: boardCanvasDarkText, fontSize: '11px', textAlign: 'center' } }, 'Loading supplier materials...') : (row.supportMediaLibraryError ? React.createElement('div', { style: { padding: '14px', border: '1px solid rgba(255,82,82,0.35)', borderRadius: '6px', color: '#ffb3b3', fontSize: '11px', backgroundColor: 'rgba(255,82,82,0.08)' } }, row.supportMediaLibraryError) : renderBoardCanvasSupportMediaCards(visibleLibraryItems, {
                                                     selectable: true,
                                                     selectedIds: row.selectedMaterialRefs || [],
                                                     keyPrefix: 'batch-sample-media-' + row.itemId + '-',
@@ -25109,7 +25340,7 @@ class N88_RFQ_Admin {
                                                             });
                                                         });
                                                     }
-                                                })
+                                                }))
                                             ),
                                             React.createElement('div', { style: { marginBottom: '14px' } },
                                                 React.createElement('label', { style: { display: 'block', fontSize: '12px', color: '#bfbfbf', marginBottom: '6px' } }, 'Reference Files'),
