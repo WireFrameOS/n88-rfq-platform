@@ -13473,25 +13473,46 @@ class N88_RFQ_Admin {
                         prototype_approved_version: null,
                         prototype_submission: null,
                         direction_keyword_ids: null,
+                        direction_keyword_names: null,
                         workflow_milestones: null,
                         validation_state: initialValidationState,
                         // Commit 28 / 3.C.1: Deposit lifecycle
                         deposit_status: '',
                         deposit_amount: null,
                         deposit_calculated_at: null,
-                        deposit_received_at: null
+                        deposit_received_at: null,
+                        loaded_sections: {
+                            summary: false,
+                            bids: false,
+                            workflow: false
+                        },
+                        loading_sections: {
+                            summary: false,
+                            bids: false,
+                            workflow: false
+                        }
                     }, initialPreloadedRfqState || {}, {
                         validation_state: initialPreloadedRfqState && initialPreloadedRfqState.validation_state
                             ? initialPreloadedRfqState.validation_state
                             : initialValidationState,
-                        loading: initialPreloadedRfqState ? false : true
+                        loading: initialPreloadedRfqState ? false : true,
+                        loaded_sections: {
+                            summary: !!initialPreloadedRfqState,
+                            bids: !!(initialPreloadedRfqState && Array.isArray(initialPreloadedRfqState.bids) && initialPreloadedRfqState.bids.length),
+                            workflow: !!(initialPreloadedRfqState && (initialPreloadedRfqState.workflow_milestones || initialPreloadedRfqState.prototype_submission || initialPreloadedRfqState.direction_keyword_ids))
+                        },
+                        loading_sections: {
+                            summary: !initialPreloadedRfqState,
+                            bids: false,
+                            workflow: false
+                        }
                     });
                     
                     // Item state (RFQ and bids)
                     var _itemStateState = React.useState(initialItemState);
                     var itemState = _itemStateState[0];
                     var setItemState = _itemStateState[1];
-                    var itemStateRequestRef = React.useRef(null);
+                    var itemStateRequestRef = React.useRef({});
                     var _selectedDirectSupplierIdState = React.useState(null);
                     var selectedDirectSupplierId = _selectedDirectSupplierIdState[0];
                     var setSelectedDirectSupplierId = _selectedDirectSupplierIdState[1];
@@ -14759,6 +14780,23 @@ class N88_RFQ_Admin {
                         if (activeTab === 'timeline' && itemId && !timelineData && !timelineLoading && !timelineError) fetchTimeline();
                     }, [activeTab, itemId, timelineData, timelineLoading, timelineError, fetchTimeline]);
                     React.useEffect(function() {
+                        if (!isOpen || !itemId) return;
+                        if (activeTab === 'timeline' && !isItemStateSectionLoaded('workflow') && !isItemStateSectionLoading('workflow')) {
+                            fetchItemState('workflow');
+                        }
+                        if (activeTab === 'timeline' && itemState.has_bids && !isItemStateSectionLoaded('bids') && !isItemStateSectionLoading('bids')) {
+                            fetchItemState('bids');
+                        }
+                    }, [isOpen, itemId, activeTab, itemState.loaded_sections, itemState.loading_sections]);
+                    React.useEffect(function() {
+                        if (!isOpen || !itemId) return;
+                        if (activeTab === 'details' && itemState.has_bids && !isItemStateSectionLoaded('bids') && !isItemStateSectionLoading('bids')) {
+                            window.setTimeout(function() {
+                                fetchItemState('bids');
+                            }, 0);
+                        }
+                    }, [isOpen, itemId, activeTab, itemState.has_bids, itemState.loaded_sections, itemState.loading_sections]);
+                    React.useEffect(function() {
                         setTimelineData(null);
                         setTimelineError(null);
                         setSelectedStepIndex(0);
@@ -14793,14 +14831,34 @@ class N88_RFQ_Admin {
                             readiness_flags: mergeSection('readiness_flags')
                         });
                     };
+                    var ensureItemStateSectionMap = function(map) {
+                        return Object.assign({ summary: false, bids: false, workflow: false }, map && typeof map === 'object' ? map : {});
+                    };
+                    var isItemStateSectionLoaded = function(sectionKey) {
+                        var loadedSections = ensureItemStateSectionMap(itemState && itemState.loaded_sections);
+                        return !!loadedSections[sectionKey];
+                    };
+                    var isItemStateSectionLoading = function(sectionKey) {
+                        var loadingSections = ensureItemStateSectionMap(itemState && itemState.loading_sections);
+                        return !!loadingSections[sectionKey];
+                    };
 
                     // Fetch item RFQ/bid state when modal opens
-                    var fetchItemState = function(forceRefresh) {
+                    var fetchItemState = function(sectionKey, forceRefresh) {
+                        if (sectionKey === undefined || !sectionKey) {
+                            if (activeTab === 'timeline') {
+                                sectionKey = 'workflow';
+                            } else if (activeTab === 'details' && itemState && itemState.has_bids) {
+                                sectionKey = 'bids';
+                            } else {
+                                sectionKey = 'summary';
+                            }
+                        }
                         if (forceRefresh === undefined) forceRefresh = false;
                         if (!itemId || isNaN(itemId) || itemId <= 0) {
                             console.error('Invalid item ID for fetchItemState:', itemId);
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                             return;
                         }
@@ -14825,21 +14883,36 @@ class N88_RFQ_Admin {
                         if (!nonce) {
                             console.error('Nonce not found for fetchItemState');
                             setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                             return;
                         }
                         
+                        if (!forceRefresh && isItemStateSectionLoaded(sectionKey)) {
+                            return Promise.resolve(itemState);
+                        }
+
                         var formData = new FormData();
                         formData.append('action', 'n88_get_item_rfq_state');
                         formData.append('item_id', String(itemId));
+                        formData.append('section', String(sectionKey));
                         formData.append('_ajax_nonce', nonce);
                         
-                        if (!forceRefresh && itemStateRequestRef.current) {
-                            return itemStateRequestRef.current;
+                        if (!forceRefresh && itemStateRequestRef.current[sectionKey]) {
+                            return itemStateRequestRef.current[sectionKey];
                         }
 
-                        itemStateRequestRef.current = fetch(ajaxUrl, {
+                        setItemState(function(prev) {
+                            var previousState = prev && typeof prev === 'object' ? prev : {};
+                            var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
+                            nextLoadingSections[sectionKey] = true;
+                            return Object.assign({}, previousState, {
+                                loading: sectionKey === 'summary' ? true : previousState.loading,
+                                loading_sections: nextLoadingSections
+                            });
+                        });
+
+                        itemStateRequestRef.current[sectionKey] = fetch(ajaxUrl, {
                             method: 'POST',
                             body: formData,
                         })
@@ -14854,11 +14927,19 @@ class N88_RFQ_Admin {
                                         || (item && item.validation_state && typeof item.validation_state === 'object' ? item.validation_state : null)
                                         || (item && item.meta && item.meta.material_validation && typeof item.meta.material_validation === 'object' ? item.meta.material_validation : null);
                                     var mergedValidationState = mergeValidationState(previousValidationState, data.data.validation_state || null);
-                                    return Object.assign({}, previousState, {
+                                    var nextLoadedSections = ensureItemStateSectionMap(previousState.loaded_sections);
+                                    var incomingLoadedSections = ensureItemStateSectionMap(data.data && data.data.loaded_sections);
+                                    Object.keys(incomingLoadedSections).forEach(function(nextSectionKey) {
+                                        if (incomingLoadedSections[nextSectionKey]) {
+                                            nextLoadedSections[nextSectionKey] = true;
+                                        }
+                                    });
+                                    var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
+                                    nextLoadingSections[sectionKey] = false;
+                                    var nextState = Object.assign({}, previousState, {
                                         has_rfq: data.data.has_rfq || false,
                                         has_bids: data.data.has_bids || false,
                                         has_awarded_bid: !!data.data.has_awarded_bid,
-                                        bids: data.data.bids || [],
                                         rfq_revision_current: data.data.rfq_revision_current || null,
                                         revision_changed: data.data.revision_changed || false,
                                         has_unread_operator_messages: data.data.has_unread_operator_messages || false,
@@ -14899,8 +14980,21 @@ class N88_RFQ_Admin {
                                         deposit_receipt_url: data.data.deposit_receipt_url || '',
                                         deposit_sent_note: data.data.deposit_sent_note || '',
                                         deposit_sent_at: data.data.deposit_sent_at || null,
-                                        loading: false
+                                        loading: sectionKey === 'summary' ? false : previousState.loading,
+                                        loaded_sections: nextLoadedSections,
+                                        loading_sections: nextLoadingSections
                                     });
+                                    if (incomingLoadedSections.bids) {
+                                        nextState.bids = data.data.bids || [];
+                                        nextState.proposal_group_workspaces = data.data.proposal_group_workspaces || [];
+                                    }
+                                    if (incomingLoadedSections.workflow) {
+                                        nextState.prototype_submission = data.data.prototype_submission || null;
+                                        nextState.direction_keyword_ids = data.data.direction_keyword_ids || null;
+                                        nextState.direction_keyword_names = data.data.direction_keyword_names || null;
+                                        nextState.workflow_milestones = data.data.workflow_milestones || null;
+                                    }
+                                    return nextState;
                                 });
                                 // Update board card so it shows Review CAD / Pending Prototype Video without page refresh
                                 if (updateLayout && item && item.id) {
@@ -14919,7 +15013,7 @@ class N88_RFQ_Admin {
                                     }
                                     if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_text !== undefined) cardUpdates.validation_card_status_text = cardUpdates.validation_state.card_status_text || '';
                                     if (cardUpdates.validation_state && cardUpdates.validation_state.card_status_color !== undefined) cardUpdates.validation_card_status_color = cardUpdates.validation_state.card_status_color || '#f4b400';
-                                    cardUpdates.rfq_state = data.data;
+                                    cardUpdates.rfq_state = Object.assign({}, (item && item.rfq_state && typeof item.rfq_state === 'object') ? item.rfq_state : {}, data.data);
                                     cardUpdates.rfq_state_fetched_at = Date.now();
                                     if (Object.keys(cardUpdates).length > 0) updateLayout(item.id, cardUpdates);
                                 }
@@ -14930,20 +15024,29 @@ class N88_RFQ_Admin {
                             } else {
                                 console.error('Failed to fetch item state:', data.message);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                                 });
                             }
                         })
                         .catch(function(error) {
                             console.error('Error fetching item state:', error);
                                 setItemState(function(prev) {
-                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null };
+                                    return { has_rfq: false, has_bids: false, bids: [], loading: false, has_unread_operator_messages: false, unread_operator_messages: 0, has_unread_supplier_messages: false, unread_supplier_messages: 0, latest_unread_supplier_message_context: '', latest_unread_supplier_message_step_index: null, direct_supplier_id: null, direct_supplier_options: [], has_prototype_payment: false, prototype_payment_id: null, prototype_payment_bid_id: null, prototype_payment_supplier_id: null, prototype_payment_status: null, prototype_payment_total_due: null, cad_status: null, cad_revision_rounds_included: null, cad_revision_rounds_used: null, cad_approved_at: null, cad_approved_version: null, cad_released_to_supplier_at: null, cad_current_version: null, prototype_status: null, prototype_current_version: null, prototype_approved_version: null, prototype_submission: null, direction_keyword_ids: null, direction_keyword_names: null, workflow_milestones: null, validation_state: null, loaded_sections: ensureItemStateSectionMap(), loading_sections: ensureItemStateSectionMap() };
                             });
                         })
                         .finally(function() {
-                            itemStateRequestRef.current = null;
+                            delete itemStateRequestRef.current[sectionKey];
+                            setItemState(function(prev) {
+                                var previousState = prev && typeof prev === 'object' ? prev : {};
+                                var nextLoadingSections = ensureItemStateSectionMap(previousState.loading_sections);
+                                nextLoadingSections[sectionKey] = false;
+                                return Object.assign({}, previousState, {
+                                    loading: sectionKey === 'summary' ? false : previousState.loading,
+                                    loading_sections: nextLoadingSections
+                                });
+                            });
                         });
-                        return itemStateRequestRef.current;
+                        return itemStateRequestRef.current[sectionKey];
                     };
                     
                     // Fetch item state when modal opens; reset Message Operator to collapsed to avoid carry-over from previous item
@@ -14968,11 +15071,11 @@ class N88_RFQ_Admin {
                                     });
                                 });
                                 if (!cacheIsFresh) {
-                                    window.setTimeout(function() { fetchItemState(true); }, 0);
+                                    window.setTimeout(function() { fetchItemState('summary', true); }, 0);
                                 }
                                 return;
                             }
-                            fetchItemState();
+                            fetchItemState('summary');
                         }
                     }, [isOpen, itemId, item && item.rfq_state]);
                     React.useEffect(function() {
@@ -18997,8 +19100,8 @@ class N88_RFQ_Admin {
                                                     )
                                                 )
                                             ) : null,
-                                            // Bids Content - Only show if bids exist
-                                            itemState.has_bids && itemState.bids && itemState.bids.length > 0 ? React.createElement('div', {
+                                            // Bids Content - hydrate proposals after the details shell is visible
+                                            itemState.has_bids ? React.createElement('div', {
                                                 style: { marginBottom: '24px' },
                                                 onClick: function(e) { e.stopPropagation(); }
                                             },
@@ -19014,8 +19117,18 @@ class N88_RFQ_Admin {
                                                         style: { fontSize: '14px', fontWeight: '600' }
                                                     }, 'Proposals')
                                                 ),
+                                                isItemStateSectionLoading('bids') && (!itemState.bids || !itemState.bids.length) ? React.createElement('div', {
+                                                    style: {
+                                                        padding: '16px',
+                                                        border: '1px solid ' + darkBorder,
+                                                        borderRadius: '4px',
+                                                        backgroundColor: '#111111',
+                                                        color: '#888',
+                                                        fontSize: '12px'
+                                                    }
+                                                }, 'Loading proposals...') : null,
                                                 // Commit 2.3.6: Expanded BIDS Matrix View
-                                                bidsExpanded ? React.createElement(React.Fragment, null,
+                                                (itemState.bids && itemState.bids.length > 0 && bidsExpanded) ? React.createElement(React.Fragment, null,
                                                     React.createElement(BidComparisonMatrixInline, {
                                                         bids: itemState.bids,
                                                         darkBorder: darkBorder,
@@ -19538,6 +19651,7 @@ class N88_RFQ_Admin {
                                         // Tab 4: Production Timeline (Commit 3.A.1 - dynamic 6-step timeline; operator controls)
                                         activeTab === 'timeline' ? React.createElement('div', { style: { fontFamily: 'monospace' } },
                                             timelineLoading ? React.createElement('div', { style: { padding: '24px', textAlign: 'center', color: darkText } }, 'Loading timeline…') : null,
+                                            isItemStateSectionLoading('workflow') ? React.createElement('div', { style: { marginBottom: '16px', padding: '14px 16px', border: '1px solid ' + darkBorder, borderRadius: '4px', backgroundColor: '#111111', color: '#888', fontSize: '12px' } }, 'Loading workflow details...') : null,
                                             timelineError ? React.createElement('div', { style: { padding: '16px', border: '1px solid ' + darkBorder, borderRadius: '4px', color: '#cc6666', marginBottom: '16px' } }, timelineError) : null,
                                             // Operator: standalone Step 4 Deposit block - visible when item has awarded bid, even before timeline loads or when timeline has < 6 steps
                                             !timelineLoading && itemState && itemState.has_awarded_bid && isOperatorTimeline ? React.createElement('div', { style: { marginBottom: '20px', padding: '16px', border: '1px solid #FF0065', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' } },
