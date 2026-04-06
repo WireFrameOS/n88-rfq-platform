@@ -18,6 +18,33 @@ class N88_RFQ_Admin {
     }
 
     /**
+     * Lightweight slow-request instrumentation for board/admin AJAX endpoints.
+     *
+     * @param string $endpoint Endpoint label.
+     * @param float  $started_at microtime(true) request start.
+     * @param array  $context Optional debug context.
+     * @return void
+     */
+    private function log_ajax_performance( $endpoint, $started_at, $context = array() ) {
+        $duration_ms = ( microtime( true ) - (float) $started_at ) * 1000;
+        $threshold   = 350;
+
+        if ( $duration_ms < $threshold ) {
+            return;
+        }
+
+        $payload = array_merge(
+            array(
+                'endpoint'    => (string) $endpoint,
+                'duration_ms' => round( $duration_ms, 2 ),
+            ),
+            is_array( $context ) ? $context : array()
+        );
+
+        error_log( 'N88 AJAX performance: ' . wp_json_encode( $payload ) );
+    }
+
+    /**
      * Commit 3.C.17: Resolve grouped proposal context for a board item.
      *
      * A grouped proposal exists when a submitted/awarded bid carries a
@@ -23710,8 +23737,10 @@ class N88_RFQ_Admin {
                     
                     // Refresh board item status (CAD requested, payment, etc.) so designer card updates
                     var updateLayout = useBoardStore ? useBoardStore(function(state) { return state.updateLayout; }) : null;
+                    var boardStatusRequestRef = React.useRef(null);
                     var refreshBoardItemsStatus = React.useCallback(function() {
                         if (!boardId || boardId <= 0 || typeof updateLayout !== 'function') return;
+                        if (boardStatusRequestRef.current) return boardStatusRequestRef.current;
                         var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_board_items_status) || (window.n88BoardNonce && window.n88BoardNonce.nonce) || '';
                         if (!nonce) return;
                         var formData = new FormData();
@@ -23719,13 +23748,20 @@ class N88_RFQ_Admin {
                         formData.append('board_id', String(boardId));
                         formData.append('_ajax_nonce', nonce);
                         var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
-                        fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+                        boardStatusRequestRef.current = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
                             .then(function(r) { return r.json(); })
                             .then(function(data) {
                                 if (data.success && data.data && Array.isArray(data.data.items)) {
                                     data.data.items.forEach(function(row) {
                                         if (row.id && typeof updateLayout === 'function') {
+                                            var numericItemId = toNumericItemId(row.id);
+                                            if (numericItemId && row.rfq_state && typeof row.rfq_state === 'object') {
+                                                window.n88BoardRfqStateCache = window.n88BoardRfqStateCache || {};
+                                                window.n88BoardRfqStateCache[numericItemId] = row.rfq_state;
+                                            }
                                             updateLayout(row.id, {
+                                                has_rfq: row.rfq_state && (row.rfq_state.has_rfq === true || row.rfq_state.has_rfq === 1 || row.rfq_state.has_rfq === '1' || row.rfq_state.has_rfq === 'true'),
+                                                has_bids: row.rfq_state && (row.rfq_state.has_bids === true || row.rfq_state.has_bids === 1 || row.rfq_state.has_bids === '1' || row.rfq_state.has_bids === 'true'),
                                                 has_prototype_payment: row.has_prototype_payment,
                                                 prototype_payment_status: row.prototype_payment_status,
                                                 cad_status: row.cad_status,
@@ -23746,16 +23782,22 @@ class N88_RFQ_Admin {
                                                 validation_state: row.validation_state || null,
                                                 validation_card_status_text: row.validation_card_status_text || '',
                                                 validation_card_status_color: row.validation_card_status_color || '#f4b400',
+                                                rfq_state: row.rfq_state || null,
+                                                rfq_state_fetched_at: Date.now(),
                                             });
                                         }
                                     });
                                 }
                             })
-                            .catch(function() {});
+                            .catch(function() {})
+                            .finally(function() {
+                                boardStatusRequestRef.current = null;
+                            });
+                        return boardStatusRequestRef.current;
                     }, [boardId, updateLayout]);
                     React.useEffect(function() {
                         if (!boardId || boardId <= 0) return;
-                        var t = setTimeout(refreshBoardItemsStatus, 800);
+                        var t = setTimeout(refreshBoardItemsStatus, 120);
                         return function() { clearTimeout(t); };
                     }, [boardId, refreshBoardItemsStatus]);
                     React.useEffect(function() {
@@ -23773,101 +23815,23 @@ class N88_RFQ_Admin {
                         return function() { window.removeEventListener('n88-board-refresh-status', onRefreshEvent); };
                     }, [boardId, refreshBoardItemsStatus]);
                     React.useEffect(function() {
-                        if (!boardId || boardId <= 0 || !Array.isArray(items) || !items.length || typeof updateLayout !== 'function') return;
-                        var ajaxUrl = (window.n88BoardData && window.n88BoardData.ajaxUrl) || window.ajaxurl || '/wp-admin/admin-ajax.php';
-                        var nonce = (window.n88BoardNonce && window.n88BoardNonce.nonce_get_item_rfq_state) || (window.n88BoardData && window.n88BoardData.nonce) || '';
-                        if (!ajaxUrl || !nonce) return;
-
+                        if (!Array.isArray(items) || !items.length || typeof updateLayout !== 'function') return;
                         window.n88BoardRfqStateCache = window.n88BoardRfqStateCache || {};
-                        window.n88BoardRfqStatePending = window.n88BoardRfqStatePending || {};
-
-                        var queue = [];
                         items.forEach(function(boardItem) {
                             var numericItemId = toNumericItemId(boardItem && boardItem.id);
                             if (!numericItemId) return;
-
                             if (boardItem && boardItem.rfq_state && typeof boardItem.rfq_state === 'object') {
-                                if (!window.n88BoardRfqStateCache[numericItemId]) {
-                                    window.n88BoardRfqStateCache[numericItemId] = boardItem.rfq_state;
-                                }
+                                window.n88BoardRfqStateCache[numericItemId] = boardItem.rfq_state;
                                 return;
                             }
-
                             if (window.n88BoardRfqStateCache[numericItemId]) {
                                 updateLayout(boardItem.id, {
                                     rfq_state: window.n88BoardRfqStateCache[numericItemId],
-                                    rfq_state_fetched_at: boardItem && boardItem.rfq_state_fetched_at ? boardItem.rfq_state_fetched_at : Date.now()
+                                    rfq_state_fetched_at: Date.now()
                                 });
-                                return;
-                            }
-
-                            if (!window.n88BoardRfqStatePending[numericItemId]) {
-                                queue.push({ itemId: numericItemId, itemKey: boardItem.id });
                             }
                         });
-
-                        if (!queue.length) return;
-
-                        var cancelled = false;
-                        var concurrency = 4;
-                        var nextIndex = 0;
-
-                        var applyPayloadToStore = function(itemKey, payload) {
-                            if (!payload || typeof payload !== 'object') return;
-                            updateLayout(itemKey, {
-                                rfq_state: payload,
-                                rfq_state_fetched_at: Date.now(),
-                                has_rfq: payload.has_rfq === true || payload.has_rfq === 1 || payload.has_rfq === '1' || payload.has_rfq === 'true',
-                                has_bids: payload.has_bids === true || payload.has_bids === 1 || payload.has_bids === '1' || payload.has_bids === 'true',
-                                has_awarded_bid: !!payload.has_awarded_bid,
-                                prototype_payment_status: payload.prototype_payment_status || null,
-                                cad_status: payload.cad_status || null,
-                                cad_current_version: (payload.cad_current_version !== undefined && payload.cad_current_version !== null) ? payload.cad_current_version : null,
-                                prototype_status: payload.prototype_status || null,
-                                validation_state: payload.validation_state || null,
-                                validation_card_status_text: payload.validation_state && payload.validation_state.card_status_text ? payload.validation_state.card_status_text : '',
-                                validation_card_status_color: payload.validation_state && payload.validation_state.card_status_color ? payload.validation_state.card_status_color : '#f4b400',
-                                deposit_status: payload.deposit_status || '',
-                                action_required: !!payload.action_required
-                            });
-                        };
-
-                        var runNext = function() {
-                            if (cancelled || nextIndex >= queue.length) return Promise.resolve();
-                            var current = queue[nextIndex++];
-                            if (!current || !current.itemId) return runNext();
-
-                            var formData = new FormData();
-                            formData.append('action', 'n88_get_item_rfq_state');
-                            formData.append('item_id', String(current.itemId));
-                            formData.append('section', 'summary');
-                            formData.append('_ajax_nonce', nonce);
-
-                            var request = fetch(ajaxUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
-                                .then(function(response) { return response.json(); })
-                                .then(function(data) {
-                                    if (cancelled || !data || !data.success || !data.data) return;
-                                    window.n88BoardRfqStateCache[current.itemId] = data.data;
-                                    applyPayloadToStore(current.itemKey, data.data);
-                                })
-                                .catch(function() {})
-                                .finally(function() {
-                                    delete window.n88BoardRfqStatePending[current.itemId];
-                                });
-
-                            window.n88BoardRfqStatePending[current.itemId] = request;
-                            return request.then(runNext);
-                        };
-
-                        var workers = [];
-                        for (var workerIndex = 0; workerIndex < concurrency && workerIndex < queue.length; workerIndex++) {
-                            workers.push(runNext());
-                        }
-
-                        return function() {
-                            cancelled = true;
-                        };
-                    }, [boardId, items, updateLayout]);
+                    }, [items, updateLayout]);
 
                     React.useEffect(function() {
                         var createBtn = document.getElementById('n88-create-batch-rfq-btn');
@@ -25520,6 +25484,7 @@ class N88_RFQ_Admin {
      * Returns status fields only so the frontend can merge into the store and show CAD Requested, Payment received, etc.
      */
     public function ajax_get_board_items_status() {
+        $request_started_at = microtime( true );
         check_ajax_referer( 'n88_get_board_items_status', '_ajax_nonce' );
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( array( 'message' => 'Unauthorized' ), 401 );
@@ -25618,7 +25583,26 @@ class N88_RFQ_Admin {
         }
 
         $awarded_bid_counts = array();
+        $rfq_route_counts   = array();
         $batch_proposals_by_item = array();
+        $rfq_routes_table   = $wpdb->prefix . 'n88_rfq_routes';
+        $rfq_route_rows     = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT item_id, COUNT(*) AS route_count
+                FROM {$rfq_routes_table}
+                WHERE item_id IN ({$item_placeholders})
+                AND (status IS NULL OR status != 'expired')
+                GROUP BY item_id",
+                $board_item_ids
+            ),
+            ARRAY_A
+        );
+        foreach ( (array) $rfq_route_rows as $rfq_route_row ) {
+            $route_item_id = isset( $rfq_route_row['item_id'] ) ? (int) $rfq_route_row['item_id'] : 0;
+            if ( $route_item_id > 0 ) {
+                $rfq_route_counts[ $route_item_id ] = isset( $rfq_route_row['route_count'] ) ? (int) $rfq_route_row['route_count'] : 0;
+            }
+        }
         $item_bid_rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT bid_id, item_id, status, meta_json, rfq_revision_at_submit
@@ -25742,6 +25726,8 @@ class N88_RFQ_Admin {
                 }
             }
             $has_awarded_bid = ! empty( $awarded_bid_counts[ $item_id ] );
+            $has_rfq         = ! empty( $rfq_route_counts[ $item_id ] ) || $has_awarded_bid || ! empty( $batch_proposal_context['batch_proposal_bid_count'] );
+            $has_bids        = ! empty( $batch_proposal_context['batch_proposal_bid_count'] ) || $has_awarded_bid;
             $unread_operator_messages = 0;
             $unread_supplier_messages = 0;
             $has_unread_supplier_messages = false;
@@ -25998,8 +25984,41 @@ class N88_RFQ_Admin {
                 'deposit_received_at' => isset( $item_meta_for_deposit['deposit_received_at'] ) ? $item_meta_for_deposit['deposit_received_at'] : null,
                 'deposit_sent_note' => isset( $item_meta_for_deposit['deposit_sent_note'] ) ? $item_meta_for_deposit['deposit_sent_note'] : '',
                 'deposit_sent_at' => isset( $item_meta_for_deposit['deposit_sent_at'] ) ? $item_meta_for_deposit['deposit_sent_at'] : null,
+                'rfq_state' => array(
+                    'requested_section' => 'summary',
+                    'loaded_sections' => array(
+                        'summary' => true,
+                        'bids' => false,
+                        'workflow' => false,
+                    ),
+                    'has_rfq' => $has_rfq,
+                    'has_bids' => $has_bids,
+                    'has_awarded_bid' => $has_awarded_bid,
+                    'prototype_payment_status' => $prototype_payment_status,
+                    'cad_status' => $cad_status,
+                    'cad_current_version' => $cad_current_version,
+                    'prototype_status' => $prototype_status,
+                    'validation_state' => $validation_card_state,
+                    'deposit_status' => isset( $item_meta_for_deposit['deposit_status'] ) ? $item_meta_for_deposit['deposit_status'] : '',
+                    'action_required' => $action_required,
+                    'has_unread_operator_messages' => $has_unread_operator_messages,
+                    'unread_operator_messages' => $unread_operator_messages,
+                    'has_unread_supplier_messages' => $has_unread_supplier_messages,
+                    'unread_supplier_messages' => $unread_supplier_messages,
+                    'latest_unread_supplier_message_context' => $latest_unread_supplier_message_context,
+                    'latest_unread_supplier_message_step_index' => $latest_unread_supplier_message_step_index,
+                ),
             );
         }
+        $this->log_ajax_performance(
+            'n88_get_board_items_status',
+            $request_started_at,
+            array(
+                'board_id'    => $board_id,
+                'item_count'  => count( $board_item_ids ),
+                'result_rows' => count( $items_status ),
+            )
+        );
         wp_send_json_success( array( 'items' => $items_status ) );
     }
 

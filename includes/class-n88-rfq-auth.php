@@ -89,6 +89,7 @@ class N88_RFQ_Auth {
         add_action( 'wp_ajax_n88_review_material_samples', array( $this, 'ajax_review_material_samples' ) );
         add_action( 'wp_ajax_n88_upload_validation_po', array( $this, 'ajax_upload_validation_po' ) );
         add_action( 'wp_ajax_n88_submit_validation_com', array( $this, 'ajax_submit_validation_com' ) );
+        add_action( 'init', array( $this, 'maybe_ensure_hot_query_indexes' ), 20 );
         add_action( 'wp_ajax_n88_mark_validation_com_delivered', array( $this, 'ajax_mark_validation_com_delivered' ) );
         add_action( 'wp_ajax_n88_submit_validation_deposit', array( $this, 'ajax_submit_validation_deposit' ) );
         
@@ -202,6 +203,104 @@ class N88_RFQ_Auth {
         // Route guards (Commit 2.2.1)
         add_action( 'template_redirect', array( $this, 'enforce_route_guards' ) );
         add_action( 'admin_init', array( $this, 'enforce_admin_route_guards' ) );
+    }
+
+    /**
+     * Daily index verification for hot read paths used by queues, board, media, and messaging.
+     *
+     * @return void
+     */
+    public function maybe_ensure_hot_query_indexes() {
+        $last_run = (int) get_option( 'n88_hot_query_indexes_checked_at', 0 );
+        if ( $last_run > 0 && ( time() - $last_run ) < DAY_IN_SECONDS ) {
+            return;
+        }
+
+        update_option( 'n88_hot_query_indexes_checked_at', time(), false );
+
+        global $wpdb;
+
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_board_items', 'idx_board_removed_added', 'ADD INDEX idx_board_removed_added (board_id, removed_at, added_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_board_items', 'idx_item_removed', 'ADD INDEX idx_item_removed (item_id, removed_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_bids', 'idx_item_status_bid', 'ADD INDEX idx_item_status_bid (item_id, status, bid_id)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_bids', 'idx_item_supplier_status', 'ADD INDEX idx_item_supplier_status (item_id, supplier_id, status)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_bids', 'idx_item_revision', 'ADD INDEX idx_item_revision (item_id, rfq_revision_at_submit)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_rfq_routes', 'idx_item_status_supplier', 'ADD INDEX idx_item_status_supplier (item_id, status, supplier_id)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_designer_created', 'ADD INDEX idx_item_designer_created (item_id, designer_user_id, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payments', 'idx_item_supplier_created', 'ADD INDEX idx_item_supplier_created (item_id, supplier_id, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_thread_created', 'ADD INDEX idx_item_thread_created (item_id, thread_type, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_supplier_thread_created', 'ADD INDEX idx_item_supplier_thread_created (item_id, supplier_id, thread_type, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_designer_thread_created', 'ADD INDEX idx_item_designer_thread_created (item_id, designer_id, thread_type, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_messages', 'idx_item_context_created', 'ADD INDEX idx_item_context_created (item_id, context_type, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_rfq_case_resolutions', 'idx_item_bid_actor', 'ADD INDEX idx_item_bid_actor (item_id, bid_id, actor_user_id)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_submissions', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_video_links', 'idx_submission_sort', 'ADD INDEX idx_submission_sort (submission_id, sort_order)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_prototype_payment_receipts', 'idx_payment_created', 'ADD INDEX idx_payment_created (payment_id, created_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_files', 'idx_item_payment_attachment', 'ADD INDEX idx_item_payment_attachment (item_id, payment_id, attachment_type, detached_at)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_timelines', 'idx_item_timeline', 'ADD INDEX idx_item_timeline (item_id, timeline_id)' );
+        $this->maybe_add_table_index( $wpdb->prefix . 'n88_item_timeline_steps', 'idx_timeline_step_status', 'ADD INDEX idx_timeline_step_status (timeline_id, step_number, status)' );
+    }
+
+    /**
+     * Add an index if it does not already exist.
+     *
+     * @param string $table Table name.
+     * @param string $index_name Index name.
+     * @param string $ddl_suffix ALTER TABLE suffix beginning with ADD INDEX...
+     * @return void
+     */
+    private function maybe_add_table_index( $table, $index_name, $ddl_suffix ) {
+        global $wpdb;
+
+        if ( ! $table || ! $index_name || ! $ddl_suffix ) {
+            return;
+        }
+
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return;
+        }
+
+        $existing = $wpdb->get_var( $wpdb->prepare( "SHOW INDEX FROM {$table} WHERE Key_name = %s", $index_name ) );
+        if ( $existing ) {
+            return;
+        }
+
+        $result = $wpdb->query( "ALTER TABLE {$table} {$ddl_suffix}" );
+        if ( false === $result ) {
+            error_log(
+                sprintf(
+                    'N88 index ensure failed. table=%s index=%s error=%s',
+                    $table,
+                    $index_name,
+                    $wpdb->last_error
+                )
+            );
+        }
+    }
+
+    /**
+     * Log slow AJAX requests for regression visibility.
+     *
+     * @param string $endpoint Endpoint label.
+     * @param float  $started_at microtime(true) start.
+     * @param array  $context Optional context.
+     * @return void
+     */
+    private function log_ajax_performance( $endpoint, $started_at, $context = array() ) {
+        $duration_ms = ( microtime( true ) - (float) $started_at ) * 1000;
+        if ( $duration_ms < 350 ) {
+            return;
+        }
+
+        $payload = array_merge(
+            array(
+                'endpoint'    => (string) $endpoint,
+                'duration_ms' => round( $duration_ms, 2 ),
+            ),
+            is_array( $context ) ? $context : array()
+        );
+
+        error_log( 'N88 AJAX performance: ' . wp_json_encode( $payload ) );
     }
 
     private function table_exists_cached( $table_name ) {
@@ -16451,15 +16550,33 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
     }
 
     public function ajax_get_item_rfq_state() {
+        $request_started_at = microtime( true );
         $buffer_level = ob_get_level();
         ob_start();
-        $flush_json_error = function( $payload, $status_code = null ) use ( $buffer_level ) {
+        $flush_json_error = function( $payload, $status_code = null ) use ( $buffer_level, $request_started_at ) {
+            $this->log_ajax_performance(
+                'n88_get_item_rfq_state',
+                $request_started_at,
+                array(
+                    'status' => 'error',
+                )
+            );
             while ( ob_get_level() > $buffer_level ) {
                 ob_end_clean();
             }
             wp_send_json_error( $payload, $status_code );
         };
-        $flush_json_success = function( $payload, $status_code = null ) use ( $buffer_level ) {
+        $flush_json_success = function( $payload, $status_code = null ) use ( $buffer_level, $request_started_at ) {
+            $this->log_ajax_performance(
+                'n88_get_item_rfq_state',
+                $request_started_at,
+                array(
+                    'status'            => 'success',
+                    'requested_section' => isset( $payload['requested_section'] ) ? $payload['requested_section'] : '',
+                    'has_bids'          => ! empty( $payload['has_bids'] ),
+                    'has_workflow'      => ! empty( $payload['loaded_sections']['workflow'] ),
+                )
+            );
             while ( ob_get_level() > $buffer_level ) {
                 ob_end_clean();
             }
@@ -26255,6 +26372,7 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
      * AJAX handler to get item messages (Commit 2.3.9.1C-a)
      */
     public function ajax_get_item_messages() {
+        $request_started_at = microtime( true );
         check_ajax_referer( 'n88_get_item_messages', '_ajax_nonce' );
 
         if ( ! is_user_logged_in() ) {
@@ -26276,6 +26394,8 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
         $thread_type = isset( $_POST['thread_type'] ) ? sanitize_text_field( wp_unslash( $_POST['thread_type'] ) ) : '';
         $context_type = isset( $_POST['context_type'] ) ? $this->normalize_item_message_context_type( wp_unslash( $_POST['context_type'] ) ) : '';
         $requested_supplier_id = isset( $_POST['supplier_id'] ) ? absint( $_POST['supplier_id'] ) : 0;
+        $offset = isset( $_POST['offset'] ) ? max( 0, absint( $_POST['offset'] ) ) : 0;
+        $limit  = isset( $_POST['limit'] ) ? max( 1, min( 100, absint( $_POST['limit'] ) ) ) : 50;
         if ( $thread_type === 'designer_supplier' ) {
             $this->ensure_supplier_proposal_workspace_support();
         }
@@ -26400,19 +26520,38 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
 
         $where_sql = implode( ' AND ', $where_clauses );
 
-        // Get messages with sender names
-        $messages = $wpdb->get_results(
-            "SELECT m.*, u.display_name as sender_name
+        $total_messages = (int) $wpdb->get_var(
+            "SELECT COUNT(*)
              FROM {$messages_table} m
-             LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
-             WHERE {$where_sql}
-             ORDER BY m.created_at ASC",
+             WHERE {$where_sql}"
+        );
+
+        // Load the latest N records first, then re-sort ascending for the existing UI.
+        $messages = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM (
+                    SELECT m.*, u.display_name as sender_name
+                    FROM {$messages_table} m
+                    LEFT JOIN {$users_table} u ON m.sender_user_id = u.ID
+                    WHERE {$where_sql}
+                    ORDER BY m.created_at DESC, m.message_id DESC
+                    LIMIT %d OFFSET %d
+                ) recent_messages
+                ORDER BY recent_messages.created_at ASC, recent_messages.message_id ASC",
+                $limit,
+                $offset
+            ),
             ARRAY_A
         );
 
         $response = array(
             'messages'     => $messages,
             'context_type' => $context_type,
+            'limit'        => $limit,
+            'offset'       => $offset,
+            'returned_count' => count( $messages ),
+            'total_count'  => $total_messages,
+            'has_more'     => ( $offset + count( $messages ) ) < $total_messages,
         );
         if ( $thread_type === 'designer_supplier' ) {
             if ( $is_supplier ) {
@@ -26520,6 +26659,18 @@ if ( $existing_bid['status'] === 'submitted' || $existing_bid['status'] === 'awa
                 }
             }
         }
+
+        $this->log_ajax_performance(
+            'n88_get_item_messages',
+            $request_started_at,
+            array(
+                'item_id'        => $item_id,
+                'thread_type'    => $thread_type,
+                'context_type'   => $context_type,
+                'returned_count' => count( $messages ),
+                'total_count'    => $total_messages,
+            )
+        );
 
         wp_send_json_success( $response );
     }
