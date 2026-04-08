@@ -5412,6 +5412,91 @@ class N88_RFQ_Auth {
                 refreshBatchSharedUploads();
             }
 
+            function getBatchSampleStateLabel(item) {
+                var validationState = item && item.validation_state ? item.validation_state : {};
+                var sampleStatus = validationState && validationState.sample_status ? String(validationState.sample_status).toLowerCase() : '';
+                if (sampleStatus === 'sample_requested') return 'Samples Requested';
+                if (sampleStatus === 'supplier_submitted' || sampleStatus === 'samples_shipped') return 'Samples Shipped';
+                if (sampleStatus === 'samples_received') return 'Samples Received';
+                if (sampleStatus === 'samples_approved') return 'Samples Approved';
+                return 'No Samples Requested';
+            }
+
+            function getBatchAwardStateLabel(item) {
+                if (item && (item.is_awarded_supplier || item.bid_status === 'awarded')) {
+                    return 'Awarded';
+                }
+                if (item && item.bid_status === 'submitted') {
+                    return 'Ready to Award';
+                }
+                if (item && item.batch_quote_decision === 'skip') {
+                    return 'Not Evaluated';
+                }
+                return 'Not Evaluated';
+            }
+
+            function getBatchWorkflowStateLabel(item) {
+                var workflowStep = parseInt(item && item.supplier_workflow_active_step, 10) || 0;
+                if (workflowStep >= 6) return 'Completed';
+                if (workflowStep >= 4) return 'In Production';
+                if (workflowStep >= 2) return 'In CAD';
+                if (item && (item.is_awarded_supplier || item.bid_status === 'awarded')) return 'Awarded';
+                if (item && item.bid_status === 'submitted') return 'Proposal Submitted';
+                if (item && item.batch_item_state === 'ready') return 'Ready to Submit';
+                if (item && item.batch_quote_decision === 'skip') return 'Not Quoted';
+                return 'Not Ready';
+            }
+
+            function getBatchModalStatusLabel(items) {
+                items = Array.isArray(items) ? items : [];
+                if (!items.length) return 'No Items';
+                if (items.some(function(item) { return (parseInt(item && item.supplier_workflow_active_step, 10) || 0) >= 6; })) return 'Completed';
+                if (items.some(function(item) { return (parseInt(item && item.supplier_workflow_active_step, 10) || 0) >= 4; })) return 'In Production';
+                if (items.some(function(item) { return item && (item.is_awarded_supplier || item.bid_status === 'awarded'); })) return 'Awarded';
+                if (items.some(function(item) {
+                    var sampleStatus = item && item.validation_state && item.validation_state.sample_status ? String(item.validation_state.sample_status).toLowerCase() : '';
+                    return sampleStatus === 'sample_requested' || sampleStatus === 'supplier_submitted' || sampleStatus === 'samples_shipped' || sampleStatus === 'samples_received' || sampleStatus === 'samples_approved';
+                })) return 'Samples In Progress';
+                if (items.some(function(item) { return item && item.bid_status === 'submitted'; })) return 'Proposal Submitted';
+                return 'Draft In Progress';
+            }
+
+            function renderBatchItemGrid(items) {
+                items = Array.isArray(items) ? items : [];
+                if (!items.length) {
+                    return '<div style="padding:16px; border:1px dashed #444; border-radius:12px; color:#999; font-family:monospace;">No items in this batch yet.</div>';
+                }
+                return '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">' + items.map(function(item) {
+                    var itemId = item.item_id;
+                    var imageUrl = item.primary_image_url || item.image_url || '';
+                    var unitPrice = item && item.bid_data && item.bid_data.unit_price !== null && item.bid_data.unit_price !== undefined && String(item.bid_data.unit_price) !== '' ? '$' + Number(item.bid_data.unit_price).toFixed(2) : 'Not quoted';
+                    var subtotal = item && item.bid_data && item.bid_data.total_price ? ('$' + Number(item.bid_data.total_price).toFixed(2)) : 'Not quoted';
+                    var sampleState = getBatchSampleStateLabel(item);
+                    var awardState = getBatchAwardStateLabel(item);
+                    var workflowState = getBatchWorkflowStateLabel(item);
+                    return '' +
+                        '<div style="border:1px solid #333; border-radius:12px; background:#111; overflow:hidden; display:flex; flex-direction:column;">' +
+                            (imageUrl ? '<img src="' + escapeBatchText(imageUrl) + '" alt="" style="width:100%; height:148px; object-fit:cover; border-bottom:1px solid #333;" />' : '<div style="height:148px; display:flex; align-items:center; justify-content:center; border-bottom:1px solid #333; color:#666; font-family:monospace;">No Image</div>') +
+                            '<div style="padding:14px; display:flex; flex-direction:column; gap:8px; flex:1;">' +
+                                '<div style="font-size:14px; color:#fff; font-family:monospace;">' + escapeBatchText(item.title || ('Item #' + itemId)) + '</div>' +
+                                '<div style="font-size:11px; color:#999; font-family:monospace;">' + escapeBatchText(item.category || '-') + ' | Qty: ' + escapeBatchText(item.quantity || '-') + '</div>' +
+                                '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11px; font-family:monospace;">' +
+                                    '<div style="padding:8px; border:1px solid #2c2c2c; border-radius:8px; color:#ddd;"><div style="color:#777; margin-bottom:4px;">Unit Price</div><div>' + escapeBatchText(unitPrice) + '</div></div>' +
+                                    '<div style="padding:8px; border:1px solid #2c2c2c; border-radius:8px; color:#ddd;"><div style="color:#777; margin-bottom:4px;">Subtotal</div><div>' + escapeBatchText(subtotal) + '</div></div>' +
+                                '</div>' +
+                                '<div style="display:flex; flex-wrap:wrap; gap:6px; font-size:10px; font-family:monospace;">' +
+                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(sampleState) + '</span>' +
+                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(awardState) + '</span>' +
+                                    '<span style="padding:4px 8px; border:1px solid #555; border-radius:999px; color:#d8d8d8;">' + escapeBatchText(workflowState) + '</span>' +
+                                '</div>' +
+                                '<div style="margin-top:auto; display:flex; justify-content:flex-end;">' +
+                                    '<button type="button" onclick="toggleBatchProposalAccordion(' + itemId + ', true)" style="padding:8px 12px; background:#1a1a1a; color:#FF0065; border:1px solid #555; border-radius:8px; font-size:11px; font-family:monospace; cursor:pointer;">[ View Item ]</button>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>';
+                }).join('') + '</div>';
+            }
+
             function toggleBatchProposalAccordion(itemId, forceOpen) {
                 window.n88SupplierBatchState.activeItemId = itemId;
                 var sections = document.querySelectorAll('.n88-batch-accordion-section');
@@ -5807,6 +5892,14 @@ class N88_RFQ_Auth {
                 if (!modal || !content) {
                     return;
                 }
+                var quotedCount = items.filter(function(item) { return item && (item.bid_status === 'submitted' || item.bid_status === 'awarded'); }).length;
+                var sampleSelectedCount = items.filter(function(item) {
+                    var label = getBatchSampleStateLabel(item);
+                    return label !== 'No Samples Requested';
+                }).length;
+                var awardedCount = items.filter(function(item) { return getBatchAwardStateLabel(item) === 'Awarded'; }).length;
+                var batchStatus = getBatchModalStatusLabel(items);
+                var itemGridHtml = renderBatchItemGrid(items);
                 var panelsHtml = '';
                 items.forEach(function(item) {
                     panelsHtml += renderBatchItemPanel(item);
@@ -5814,8 +5907,8 @@ class N88_RFQ_Auth {
                 content.innerHTML = '' +
                     '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px 20px; border-bottom:1px solid #555; background:#111; flex-wrap:wrap;">' +
                         '<div>' +
-                            '<div style="font-size:20px; color:#fff; font-family:monospace; margin-bottom:8px;">Unified Proposal Workspace</div>' +
-                            '<div style="font-size:12px; color:#bbb; font-family:monospace;">One supplier response workspace for single-item, multi-item, and multi-category RFQs.</div>' +
+                            '<div style="font-size:20px; color:#fff; font-family:monospace; margin-bottom:8px;">' + escapeBatchText(workspace.workspace_label || 'Batch Proposal Workspace') + '</div>' +
+                            '<div style="font-size:12px; color:#bbb; font-family:monospace;">Supplier batch workflow surface mirroring the designer-side grouped proposal context.</div>' +
                         '</div>' +
                         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
                             '<div id="n88-batch-summary-counts" style="display:flex; gap:8px; flex-wrap:wrap; font-size:11px; font-family:monospace;"></div>' +
@@ -5823,10 +5916,14 @@ class N88_RFQ_Auth {
                         '</div>' +
                     '</div>' +
                     '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#0d0d0d; font-size:11px; color:#aaa; font-family:monospace;">' +
-                        '<div style="margin-bottom:8px;">RFQ Summary</div>' +
-                        '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>RFQ: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Workspace Items: ' + items.length + '</span></div>' +
+                        '<div style="margin-bottom:8px;">Batch Header</div>' +
+                        '<div style="display:flex; gap:10px; flex-wrap:wrap;"><span>Batch: ' + escapeBatchText(workspace.rfq_reference || 'RFQ Workspace') + '</span><span>Designer: ' + escapeBatchText(workspace.designer_name || 'Designer') + '</span><span>Project: ' + escapeBatchText(workspace.project_name || 'Project') + '</span><span>Quoted Items: ' + quotedCount + '</span><span>Batch Status: ' + escapeBatchText(batchStatus) + '</span><span>Sample Items: ' + sampleSelectedCount + '</span><span>Awarded Items: ' + awardedCount + '</span></div>' +
                     '</div>' +
-                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Expand an item to fill its proposal form. Batch actions are available at the bottom.</div>' +
+                    '<div style="padding:16px 20px; border-bottom:1px solid #333; background:#151515;">' +
+                        '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Grouped Item Grid</div>' +
+                        itemGridHtml +
+                    '</div>' +
+                    '<div style="padding:14px 20px; border-bottom:1px solid #333; background:#151515; font-size:11px; color:#999; font-family:monospace;">Use View Item to jump into item-level truth while keeping this batch modal as the grouped command center.</div>' +
                     '<div id="n88-batch-panels-wrap" style="overflow:visible; padding:18px 0 8px;">' + panelsHtml + '</div>' +
                     '<div style="margin:0 20px 20px; padding:16px; border:1px solid #333; border-radius:12px; background:#101010;">' +
                         '<div style="font-size:12px; color:#FF0065; font-family:monospace; margin-bottom:12px;">Batch actions</div>' +
@@ -12991,6 +13088,7 @@ class N88_RFQ_Auth {
             window.closeBidModal = closeBidModal;
             window.openBatchProposalModal = openBatchProposalModal;
             window.closeBatchProposalModal = closeBatchProposalModal;
+            window.toggleBatchProposalAccordion = toggleBatchProposalAccordion;
             window.n88BatchProposalRefreshItemState = refreshSingleBatchItemState;
             window.submitOfficialQuotePDF = function(form, itemId, bidId) {
                 try {

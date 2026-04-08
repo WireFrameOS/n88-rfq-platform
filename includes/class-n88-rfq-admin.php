@@ -26013,6 +26013,61 @@ class N88_RFQ_Admin {
                     var proposalItemGroups = proposalReviewData.itemGroups;
                     var proposalSupplierCount = proposalReviewData.supplierCount;
                     var proposalBatchGroups = proposalReviewData.batchGroups || [];
+                    var proposalBatchSummary = React.useMemo(function() {
+                        var itemGroups = Array.isArray(proposalItemGroups) ? proposalItemGroups : [];
+                        var counterpartyMap = {};
+                        var itemCards = itemGroups.map(function(group) {
+                            var currentItem = group && group.item ? group.item : {};
+                            var suppliers = group && Array.isArray(group.suppliers) ? group.suppliers : [];
+                            suppliers.forEach(function(entry) {
+                                var supplierName = entry && entry.bid && entry.bid.supplier_name ? String(entry.bid.supplier_name).trim() : (entry && entry.supplierDisplayLabel ? String(entry.supplierDisplayLabel).trim() : '');
+                                if (supplierName) counterpartyMap[supplierName] = supplierName;
+                            });
+                            var primaryBid = suppliers.length && suppliers[0] && suppliers[0].bid ? suppliers[0].bid : {};
+                            var sampleState = getProposalGroupStatusText(group);
+                            var awardState = proposalGroupIsAwarded(group) ? 'Awarded' : (suppliers.length ? 'Ready to Award' : 'Not Evaluated');
+                            var workflowState = proposalGroupIsAwarded(group) ? 'Awarded' : sampleState;
+                            var unitPrice = primaryBid && primaryBid.unit_price !== null && primaryBid.unit_price !== undefined && String(primaryBid.unit_price) !== '' ? ('$' + Number(primaryBid.unit_price).toFixed(2)) : 'Not quoted';
+                            var subtotal = primaryBid && primaryBid.total_price !== null && primaryBid.total_price !== undefined && String(primaryBid.total_price) !== '' ? ('$' + Number(primaryBid.total_price).toFixed(2)) : 'Not quoted';
+                            return {
+                                itemId: toNumericItemId(currentItem && currentItem.id),
+                                title: currentItem && currentItem.title ? currentItem.title : 'Item',
+                                category: currentItem && (currentItem.category || currentItem.category_name) ? (currentItem.category || currentItem.category_name) : '-',
+                                quantity: currentItem && currentItem.quantity != null ? currentItem.quantity : '-',
+                                imageUrl: currentItem && (currentItem.image_url || currentItem.primary_image_url || currentItem.thumbnail_url) ? (currentItem.image_url || currentItem.primary_image_url || currentItem.thumbnail_url) : '',
+                                unitPrice: unitPrice,
+                                subtotal: subtotal,
+                                sampleState: sampleState,
+                                awardState: awardState,
+                                workflowState: workflowState
+                            };
+                        });
+                        var quotedCount = itemGroups.filter(function(group) { return group && Array.isArray(group.suppliers) && group.suppliers.length; }).length;
+                        var sampleSelectedCount = itemGroups.filter(function(group) {
+                            var status = getProposalGroupStatusText(group);
+                            return status === 'Samples Requested' || status === 'Samples Shipped' || status === 'Sample Received' || status === 'Samples Approved' || status === 'Sample Request Created';
+                        }).length;
+                        var awardedCount = itemGroups.filter(function(group) { return proposalGroupIsAwarded(group); }).length;
+                        var batchStatus = 'Not Quoted';
+                        if (itemGroups.some(function(group) { return proposalGroupIsAwarded(group); })) batchStatus = 'Awarded';
+                        else if (itemGroups.some(function(group) {
+                            var status = getProposalGroupStatusText(group);
+                            return status === 'Samples Requested' || status === 'Samples Shipped' || status === 'Sample Received' || status === 'Samples Approved' || status === 'Sample Request Created';
+                        })) batchStatus = 'Samples In Progress';
+                        else if (quotedCount > 0) batchStatus = 'Proposal Received';
+                        var counterpartyNames = Object.keys(counterpartyMap);
+                        var counterpartyLabel = counterpartyNames.length === 1 ? counterpartyNames[0] : (counterpartyNames.length > 1 ? (counterpartyNames.length + ' suppliers') : 'No supplier');
+                        var batchIdentifier = proposalContext && proposalContext.groupId ? ('Batch #' + proposalContext.groupId) : (proposalBatchGroups.length === 1 ? ('Batch #' + proposalBatchGroups[0].proposalGroupId) : 'Batch Proposal');
+                        return {
+                            batchIdentifier: batchIdentifier,
+                            counterpartyLabel: counterpartyLabel,
+                            quotedCount: quotedCount,
+                            sampleSelectedCount: sampleSelectedCount,
+                            awardedCount: awardedCount,
+                            batchStatus: batchStatus,
+                            itemCards: itemCards
+                        };
+                    }, [proposalItemGroups, proposalContext, proposalBatchGroups]);
                     var proposalItemsStillLoading = false;
                     React.useEffect(function() {
                         var proposalCandidates = (items || []).filter(function(it) {
@@ -26660,7 +26715,7 @@ class N88_RFQ_Admin {
                         }, React.createElement('div', null,
                             React.createElement('div', { style: { fontSize: '18px', fontWeight: 600 } }, proposalContext && proposalContext.mode === 'grouped' ? 'Batch Proposal Sheet' : 'Batch Proposal Review'),
                             React.createElement('div', { style: { fontSize: '12px', opacity: 0.85, marginTop: '2px' } }, proposalContext && proposalContext.mode === 'grouped'
-                                ? ('Items in View: ' + proposalItemGroups.length + ' | Suppliers: ' + proposalSupplierCount + (proposalContext.anchorItemId ? (' | Focus Item: #' + proposalContext.anchorItemId) : ''))
+                                ? ('Batch: ' + proposalBatchSummary.batchIdentifier + ' | Supplier: ' + proposalBatchSummary.counterpartyLabel + ' | Quoted Items: ' + proposalBatchSummary.quotedCount + (proposalContext.anchorItemId ? (' | Focus Item: #' + proposalContext.anchorItemId) : ''))
                                 : ('Selected Items: ' + selectedCount + ' | Suppliers: ' + proposalSupplierCount))
                         ), React.createElement('button', {
                             type: 'button',
@@ -26669,7 +26724,54 @@ class N88_RFQ_Admin {
                         }, 'x')),
                         React.createElement('div', { className: 'n88-add-item-body', style: { padding: '16px 20px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 } },
                             proposalError ? React.createElement('div', { style: { whiteSpace: 'pre-wrap', marginBottom: '12px', padding: '10px', background: 'rgba(255,152,0,0.12)', border: '1px solid rgba(255,152,0,0.45)', borderRadius: '6px', color: '#ffd8a8', fontSize: '13px' } }, proposalError) : null,
-                            null,
+                            proposalContext && proposalContext.mode === 'grouped' ? React.createElement('div', { style: { marginBottom: '18px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', overflow: 'hidden' } },
+                                React.createElement('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: '#303030' } },
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#FF9BC2', fontWeight: 600, marginBottom: '8px' } }, 'Batch Header'),
+                                    React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '11px', color: '#dcdcdc' } },
+                                        React.createElement('span', null, 'Batch: ' + proposalBatchSummary.batchIdentifier),
+                                        React.createElement('span', null, 'Supplier: ' + proposalBatchSummary.counterpartyLabel),
+                                        React.createElement('span', null, 'Quoted Items: ' + proposalBatchSummary.quotedCount),
+                                        React.createElement('span', null, 'Batch Status: ' + proposalBatchSummary.batchStatus),
+                                        React.createElement('span', null, 'Sample Items: ' + proposalBatchSummary.sampleSelectedCount),
+                                        React.createElement('span', null, 'Awarded Items: ' + proposalBatchSummary.awardedCount)
+                                    )
+                                ),
+                                React.createElement('div', { style: { padding: '16px' } },
+                                    React.createElement('div', { style: { fontSize: '12px', color: '#FF9BC2', fontWeight: 600, marginBottom: '12px' } }, 'Grouped Item Grid'),
+                                    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' } },
+                                        (proposalBatchSummary.itemCards || []).map(function(card) {
+                                            return React.createElement('div', { key: 'proposal-grid-item-' + card.itemId, style: { border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#232323', overflow: 'hidden', display: 'flex', flexDirection: 'column' } },
+                                                card.imageUrl ? React.createElement('img', { src: card.imageUrl, alt: '', style: { width: '100%', height: '136px', objectFit: 'cover', borderBottom: '1px solid rgba(255,255,255,0.08)' } }) : React.createElement('div', { style: { height: '136px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#777', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: '12px' } }, 'No Image'),
+                                                React.createElement('div', { style: { padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 } },
+                                                    React.createElement('div', { style: { fontSize: '14px', fontWeight: 600, color: '#fff' } }, card.title),
+                                                    React.createElement('div', { style: { fontSize: '11px', color: '#bfbfbf' } }, card.category + ' | Qty: ' + card.quantity),
+                                                    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+                                                        React.createElement('div', { style: { padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', color: '#ddd', fontSize: '11px' } }, React.createElement('div', { style: { color: '#777', marginBottom: '4px' } }, 'Unit Price'), React.createElement('div', null, card.unitPrice)),
+                                                        React.createElement('div', { style: { padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', color: '#ddd', fontSize: '11px' } }, React.createElement('div', { style: { color: '#777', marginBottom: '4px' } }, 'Subtotal'), React.createElement('div', null, card.subtotal))
+                                                    ),
+                                                    React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '10px' } },
+                                                        React.createElement('span', { style: { padding: '4px 8px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.12)', color: '#ddd' } }, card.sampleState),
+                                                        React.createElement('span', { style: { padding: '4px 8px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.12)', color: '#ddd' } }, card.awardState),
+                                                        React.createElement('span', { style: { padding: '4px 8px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.12)', color: '#ddd' } }, card.workflowState)
+                                                    ),
+                                                    React.createElement('div', { style: { marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' } },
+                                                        React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: function() {
+                                                                var target = document.getElementById('n88-batch-proposal-anchor-item-' + card.itemId);
+                                                                if (target && typeof target.scrollIntoView === 'function') {
+                                                                    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                                                                }
+                                                            },
+                                                            style: { padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }
+                                                        }, 'View Item')
+                                                    )
+                                                )
+                                            );
+                                        })
+                                    )
+                                )
+                            ) : null,
                             proposalItemGroups.length === 0 && !proposalItemsStillLoading ? React.createElement('div', { style: { padding: '24px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', background: '#2a2a2a', color: '#ddd' } }, proposalContext && proposalContext.mode === 'grouped' ? 'Loading proposals...' : 'No proposals received for the selected items yet.') : null,
                             proposalItemGroups.length ? (function() {
                                 var modalSharedCtaLabels = ['REQUEST SAMPLES', 'REQUEST PROTOTYPE', 'SELECT THIS SUPPLIER'];
